@@ -27,7 +27,7 @@ Two consequences worth stating plainly, because both are load-bearing:
 
 - **Criterion 14** — "manage remote servers without opening privileged Agent ports" — is
   Feature 35. **Remote, multi-host Agents are v1.0**, not a follow-on. A localhost-only v1.0 would
-  make F35 a retrofit of the exact boundary the Manager/Agent split exists to serve.
+  make F35 a retrofit of the exact boundary the ZWarden.Web/ZWarden.Agent split exists to serve.
 - **Five criterion-adjacent features fall out** (§9). Each is defensible on product taste and
   none is needed by a criterion.
 
