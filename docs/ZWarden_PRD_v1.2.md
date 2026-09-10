@@ -4,8 +4,8 @@
 **Tagline:** *Control the outbreak.*\
 **Project Type:** Greenfield\
 **Primary Platform:** .NET 10\
-**Architecture:** Multi-tenant-capable Blazor Control Plane +
-Distributed ZWarden Agent + Canonical Managed Project Zomboid Container\
+**Architecture:** Multi-tenant-capable ZWarden.Web (Blazor) +
+Distributed ZWarden.Agent + Canonical Managed Project Zomboid Container\
 **Deployment Philosophy:** Docker-first, secure-by-default, simple
 self-hosted installation with optional hosted SaaS, multi-host, and
 multi-server deployments\
@@ -165,10 +165,10 @@ architectural decisions.
 
 ## 2.5 Explicit privilege separation
 
-The Blazor Manager shall not directly receive unrestricted host-level
+ZWarden.Web shall not directly receive unrestricted host-level
 privileges.
 
-Privileged operations shall be performed by ZWarden Agent.
+Privileged operations shall be performed by ZWarden.Agent.
 
 Primary trust chain:
 
@@ -349,7 +349,7 @@ directly or through a validated ownership relationship.
 
 The browser shall never be trusted to select an arbitrary tenant ID.
 Tenant context shall be derived from the authenticated session, selected
-organization/workspace, and server-side authorization.
+organization/workspace, and authorization enforced in ZWarden.Web.
 
 For hosted SaaS:
 
@@ -544,7 +544,7 @@ Authorization shall be:
 -   permission based
 -   tenant scoped
 -   resource scoped
--   enforced server-side
+-   enforced in ZWarden.Web
 -   enforced again at privileged Agent command boundaries
 
 Roles alone shall not be sufficient. The final decision must include the
@@ -862,9 +862,9 @@ Architecture tests shall enforce dependency boundaries.
 
 ------------------------------------------------------------------------
 
-# 16. Manager ↔ Agent Protocol
+# 16. ZWarden.Web ↔ Agent Protocol
 
-Agent connections shall be initiated outbound from Agent to Manager.
+Agent connections shall be initiated outbound from Agent to ZWarden.Web.
 
 Preferred transport:
 
@@ -879,9 +879,9 @@ SignalR
 Conceptual path:
 
 ``` text
-Agent
+ZWarden.Agent
    │
-   └──────── WSS ────────► Manager
+   └──────── WSS ────────► ZWarden.Web
 ```
 
 Agents should not require publicly exposed inbound management ports.
@@ -1062,7 +1062,7 @@ Exact physical implementation may evolve, but the logical contract shall
 remain stable.
 
 The Agent shall abstract underlying Steam and Project Zomboid filesystem
-details from Manager.
+details from ZWarden.Web.
 
 ------------------------------------------------------------------------
 
@@ -1081,7 +1081,7 @@ Containers shall default toward:
 -   pinned production image references
 -   health checks
 
-The PZ server shall not have access to the Manager database network.
+The PZ server shall not have access to the ZWarden.Web database network.
 
 ------------------------------------------------------------------------
 
@@ -1205,8 +1205,8 @@ Browser shall never receive:
 -   RCON password
 -   internal RCON credential material
 
-Manager should preferably not store RCON credentials for managed local
-deployments.
+ZWarden.Web should preferably not store RCON credentials for managed
+local deployments.
 
 RCON credentials should be locally owned by Agent wherever practical.
 
@@ -1282,7 +1282,7 @@ server in an ambiguous state.
 
 # 32. Project Zomboid Configuration
 
-The Manager shall support structured management of applicable
+ZWarden.Web shall support structured management of applicable
 configuration including:
 
 -   server INI
@@ -1360,7 +1360,7 @@ Profiles may be applied or cloned across compatible servers.
 
 # 36. Player Management
 
-Manager shall support, where available through supported PZ
+ZWarden.Web shall support, where available through supported PZ
 administrative mechanisms:
 
 -   current player list
@@ -1464,7 +1464,7 @@ Potential information includes:
 -   managed server states
 -   current operations
 
-Manager shall differentiate Agent Offline from Server Offline.
+ZWarden.Web shall differentiate Agent Offline from Server Offline.
 
 ------------------------------------------------------------------------
 
@@ -1483,7 +1483,8 @@ The synchronization process shall resolve:
 -   mod state
 -   health state
 
-Runtime Agent state is authoritative over stale Manager assumptions.
+Runtime Agent state is authoritative over stale assumptions held by
+ZWarden.Web.
 
 ------------------------------------------------------------------------
 
@@ -1696,7 +1697,7 @@ before relying on external AI assistance.
 Examples:
 
 ``` text
-Test Manager
+Test Web
 Test Database
 Test Agent
 Test Docker
@@ -2094,8 +2095,8 @@ Deliverables:
 -   resource authorization handlers
 -   authorization tests
 
-**Exit condition:** Permissions are enforced server-side regardless of
-UI visibility.
+**Exit condition:** Permissions are enforced in ZWarden.Web regardless
+of UI visibility.
 
 ## Feature 6 --- Audit System
 
@@ -2113,7 +2114,7 @@ Deliverables:
 **Exit condition:** Security-sensitive operations have durable audit
 records.
 
-## Feature 7 --- Manager/Agent Contracts
+## Feature 7 --- Agent Protocol Contracts
 
 **Dependencies:** Features 0--1.
 
@@ -2129,8 +2130,8 @@ Deliverables:
 -   serialization tests
 -   compatibility rules
 
-**Exit condition:** Manager and Agent can share versioned strongly typed
-contracts without runtime implementation dependencies.
+**Exit condition:** ZWarden.Web and ZWarden.Agent can share versioned
+strongly typed contracts without runtime implementation dependencies.
 
 ## Feature 8 --- Agent Runtime Skeleton
 
@@ -2182,8 +2183,8 @@ Deliverables:
 -   protocol negotiation
 -   connection monitoring
 
-**Exit condition:** Manager reliably detects Agent online/offline state
-and Agent resynchronizes after reconnect.
+**Exit condition:** ZWarden.Web reliably detects Agent online/offline
+state and Agent resynchronizes after reconnect.
 
 ## Feature 10A --- SaaS Agent Enrollment and Tenant-Scoped Connectivity
 
@@ -2271,7 +2272,7 @@ Deliverables:
 -   server metadata
 -   dashboard inventory
 
-**Exit condition:** Manager displays registered servers and
+**Exit condition:** ZWarden.Web displays registered servers and their
 authoritative runtime state.
 
 ## Feature 15 --- Basic Server Lifecycle
@@ -2307,8 +2308,8 @@ Deliverables:
 -   runtime metrics
 -   UI status visualization
 
-**Exit condition:** Manager can distinguish stopped, starting, healthy,
-degraded, and failed states.
+**Exit condition:** ZWarden.Web can distinguish stopped, starting,
+healthy, degraded, and failed states.
 
 ## Feature 17 --- SteamCMD Lifecycle
 
@@ -2660,8 +2661,8 @@ Deliverables:
 -   WAN reconnect behavior
 -   host-scoped permissions where appropriate
 
-**Exit condition:** One Manager can securely operate PZ servers across
-multiple hosts.
+**Exit condition:** A single ZWarden.Web deployment can securely operate
+PZ servers across multiple hosts.
 
 ## Feature 36 --- Multi-Server Operational UX
 
@@ -2900,7 +2901,8 @@ document committed to the repository.
 The initial architecture shall not require:
 
 -   Kubernetes
--   microservices beyond the explicit Manager/Agent trust boundary
+-   microservices beyond the explicit ZWarden.Web/ZWarden.Agent trust
+    boundary
 -   Redis
 -   message brokers
 -   distributed cache infrastructure
