@@ -49,6 +49,9 @@ public static class IdentityAuthenticationServiceCollectionExtensions
         services.TryAddScoped<IAccountNotification, LoggingAccountNotification>();
         services.AddScoped<AccountRecoveryService>();
 
+        // MFA (S7): TOTP enrolment/verification and recovery codes.
+        services.AddScoped<MfaService>();
+
         services.AddAuthentication(IdentityConstants.ApplicationScheme)
             .AddCookie(IdentityConstants.ApplicationScheme, ConfigureApplicationCookie)
             .AddCookie(IdentityConstants.ExternalScheme, ConfigureTransientCookie)
