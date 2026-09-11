@@ -99,3 +99,22 @@ never reused for another entity type; adding one is an ADR (PRD 7).
 | Backup | `bkp-` | Notification | `ntf-` |
 | Diagnostic package | `diag-` | Enrollment | `enr-` |
 | Configuration revision | `cfg-` | | |
+
+### Security
+
+**Secret-aware type**:
+A value wrapper for sensitive material that cannot stringify its contents — it renders a redaction
+marker through printing, interpolation, serialization and the debugger, and the contents are read
+only through an explicit reveal.
+_Avoid_: sensitive string, raw secret (as the type of a stored credential)
+
+**Envelope**:
+The self-describing form of a protected secret: a key reference, the random values, the ciphertext
+and its authentication tag, together. A protected value is always an envelope, never bare
+ciphertext.
+_Avoid_: blob, cipher text (as the whole stored value)
+
+**Key ring**:
+The set of encryption keys available at runtime — one active for protecting new values, all retained
+for reading existing ones. It is never stored alongside the values it protects.
+_Avoid_: keystore, key vault (which name external systems)

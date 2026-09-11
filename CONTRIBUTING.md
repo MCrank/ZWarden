@@ -109,6 +109,36 @@ One EF Core model runs on both providers (ADR 0005). Select with `ZW_DB_PROVIDER
   every PR (`ZWarden.Infrastructure.Tests`) and on PostgreSQL via Testcontainers in the networked
   tier on schedule (`ZWarden.IntegrationTests`), over one test model in `ZWarden.TestSupport`.
 
+## Secrets and cryptography (Feature 3)
+
+Secrets are encrypted at the application layer and are never allowed to stringify into logs
+(PRD 10, PRD 48, ADR [0015](./docs/adr/0015-application-layer-secret-encryption.md)).
+
+- **Wrap every sensitive value in a secret-aware type.** Use `SecretString` (or `Secret<T>`) from
+  `ZWarden.Domain.Security`. It renders `***` through `ToString`, interpolation, JSON and the
+  debugger; the real value is reachable only through the explicit `.Reveal()`. Never log a secret,
+  and never add an implicit string conversion — an architecture test enforces both.
+- **Encrypt at rest with `ISecretProtector`.** `Protect` returns a base64 envelope
+  (`version | keyId | salt | nonce | ciphertext | tag`) that round-trips on both providers; a
+  tampered or wrong-key envelope throws `SecretProtectionException`. AES-256-GCM under a fresh
+  per-message HKDF subkey, so the NIST 2^32 nonce cap and nonce reuse are unreachable by
+  construction — do not hand-roll `AesGcm`; the primitives are confined to
+  `ZWarden.Infrastructure/Security` and an architecture test keeps them there.
+- **Supply keys through configuration; it fails closed.** Set `ZW_SECRET_KEYS` to
+  `keyId:base64key;keyId:base64key` (each key 32 bytes / 256-bit) — or point `ZW_SECRET_KEYS_FILE`
+  at a mounted file — and name the encryption key in `ZW_SECRET_ACTIVE_KEY_ID`. A missing, short,
+  unparseable, or active-less configuration stops startup. **Keys never go in the database** (PRD 10).
+- **Rotate by adding, not replacing.** Add a new key, make it the active id; keep the old keys so
+  existing values still decrypt. Dropping a retired key orphans everything encrypted under it.
+- **Wiring** is `services.AddSecurityFoundation()` at the composition root; it is intentionally not
+  in `Program.cs` yet (nothing consumes a protected value until Feature 4, and the loader fails
+  closed). **Logging:** the secret types stay logging-framework-neutral; when a structured-logging
+  stack lands, Serilog is the intended choice and a `Destructure.ByTransforming<SecretString>` policy
+  drops in with no type change.
+- **Never suppress `SYSLIB0053`/`SYSLIB0060`** (the obsolete `AesGcm` / `Rfc2898DeriveBytes`
+  constructors). Warnings are errors here on purpose; use the explicit-tag `AesGcm` ctor and the
+  static `Rfc2898DeriveBytes.Pbkdf2`.
+
 ## Recording a decision
 
 Surprising, hard-to-reverse, real-trade-off decisions become an ADR — see
