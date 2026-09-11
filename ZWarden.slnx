@@ -11,5 +11,6 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/ZWarden.Domain.Tests/ZWarden.Domain.Tests.csproj" />
+    <Project Path="tests/ZWarden.Web.Tests/ZWarden.Web.Tests.csproj" />
   </Folder>
 </Solution>

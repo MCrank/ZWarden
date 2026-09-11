@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+  <!--
+    bUnit component tests in TUnit REFLECTION MODE (ADR 0002). TUnit's and bUnit's
+    source generators cannot see each other, so TUnit source generation is OFF here
+    and test discovery is by reflection. Both halves are required:
+      - build side:   <EnableTUnitSourceGeneration>false</EnableTUnitSourceGeneration>
+      - runtime side: [assembly: TUnit.Core.ReflectionMode]  (see ReflectionMode.cs)
+    A Razor-bearing project also needs the explicit FrameworkReference below
+    (Microsoft.NET.Sdk.Razor does not imply it).
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <LangVersion>14.0</LangVersion>
+    <EnableTUnitSourceGeneration>false</EnableTUnitSourceGeneration>
+
+    <!--
+      The silent-drop guard, baked in so it is always on (local and CI), not just
+      when someone remembers the flag. Tests defined in a .razor file (see
+      HarnessBadgeRazorTests.razor) are discovered ONLY in reflection mode; forget
+      the switch and they vanish with a clean "Passed!" and exit 0. This floor turns
+      that into a hard failure (MTP exit 9). Update the number when tests are added.
+    -->
+    <TestingPlatformCommandLineArguments>--minimum-expected-tests 3</TestingPlatformCommandLineArguments>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="TUnit" />
+    <PackageReference Include="bunit" />
+  </ItemGroup>
+
+</Project>
