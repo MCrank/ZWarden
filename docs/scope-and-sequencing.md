@@ -258,16 +258,24 @@ interacts with the SQLite question in F2.
 **In:** Docker API abstraction, container discovery, canonical-label validation,
 inspect/start/stop/restart, allowed-container enforcement, Docker health diagnostics,
 **two-port-stride allocation** for multi-server hosts.
-**Not:** the restricted socket-proxy component itself — still open, and gated on the enforcement
-model in [Name the system trust boundaries](https://github.com/MCrank/ZWarden/issues/7). Research
-established that no mature component does label-scoped container authorization, so this is
-ZWarden's enforcement to design, not a component to adopt.
+**Not:** the socket proxy's own deployment (Feature 34 ships it). The proxy is
+`wollomatic/socket-proxy` behind a ten-entry allowlist, and it is **bug-containment, not
+compromise-containment** — F13 must be correct with the socket unproxied.
+**Two requirements that come from the proxy, not from Docker:** the canonical PZ image must be
+**pre-provisioned**, because denying `/images/*` means container creation cannot pull it — the
+failure is clean (`404 No such image`) and F13 owes a diagnostic for it; and the **create request
+body is an Agent-side correctness requirement**, since `Privileged`, host network/PID/IPC/userns,
+`CapAdd` and `Devices` all reach the daemon through a correctly configured filter. Twelve
+invariants are enumerated in `docs/research/docker-socket-proxy.md` and belong in F13's test plan.
 
 ### Track D — Server operations
 
 **F14 — Server Registration and Inventory** · *depends: F5, F10, F13, F3A*
 **In:** Server entity, Agent-to-Server association, discovery, import/register, metadata, dashboard
 inventory. **Not:** lifecycle (F15), health beyond last-reported state (F16), config (F20).
+**Design input:** the first UI-bearing feature, so it consumes the accepted visual identity and
+style guide ([#18](https://github.com/MCrank/ZWarden/issues/18)) rather than inventing one. The same
+applies to every feature below that ships UI.
 
 **F15 — Basic Server Lifecycle** · *depends: F11, F14*
 **In:** start, stop, restart, lifecycle progress, safe timeout handling, audit integration,
@@ -349,6 +357,9 @@ verification, failure handling.
 **In:** log ingestion, structured log events, SignalR subscriptions, filters, tail, bounded
 buffering, output sanitization. Logs are **untrusted input** (PRD 38).
 **Not:** log retention or search as a product feature.
+**Known risk:** long-lived multiplexed log streaming through the socket proxy was never tested —
+the sharpest unverified item behind the proxy recommendation. Prove it early in this feature; if it
+does not hold, the allowlist or the proxy choice is what gives, not the feature.
 
 ### Track E — Operator surface
 
