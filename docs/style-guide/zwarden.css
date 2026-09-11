@@ -1,0 +1,107 @@
+/* ============================================================================
+ * ZWarden theme — "Signal"
+ * The v1.0 visual identity, decided on issue #18.
+ *
+ * Same shadcn/OKLCH token contract as BlazorBlueprint's shipped default theme
+ * (a tweakcn export drops in here unchanged), extended with the ZWarden-only
+ * --status-* server-state ramp and --meter-* threshold ramp that the
+ * StatusBadge and MeterBar wrapper components consume.
+ *
+ * Structure follows the Blueprint contract: :root is the LIGHT palette,
+ * .dark is the DARK palette. "Dark-first" is an application default — ZWarden
+ * boots with .dark applied — not a change to this structure. Light is a
+ * first-class, fully-supported mode (an operator on a bright screen is real).
+ *
+ * Character: phosphor-cyan primary chosen so the accent never collides with
+ * the green/amber/red status ramp. Squared corners (3px). See style-guide.md.
+ * Supersedes the placeholder prototype/blazor-ui/.../themes/zwarden.css.
+ * ========================================================================== */
+
+:root {
+  /* ---- surfaces (LIGHT — "daylight board") ---- */
+  --background: oklch(0.965 0.006 220);
+  --foreground: oklch(0.20 0.014 245);
+
+  --card: oklch(0.995 0.003 220);
+  --card-foreground: oklch(0.20 0.014 245);
+
+  --popover: oklch(0.995 0.003 220);
+  --popover-foreground: oklch(0.20 0.014 245);
+
+  --primary: oklch(0.50 0.12 205);            /* phosphor cyan, darkened for light ground */
+  --primary-foreground: oklch(0.99 0.005 210);
+
+  --secondary: oklch(0.93 0.008 220);
+  --secondary-foreground: oklch(0.28 0.014 245);
+
+  --muted: oklch(0.945 0.006 220);
+  --muted-foreground: oklch(0.46 0.018 235);
+
+  --accent: oklch(0.92 0.020 205);
+  --accent-foreground: oklch(0.25 0.015 240);
+
+  --destructive: oklch(0.54 0.21 27);
+  --destructive-foreground: oklch(0.99 0.004 210);
+
+  --border: oklch(0.87 0.008 225);
+  --input: oklch(0.87 0.008 225);
+  --ring: oklch(0.50 0.12 205);
+
+  /* Squared, not pill. Cards, buttons, inputs and status badges all key off this. */
+  --radius: 0.1875rem; /* 3px */
+
+  /* ---- server-state ramp (boringly semantic, high-contrast) ---- */
+  --status-running:   oklch(0.53 0.16 148); /* green  */
+  --status-stopped:   oklch(0.52 0.014 235);/* grey   */
+  --status-unhealthy: oklch(0.52 0.22 27);  /* red    */
+  --status-busy:      oklch(0.60 0.15 72);  /* amber — "starting" / transitional */
+  --status-unknown:   oklch(0.52 0.12 292); /* violet — agent unreachable */
+
+  /* ---- meter thresholds: nominal / watch / hot ---- */
+  --meter-nominal: oklch(0.53 0.16 148);
+  --meter-watch:   oklch(0.60 0.15 72);
+  --meter-hot:     oklch(0.52 0.22 27);
+  --meter-track:   oklch(0.90 0.007 220);
+}
+
+.dark {
+  /* ---- surfaces (DARK — control-room wall, the default mode) ---- */
+  --background: oklch(0.155 0.012 248);
+  --foreground: oklch(0.94 0.006 220);
+
+  --card: oklch(0.195 0.014 250);
+  --card-foreground: oklch(0.94 0.006 220);
+
+  --popover: oklch(0.195 0.014 250);
+  --popover-foreground: oklch(0.94 0.006 220);
+
+  --primary: oklch(0.82 0.13 200);            /* phosphor cyan, full glow on dark */
+  --primary-foreground: oklch(0.16 0.020 240);
+
+  --secondary: oklch(0.25 0.014 250);
+  --secondary-foreground: oklch(0.92 0.006 220);
+
+  --muted: oklch(0.235 0.013 250);
+  --muted-foreground: oklch(0.70 0.020 215);
+
+  --accent: oklch(0.28 0.020 205);
+  --accent-foreground: oklch(0.95 0.006 210);
+
+  --destructive: oklch(0.66 0.22 27);
+  --destructive-foreground: oklch(0.98 0.004 210);
+
+  --border: oklch(0.30 0.015 245);
+  --input: oklch(0.30 0.015 245);
+  --ring: oklch(0.82 0.13 200);
+
+  --status-running:   oklch(0.80 0.19 148);
+  --status-stopped:   oklch(0.62 0.014 240);
+  --status-unhealthy: oklch(0.68 0.23 27);
+  --status-busy:      oklch(0.83 0.17 80);
+  --status-unknown:   oklch(0.74 0.15 292);
+
+  --meter-nominal: oklch(0.80 0.19 148);
+  --meter-watch:   oklch(0.83 0.17 80);
+  --meter-hot:     oklch(0.68 0.23 27);
+  --meter-track:   oklch(0.28 0.013 250);
+}
