@@ -10,6 +10,7 @@
     <Project Path="src/ZWarden.Web/ZWarden.Web.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/ZWarden.ArchitectureTests/ZWarden.ArchitectureTests.csproj" />
     <Project Path="tests/ZWarden.Domain.Tests/ZWarden.Domain.Tests.csproj" />
     <Project Path="tests/ZWarden.IntegrationTests/ZWarden.IntegrationTests.csproj" />
     <Project Path="tests/ZWarden.Web.Tests/ZWarden.Web.Tests.csproj" />
