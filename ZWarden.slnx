@@ -6,6 +6,8 @@
     <Project Path="src/ZWarden.Diagnostics/ZWarden.Diagnostics.csproj" />
     <Project Path="src/ZWarden.Domain/ZWarden.Domain.csproj" />
     <Project Path="src/ZWarden.Infrastructure/ZWarden.Infrastructure.csproj" />
+    <Project Path="src/ZWarden.Migrations.Postgres/ZWarden.Migrations.Postgres.csproj" />
+    <Project Path="src/ZWarden.Migrations.Sqlite/ZWarden.Migrations.Sqlite.csproj" />
     <Project Path="src/ZWarden.Rcon/ZWarden.Rcon.csproj" />
     <Project Path="src/ZWarden.Web/ZWarden.Web.csproj" />
   </Folder>

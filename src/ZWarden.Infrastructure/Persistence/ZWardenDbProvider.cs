@@ -28,6 +28,14 @@ public static class ZWardenDbProviderExtensions
     /// <summary>The default command timeout in seconds (ADR 0005 condition 2 - never 0; F0's value).</summary>
     public const int CommandTimeoutSeconds = 30;
 
+    /// <summary>The provider-specific migrations assemblies (ADR 0005/0016): EF migration snapshots and
+    /// DDL are provider-specific, so each provider keeps its own history, named here by string so
+    /// Infrastructure never has to reference the migration projects.</summary>
+    public const string SqliteMigrationsAssembly = "ZWarden.Migrations.Sqlite";
+
+    /// <inheritdoc cref="SqliteMigrationsAssembly" />
+    public const string PostgresMigrationsAssembly = "ZWarden.Migrations.Postgres";
+
     /// <summary>
     /// Configures the builder for the given provider and connection string, wiring the version
     /// stamper on both providers and the SQLite hardening interceptor + command timeout on SQLite.
@@ -39,15 +47,19 @@ public static class ZWardenDbProviderExtensions
     {
         ArgumentNullException.ThrowIfNull(builder);
 
-        builder.AddInterceptors(new VersionStampingInterceptor());
+        builder.AddInterceptors(new VersionStampingInterceptor(), new TenantScopeInterceptor());
 
         return provider switch
         {
             ZWardenDbProvider.Sqlite => builder
-                .UseSqlite(connectionString, o => o.CommandTimeout(CommandTimeoutSeconds))
+                .UseSqlite(connectionString, o => o
+                    .CommandTimeout(CommandTimeoutSeconds)
+                    .MigrationsAssembly(SqliteMigrationsAssembly))
                 .AddInterceptors(new SqliteHardeningInterceptor()),
             ZWardenDbProvider.Postgres => builder
-                .UseNpgsql(connectionString, o => o.CommandTimeout(CommandTimeoutSeconds)),
+                .UseNpgsql(connectionString, o => o
+                    .CommandTimeout(CommandTimeoutSeconds)
+                    .MigrationsAssembly(PostgresMigrationsAssembly)),
             _ => throw new ArgumentOutOfRangeException(nameof(provider)),
         };
     }

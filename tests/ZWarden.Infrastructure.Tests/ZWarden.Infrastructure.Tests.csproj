@@ -6,7 +6,7 @@
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
     <LangVersion>14.0</LangVersion>
-    <TestingPlatformCommandLineArguments>--minimum-expected-tests 33</TestingPlatformCommandLineArguments>
+    <TestingPlatformCommandLineArguments>--minimum-expected-tests 46</TestingPlatformCommandLineArguments>
   </PropertyGroup>
 
   <ItemGroup>
@@ -16,6 +16,8 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\ZWarden.Infrastructure\ZWarden.Infrastructure.csproj" />
     <ProjectReference Include="..\ZWarden.TestSupport\ZWarden.TestSupport.csproj" />
+    <!-- The SQLite migration history, so MigrateAsync finds the offline provider's migrations. -->
+    <ProjectReference Include="..\..\src\ZWarden.Migrations.Sqlite\ZWarden.Migrations.Sqlite.csproj" />
   </ItemGroup>
 
 </Project>

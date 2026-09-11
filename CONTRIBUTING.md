@@ -102,9 +102,13 @@ One EF Core model runs on both providers (ADR 0005). Select with `ZW_DB_PROVIDER
   + `synchronous=NORMAL` on every connection, `CommandTimeout=30`, and an architecture test forbids
   `BeginTransaction(deferred:)` (the one path to SQLite's unrescuable `BUSY_SNAPSHOT`). **One writing
   process only** — any ZWarden.Web scale-out is a PostgreSQL-only deployment.
-- **Migrations are per-provider.** Generate with `dotnet ef migrations add <Name> --output-dir
-  Migrations/Sqlite` (and `/Postgres`) against each provider; `MigrationRunner` applies them
-  idempotently on startup (opt-out available). The first production migration is Feature 3A's.
+- **Migrations are per-provider, in their own assemblies.** EF migration snapshots and DDL are
+  provider-specific, so each provider keeps its own history in `src/ZWarden.Migrations.Sqlite` and
+  `src/ZWarden.Migrations.Postgres` (selected by `UseZWardenProvider`'s `MigrationsAssembly`). Add a
+  migration against **both**: `dotnet ef migrations add <Name> --project src/ZWarden.Migrations.Sqlite
+  --startup-project src/ZWarden.Migrations.Sqlite --output-dir Migrations` (and the `Postgres` sibling).
+  `MigrationRunner` applies them idempotently on startup (opt-out available); the first production
+  migration (the `Tenants` table) is Feature 3A's.
 - **Tests:** the shared, provider-agnostic persistence behavior runs on SQLite in the offline tier
   every PR (`ZWarden.Infrastructure.Tests`) and on PostgreSQL via Testcontainers in the networked
   tier on schedule (`ZWarden.IntegrationTests`), over one test model in `ZWarden.TestSupport`.
@@ -138,6 +142,32 @@ Secrets are encrypted at the application layer and are never allowed to stringif
 - **Never suppress `SYSLIB0053`/`SYSLIB0060`** (the obsolete `AesGcm` / `Rfc2898DeriveBytes`
   constructors). Warnings are errors here on purpose; use the explicit-tag `AesGcm` ctor and the
   static `Rfc2898DeriveBytes.Pbkdf2`.
+
+## Tenancy (Feature 3A)
+
+Every tenant-owned record is scoped to a tenant, and cross-tenant access is denied by default
+(PRD 7A, `trust-boundaries.md` §6, ADR [0016](./docs/adr/0016-tenant-isolation-query-filter-and-default-tenant.md)).
+
+- **Declare tenant ownership, never hand-write the scope.** An entity owned by a tenant implements
+  `ITenantOwned` (from `ZWarden.Domain.Tenancy`) with an **init-only** `TenantId`. Declaring it opts the
+  type into the tenant filter (a global query filter on every read) and the ownership interceptor
+  (stamp-on-insert, reject cross-tenant or scope-changing writes) automatically — you never write
+  `WHERE TenantId = …`. A `Tenant` is *not* `ITenantOwned` — it is a tenant, not owned by one.
+- **Read through a tenant-scoped repository.** Derive from `TenantScopedRepository<T>`; its query root is
+  the filtered `DbSet`. **Never call `IgnoreQueryFilters()`** and never run raw SQL over a tenant-owned
+  table outside the sanctioned tenant-administration seam — both bypass the filter, and an architecture
+  test (`TenantFilterGuardTests`) fails the build on `IgnoreQueryFilters` in `src`.
+- **The tenant comes from the session, never the browser.** Resolve it through `ITenantContext`
+  (`ZWarden.Application.Tenancy`); no code takes a tenant id from a request parameter (PRD 7A). Reading
+  `CurrentTenantId` with no ambient tenant throws — it fails closed rather than returning an empty id.
+- **Self-hosted is single-tenant by default.** `SingleTenantContext` resolves every request to the fixed
+  `Tenant.DefaultId`, and `TenantBootstrapper` seeds that row idempotently after migration. The filter is
+  still evaluated — isolation is not switched off just because there is one tenant.
+- **Wiring** is `services.AddTenantFoundation()` (the tenant context) plus
+  `services.AddZWardenPersistence(provider, connectionString)` (the tenant-scoped `ZWardenDbContext`), and
+  `await app.Services.MigrateAndBootstrapDefaultTenantAsync()` at startup. Following Feature 3's pattern,
+  the host calls these when the first persisting feature (Feature 4) lands; the seam lives in
+  `ZWarden.Infrastructure` so that is a one-liner.
 
 ## Recording a decision
 

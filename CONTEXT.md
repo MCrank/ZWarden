@@ -40,6 +40,21 @@ _Avoid_: organization, workspace, account, customer
 An external identity-provider reference held against a Tenant. It is not a Tenant and the two
 identifiers are never interchangeable.
 
+**Tenant-owned**:
+A record that carries an immutable tenant scope, set once when it is created and filtered on every read.
+It is scoped to exactly one Tenant; a Tenant is never tenant-owned.
+_Avoid_: tenant-scoped entity (as a distinct concept), owned record
+
+**Tenant filter**:
+The scope check, always evaluated, that limits every tenant-owned read to the current Tenant. The
+current Tenant derives from the authenticated session, never from the browser.
+_Avoid_: tenant guard, row filter
+
+**Default tenant**:
+The single, fixed Tenant of a self-hosted installation, seeded at startup under a well-known identifier.
+A hosted installation has many Tenants and no default.
+_Avoid_: system tenant, root tenant
+
 **Server**:
 One Project Zomboid server instance under ZWarden's management.
 _Avoid_: instance, game, world, box
