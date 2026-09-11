@@ -5,6 +5,7 @@ using ZWarden.Domain;
 using ZWarden.Domain.Ids;
 using ZWarden.Domain.Tenancy;
 using ZWarden.Infrastructure.Persistence;
+using ZWarden.Infrastructure.Tenancy;
 
 namespace ZWarden.TestSupport;
 
@@ -95,4 +96,14 @@ public sealed class NoTenantContextTestDbContext : ZWardenDbContext
     protected override IEnumerable<Assembly> ConfigurationAssemblies => [];
 
     public DbSet<TenantWidget> TenantWidgets => Set<TenantWidget>();
+}
+
+/// <summary>A concrete tenant-scoped repository over the test entity, proving the
+/// <see cref="TenantScopedRepository{TEntity}"/> pattern (F3A S4).</summary>
+public sealed class TenantWidgetRepository : TenantScopedRepository<TenantWidget>
+{
+    public TenantWidgetRepository(ZWardenDbContext context)
+        : base(context)
+    {
+    }
 }
