@@ -55,6 +55,23 @@ The single, fixed Tenant of a self-hosted installation, seeded at startup under 
 A hosted installation has many Tenants and no default.
 _Avoid_: system tenant, root tenant
 
+**Session**:
+The authenticated, tenant-bearing context established at sign-in and carried in a secure cookie. The
+current Tenant derives from it, never from the browser.
+_Avoid_: token, JWT, login (as a noun for this)
+
+**Authentication event**:
+A record of an authentication-relevant occurrence — a sign-in, a lockout, an MFA verification, a
+password reset, an external-login link. It is not an Audit event: the audit record and its store are a
+separate, later concern.
+_Avoid_: audit event (as a synonym), log entry
+
+**Identity provider seam**:
+The abstraction through which an external identity provider authenticates a subject and is mapped to a
+local user. It is not an Auth0 Organization, and it is optional — the control plane authenticates users
+itself and does not require one.
+_Avoid_: SSO (as the whole thing), Auth0 (as the seam name)
+
 **Server**:
 One Project Zomboid server instance under ZWarden's management.
 _Avoid_: instance, game, world, box

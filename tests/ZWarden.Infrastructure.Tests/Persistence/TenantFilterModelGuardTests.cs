@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata;
 using ZWarden.Domain.Ids;
 using ZWarden.Domain.Tenancy;
+using ZWarden.Infrastructure.Identity;
 using ZWarden.Infrastructure.Persistence;
 using ZWarden.TestSupport;
 
@@ -33,5 +34,14 @@ public class TenantFilterModelGuardTests
         {
             await Assert.That(entity.GetDeclaredQueryFilters().Count).IsGreaterThan(0);
         }
+    }
+
+    /// <summary>F4: the Identity user is tenant-owned, so a user is always scoped to a tenant. Removing
+    /// <see cref="ITenantOwned"/> from <see cref="ApplicationUser"/> - dropping its tenant scope - is a
+    /// red build here, not a silent cross-tenant leak.</summary>
+    [Test]
+    public async Task The_application_user_is_tenant_owned()
+    {
+        await Assert.That(typeof(ITenantOwned).IsAssignableFrom(typeof(ApplicationUser))).IsTrue();
     }
 }
