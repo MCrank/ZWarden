@@ -25,7 +25,13 @@ public static class ZWardenDbProviderExtensions
                 $"Unknown database provider '{name}'. Use 'sqlite' or 'postgres'.", nameof(name)),
         };
 
-    /// <summary>Configures the builder for the given provider and connection string.</summary>
+    /// <summary>The default command timeout in seconds (ADR 0005 condition 2 - never 0; F0's value).</summary>
+    public const int CommandTimeoutSeconds = 30;
+
+    /// <summary>
+    /// Configures the builder for the given provider and connection string, wiring the version
+    /// stamper on both providers and the SQLite hardening interceptor + command timeout on SQLite.
+    /// </summary>
     public static DbContextOptionsBuilder UseZWardenProvider(
         this DbContextOptionsBuilder builder,
         ZWardenDbProvider provider,
@@ -33,10 +39,15 @@ public static class ZWardenDbProviderExtensions
     {
         ArgumentNullException.ThrowIfNull(builder);
 
+        builder.AddInterceptors(new VersionStampingInterceptor());
+
         return provider switch
         {
-            ZWardenDbProvider.Sqlite => builder.UseSqlite(connectionString),
-            ZWardenDbProvider.Postgres => builder.UseNpgsql(connectionString),
+            ZWardenDbProvider.Sqlite => builder
+                .UseSqlite(connectionString, o => o.CommandTimeout(CommandTimeoutSeconds))
+                .AddInterceptors(new SqliteHardeningInterceptor()),
+            ZWardenDbProvider.Postgres => builder
+                .UseNpgsql(connectionString, o => o.CommandTimeout(CommandTimeoutSeconds)),
             _ => throw new ArgumentOutOfRangeException(nameof(provider)),
         };
     }
