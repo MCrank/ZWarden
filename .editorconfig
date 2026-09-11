@@ -1,0 +1,47 @@
+# ZWarden house style. See docs/adr/0013-feature-0-build-and-ci-policy.md.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.{json,yml,yaml,csproj,props,targets,slnx}]
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false
+
+# ---------------------------------------------------------------------------
+# C# conventions
+# ---------------------------------------------------------------------------
+[*.cs]
+indent_size = 4
+dotnet_sort_system_directives_first = true
+dotnet_separate_import_directive_groups = false
+csharp_using_directive_placement = outside_namespace:warning
+csharp_style_namespace_declarations = file_scoped:warning
+csharp_prefer_braces = true:warning
+dotnet_style_qualification_for_field = false:warning
+dotnet_style_qualification_for_property = false:warning
+dotnet_style_readonly_field = true:warning
+csharp_style_var_when_type_is_apparent = true:suggestion
+dotnet_style_require_accessibility_modifiers = for_non_interface_members:warning
+
+# Nullable and analyzer signal should never be silently downgraded in production code.
+dotnet_diagnostic.CS8600.severity = error
+dotnet_diagnostic.CS8602.severity = error
+dotnet_diagnostic.CS8618.severity = error
+
+# ---------------------------------------------------------------------------
+# Test-assembly carve-out (Q2 / ADR 0013), scoped to tests/ only.
+#   CA1707 - underscores in member names. The Method_State_Expectation test
+#            naming convention is deliberate here and nowhere else.
+#   CA1515 - types can be internal. Test classes are public by convention.
+# ---------------------------------------------------------------------------
+[tests/**.cs]
+dotnet_diagnostic.CA1707.severity = none
+dotnet_diagnostic.CA1515.severity = none

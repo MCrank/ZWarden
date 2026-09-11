@@ -58,3 +58,18 @@ nunit-*.xml
 
 # Claude Code agent worktrees
 .claude/worktrees/
+
+# Visual Studio / Rider / VS Code local state
+.vs/
+.idea/
+*.user
+*.suo
+
+# User secrets and local environment
+*.env
+secrets.json
+
+# Node / Tailwind (ADR 0003). The generated app.css is COMMITTED and diffed by
+# CI (stale-css guard), so it is deliberately NOT ignored.
+node_modules/
+npm-debug.log*
