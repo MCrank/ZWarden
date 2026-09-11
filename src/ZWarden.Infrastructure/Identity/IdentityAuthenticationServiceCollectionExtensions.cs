@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.HostFiltering;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace ZWarden.Infrastructure.Identity;
 
@@ -42,6 +43,11 @@ public static class IdentityAuthenticationServiceCollectionExtensions
         // Stamp the tenant claim at sign-in from the user's own TenantId, so the session (not the
         // browser) is the source of the current tenant - read back by ClaimsPrincipalTenantContext (S5).
         services.AddScoped<IUserClaimsPrincipalFactory<ApplicationUser>, TenantClaimsPrincipalFactory>();
+
+        // Account recovery (S6): the token flows need the token providers added just above; the default
+        // notification sends nothing (no transport in v1.0) and is swappable behind the seam.
+        services.TryAddScoped<IAccountNotification, LoggingAccountNotification>();
+        services.AddScoped<AccountRecoveryService>();
 
         services.AddAuthentication(IdentityConstants.ApplicationScheme)
             .AddCookie(IdentityConstants.ApplicationScheme, ConfigureApplicationCookie)
