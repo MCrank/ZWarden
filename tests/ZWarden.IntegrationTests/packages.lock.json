@@ -371,6 +371,12 @@
           "ZWarden.Application": "[1.0.0, )"
         }
       },
+      "zwarden.migrations.postgres": {
+        "type": "Project",
+        "dependencies": {
+          "ZWarden.Infrastructure": "[1.0.0, )"
+        }
+      },
       "zwarden.testsupport": {
         "type": "Project",
         "dependencies": {

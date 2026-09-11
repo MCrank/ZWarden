@@ -12,6 +12,7 @@ public sealed class TenantConfiguration : IEntityTypeConfiguration<Tenant>
     public void Configure(EntityTypeBuilder<Tenant> builder)
     {
         ArgumentNullException.ThrowIfNull(builder);
+        builder.ToTable("Tenants");
         builder.HasKey(t => t.Id);
         builder.Property(t => t.Name).IsRequired();
     }

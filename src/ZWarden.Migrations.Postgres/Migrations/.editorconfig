@@ -1,0 +1,4 @@
+# EF Core scaffolds these files; treat them as generated so the repo code-style rules
+# (e.g. IDE0161 file-scoped namespaces) do not apply to machine-written migrations.
+[*.cs]
+generated_code = true

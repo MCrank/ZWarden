@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The PostgreSQL migration history for ZWardenDbContext (ADR 0005/0016). See the SQLite sibling;
+       the two exist because EF migration snapshots and DDL are provider-specific. -->
+
+  <ItemGroup>
+    <ProjectReference Include="..\ZWarden.Infrastructure\ZWarden.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+</Project>
