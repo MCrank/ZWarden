@@ -73,11 +73,15 @@ Tests are written before the scripts they cover (PRD 2.2). Because this is shell
 5. **`steam_appid.txt`** is written containing exactly `108600`.
 6. **Canonical filesystem** is created with the right owner and the Workshop symlink.
 7. **Stop orchestration** — a SIGTERM to the supervisor writes `save`, waits, writes `quit` to the FIFO (a fake JVM reading the FIFO records the sequence and ordering); grace honoured.
-8. **Labels / env** — the image carries the baked `io.zwarden.*` labels and `EXPOSE`s only the two UDP ports (assert via `docker image inspect` on the built image in the offline tier — build is offline; only the *install* needs network).
+**Image tier (PR; general network for apt + the SteamCMD tarball, but NO Steam/PZ install):**
 
-**Scheduled tier (real, network + Docker):**
+8. **Labels / env / contract** — the image builds and carries the baked `io.zwarden.*` labels, a non-root user, a `HEALTHCHECK`, `VOLUME /pz/data`, and `EXPOSE`s only the two UDP ports (assert via `docker image inspect`). The build pulls Debian packages and Valve's SteamCMD tarball — general network — but never reaches Steam for PZ's files, so it runs on every PR.
 
-9. **Real install + boot** — build the image, run it; SteamCMD installs 380870 from `public`; the server generates `servertest.*` and reaches a running `GameServer` process; a clean stop via SIGTERM produces a `save` then `quit` and a zero-ish exit. Validated against **files generated from a local install at test time** — nothing committed.
+**Scheduled tier (real Steam install + Docker):**
+
+9. **Real install + boot** — run the image; SteamCMD installs 380870 from `public`; the server generates `servertest.*` and reaches a running `GameServer` process; a clean stop via SIGTERM produces a `save` then `quit` and a zero-ish exit. Validated against **files generated from a local install at test time** — nothing committed.
+
+The distinction ADR 0009 draws is **Steam/PZ**, not all network: the always-on offline tier (the `bats` unit tests) needs no network at all; the image build needs general network but no Steam; only the real 6.72 GiB PZ install needs Steam, and that is the scheduled tier.
 
 ## Implementation slices
 
@@ -105,8 +109,8 @@ Each is independently verifiable and inside one agent context.
 
 ## Acceptance criteria
 
-1. `docker build` of `src/ZWarden.PZServer` succeeds offline (no network in the build) and produces a non-root image with the `io.zwarden.*` labels, `EXPOSE 16261/udp 16262/udp` (and not 27015), a `VOLUME /pz/data`, and a `HEALTHCHECK`.
-2. The offline `bats` suite (T1–T8) is green with no network and no real PZ files.
+1. `docker build` of `src/ZWarden.PZServer` succeeds (pulling apt packages + Valve's SteamCMD tarball, but never Steam/PZ) and produces a non-root image with the `io.zwarden.*` labels, `EXPOSE 16261/udp 16262/udp` (and not 27015), a `VOLUME /pz/data`, and a `HEALTHCHECK`.
+2. The offline `bats` suite (T1–T7) is green with **no network** and no real PZ files; the image-contract check (T8) is green on PR.
 3. First-run detection is idempotent: install when absent, skip when the completion marker is present.
 4. Install success/failure is determined by **stdout parsing**, not the exit code.
 5. The launch command uses the bundled Java 25, ZGC, env-driven heap (default `4g`), `-cachedir=/pz/data`, and the stdin FIFO.

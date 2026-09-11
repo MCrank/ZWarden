@@ -228,3 +228,80 @@ jobs:
           gh issue create \
             --title "NuGet advisory promotion failed on $(date -u +%Y-%m-%d)" \
             --body "The scheduled advisory-promotion build failed: a dependency now carries a published NuGet advisory (NU19xx). On PR/main this is only a warning (ADR 0013), but it must be triaged and is a hard blocker at the F40 gate. See the failing run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+  # ---------------------------------------------------------------------------
+  # ZWarden.PZServer (Feature 12). The bats suite is the always-on offline tier
+  # (no network); the image build needs general network but never Steam; the real
+  # 6.72 GiB PZ install + boot is scheduled (ADR 0009).
+  # ---------------------------------------------------------------------------
+  pzserver-bats:
+    name: pzserver-offline-bats
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install bats
+        run: sudo apt-get update && sudo apt-get install -y bats
+      - name: Run the PZServer shell suite (no network, synthetic fixtures)
+        run: bats tests/pzserver
+
+  pzserver-image:
+    name: pzserver-image-contract
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build the image (apt + Valve SteamCMD tarball; no Steam/PZ)
+        run: docker build -t zwarden-pzserver:ci src/ZWarden.PZServer
+      - name: Assert the canonical container contract (T8)
+        run: |
+          inspect() { docker image inspect zwarden-pzserver:ci --format "$1"; }
+          echo "$(inspect '{{json .Config.Labels}}')" | grep -q '"io.zwarden.managed":"true"'
+          echo "$(inspect '{{json .Config.Labels}}')" | grep -q '"io.zwarden.runtime":"project-zomboid"'
+          ports="$(inspect '{{json .Config.ExposedPorts}}')"
+          echo "$ports" | grep -q '16261/udp'
+          echo "$ports" | grep -q '16262/udp'
+          if echo "$ports" | grep -q '27015'; then echo "::error::RCON port must not be exposed"; exit 1; fi
+          [ "$(inspect '{{.Config.User}}')" = "pzserver" ] || { echo "::error::image must run non-root"; exit 1; }
+          inspect '{{json .Config.Healthcheck.Test}}' | grep -q 'healthcheck.sh'
+          inspect '{{json .Config.Volumes}}' | grep -q '/pz/data'
+          echo "PZServer image contract OK."
+
+  pzserver-real-install:
+    name: pzserver-real-install
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build the image
+        run: docker build -t zwarden-pzserver:ci src/ZWarden.PZServer
+      - name: Real SteamCMD install + boot to a healthy container
+        run: |
+          docker run -d --name pz zwarden-pzserver:ci
+          status=starting
+          for _ in $(seq 1 240); do
+            status="$(docker inspect --format '{{.State.Health.Status}}' pz 2>/dev/null || echo gone)"
+            [ "$status" = "healthy" ] && break
+            [ "$status" = "gone" ] && break
+            sleep 10
+          done
+          docker logs pz | tail -40
+          if [ "$status" != "healthy" ]; then echo "::error::container did not become healthy (status=$status)"; exit 1; fi
+      - name: Graceful stop performs save then quit
+        run: |
+          docker stop -t 90 pz
+          logs="$(docker logs pz 2>&1)"
+          echo "$logs" | grep -qi 'SIGTERM received' || { echo "::error::stop was not graceful"; exit 1; }
+      - name: No PZ artefact leaked into the workspace
+        if: always()
+        run: |
+          docker rm -f pz >/dev/null 2>&1 || true
+          if git status --porcelain | grep -q .; then echo "::error::working tree dirtied by the run"; git status --porcelain; exit 1; fi
