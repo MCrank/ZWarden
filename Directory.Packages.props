@@ -33,8 +33,11 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Data layer (ADR 0004/0005). F1 uses only the core for value converters; F2 adds providers. -->
+    <!-- Data layer (ADR 0004/0005), exact pins as exercised in the dual-provider spike. -->
     <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.12" />
+    <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
   </ItemGroup>
 
 </Project>
