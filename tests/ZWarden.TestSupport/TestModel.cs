@@ -1,6 +1,7 @@
 using System.Reflection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using ZWarden.Application.Tenancy;
 using ZWarden.Domain;
 using ZWarden.Domain.Ids;
 using ZWarden.Infrastructure.Persistence;
@@ -31,11 +32,17 @@ public sealed class WidgetConfiguration : IEntityTypeConfiguration<Widget>
     }
 }
 
-/// <summary>Adds the test assembly's configurations to the ZWarden model on either provider.</summary>
+/// <summary>
+/// Adds the test assembly's configurations to the ZWarden model on either provider. Since F4 the
+/// context is always an Identity store mapping the tenant-owned <see cref="Infrastructure.Identity.ApplicationUser"/>,
+/// so it always needs an <see cref="ITenantContext"/>; this benign scaffold defaults to the single-tenant
+/// (default) context — <see cref="Widget"/> is not tenant-owned, so the filter never touches it, and the
+/// typed-id / version conventions this proves are unchanged.
+/// </summary>
 public sealed class TestDbContext : ZWardenDbContext
 {
     public TestDbContext(DbContextOptions options)
-        : base(options)
+        : base(options, new SingleTenantContext())
     {
     }
 

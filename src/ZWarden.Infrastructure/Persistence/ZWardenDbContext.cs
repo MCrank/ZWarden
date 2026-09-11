@@ -1,9 +1,11 @@
 using System.Reflection;
+using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using ZWarden.Application.Tenancy;
 using ZWarden.Domain;
 using ZWarden.Domain.Ids;
 using ZWarden.Domain.Tenancy;
+using ZWarden.Infrastructure.Identity;
 using ZWarden.Infrastructure.Ids;
 
 namespace ZWarden.Infrastructure.Persistence;
@@ -15,8 +17,16 @@ namespace ZWarden.Infrastructure.Persistence;
 /// value conversion (ADR 0004), the <see cref="IVersioned"/> concurrency token (ADR 0005), and the
 /// tenant filter on every <see cref="ITenantOwned"/> entity (ADR 0016) - so none is ever hand-written
 /// per property or per query.
+/// <para>
+/// It is the ASP.NET Core Identity store (F4): the base maps the <c>AspNet*</c> tables keyed by native
+/// UUIDv7 <see cref="Guid"/> (ADR 0004), and <see cref="ApplicationUser"/> is tenant-owned, so the three
+/// conventions run over the Identity model too - the user table gets the typed-id column conversions and
+/// the tenant filter with no per-entity wiring. Because the model now always maps the tenant-owned
+/// <see cref="ApplicationUser"/>, the context always requires an <see cref="ITenantContext"/> (the
+/// no-tenant constructor fails closed at model creation) - self-hosted resolves it to the default tenant.
+/// </para>
 /// </summary>
-public class ZWardenDbContext : DbContext
+public class ZWardenDbContext : IdentityDbContext<ApplicationUser, ApplicationRole, Guid>
 {
     private readonly ITenantContext? _tenantContext;
 
@@ -51,17 +61,17 @@ public class ZWardenDbContext : DbContext
                 "This ZWardenDbContext maps tenant-owned entities but was constructed without an ITenantContext.")
             : _tenantContext.CurrentTenantId;
 
-    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    protected override void OnModelCreating(ModelBuilder builder)
     {
-        ArgumentNullException.ThrowIfNull(modelBuilder);
-        base.OnModelCreating(modelBuilder);
+        ArgumentNullException.ThrowIfNull(builder);
+        base.OnModelCreating(builder);
 
         foreach (Assembly assembly in ConfigurationAssemblies)
         {
-            modelBuilder.ApplyConfigurationsFromAssembly(assembly);
+            builder.ApplyConfigurationsFromAssembly(assembly);
         }
 
-        ApplyConventions(modelBuilder);
+        ApplyConventions(builder);
     }
 
     private void ApplyConventions(ModelBuilder modelBuilder)

@@ -69,15 +69,15 @@ public sealed class TenantTestDbContext : ZWardenDbContext
 
     public DbSet<Widget> Widgets => Set<Widget>();
 
-    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    protected override void OnModelCreating(ModelBuilder builder)
     {
-        ArgumentNullException.ThrowIfNull(modelBuilder);
+        ArgumentNullException.ThrowIfNull(builder);
         // Declared inline (not an IEntityTypeConfiguration) so TenantWidget never leaks into the
         // non-tenant TestDbContext; the base then applies the typed-id, version, and tenant-filter
         // conventions over it.
-        modelBuilder.Entity<TenantWidget>().HasKey(w => w.Id);
-        modelBuilder.Entity<TenantWidget>().Property(w => w.Name).IsRequired();
-        base.OnModelCreating(modelBuilder);
+        builder.Entity<TenantWidget>().HasKey(w => w.Id);
+        builder.Entity<TenantWidget>().Property(w => w.Name).IsRequired();
+        base.OnModelCreating(builder);
     }
 }
 

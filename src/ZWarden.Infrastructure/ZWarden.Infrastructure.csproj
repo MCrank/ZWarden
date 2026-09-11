@@ -12,6 +12,9 @@
     <PackageReference Include="Microsoft.EntityFrameworkCore" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+    <!-- ASP.NET Core Identity's EF store (F4). Domain/Application stay IdP-free (arch rules 2/6); the
+         Identity entities and IdentityDbContext base live here. -->
+    <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" />
   </ItemGroup>
 
 </Project>
