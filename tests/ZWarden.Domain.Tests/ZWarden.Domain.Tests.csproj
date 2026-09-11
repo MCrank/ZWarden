@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Tier-1 offline unit tests (ADR 0002). MTP test apps are executables; the
+    runner is selected in global.json. LangVersion is pinned for determinism
+    (ADR 0002 item 6) rather than inherited from TUnit.Engine.props.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <LangVersion>14.0</LangVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="TUnit" />
+    <PackageReference Include="TUnit.Mocks" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\ZWarden.Domain\ZWarden.Domain.csproj" />
+  </ItemGroup>
+
+</Project>

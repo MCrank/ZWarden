@@ -9,4 +9,7 @@
     <Project Path="src/ZWarden.Rcon/ZWarden.Rcon.csproj" />
     <Project Path="src/ZWarden.Web/ZWarden.Web.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/ZWarden.Domain.Tests/ZWarden.Domain.Tests.csproj" />
+  </Folder>
 </Solution>
