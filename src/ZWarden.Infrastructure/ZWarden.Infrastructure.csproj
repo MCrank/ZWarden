@@ -7,9 +7,11 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- EF Core value converters for the typed ids (ADR 0004). Domain stays EF-free (arch rule 2),
-         so the converters live here; F2 applies them in OnModelCreating. -->
+    <!-- EF Core + both providers (ADR 0004/0005). Domain stays EF-free (arch rule 2); the context,
+         converters and provider wiring live here. -->
     <PackageReference Include="Microsoft.EntityFrameworkCore" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
   </ItemGroup>
 
 </Project>
