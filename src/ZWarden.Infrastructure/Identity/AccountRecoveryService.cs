@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Identity;
+using ZWarden.Application.Authentication;
 
 namespace ZWarden.Infrastructure.Identity;
 
@@ -12,13 +13,23 @@ public sealed class AccountRecoveryService
 {
     private readonly UserManager<ApplicationUser> _users;
     private readonly IAccountNotification _notifications;
+    private readonly IAuthenticationEventSink _events;
+    private readonly TimeProvider _timeProvider;
 
-    public AccountRecoveryService(UserManager<ApplicationUser> users, IAccountNotification notifications)
+    public AccountRecoveryService(
+        UserManager<ApplicationUser> users,
+        IAccountNotification notifications,
+        IAuthenticationEventSink events,
+        TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(users);
         ArgumentNullException.ThrowIfNull(notifications);
+        ArgumentNullException.ThrowIfNull(events);
+        ArgumentNullException.ThrowIfNull(timeProvider);
         _users = users;
         _notifications = notifications;
+        _events = events;
+        _timeProvider = timeProvider;
     }
 
     /// <summary>Generates a password-reset token for the address (if it exists) and hands it to the
@@ -36,11 +47,20 @@ public sealed class AccountRecoveryService
         await _notifications.SendPasswordResetAsync(user, token, cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>Resets the password using a token issued by <see cref="RequestPasswordResetAsync"/>.</summary>
-    public Task<IdentityResult> ResetPasswordAsync(ApplicationUser user, string token, string newPassword)
+    /// <summary>Resets the password using a token issued by <see cref="RequestPasswordResetAsync"/>, and
+    /// records the reset (on success) as an authentication event.</summary>
+    public async Task<IdentityResult> ResetPasswordAsync(ApplicationUser user, string token, string newPassword)
     {
         ArgumentNullException.ThrowIfNull(user);
-        return _users.ResetPasswordAsync(user, token, newPassword);
+        IdentityResult result = await _users.ResetPasswordAsync(user, token, newPassword).ConfigureAwait(false);
+        if (result.Succeeded)
+        {
+            await _events.RecordAsync(
+                new AuthenticationEvent(AuthenticationEventKind.PasswordReset, user.UserId, user.TenantId, _timeProvider.GetUtcNow()))
+                .ConfigureAwait(false);
+        }
+
+        return result;
     }
 
     /// <summary>Generates an email-confirmation token and hands it to the notification seam.</summary>

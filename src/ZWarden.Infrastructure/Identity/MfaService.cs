@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Identity;
+using ZWarden.Application.Authentication;
 
 namespace ZWarden.Infrastructure.Identity;
 
@@ -13,11 +14,17 @@ namespace ZWarden.Infrastructure.Identity;
 public sealed class MfaService
 {
     private readonly UserManager<ApplicationUser> _users;
+    private readonly IAuthenticationEventSink _events;
+    private readonly TimeProvider _timeProvider;
 
-    public MfaService(UserManager<ApplicationUser> users)
+    public MfaService(UserManager<ApplicationUser> users, IAuthenticationEventSink events, TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(users);
+        ArgumentNullException.ThrowIfNull(events);
+        ArgumentNullException.ThrowIfNull(timeProvider);
         _users = users;
+        _events = events;
+        _timeProvider = timeProvider;
     }
 
     /// <summary>The default number of recovery codes issued on enrolment.</summary>
@@ -51,6 +58,9 @@ public sealed class MfaService
         }
 
         await _users.SetTwoFactorEnabledAsync(user, true).ConfigureAwait(false);
+        await _events.RecordAsync(
+            new AuthenticationEvent(AuthenticationEventKind.MfaVerified, user.UserId, user.TenantId, _timeProvider.GetUtcNow()))
+            .ConfigureAwait(false);
         return true;
     }
 

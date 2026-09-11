@@ -52,6 +52,12 @@ public static class IdentityAuthenticationServiceCollectionExtensions
         // MFA (S7): TOTP enrolment/verification and recovery codes.
         services.AddScoped<MfaService>();
 
+        // Authentication events (S8): F4 emits through the seam with a logging default; F6 binds a
+        // durable sink. SignInService records sign-in success/failure/lockout as it authenticates.
+        services.TryAddSingleton(TimeProvider.System);
+        services.TryAddScoped<Application.Authentication.IAuthenticationEventSink, LoggingAuthenticationEventSink>();
+        services.AddScoped<SignInService>();
+
         services.AddAuthentication(IdentityConstants.ApplicationScheme)
             .AddCookie(IdentityConstants.ApplicationScheme, ConfigureApplicationCookie)
             .AddCookie(IdentityConstants.ExternalScheme, ConfigureTransientCookie)

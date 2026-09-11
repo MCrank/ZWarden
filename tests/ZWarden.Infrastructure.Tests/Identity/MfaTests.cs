@@ -1,5 +1,3 @@
-using System.Globalization;
-using System.Security.Cryptography;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -9,6 +7,7 @@ using ZWarden.Infrastructure.Identity;
 using ZWarden.Infrastructure.Persistence;
 using ZWarden.Infrastructure.Security;
 using ZWarden.Infrastructure.Tenancy;
+using ZWarden.TestSupport;
 
 namespace ZWarden.Infrastructure.Tests.Identity;
 
@@ -33,7 +32,7 @@ public class MfaTests
 
             await Assert.That(await mfa.EnableAuthenticatorAsync(user, "000000")).IsFalse();
 
-            string valid = ComputeTotp(key);
+            string valid = Totp.Compute(key);
             await Assert.That(await mfa.EnableAuthenticatorAsync(user, valid)).IsTrue();
             await Assert.That(await users.GetTwoFactorEnabledAsync(user)).IsTrue();
         });
@@ -89,52 +88,6 @@ public class MfaTests
                 await Assert.That(atRest).DoesNotContain(revealed);
             }
         });
-    }
-
-    // --- RFC 6238 TOTP, matching Identity's authenticator (HMAC-SHA1, 30s step, 6 digits, no modifier). ---
-
-    private static string ComputeTotp(string base32Key)
-    {
-        byte[] key = Base32Decode(base32Key);
-        long timestep = DateTimeOffset.UtcNow.ToUnixTimeSeconds() / 30;
-
-        byte[] counter = BitConverter.GetBytes(timestep);
-        if (BitConverter.IsLittleEndian)
-        {
-            Array.Reverse(counter);
-        }
-
-        // RFC 6238 / TOTP authenticators mandate HMAC-SHA1 - this is interop with Identity's provider,
-        // not a security choice, so CA5350 is intentionally suppressed here.
-#pragma warning disable CA5350
-        byte[] hash = HMACSHA1.HashData(key, counter);
-#pragma warning restore CA5350
-        int offset = hash[^1] & 0x0f;
-        int binary = ((hash[offset] & 0x7f) << 24)
-            | ((hash[offset + 1] & 0xff) << 16)
-            | ((hash[offset + 2] & 0xff) << 8)
-            | (hash[offset + 3] & 0xff);
-        return (binary % 1_000_000).ToString("D6", CultureInfo.InvariantCulture);
-    }
-
-    private static byte[] Base32Decode(string input)
-    {
-        const string alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-        input = input.TrimEnd('=').ToUpperInvariant();
-        List<byte> output = [];
-        int bits = 0, value = 0;
-        foreach (char c in input)
-        {
-            value = (value << 5) | alphabet.IndexOf(c);
-            bits += 5;
-            if (bits >= 8)
-            {
-                output.Add((byte)((value >> (bits - 8)) & 0xff));
-                bits -= 8;
-            }
-        }
-
-        return [.. output];
     }
 
     private static async Task WithMfa(Func<MfaService, UserManager<ApplicationUser>, ISecretProtector, string, Task> body)
