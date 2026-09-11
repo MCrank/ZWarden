@@ -7,8 +7,11 @@ enforced by the build and CI, not left to habit. Read [`CONTEXT.md`](./CONTEXT.m
 
 ## Prerequisites
 
-- **.NET SDK 10.0.302+** — the version is pinned in [`global.json`](./global.json) (`rollForward:
-  latestFeature`). CI provisions 10.0.401.
+- **.NET SDK 10.0.401** (or newer in the 10.0 major) — [`global.json`](./global.json) pins 10.0.302
+  with `rollForward: latestFeature`, so `dotnet` uses the newest installed feature band. The
+  committed lock files target the **serviced 10.0.12 runtime** (SDK band 10.0.4xx, per ADR 0002), so
+  `restore --locked-mode` needs it; an older 10.0.3xx / 10.0.10 install will be rejected. CI
+  provisions 10.0.401.
 - **Node 22 + npm** — only for the Tailwind CSS build in `ZWarden.Web`.
 - **Docker** — only for the tier-2 (integration) tests; not needed for day-to-day work.
 
