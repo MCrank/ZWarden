@@ -39,7 +39,7 @@ public static class ZWardenDbProviderExtensions
     {
         ArgumentNullException.ThrowIfNull(builder);
 
-        builder.AddInterceptors(new VersionStampingInterceptor());
+        builder.AddInterceptors(new VersionStampingInterceptor(), new TenantScopeInterceptor());
 
         return provider switch
         {
