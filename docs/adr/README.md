@@ -30,5 +30,6 @@ instead. New ADRs take the next number and follow [`TEMPLATE.md`](./TEMPLATE.md)
 | [0013](./0013-feature-0-build-and-ci-policy.md) | Feature 0 build-and-CI policy: warnings-as-errors, and NuGet advisories | #14 |
 | [0014](./0014-typed-id-pattern.md) | Typed IDs are hand-written structs over a static-abstract interface | #22 |
 | [0015](./0015-application-layer-secret-encryption.md) | Secret encryption: AES-256-GCM under a per-message HKDF subkey, in a versioned envelope | #24 |
+| [0016](./0016-tenant-isolation-query-filter-and-default-tenant.md) | Tenant isolation: an always-on EF query filter over an ambient tenant context, with a fixed default tenant | #25 |
 
 When you add an ADR, add its row here in the same commit.
