@@ -32,4 +32,9 @@
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.10" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Data layer (ADR 0004/0005). F1 uses only the core for value converters; F2 adds providers. -->
+    <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.12" />
+  </ItemGroup>
+
 </Project>

@@ -65,6 +65,7 @@ jobs:
           # silent-drop and discovery guards travel with every run, here included.
           for proj in \
             tests/ZWarden.Domain.Tests/ZWarden.Domain.Tests.csproj \
+            tests/ZWarden.Infrastructure.Tests/ZWarden.Infrastructure.Tests.csproj \
             tests/ZWarden.Web.Tests/ZWarden.Web.Tests.csproj \
             tests/ZWarden.ArchitectureTests/ZWarden.ArchitectureTests.csproj
           do

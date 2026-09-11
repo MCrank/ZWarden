@@ -12,6 +12,7 @@
   <Folder Name="/tests/">
     <Project Path="tests/ZWarden.ArchitectureTests/ZWarden.ArchitectureTests.csproj" />
     <Project Path="tests/ZWarden.Domain.Tests/ZWarden.Domain.Tests.csproj" />
+    <Project Path="tests/ZWarden.Infrastructure.Tests/ZWarden.Infrastructure.Tests.csproj" />
     <Project Path="tests/ZWarden.IntegrationTests/ZWarden.IntegrationTests.csproj" />
     <Project Path="tests/ZWarden.Web.Tests/ZWarden.Web.Tests.csproj" />
   </Folder>

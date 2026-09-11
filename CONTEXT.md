@@ -73,3 +73,29 @@ Project Zomboid mods.
 **Support Package**:
 A sanitized, redacted diagnostic bundle a user can share without leaking secrets.
 _Avoid_: log dump, diagnostic export
+
+### Identifiers
+
+**Typed ID**:
+A persistent-entity identifier: a time-ordered UUIDv7 scoped to an entity-type prefix, rendered
+canonically as `<prefix>-<uuid>` (e.g. `agt-019c…`). Typed IDs are **non-interchangeable** — an
+`AgentId` is never a `UserId` — and the raw UUID is never exposed to users, logs, APIs or
+diagnostics.
+_Avoid_: GUID (as the public form), untyped id, raw uuid
+
+**Prefix registry**:
+The canonical, closed set of entity-type prefixes. Each is short, lowercase-ASCII, unique, and
+never reused for another entity type; adding one is an ADR (PRD 7).
+
+| Entity | Prefix | Entity | Prefix |
+| --- | --- | --- | --- |
+| Tenant | `ten-` | Mod | `mod-` |
+| User | `usr-` | Workshop item | `wsi-` |
+| Role | `rol-` | Mod profile | `mdp-` |
+| Agent | `agt-` | Ban record | `ban-` |
+| Server | `srv-` | Player record | `ply-` |
+| Operation | `op-` | Permission assignment | `prm-` |
+| Audit event | `aud-` | Certificate record | `crt-` |
+| Backup | `bkp-` | Notification | `ntf-` |
+| Diagnostic package | `diag-` | Enrollment | `enr-` |
+| Configuration revision | `cfg-` | | |

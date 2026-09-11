@@ -28,5 +28,6 @@ instead. New ADRs take the next number and follow [`TEMPLATE.md`](./TEMPLATE.md)
 | [0011](./0011-configuration-revisions-are-value-level-and-fail-closed.md) | Configuration revisions are value-level, and drift detection fails closed | #11, #15 |
 | [0012](./0012-whitelist-addition-is-out-of-scope.md) | Player management ships without whitelist *addition* | #5, #11 |
 | [0013](./0013-feature-0-build-and-ci-policy.md) | Feature 0 build-and-CI policy: warnings-as-errors, and NuGet advisories | #14 |
+| [0014](./0014-typed-id-pattern.md) | Typed IDs are hand-written structs over a static-abstract interface | #22 |
 
 When you add an ADR, add its row here in the same commit.
