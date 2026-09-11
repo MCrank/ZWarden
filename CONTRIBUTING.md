@@ -13,7 +13,8 @@ enforced by the build and CI, not left to habit. Read [`CONTEXT.md`](./CONTEXT.m
   `restore --locked-mode` needs it; an older 10.0.3xx / 10.0.10 install will be rejected. CI
   provisions 10.0.401.
 - **Node 22 + npm** — only for the Tailwind CSS build in `ZWarden.Web`.
-- **Docker** — only for the tier-2 (integration) tests; not needed for day-to-day work.
+- **Docker** — for the tier-2 (integration) tests and building the `ZWarden.PZServer` image.
+- **`bats`** — to run the `ZWarden.PZServer` shell suite locally (`bats tests/pzserver`). CI installs it. The `.bats` tests are Linux-only (real FIFOs/symlinks); on Windows run them via the container: `docker run --rm -v "$PWD:/code" -w /code bats/bats:latest tests/pzserver`.
 
 ## Everyday commands
 
