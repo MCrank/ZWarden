@@ -58,6 +58,11 @@ public static class IdentityAuthenticationServiceCollectionExtensions
         services.TryAddScoped<Application.Authentication.IAuthenticationEventSink, LoggingAuthenticationEventSink>();
         services.AddScoped<SignInService>();
 
+        // External identity-provider mapping (S9, ADR 0017): the local-mapping half of the seam. No
+        // IExternalIdentityProvider is registered in v1.0 - a deployment that wires one (F3B) or a test
+        // double supplies it, and until then this service is simply never invoked (PRD 63).
+        services.AddScoped<ExternalLoginService>();
+
         services.AddAuthentication(IdentityConstants.ApplicationScheme)
             .AddCookie(IdentityConstants.ApplicationScheme, ConfigureApplicationCookie)
             .AddCookie(IdentityConstants.ExternalScheme, ConfigureTransientCookie)
