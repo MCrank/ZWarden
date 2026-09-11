@@ -39,6 +39,10 @@ public static class IdentityAuthenticationServiceCollectionExtensions
             .AddSignInManager()
             .AddDefaultTokenProviders();
 
+        // Stamp the tenant claim at sign-in from the user's own TenantId, so the session (not the
+        // browser) is the source of the current tenant - read back by ClaimsPrincipalTenantContext (S5).
+        services.AddScoped<IUserClaimsPrincipalFactory<ApplicationUser>, TenantClaimsPrincipalFactory>();
+
         services.AddAuthentication(IdentityConstants.ApplicationScheme)
             .AddCookie(IdentityConstants.ApplicationScheme, ConfigureApplicationCookie)
             .AddCookie(IdentityConstants.ExternalScheme, ConfigureTransientCookie)
