@@ -1,13 +1,15 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
+  <!-- TargetFramework, Nullable, ImplicitUsings come from Directory.Build.props. -->
+
   <ItemGroup>
     <ProjectReference Include="..\ZWarden.Application\ZWarden.Application.csproj" />
   </ItemGroup>
 
-  <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-  </PropertyGroup>
+  <ItemGroup>
+    <!-- EF Core value converters for the typed ids (ADR 0004). Domain stays EF-free (arch rule 2),
+         so the converters live here; F2 applies them in OnModelCreating. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore" />
+  </ItemGroup>
 
 </Project>

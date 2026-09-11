@@ -13,14 +13,14 @@ Deliver the domain's **strongly-typed, prefixed UUIDv7 identifier** foundation: 
 **F0** only. Consumes:
 
 - PRD §6 — UUIDv7, `<prefix>-<uuid>`, raw UUIDs never exposed to users/logs/APIs/diagnostics.
-- PRD §7/§7A — the 18 canonical prefixes (17 in §7 + `ten-` in §7A).
+- PRD §7/§7A — the 19 canonical prefixes (18 in §7 + `ten-` in §7A).
 - PRD §8 — strongly typed, non-interchangeable, prefix-validated parse; native-UUID **or** text storage (settled by ADR 0004: native).
 - ADR 0004 — store the native `uuid`; app-side `Guid.CreateVersion7()`; **no documented monotonicity**; converted properties are single-column and can't be raw-SQL parameters.
 
 ## Scope
 
 1. **The ID pattern (Q1, ADR 0014)** — a static-abstract interface `ITypedId<TSelf>` supplying each type's `Prefix` and a `FromGuid` factory, plus a non-generic `ITypedId` marker so converter *factories* can discover every type. All behaviour lives once in a generic static helper (`TypedId`), keyed on the interface.
-2. **The 18 ID types (Q2)** — one `readonly record struct` per canonical prefix: `TenantId (ten-)`, `UserId (usr-)`, `RoleId (rol-)`, `AgentId (agt-)`, `ServerId (srv-)`, `OperationId (op-)`, `AuditEventId (aud-)`, `BackupId (bkp-)`, `DiagnosticPackageId (diag-)`, `EnrollmentId (enr-)`, `ConfigurationRevisionId (cfg-)`, `ModId (mod-)`, `WorkshopItemId (wsi-)`, `ModProfileId (mdp-)`, `BanRecordId (ban-)`, `PlayerRecordId (ply-)`, `PermissionAssignmentId (prm-)`, `CertificateRecordId (crt-)`, `NotificationId (ntf-)`. (That is the 17 of §7 + `ten-`; 19 lines total counting Tenant — the registry test is the guard on the exact set.)
+2. **The 19 ID types (Q2)** — one `readonly record struct` per canonical prefix: `TenantId (ten-)`, `UserId (usr-)`, `RoleId (rol-)`, `AgentId (agt-)`, `ServerId (srv-)`, `OperationId (op-)`, `AuditEventId (aud-)`, `BackupId (bkp-)`, `DiagnosticPackageId (diag-)`, `EnrollmentId (enr-)`, `ConfigurationRevisionId (cfg-)`, `ModId (mod-)`, `WorkshopItemId (wsi-)`, `ModProfileId (mdp-)`, `BanRecordId (ban-)`, `PlayerRecordId (ply-)`, `PermissionAssignmentId (prm-)`, `CertificateRecordId (crt-)`, `NotificationId (ntf-)`. (That is the 18 of §7 + `ten-` = 19 — the registry test is the guard on the exact set.)
 3. **Generation (Q3)** — `New()` → `Guid.CreateVersion7()`. `default(T)` (Guid.Empty) is the "unset" sentinel; `New()` never returns it; `IsEmpty` exposed.
 4. **Parse / format / validate (Q4)** — canonical `ToString()` = lowercase `<prefix>-<uuid>` (hyphenated "D"); `Parse` strict on prefix (throws `FormatException` naming expected vs actual) and requires a well-formed UUID; `TryParse(out)`; case-insensitive on the UUID; no hard v7-on-parse.
 5. **Prefix registry (Q2)** — a reflection-based test enumerating every `ITypedId` implementation and asserting the PRD §7 rules: prefixes unique, lowercase-ASCII, non-empty, never reused. The canonical set is also documented in `CONTEXT.md`.
@@ -38,7 +38,7 @@ Deliver the domain's **strongly-typed, prefixed UUIDv7 identifier** foundation: 
 
 ## Domain changes
 
-- **New value types:** the 18 typed IDs (immutable `readonly record struct`, structural equality, single Guid field) and the `ITypedId` / `ITypedId<TSelf>` contracts, in `ZWarden.Domain.Ids`.
+- **New value types:** the 19 typed IDs (immutable `readonly record struct`, structural equality, single Guid field) and the `ITypedId` / `ITypedId<TSelf>` contracts, in `ZWarden.Domain.Ids`.
 - **Glossary (`CONTEXT.md`):** add **Typed ID** (a prefix-scoped UUIDv7, non-interchangeable across entity types, canonical form `<prefix>-<uuid>`, raw UUID never exposed) and the **prefix registry** table. No implementation detail in the glossary.
 - **Invariants:** an ID's prefix is fixed by its type; two types are never assignment- or parse-compatible; `New()` is a v7, non-empty UUID.
 
@@ -64,7 +64,7 @@ Written before the code (PRD 2.2), in `ZWarden.Domain.Tests` unless noted.
 3. **Prefix is enforced**: `AgentId.Parse("usr-<uuid>")` throws `FormatException`; the message names expected vs actual prefix.
 4. **Malformed UUID** throws; **`TryParse`** returns false without throwing; case-insensitive UUID parse succeeds and normalises to lowercase.
 5. **Types are not interchangeable** — asserted at compile time (a `#error`-free build with no cross-assignment) and by distinct `ToString()` prefixes.
-6. **Prefix registry** (reflection): every `ITypedId` has a unique, lowercase-ASCII, non-empty prefix; the set equals the documented 18.
+6. **Prefix registry** (reflection): every `ITypedId` has a unique, lowercase-ASCII, non-empty prefix; the set equals the documented 19.
 7. **JSON** (STJ): an object with typed-ID properties serialises to canonical strings and round-trips; a raw GUID string without the prefix fails to deserialize.
 8. **EF converter** (`ZWarden.Infrastructure.Tests`, no DB): `ConvertToProvider(id)` is the underlying `Guid`; `ConvertFromProvider(guid)` reconstructs the ID; round-trip is identity.
 9. **Monotonicity caveat**: ordering tests space generation ≥1 ms via a documented helper; a test asserts that two same-instant IDs are *not* required to be ordered (documents the trap).
@@ -72,10 +72,10 @@ Written before the code (PRD 2.2), in `ZWarden.Domain.Tests` unless noted.
 ## Implementation slices
 
 - **S1 — The pattern + one type.** `ITypedId` / `ITypedId<TSelf>`, the generic `TypedId` helper (new/parse/tryparse/format/validate), and `AgentId` as the first concrete type, TDD. *Verify:* tests 1–5 green for `AgentId`.
-- **S2 — All 18 types + the registry guard.** The remaining structs; the reflection registry test. *Verify:* test 6 green; the set is exactly 18.
+- **S2 — All 19 types + the registry guard.** The remaining structs; the reflection registry test. *Verify:* test 6 green; the set is exactly 19.
 - **S3 — JSON serialization.** The STJ `JsonConverterFactory` in Domain. *Verify:* test 7.
 - **S4 — EF conversion strategy.** Add EF Core 10 to `ZWarden.Infrastructure`; the `ValueConverter` factory; `ZWarden.Infrastructure.Tests`. *Verify:* test 8; arch tests still green (Domain EF-free; Agent references neither).
-- **S5 — Glossary + ADR.** `CONTEXT.md` terms + prefix table; ADR 0014 (the pattern). *Verify:* registry test and docs agree on the 18.
+- **S5 — Glossary + ADR.** `CONTEXT.md` terms + prefix table; ADR 0014 (the pattern). *Verify:* registry test and docs agree on the 19.
 
 ## Diagnostics
 
@@ -91,7 +91,7 @@ Written before the code (PRD 2.2), in `ZWarden.Domain.Tests` unless noted.
 
 ## Acceptance criteria
 
-1. All 18 typed IDs exist, each a `readonly record struct` with its canonical prefix; `New()` is a non-empty v7 UUID.
+1. All 19 typed IDs exist, each a `readonly record struct` with its canonical prefix; `New()` is a non-empty v7 UUID.
 2. `ToString()` is lowercase `<prefix>-<uuid>`; `Parse`/`TryParse` round-trip and reject the wrong prefix or a malformed UUID; a raw GUID never appears at a boundary.
 3. The reflection registry test passes and enforces unique/lowercase/non-empty/never-reused across exactly the documented set.
 4. STJ serialises and deserialises typed IDs as canonical strings.

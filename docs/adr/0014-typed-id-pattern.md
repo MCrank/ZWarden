@@ -12,7 +12,7 @@ holds a native `Guid` (ADR 0004); the canonical public form is `<prefix>-<uuid>`
 
 ## Context
 
-Eighteen ID types share one shape: a UUIDv7, a fixed prefix, and identical parse/format/validate/
+Nineteen ID types share one shape: a UUIDv7, a fixed prefix, and identical parse/format/validate/
 serialize logic. The only per-type variation is the prefix and the C# type identity that makes
 `AgentId` and `UserId` non-interchangeable. Three ways to get there:
 
