@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Shared test model, not a test project (no runner, no floor). Referenced by the SQLite
+       (offline) and PostgreSQL (networked) persistence tests so both exercise one definition. -->
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <LangVersion>14.0</LangVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\ZWarden.Infrastructure\ZWarden.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -11,13 +11,17 @@
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
     <LangVersion>14.0</LangVersion>
-    <TestingPlatformCommandLineArguments>--minimum-expected-tests 1</TestingPlatformCommandLineArguments>
+    <TestingPlatformCommandLineArguments>--minimum-expected-tests 3</TestingPlatformCommandLineArguments>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="TUnit" />
     <PackageReference Include="Testcontainers.PostgreSql" />
     <PackageReference Include="Npgsql" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ZWarden.TestSupport\ZWarden.TestSupport.csproj" />
   </ItemGroup>
 
 </Project>

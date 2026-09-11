@@ -89,6 +89,26 @@ Blueprint's own component does not fit the Signal identity — e.g. `BbBadge` ha
 `rounded-full` — ZWarden owns the component outright (see `Components/Ui/StatusBadge.razor`). Pin
 Blueprint to its exact version; never `3.*`.
 
+## Database (Feature 2)
+
+One EF Core model runs on both providers (ADR 0005). Select with `ZW_DB_PROVIDER` (`sqlite` |
+`postgres`) plus a connection string.
+
+- **Typed-ID and concurrency are automatic.** Any `ITypedId` property is stored as its native
+  `Guid`; any entity implementing `IVersioned` gets a `Guid Version` optimistic-concurrency token
+  stamped on every write. Add an entity by shipping an `IEntityTypeConfiguration<T>` — the context
+  discovers it; you never write `HasConversion` or configure the token by hand.
+- **The five SQLite conditions are enforced for you:** WAL + `busy_timeout=5000` + `foreign_keys=ON`
+  + `synchronous=NORMAL` on every connection, `CommandTimeout=30`, and an architecture test forbids
+  `BeginTransaction(deferred:)` (the one path to SQLite's unrescuable `BUSY_SNAPSHOT`). **One writing
+  process only** — any ZWarden.Web scale-out is a PostgreSQL-only deployment.
+- **Migrations are per-provider.** Generate with `dotnet ef migrations add <Name> --output-dir
+  Migrations/Sqlite` (and `/Postgres`) against each provider; `MigrationRunner` applies them
+  idempotently on startup (opt-out available). The first production migration is Feature 3A's.
+- **Tests:** the shared, provider-agnostic persistence behavior runs on SQLite in the offline tier
+  every PR (`ZWarden.Infrastructure.Tests`) and on PostgreSQL via Testcontainers in the networked
+  tier on schedule (`ZWarden.IntegrationTests`), over one test model in `ZWarden.TestSupport`.
+
 ## Recording a decision
 
 Surprising, hard-to-reverse, real-trade-off decisions become an ADR — see

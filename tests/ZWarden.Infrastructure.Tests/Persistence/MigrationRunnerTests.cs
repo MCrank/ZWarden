@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using ZWarden.Infrastructure.Persistence;
+using ZWarden.TestSupport;
 
 namespace ZWarden.Infrastructure.Tests.Persistence;
 

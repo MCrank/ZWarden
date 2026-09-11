@@ -15,6 +15,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\ZWarden.Infrastructure\ZWarden.Infrastructure.csproj" />
+    <ProjectReference Include="..\ZWarden.TestSupport\ZWarden.TestSupport.csproj" />
   </ItemGroup>
 
 </Project>

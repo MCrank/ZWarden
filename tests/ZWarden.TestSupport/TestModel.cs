@@ -5,11 +5,12 @@ using ZWarden.Domain;
 using ZWarden.Domain.Ids;
 using ZWarden.Infrastructure.Persistence;
 
-namespace ZWarden.Infrastructure.Tests.Persistence;
+namespace ZWarden.TestSupport;
 
 /// <summary>
-/// A test-only entity. F2 is infrastructure (Q4), so the context and its conventions are proven
-/// against this rather than a production table; the first production migration is F3A's.
+/// A test-only entity shared by the SQLite (offline) and PostgreSQL (networked) persistence tests.
+/// F2 is infrastructure (Q4), so the context and its conventions are proven against this rather than
+/// a production table; the first production migration is F3A's.
 /// </summary>
 public sealed class Widget : IVersioned
 {
@@ -30,7 +31,7 @@ public sealed class WidgetConfiguration : IEntityTypeConfiguration<Widget>
     }
 }
 
-/// <summary>A context that adds the test assembly's configurations to the ZWarden model.</summary>
+/// <summary>Adds the test assembly's configurations to the ZWarden model on either provider.</summary>
 public sealed class TestDbContext : ZWardenDbContext
 {
     public TestDbContext(DbContextOptions options)
