@@ -1,0 +1,34 @@
+@* ZWarden owns the status badge outright (ADR 0003): Blueprint's BbBadge hard-codes
+   `rounded-full` with no semantic status variant, and on an ops console the status
+   colour IS the signal. Squared, fixed-width, dot + label - the Signal identity.
+   Feature 0 establishes the wrapper-seam RULE with this one owned component; the full
+   dot-hue / label-ink 4.5:1 contrast contract is finished by the UI features. *@
+
+<span class="inline-flex items-center gap-1.5 rounded-sm border px-2 py-0.5 text-xs font-medium @LabelClass">
+    <span class="inline-block h-2 w-2 rounded-full @DotClass"></span>
+    @Label
+</span>
+
+@code {
+    [Parameter]
+    [EditorRequired]
+    public ServerStatus Status { get; set; }
+
+    private string Label => Status.ToString().ToUpperInvariant();
+
+    private string LabelClass => Status switch
+    {
+        ServerStatus.Healthy => "border-emerald-300 text-emerald-800",
+        ServerStatus.Degraded => "border-amber-300 text-amber-800",
+        ServerStatus.Unhealthy => "border-red-300 text-red-800",
+        _ => "border-slate-300 text-slate-700",
+    };
+
+    private string DotClass => Status switch
+    {
+        ServerStatus.Healthy => "bg-emerald-500",
+        ServerStatus.Degraded => "bg-amber-500",
+        ServerStatus.Unhealthy => "bg-red-500",
+        _ => "bg-slate-400",
+    };
+}

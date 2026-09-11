@@ -1,0 +1,17 @@
+@inherits LayoutComponentBase
+
+<div class="min-h-screen">
+    <main class="mx-auto max-w-5xl p-6">
+        @Body
+    </main>
+</div>
+
+@* Overlay host, toast and dialog providers (BbPortalHost / BbToastProvider /
+   BbDialogProvider) are added by the first feature that needs an overlay - their
+   API is version-sensitive and Feature 0 uses no overlays. *@
+
+<div id="blazor-error-ui" data-nosnippet>
+    An unhandled error has occurred.
+    <a href="." class="reload">Reload</a>
+    <span class="dismiss">🗙</span>
+</div>

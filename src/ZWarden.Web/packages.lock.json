@@ -1,0 +1,101 @@
+{
+  "version": 2,
+  "dependencies": {
+    "net10.0": {
+      "BlazorBlueprint.Components": {
+        "type": "Direct",
+        "requested": "[3.16.0, )",
+        "resolved": "3.16.0",
+        "contentHash": "ER8A3yHoe4PkWwWHkT0D49TpsjtaQxqd12kUk/7ozrvGlA1qoGDbG6emWqxaaL2TvvtadHMDrTtCiotx7cuLJA==",
+        "dependencies": {
+          "BlazorBlueprint.Icons.Lucide": "2.0.0",
+          "BlazorBlueprint.Primitives": "3.16.0",
+          "HtmlSanitizer": "9.1.982",
+          "Markdig": "0.37.0",
+          "TailwindMerge.NET": "1.3.0"
+        }
+      },
+      "Microsoft.AspNetCore.App.Internal.Assets": {
+        "type": "Direct",
+        "requested": "[10.0.12, )",
+        "resolved": "10.0.12",
+        "contentHash": "+sIBo9AMBZH46qHWHQdfzcGMt+RuBaPYrUMOAM9VjA7MQ9QtIez3lq1C3E05+Yroa94KKt3DSWaxmCI4H28a9Q=="
+      },
+      "AngleSharp": {
+        "type": "Transitive",
+        "resolved": "1.7.0",
+        "contentHash": "v1R++46dblGRBo2/fKFUfgtZOaFnDGQhqBM0AarxgZSJuumj1e1vexBbjlTv2hx3Olr3qeoJa2yUoWyv5fuJ5A=="
+      },
+      "AngleSharp.Css": {
+        "type": "Transitive",
+        "resolved": "1.0.1",
+        "contentHash": "6S13xNHH+SUGPZd6EO1MhkuDbpEnFroUM6A8DZpLJHQnLRTvtBJb3Ydu65s618E4gWF9FSWmM5jhKk4RIfwT2A==",
+        "dependencies": {
+          "AngleSharp": "[1.5.0, 2.0.0)"
+        }
+      },
+      "BlazorBlueprint.Icons.Lucide": {
+        "type": "Transitive",
+        "resolved": "2.0.0",
+        "contentHash": "DWr5VUhebPN7EP9T3DYe0aAK5pfETRSdv48dWPqApip8/X3gs64yhPCXrmuvOHy80eKDfblL8mv9UFM3qmDbwA=="
+      },
+      "HtmlSanitizer": {
+        "type": "Transitive",
+        "resolved": "9.1.982",
+        "contentHash": "+KBhQAoddWFWXgyWfmV5QAW9auveh29581t47jxtjJAEB5BxZILR2LUue5Lr4DCZFtpYeUUskD3nE1tct7DJPw==",
+        "dependencies": {
+          "AngleSharp": "1.7.0",
+          "AngleSharp.Css": "1.0.1"
+        }
+      },
+      "Markdig": {
+        "type": "Transitive",
+        "resolved": "0.37.0",
+        "contentHash": "biiu4MTPFjW55qw6v5Aphtj0MjDLJ14x8ndZwkJUHIeqvaSGKeqhLY7S7Vu/S3k7/c9KwhhnaCDP9hdFNUhcNA=="
+      },
+      "Planetarium.LruCacheNet": {
+        "type": "Transitive",
+        "resolved": "1.2.0",
+        "contentHash": "WE2eblbDjsOoJhOBA+Jiwk/c+xrbFTRu+KaUOhhRWklCyScWSGCFS3gNmuc7zjjdJPSjotGAoKjAJIkHsXPXxQ=="
+      },
+      "TailwindMerge.NET": {
+        "type": "Transitive",
+        "resolved": "1.3.0",
+        "contentHash": "eZgamFmf9muV4oxB8HUDRAxGVOErdfXoKKGnbAxfRHZpcn2ZcvHgYVp2ke9MSGL1G/9cL1C9Tfq42tg+NzkBwQ==",
+        "dependencies": {
+          "Planetarium.LruCacheNet": "1.2.0"
+        }
+      },
+      "zwarden.application": {
+        "type": "Project",
+        "dependencies": {
+          "ZWarden.Domain": "[1.0.0, )"
+        }
+      },
+      "zwarden.contracts": {
+        "type": "Project"
+      },
+      "zwarden.diagnostics": {
+        "type": "Project",
+        "dependencies": {
+          "ZWarden.Application": "[1.0.0, )"
+        }
+      },
+      "zwarden.domain": {
+        "type": "Project"
+      },
+      "zwarden.infrastructure": {
+        "type": "Project",
+        "dependencies": {
+          "ZWarden.Application": "[1.0.0, )"
+        }
+      },
+      "BlazorBlueprint.Primitives": {
+        "type": "CentralTransitive",
+        "requested": "[3.16.0, )",
+        "resolved": "3.16.0",
+        "contentHash": "FQXgRNRTyqYp25MTm/Z3rSP6/vUOWiHIm6D4/fcY4Ksm58IqI1gyxf/o7bMrSJDngF1bUq8TDon8BbEX/kNerw=="
+      }
+    }
+  }
+}

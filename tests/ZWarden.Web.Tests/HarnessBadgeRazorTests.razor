@@ -1,0 +1,19 @@
+@using Bunit
+@using ZWarden.Web.Tests.TestComponents
+@inherits BunitContext
+
+@code {
+    // The case bUnit's docs say does not work with TUnit: a test written *inside*
+    // a .razor file, so the Razor generator and the TUnit generator would both be
+    // live. It is discovered ONLY in reflection mode - which is precisely what the
+    // csproj's --minimum-expected-tests floor guards.
+    [Test]
+    public async Task Badge_renders_markup_from_a_razor_test_file()
+    {
+        var cut = Render(@<HarnessBadge PlayerCount="5" />);
+
+        cut.MarkupMatches(@<span class="badge online">5 online</span>);
+
+        await Assert.That(cut.Find("span").TextContent).IsEqualTo("5 online");
+    }
+}

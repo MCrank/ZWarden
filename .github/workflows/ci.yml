@@ -1,0 +1,230 @@
+name: ci
+
+# The Feature 0 pipeline (docs/feature-plans/F0-repository-and-engineering-foundation.md).
+# Tier 1 is always on and genuinely offline. Tier 2 (Docker/network) and the NuGet-advisory
+# promotion run on a schedule / on demand (ADR 0002, ADR 0013).
+on:
+  push:
+    branches: [development]
+  pull_request:
+    branches: [development]
+  workflow_dispatch:
+  schedule:
+    # Exercises the networked tier and the advisory-promotion job on their own cadence.
+    - cron: "17 4 * * 1"
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: "true"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: "1"
+  NUGET_PACKAGES: ${{ github.workspace }}/.nuget-packages
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Tier 1: always on. Restore is the ONLY step allowed to touch the network;
+  # the whole test run happens inside a network namespace with loopback only.
+  # The tier split is by ASSEMBLY, never by category filter (ADR 0002).
+  # ---------------------------------------------------------------------------
+  offline:
+    name: tier1-offline
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up .NET from global.json
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Record the toolchain actually in use
+        run: |
+          echo "dotnet --version: $(dotnet --version)"
+          dotnet --list-sdks
+          echo "runner: $(uname -srm), nproc: $(nproc)"
+
+      - name: Restore in locked mode (the only network-permitted step)
+        run: dotnet restore ZWarden.slnx --locked-mode
+
+      - name: Build with warnings-as-errors and analyzers on
+        run: dotnet build ZWarden.slnx -c Release --no-restore
+
+      - name: Prove the sandbox really has no network
+        run: |
+          chmod +x ci/*.sh
+          ci/offline-run.sh ci/assert-no-network.sh
+
+      - name: Run the offline (tier-1) assemblies with no network at all
+        run: |
+          # Each --minimum-expected-tests floor is baked into the test csproj, so the
+          # silent-drop and discovery guards travel with every run, here included.
+          for proj in \
+            tests/ZWarden.Domain.Tests/ZWarden.Domain.Tests.csproj \
+            tests/ZWarden.Web.Tests/ZWarden.Web.Tests.csproj \
+            tests/ZWarden.ArchitectureTests/ZWarden.ArchitectureTests.csproj
+          do
+            echo "=== $proj ==="
+            ci/offline-run.sh dotnet test --project "$proj" -c Release --no-build \
+              --report-trx -- --output Detailed | grep -vE "^\s*$"
+          done
+          echo "=== step summary (must be read in the writing step) ==="
+          cat "$GITHUB_STEP_SUMMARY" || true
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tier1-reports
+          path: "**/TestResults/**"
+          if-no-files-found: warn
+
+  # ---------------------------------------------------------------------------
+  # Regression guard for the silent-drop hazard: with reflection mode removed
+  # and source generation back on, the .razor test vanishes and the run still
+  # goes green. The discovery floor must be what turns it red (ADR 0002).
+  # ---------------------------------------------------------------------------
+  silent-drop-guard:
+    name: tier1-silent-drop-guard
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - run: dotnet restore ZWarden.slnx --locked-mode
+
+      - name: Strip the reflection switch and prove the razor test disappears
+        run: |
+          echo "// removed by CI to measure the silent drop" \
+            > tests/ZWarden.Web.Tests/ReflectionMode.cs
+          dotnet build tests/ZWarden.Web.Tests/ZWarden.Web.Tests.csproj \
+            -c Release --no-restore -p:EnableTUnitSourceGeneration=true
+
+          exe="tests/ZWarden.Web.Tests/bin/Release/net10.0/ZWarden.Web.Tests"
+          echo "--- discovery without reflection mode ---"; "$exe" --list-tests || true
+
+          set +e
+          "$exe" --minimum-expected-tests 3 > guarded.log 2>&1
+          guarded=$?
+          set -e
+          cat guarded.log
+          {
+            echo "### silent-drop guard"
+            echo ""
+            echo "razor test dropped, guard on -> exit \`$guarded\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$guarded" -eq 0 ]; then
+            echo "::error::the discovery floor did not catch the dropped razor test"
+            exit 1
+          fi
+
+  # ---------------------------------------------------------------------------
+  # The second silent-failure guard (ADR 0003): forgetting the Tailwind step is
+  # invisible - the utility class is simply absent. Regenerate and diff.
+  # ---------------------------------------------------------------------------
+  stale-css-guard:
+    name: tier1-stale-app-css
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: src/ZWarden.Web
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Regenerate app.css and fail if the committed copy is stale
+        run: |
+          npm ci
+          npm run build:css
+          if ! git diff --exit-code -- wwwroot/app.css; then
+            echo "::error::wwwroot/app.css is stale - run 'npm run build:css' and commit the result"
+            exit 1
+          fi
+          echo "app.css is up to date."
+
+  # ---------------------------------------------------------------------------
+  # End-to-end tier: assembly stub only in Feature 0. Playwright wiring is
+  # deferred (never exercised in the spike); this keeps the tier's shape visible.
+  # ---------------------------------------------------------------------------
+  e2e-stub:
+    name: tier3-e2e-stub
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "E2E (Playwright) tier is a stub in Feature 0; wired by a later feature."
+
+  # ---------------------------------------------------------------------------
+  # Tier 2: scheduled / opt-in, network + Docker permitted. Testcontainers here.
+  # ---------------------------------------------------------------------------
+  networked:
+    name: tier2-networked
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - run: dotnet restore ZWarden.slnx --locked-mode
+      - run: dotnet build ZWarden.slnx -c Release --no-restore
+
+      - name: Confirm this tier has egress and Docker
+        run: |
+          curl -sS --max-time 15 -o /dev/null -w "nuget.org index HTTP %{http_code}\n" https://api.nuget.org/v3/index.json
+          docker version --format '{{.Server.APIVersion}}' | sed 's/^/docker server API version: /'
+
+      - name: Integration tests against a real PostgreSQL 18 container
+        run: |
+          dotnet test --project tests/ZWarden.IntegrationTests/ZWarden.IntegrationTests.csproj \
+            -c Release --no-build -- --output Detailed
+
+  # ---------------------------------------------------------------------------
+  # NuGet-advisory promotion (ADR 0013). On PR/main a live advisory is only a
+  # warning; here it is promoted to an error. If it fails, file a tracking issue.
+  # ---------------------------------------------------------------------------
+  advisory:
+    name: nuget-advisory-promotion
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Build with NuGet advisories promoted to errors
+        id: audit
+        run: |
+          dotnet restore ZWarden.slnx --locked-mode
+          dotnet build ZWarden.slnx -c Release --no-restore -p:PromoteNuGetAudit=true
+
+      - name: File a tracking issue if an advisory broke the build
+        if: failure() && steps.audit.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue create \
+            --title "NuGet advisory promotion failed on $(date -u +%Y-%m-%d)" \
+            --body "The scheduled advisory-promotion build failed: a dependency now carries a published NuGet advisory (NU19xx). On PR/main this is only a warning (ADR 0013), but it must be triaged and is a hard blocker at the F40 gate. See the failing run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

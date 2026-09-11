@@ -1,0 +1,22 @@
+@page "/"
+
+<PageTitle>ZWarden</PageTitle>
+
+<h1 class="text-2xl font-semibold tracking-tight">ZWarden</h1>
+<p class="mt-1 text-slate-600">
+    Feature 0 engineering foundation - the UI pipeline is wired: Blazor Blueprint under
+    ZWarden-owned components over Tailwind utilities.
+</p>
+
+@* Tailwind utilities (grid-cols-*, gap-*, sm:*) are the ones generated ONLY by running
+   the Tailwind build over this markup - the exact classes the stale-app.css guard exists
+   to protect. *@
+<div class="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
+    <StatusBadge Status="ServerStatus.Healthy" />
+    <StatusBadge Status="ServerStatus.Degraded" />
+    <StatusBadge Status="ServerStatus.Unhealthy" />
+</div>
+
+<div class="mt-6">
+    <BbButton>A Blueprint primitive, under the seam</BbButton>
+</div>

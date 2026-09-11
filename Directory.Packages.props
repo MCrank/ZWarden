@@ -1,0 +1,35 @@
+<Project>
+
+  <!--
+    Central package management (ADR 0002). Every version is pinned here; project
+    files carry <PackageReference Include="..." /> with no Version attribute.
+    Transitive pinning is on, so transitive versions are pinned here too when a
+    restore conflict requires it.
+  -->
+
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Test stack - exact pins (ADR 0002). -->
+    <PackageVersion Include="TUnit" Version="1.66.27" />
+    <PackageVersion Include="TUnit.Mocks" Version="1.66.27" />
+    <PackageVersion Include="bunit" Version="2.10.3" />
+    <PackageVersion Include="Testcontainers.PostgreSql" Version="4.15.0" />
+    <PackageVersion Include="Npgsql" Version="10.0.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- UI component library - exact pins (ADR 0003); never 3.*. -->
+    <PackageVersion Include="BlazorBlueprint.Components" Version="3.16.0" />
+    <PackageVersion Include="BlazorBlueprint.Primitives" Version="3.16.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Runtime host packages. -->
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.10" />
+  </ItemGroup>
+
+</Project>

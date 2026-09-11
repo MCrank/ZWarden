@@ -1,0 +1,11 @@
+@using Microsoft.AspNetCore.Components
+
+@* A throwaway harness component for Feature 0's reflection-mode proof only.
+   The real status badge - the StatusBadge dot/ink contract from the Signal
+   style guide - is owned by Feature 5 (S5) and the UI features after it. *@
+<span class="badge @(PlayerCount > 0 ? "online" : "empty")">@PlayerCount online</span>
+
+@code {
+    [Parameter]
+    public int PlayerCount { get; set; }
+}

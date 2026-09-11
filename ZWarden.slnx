@@ -1,0 +1,18 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/ZWarden.Agent/ZWarden.Agent.csproj" />
+    <Project Path="src/ZWarden.Application/ZWarden.Application.csproj" />
+    <Project Path="src/ZWarden.Contracts/ZWarden.Contracts.csproj" />
+    <Project Path="src/ZWarden.Diagnostics/ZWarden.Diagnostics.csproj" />
+    <Project Path="src/ZWarden.Domain/ZWarden.Domain.csproj" />
+    <Project Path="src/ZWarden.Infrastructure/ZWarden.Infrastructure.csproj" />
+    <Project Path="src/ZWarden.Rcon/ZWarden.Rcon.csproj" />
+    <Project Path="src/ZWarden.Web/ZWarden.Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/ZWarden.ArchitectureTests/ZWarden.ArchitectureTests.csproj" />
+    <Project Path="tests/ZWarden.Domain.Tests/ZWarden.Domain.Tests.csproj" />
+    <Project Path="tests/ZWarden.IntegrationTests/ZWarden.IntegrationTests.csproj" />
+    <Project Path="tests/ZWarden.Web.Tests/ZWarden.Web.Tests.csproj" />
+  </Folder>
+</Solution>

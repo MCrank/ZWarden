@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+  <!-- TargetFramework, Nullable, ImplicitUsings come from Directory.Build.props. -->
+  <PropertyGroup>
+    <UserSecretsId>dotnet-ZWarden.Agent-5c207ab9-d4f0-4c28-80d7-8075d2be8478</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ZWarden.Contracts\ZWarden.Contracts.csproj" />
+    <ProjectReference Include="..\ZWarden.Rcon\ZWarden.Rcon.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!-- TargetFramework, Nullable, ImplicitUsings come from Directory.Build.props. -->
+
+  <ItemGroup>
+    <!-- UI component library (ADR 0003), exact-pinned in Directory.Packages.props. -->
+    <PackageReference Include="BlazorBlueprint.Components" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ZWarden.Application\ZWarden.Application.csproj" />
+    <ProjectReference Include="..\ZWarden.Infrastructure\ZWarden.Infrastructure.csproj" />
+    <ProjectReference Include="..\ZWarden.Contracts\ZWarden.Contracts.csproj" />
+    <ProjectReference Include="..\ZWarden.Diagnostics\ZWarden.Diagnostics.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Tailwind sources are inputs to the CSS build, not compiled content. The
+         generated wwwroot/app.css IS committed and diffed by CI (ADR 0003). -->
+    <Content Remove="Styles\**" />
+    <None Include="Styles\**" />
+    <None Include="package.json;package-lock.json;tailwind.config.js" />
+  </ItemGroup>
+
+</Project>
