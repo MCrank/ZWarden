@@ -134,9 +134,13 @@ public class ZWardenDbContext : IdentityDbContext<ApplicationUser, ApplicationRo
         {
             foreach (Microsoft.EntityFrameworkCore.Metadata.IMutableProperty property in entity.GetProperties())
             {
-                if (property.ClrType.IsValueType && typeof(ITypedId).IsAssignableFrom(property.ClrType))
+                // A typed id may be declared nullable (e.g. an optional server scope); unwrap Nullable<>
+                // so the convention maps ServerId? as well as ServerId - EF applies the non-nullable
+                // converter to the nullable property and stores null as null.
+                Type typedIdType = Nullable.GetUnderlyingType(property.ClrType) ?? property.ClrType;
+                if (typedIdType.IsValueType && typeof(ITypedId).IsAssignableFrom(typedIdType))
                 {
-                    property.SetValueConverter(TypedIdValueConverters.For(property.ClrType));
+                    property.SetValueConverter(TypedIdValueConverters.For(typedIdType));
                 }
             }
 
