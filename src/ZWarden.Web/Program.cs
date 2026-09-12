@@ -3,6 +3,7 @@ using ZWarden.Infrastructure.Agents;
 using ZWarden.Infrastructure.Audit;
 using ZWarden.Infrastructure.Authorization;
 using ZWarden.Infrastructure.Identity;
+using ZWarden.Infrastructure.Operations;
 using ZWarden.Infrastructure.Persistence;
 using ZWarden.Infrastructure.Security;
 using ZWarden.Infrastructure.Tenancy;
@@ -43,6 +44,7 @@ builder.Services.AddZWardenAuthentication(allowedHosts);
 builder.Services.AddZWardenAuthorization();        // F5: decision service, policy provider, handlers
 builder.Services.AddZWardenAudit();                 // F6: writer, query, correlation, durable auth sink
 builder.Services.AddZWardenEnrollment();            // F9: enrollment issuance/exchange, trust management, verifier
+builder.Services.AddZWardenOperations();            // F11: operations engine — coordinator, store, per-server lock (PR-B adds dispatch)
 builder.Services.AddAgentControlPlane();            // F10: Agent hub, handshake auth scheme, connection registry + monitor
 
 WebApplication app = builder.Build();

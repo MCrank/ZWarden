@@ -122,8 +122,10 @@ The machine an Agent runs on, and where its Servers run.
 _Avoid_: server (in this sense), node, machine
 
 **Operation**:
-A durable, auditable unit of mutating work against a Server, with its own lifecycle and progress.
-Only one conflicting mutating Operation may run against a Server at a time.
+A durable, auditable unit of work that runs on an Agent, with its own lifecycle and progress. It acts
+on a Server, or on the host Agent itself for host-level work (e.g. a diagnostic probe). Only one
+conflicting **mutating** Operation may run against a given Server at a time; read-only and host-level
+Operations never contend.
 _Avoid_: job, task, command (as a synonym), action
 
 **Protocol message**:
