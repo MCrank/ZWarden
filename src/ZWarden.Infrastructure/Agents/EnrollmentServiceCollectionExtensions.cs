@@ -33,6 +33,10 @@ public static class EnrollmentServiceCollectionExtensions
         services.AddScoped<IAgentEnrollmentExchange, AgentEnrollmentExchange>();
         services.AddScoped<IAgentCredentialVerifier, AgentCredentialVerifier>();
 
+        // F10: the durable companion to the in-memory connection registry — stamps the Agent's observed
+        // connection state (last-seen, connection state, negotiated version) as the hub sees it.
+        services.AddScoped<IAgentConnectionStateWriter, AgentConnectionStateWriter>();
+
         return services;
     }
 }

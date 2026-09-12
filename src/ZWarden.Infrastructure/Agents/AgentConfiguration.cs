@@ -22,6 +22,11 @@ public sealed class AgentConfiguration : IEntityTypeConfiguration<Agent>
         builder.Property(a => a.EnrolledVia).IsRequired();
         builder.Property(a => a.Label).HasMaxLength(200);
 
+        // Observed connection state (F10) — stored beside the trust state, never conflated with it. The enum
+        // is stored by name (the model convention), and LastSeenAt/LastProtocolVersion are nullable until the
+        // Agent first connects.
+        builder.Property(a => a.ConnectionState).HasConversion<string>().HasMaxLength(32).IsRequired();
+
         // The verifier finds an Agent by the hash of the presented credential.
         builder.HasIndex(a => a.CredentialHash);
     }
