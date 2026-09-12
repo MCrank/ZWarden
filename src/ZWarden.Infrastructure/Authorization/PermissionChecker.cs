@@ -19,13 +19,27 @@ public sealed class PermissionChecker : IPermissionChecker
 {
     private readonly ZWardenDbContext _context;
     private readonly ITenantContext _tenantContext;
+    private readonly IReadOnlyList<IAuthorizationSafetyRule> _safetyRules;
 
+    /// <summary>Constructs a checker with no safety rules (the v1.0 default).</summary>
     public PermissionChecker(ZWardenDbContext context, ITenantContext tenantContext)
+        : this(context, tenantContext, [])
+    {
+    }
+
+    /// <summary>Constructs a checker that consults the given deny-only safety rules after a grant is
+    /// established (PRD 12A).</summary>
+    public PermissionChecker(
+        ZWardenDbContext context,
+        ITenantContext tenantContext,
+        IEnumerable<IAuthorizationSafetyRule> safetyRules)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(tenantContext);
+        ArgumentNullException.ThrowIfNull(safetyRules);
         _context = context;
         _tenantContext = tenantContext;
+        _safetyRules = [.. safetyRules];
     }
 
     /// <inheritdoc />
@@ -66,11 +80,51 @@ public sealed class PermissionChecker : IPermissionChecker
             // A server-scoped permission: a tenant-wide grant covers every Server; otherwise the scope must match.
             : grantingScopes.Exists(scope => scope is null || scope == server);
 
-        return allowed
-            ? AuthorizationDecision.Allow(permission, permission.Scope == PermissionScope.TenantWide ? null : server)
-            : AuthorizationDecision.Deny(
+        if (!allowed)
+        {
+            return AuthorizationDecision.Deny(
                 server is null
                     ? $"No grant for {permission.Name} in the current tenant."
                     : $"No grant for {permission.Name} on {server} in the current tenant.");
+        }
+
+        // The grant is established; the deny-only safety rules may still veto it (PRD 12A), never grant.
+        ServerId? decisionServer = permission.Scope == PermissionScope.TenantWide ? null : server;
+        if (_safetyRules.Count > 0)
+        {
+            AuthorizationRequest request = new(user, permission, decisionServer, _tenantContext.CurrentTenantId);
+            foreach (IAuthorizationSafetyRule rule in _safetyRules)
+            {
+                AuthorizationDecision ruling = await rule.EvaluateAsync(request, cancellationToken).ConfigureAwait(false);
+                if (!ruling.IsAllowed)
+                {
+                    return ruling;
+                }
+            }
+        }
+
+        return AuthorizationDecision.Allow(permission, decisionServer);
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlySet<string>> GetTenantWidePermissionsAsync(
+        UserId user,
+        CancellationToken cancellationToken = default)
+    {
+        if (!_tenantContext.HasCurrentTenant)
+        {
+            return new HashSet<string>(StringComparer.Ordinal);
+        }
+
+        List<string> names = await (
+            from assignment in _context.Set<RoleAssignment>()
+            join role in _context.Set<Role>() on assignment.RoleId equals role.Id
+            join grant in _context.Set<RolePermissionGrant>() on role.Id equals grant.RoleId
+            where assignment.UserId == user && assignment.ServerId == null
+            select grant.PermissionName)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        return names.ToHashSet(StringComparer.Ordinal);
     }
 }

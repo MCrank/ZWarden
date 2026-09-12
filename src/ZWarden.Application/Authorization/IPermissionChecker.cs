@@ -20,4 +20,13 @@ public interface IPermissionChecker
         PermissionDefinition permission,
         ServerId? server = null,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The permission names <paramref name="user"/> holds <b>tenant-wide</b> in the current tenant (from
+    /// their tenant-wide assignments). Fail-closed: an empty set with no ambient tenant. Backs the
+    /// no-self-escalation guard — an actor may only author a role from permissions in this set.
+    /// </summary>
+    Task<IReadOnlySet<string>> GetTenantWidePermissionsAsync(
+        UserId user,
+        CancellationToken cancellationToken = default);
 }
