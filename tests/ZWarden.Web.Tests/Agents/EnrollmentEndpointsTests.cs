@@ -2,7 +2,11 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Microsoft.Extensions.DependencyInjection;
+using ZWarden.Application.Agents;
 using ZWarden.Contracts.Enrollment;
+using ZWarden.Domain.Ids;
+using ZWarden.Domain.Security;
 using ZWarden.Infrastructure.Authorization;
 using ZWarden.Web.Tests.Account;
 
@@ -110,6 +114,40 @@ public sealed class EnrollmentEndpointsTests
 
         await Assert.That(first.StatusCode).IsEqualTo(HttpStatusCode.OK);
         await Assert.That(second.StatusCode).IsEqualTo(HttpStatusCode.Unauthorized); // single-use
+    }
+
+    [Test]
+    public async Task An_enrolled_credential_verifies_then_a_revoke_rejects_it()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        string secret = await MintSecretAsync(factory, "host-alpha");
+
+        // The Agent's exchange (unauthenticated) yields the per-Agent credential.
+        using HttpClient agent = factory.CreateWebClient();
+        HttpResponseMessage enroll = await agent.PostAsJsonAsync(
+            new Uri("/agent/enroll", UriKind.Relative), new EnrollmentRequest(secret));
+        EnrollmentResponse credential = (await enroll.Content.ReadFromJsonAsync<EnrollmentResponse>())!;
+        AgentId agentId = AgentId.Parse(credential.AgentId);
+
+        // The server-side verifier (the seam F10 calls) accepts that exact credential.
+        await Assert.That(await VerifyAsync(factory, credential.AgentCredential)).IsEqualTo(agentId);
+
+        // An operator revokes the Agent's credential...
+        using HttpClient op = factory.CreateWebClient();
+        await LoginAsync(op, "op@zwarden.test", StrongPassword);
+        HttpResponseMessage revoke = await op.PostAsync(
+            new Uri($"/api/agents/{agentId}/revoke", UriKind.Relative), content: null);
+        await Assert.That(revoke.StatusCode).IsEqualTo(HttpStatusCode.NoContent);
+
+        // ...and the same credential no longer verifies.
+        await Assert.That(await VerifyAsync(factory, credential.AgentCredential)).IsNull();
+    }
+
+    private static async Task<AgentId?> VerifyAsync(ZWardenWebAppFactory factory, string credential)
+    {
+        await using AsyncServiceScope scope = factory.Services.CreateAsyncScope();
+        IAgentCredentialVerifier verifier = scope.ServiceProvider.GetRequiredService<IAgentCredentialVerifier>();
+        return await verifier.VerifyAsync(new SecretString(credential));
     }
 
     // Mints an enrollment token as an authorized operator and returns its one-time secret.
