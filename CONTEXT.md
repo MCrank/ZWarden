@@ -72,6 +72,29 @@ local user. It is not an Auth0 Organization, and it is optional — the control 
 itself and does not require one.
 _Avoid_: SSO (as the whole thing), Auth0 (as the seam name)
 
+**Permission**:
+A named, stable capability from a closed catalogue (e.g. `Server.Start`), either tenant-wide or narrowable
+to a single Server. The name is the currency everywhere; it is never a free-form string.
+_Avoid_: right, privilege, claim, scope (as a synonym)
+
+**Role**:
+A manageable bundle of Permissions, tenant-owned; either built-in (seeded per tenant) or custom
+(tenant-authored). It is ZWarden's authorization role, distinct from the coarse ASP.NET Core Identity
+claim-role.
+_Avoid_: group, permission set (as a distinct concept)
+
+**Permission assignment**:
+The tenant-owned binding of a user to a Role, optionally narrowed to one Server (the `prm-` record). A
+tenant-wide assignment confers the role across the tenant; a server-scoped one confers only the role's
+server-scopable permissions, and only on that Server.
+_Avoid_: membership (as a synonym), role mapping, grant (as the whole record)
+
+**Authorization decision**:
+The fail-closed evaluation of authenticated user + current tenant + role(s) + permission + target resource
++ applicable safety rules, yielding allow or deny. Always made server-side — hiding a UI control is never
+authorization.
+_Avoid_: access check (as the whole model), permission check (as the record)
+
 **Server**:
 One Project Zomboid server instance under ZWarden's management.
 _Avoid_: instance, game, world, box

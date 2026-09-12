@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata;
+using ZWarden.Domain.Authorization;
 using ZWarden.Domain.Ids;
 using ZWarden.Domain.Tenancy;
 using ZWarden.Infrastructure.Identity;
@@ -43,5 +44,28 @@ public class TenantFilterModelGuardTests
     public async Task The_application_user_is_tenant_owned()
     {
         await Assert.That(typeof(ITenantOwned).IsAssignableFrom(typeof(ApplicationUser))).IsTrue();
+    }
+
+    /// <summary>F5: the RBAC tables (<see cref="Role"/>, <see cref="RoleAssignment"/>) are present in the
+    /// real model and tenant-owned - so a role or a grant can never be read across tenants (ADR 0016/0018).
+    /// Dropping either the entity or its tenant scope is a red build.</summary>
+    [Test]
+    public async Task The_role_and_assignment_are_tenant_owned_and_filtered_in_the_real_model()
+    {
+        DbContextOptions options = new DbContextOptionsBuilder<ZWardenDbContext>()
+            .UseZWardenProvider(ZWardenDbProvider.Sqlite, "Data Source=:memory:")
+            .Options;
+        await using ZWardenDbContext db = new(options, new TestTenantContext(TenantId.New()));
+
+        IEntityType[] tenantOwned = db.Model.GetEntityTypes()
+            .Where(e => typeof(ITenantOwned).IsAssignableFrom(e.ClrType))
+            .ToArray();
+
+        await Assert.That(tenantOwned.Any(e => e.ClrType == typeof(Role))).IsTrue();
+        await Assert.That(tenantOwned.Any(e => e.ClrType == typeof(RoleAssignment))).IsTrue();
+        foreach (IEntityType entity in tenantOwned)
+        {
+            await Assert.That(entity.GetDeclaredQueryFilters().Count).IsGreaterThan(0);
+        }
     }
 }

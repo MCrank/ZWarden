@@ -1,4 +1,5 @@
 using BlazorBlueprint.Components;
+using ZWarden.Infrastructure.Authorization;
 using ZWarden.Infrastructure.Identity;
 using ZWarden.Infrastructure.Persistence;
 using ZWarden.Infrastructure.Security;
@@ -35,6 +36,7 @@ builder.Services.AddSessionTenantContext();        // wins over the single-tenan
 builder.Services.AddTenantFoundation();
 builder.Services.AddZWardenPersistence(provider, connectionString);
 builder.Services.AddZWardenAuthentication(allowedHosts);
+builder.Services.AddZWardenAuthorization();        // F5: decision service, policy provider, handlers
 
 WebApplication app = builder.Build();
 
@@ -67,6 +69,10 @@ if (!string.IsNullOrWhiteSpace(adminEmail) && !string.IsNullOrWhiteSpace(adminPa
 {
     await AdminBootstrapper.EnsureAdminAsync(app.Services, adminEmail, adminPassword);
 }
+
+// F5: seed the tenant's built-in roles and grant the first administrator the Tenant Owner role. Runs
+// after the admin seed (so the account exists) and is idempotent; seeds roles even with no admin configured.
+await AuthorizationBootstrapper.EnsureSeededAsync(app.Services, adminEmail);
 
 app.Run();
 
