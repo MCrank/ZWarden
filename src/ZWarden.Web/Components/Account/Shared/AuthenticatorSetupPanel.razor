@@ -1,0 +1,42 @@
+@* Authenticator enrolment panel (F4 UI, issue #63): the scannable QR, the manual-entry key, and the
+   otpauth URI - everything the user needs to seed an app. Pure presentation over values the page
+   supplies; the server-side QR (AuthenticatorQrCode) keeps this static, no JS interop. The shared
+   key is a secret shown only to enrol - never logged. *@
+
+<div class="space-y-3">
+    <ol class="list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
+        <li>Install an authenticator app (Aegis, 1Password, Google Authenticator…).</li>
+        <li>Scan the QR below, or enter the key by hand.</li>
+        <li>Enter the 6-digit code it shows to finish enrolment.</li>
+    </ol>
+
+    <div class="flex justify-center rounded border border-border bg-background p-3" data-qr>
+        @Qr
+    </div>
+
+    <div class="text-center">
+        <p class="text-xs uppercase tracking-[0.1em] text-muted-foreground">Manual key</p>
+        <p class="mt-0.5 font-mono text-sm text-foreground" data-authenticator-key>@FormattedKey</p>
+    </div>
+</div>
+
+@code {
+    /// <summary>The unformatted base32 authenticator key (from MfaService).</summary>
+    [Parameter]
+    [EditorRequired]
+    public string UnformattedKey { get; set; } = string.Empty;
+
+    /// <summary>The account email the otpauth label is built from.</summary>
+    [Parameter]
+    [EditorRequired]
+    public string Email { get; set; } = string.Empty;
+
+    /// <summary>The issuer shown in the authenticator app.</summary>
+    [Parameter]
+    public string Issuer { get; set; } = "ZWarden";
+
+    private string FormattedKey => AuthenticatorQrCode.FormatKey(UnformattedKey);
+
+    private MarkupString Qr =>
+        AuthenticatorQrCode.RenderSvg(AuthenticatorQrCode.BuildOtpauthUri(Issuer, Email, UnformattedKey));
+}

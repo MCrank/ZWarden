@@ -4,11 +4,19 @@ using ZWarden.Infrastructure.Persistence;
 using ZWarden.Infrastructure.Security;
 using ZWarden.Infrastructure.Tenancy;
 using ZWarden.Web.Components;
+using ZWarden.Web.Components.Account;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
+
+// Cascades the authentication state to components (drives AuthorizeRouteView / [Authorize] on the
+// static-rendered Account pages, F4 UI #63).
+builder.Services.AddCascadingAuthenticationState();
+
+// The local-URL-guarded redirect helper the static Account pages use to sign in and bounce (#63).
+builder.Services.AddScoped<IdentityRedirectManager>();
 
 // Blazor Blueprint services (ADR 0003): ToastService, DialogService, and the
 // primitive services underneath them.
@@ -46,6 +54,9 @@ app.MapStaticAssets();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
+// The Account sign-out endpoint (must act on the raw HTTP response, not a circuit) - F4 UI #63.
+app.MapAccountEndpoints();
+
 // Apply migrations, seed the default tenant, and (when configured) the first administrator, before
 // serving traffic. The security foundation loads its key ring here and fails closed if it is absent.
 await app.Services.MigrateAndBootstrapDefaultTenantAsync();
@@ -58,3 +69,10 @@ if (!string.IsNullOrWhiteSpace(adminEmail) && !string.IsNullOrWhiteSpace(adminPa
 }
 
 app.Run();
+
+/// <summary>
+/// Exposed so the F4 UI endpoint tests can boot the real host through
+/// <c>WebApplicationFactory&lt;Program&gt;</c> (issue #63). Top-level statements otherwise emit an
+/// internal <c>Program</c> the test project cannot name.
+/// </summary>
+public partial class Program;

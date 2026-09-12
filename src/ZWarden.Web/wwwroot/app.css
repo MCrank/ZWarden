@@ -1,3 +1,190 @@
+/* ZWarden.Web Tailwind entry (ADR 0003). The generated wwwroot/app.css is
+   committed and CI-diffed - run `npm run build:css` after editing this file or
+   any markup, or the utilities silently vanish at runtime. */
+
+/* The "Signal" identity tokens (:root light / .dark dark), inlined by
+   postcss-import ahead of Tailwind so BlazorBlueprint and ZWarden utilities
+   both read the same CSS variables. Authoritative source: docs/style-guide/. */
+
+/* ============================================================================
+ * ZWarden theme — "Signal"  (WIRED COPY)
+ *
+ * SYNCED FROM docs/style-guide/zwarden.css — that file is the AUTHORITATIVE
+ * artifact (style-guide.md: "When the two disagree, the token file wins").
+ * This copy is the one the app actually loads: @import-ed by app.tailwind.css
+ * and inlined into the committed wwwroot/app.css by the Tailwind build. If you
+ * change the identity, edit the docs file and re-sync this one verbatim.
+ *
+ * :root is LIGHT, .dark is DARK (the BlazorBlueprint theme contract). ZWarden
+ * boots dark-first (App.razor puts .dark on <html>); light stays first-class.
+ * BlazorBlueprint components read these same CSS variables, so dropping this in
+ * reskins the library with no per-component change (ADR 0003 wrapper seam).
+ * ========================================================================== */
+
+:root {
+  /* ---- surfaces (LIGHT — "daylight board") ---- */
+  --background: oklch(0.965 0.006 220);
+  --foreground: oklch(0.20 0.014 245);
+  --card: oklch(0.995 0.003 220);
+  --card-foreground: oklch(0.20 0.014 245);
+  --popover: oklch(0.995 0.003 220);
+  --popover-foreground: oklch(0.20 0.014 245);
+  --primary: oklch(0.50 0.12 205);
+  /* phosphor cyan, darkened for light ground */
+  --primary-foreground: oklch(0.99 0.005 210);
+  --secondary: oklch(0.93 0.008 220);
+  --secondary-foreground: oklch(0.28 0.014 245);
+  --muted: oklch(0.945 0.006 220);
+  --muted-foreground: oklch(0.46 0.018 235);
+  --accent: oklch(0.92 0.020 205);
+  --accent-foreground: oklch(0.25 0.015 240);
+  --destructive: oklch(0.54 0.21 27);
+  --destructive-foreground: oklch(0.99 0.004 210);
+  --border: oklch(0.87 0.008 225);
+  --input: oklch(0.87 0.008 225);
+  --ring: oklch(0.50 0.12 205);
+  /* Squared, not pill. Cards, buttons, inputs and status badges all key off this. */
+  --radius: 0.1875rem;
+  /* 3px */
+  /* ---- server-state ramp (boringly semantic, high-contrast) ---- */
+  --status-running:   oklch(0.53 0.16 148);
+  /* green  */
+  --status-stopped:   oklch(0.52 0.014 235);
+  /* grey   */
+  --status-unhealthy: oklch(0.52 0.22 27);
+  /* red    */
+  --status-busy:      oklch(0.60 0.15 72);
+  /* amber — "starting" / transitional */
+  --status-unknown:   oklch(0.52 0.12 292);
+  /* violet — agent unreachable */
+  /* ---- meter thresholds: nominal / watch / hot ---- */
+  --meter-nominal: oklch(0.53 0.16 148);
+  --meter-watch:   oklch(0.60 0.15 72);
+  --meter-hot:     oklch(0.52 0.22 27);
+  --meter-track:   oklch(0.90 0.007 220);
+}
+
+.dark {
+  /* ---- surfaces (DARK — control-room wall, the default mode) ---- */
+  --background: oklch(0.155 0.012 248);
+  --foreground: oklch(0.94 0.006 220);
+  --card: oklch(0.195 0.014 250);
+  --card-foreground: oklch(0.94 0.006 220);
+  --popover: oklch(0.195 0.014 250);
+  --popover-foreground: oklch(0.94 0.006 220);
+  --primary: oklch(0.82 0.13 200);
+  /* phosphor cyan, full glow on dark */
+  --primary-foreground: oklch(0.16 0.020 240);
+  --secondary: oklch(0.25 0.014 250);
+  --secondary-foreground: oklch(0.92 0.006 220);
+  --muted: oklch(0.235 0.013 250);
+  --muted-foreground: oklch(0.70 0.020 215);
+  --accent: oklch(0.28 0.020 205);
+  --accent-foreground: oklch(0.95 0.006 210);
+  --destructive: oklch(0.66 0.22 27);
+  --destructive-foreground: oklch(0.98 0.004 210);
+  --border: oklch(0.30 0.015 245);
+  --input: oklch(0.30 0.015 245);
+  --ring: oklch(0.82 0.13 200);
+  --status-running:   oklch(0.80 0.19 148);
+  --status-stopped:   oklch(0.62 0.014 240);
+  --status-unhealthy: oklch(0.68 0.23 27);
+  --status-busy:      oklch(0.83 0.17 80);
+  --status-unknown:   oklch(0.74 0.15 292);
+  --meter-nominal: oklch(0.80 0.19 148);
+  --meter-watch:   oklch(0.83 0.17 80);
+  --meter-hot:     oklch(0.68 0.23 27);
+  --meter-track:   oklch(0.28 0.013 250);
+}
+
+/* Self-hosted Chivo / Chivo Mono (OFL, see wwwroot/fonts/OFL.txt). No CDN in
+   production (style-guide.md); latin subset, normal style, only the weights the
+   UI uses. `font-display: swap` so text paints immediately on the fallback. */
+
+@font-face {
+  font-family: "Chivo";
+
+  font-style: normal;
+
+  font-weight: 400;
+
+  font-display: swap;
+
+  src: url("/fonts/chivo-400.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Chivo";
+
+  font-style: normal;
+
+  font-weight: 600;
+
+  font-display: swap;
+
+  src: url("/fonts/chivo-600.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Chivo";
+
+  font-style: normal;
+
+  font-weight: 800;
+
+  font-display: swap;
+
+  src: url("/fonts/chivo-800.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Chivo";
+
+  font-style: normal;
+
+  font-weight: 900;
+
+  font-display: swap;
+
+  src: url("/fonts/chivo-900.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Chivo Mono";
+
+  font-style: normal;
+
+  font-weight: 400;
+
+  font-display: swap;
+
+  src: url("/fonts/chivo-mono-400.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Chivo Mono";
+
+  font-style: normal;
+
+  font-weight: 500;
+
+  font-display: swap;
+
+  src: url("/fonts/chivo-mono-500.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Chivo Mono";
+
+  font-style: normal;
+
+  font-weight: 700;
+
+  font-display: swap;
+
+  src: url("/fonts/chivo-mono-700.woff2") format("woff2");
+}
+
 *, ::before, ::after {
   --tw-border-spacing-x: 0;
   --tw-border-spacing-y: 0;
@@ -106,9 +293,7 @@
   --tw-contain-style:  ;
 }
 
-/*
-! tailwindcss v3.4.17 | MIT License | https://tailwindcss.com
-*/
+/* ! tailwindcss v3.4.17 | MIT License | https://tailwindcss.com */
 
 /*
 1. Prevent padding and border from affecting element width. (https://github.com/mozdevs/cssremedy/issues/4)
@@ -154,7 +339,7 @@ html,
   -o-tab-size: 4;
      tab-size: 4;
   /* 3 */
-  font-family: ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  font-family: Chivo, ui-sans-serif, system-ui, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif;
   /* 4 */
   font-feature-settings: normal;
   /* 5 */
@@ -243,7 +428,7 @@ code,
 kbd,
 samp,
 pre {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-family: Chivo Mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   /* 1 */
   font-feature-settings: normal;
   /* 2 */
@@ -554,8 +739,44 @@ video {
   display: none;
 }
 
+/* Dark-first ground; the whole app reads the tokens through Tailwind's
+     bg-background / text-foreground (mapped in tailwind.config.js). */
+
+html {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: Chivo, ui-sans-serif, system-ui, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif;
+}
+
+/* Tabular data (player counts, CPU/mem, uptime, versions) is Chivo Mono with
+     lining tabular figures so digits stay in their columns (style-guide.md). */
+
+.font-mono {
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+.pointer-events-none {
+  pointer-events: none;
+}
+
+.visible {
+  visibility: visible;
+}
+
 .static {
   position: static;
+}
+
+.absolute {
+  position: absolute;
+}
+
+.relative {
+  position: relative;
+}
+
+.inset-0 {
+  inset: 0px;
 }
 
 .mx-auto {
@@ -563,28 +784,80 @@ video {
   margin-right: auto;
 }
 
+.mb-6 {
+  margin-bottom: 1.5rem;
+}
+
+.mt-0\.5 {
+  margin-top: 0.125rem;
+}
+
 .mt-1 {
   margin-top: 0.25rem;
+}
+
+.mt-3 {
+  margin-top: 0.75rem;
+}
+
+.mt-4 {
+  margin-top: 1rem;
+}
+
+.mt-5 {
+  margin-top: 1.25rem;
 }
 
 .mt-6 {
   margin-top: 1.5rem;
 }
 
+.mt-8 {
+  margin-top: 2rem;
+}
+
+.block {
+  display: block;
+}
+
 .inline-block {
   display: inline-block;
+}
+
+.inline {
+  display: inline;
+}
+
+.flex {
+  display: flex;
 }
 
 .inline-flex {
   display: inline-flex;
 }
 
+.table {
+  display: table;
+}
+
 .grid {
   display: grid;
 }
 
+.hidden {
+  display: none;
+}
+
 .h-2 {
   height: 0.5rem;
+}
+
+.h-4 {
+  height: 1rem;
+}
+
+.h-9 {
+  height: 2.25rem;
 }
 
 .min-h-screen {
@@ -595,24 +868,130 @@ video {
   width: 0.5rem;
 }
 
+.w-4 {
+  width: 1rem;
+}
+
+.w-9 {
+  width: 2.25rem;
+}
+
+.w-full {
+  width: 100%;
+}
+
 .max-w-5xl {
   max-width: 64rem;
+}
+
+.max-w-md {
+  max-width: 28rem;
+}
+
+.max-w-sm {
+  max-width: 24rem;
+}
+
+.shrink-0 {
+  flex-shrink: 0;
+}
+
+.list-decimal {
+  list-style-type: decimal;
 }
 
 .grid-cols-1 {
   grid-template-columns: repeat(1, minmax(0, 1fr));
 }
 
+.grid-cols-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.grid-cols-\[auto\2c 1fr\] {
+  grid-template-columns: auto 1fr;
+}
+
+.flex-col {
+  flex-direction: column;
+}
+
+.flex-wrap {
+  flex-wrap: wrap;
+}
+
+.items-start {
+  align-items: flex-start;
+}
+
 .items-center {
   align-items: center;
+}
+
+.justify-center {
+  justify-content: center;
 }
 
 .gap-1\.5 {
   gap: 0.375rem;
 }
 
+.gap-2 {
+  gap: 0.5rem;
+}
+
 .gap-3 {
   gap: 0.75rem;
+}
+
+.gap-x-4 {
+  -moz-column-gap: 1rem;
+       column-gap: 1rem;
+}
+
+.gap-x-6 {
+  -moz-column-gap: 1.5rem;
+       column-gap: 1.5rem;
+}
+
+.gap-y-1 {
+  row-gap: 0.25rem;
+}
+
+.gap-y-2 {
+  row-gap: 0.5rem;
+}
+
+.space-y-1 > :not([hidden]) ~ :not([hidden]) {
+  --tw-space-y-reverse: 0;
+  margin-top: calc(0.25rem * calc(1 - var(--tw-space-y-reverse)));
+  margin-bottom: calc(0.25rem * var(--tw-space-y-reverse));
+}
+
+.space-y-3 > :not([hidden]) ~ :not([hidden]) {
+  --tw-space-y-reverse: 0;
+  margin-top: calc(0.75rem * calc(1 - var(--tw-space-y-reverse)));
+  margin-bottom: calc(0.75rem * var(--tw-space-y-reverse));
+}
+
+.space-y-4 > :not([hidden]) ~ :not([hidden]) {
+  --tw-space-y-reverse: 0;
+  margin-top: calc(1rem * calc(1 - var(--tw-space-y-reverse)));
+  margin-bottom: calc(1rem * var(--tw-space-y-reverse));
+}
+
+.space-y-5 > :not([hidden]) ~ :not([hidden]) {
+  --tw-space-y-reverse: 0;
+  margin-top: calc(1.25rem * calc(1 - var(--tw-space-y-reverse)));
+  margin-bottom: calc(1.25rem * var(--tw-space-y-reverse));
+}
+
+.overflow-hidden {
+  overflow: hidden;
+}
+
+.rounded {
+  border-radius: var(--radius);
 }
 
 .rounded-full {
@@ -620,11 +999,15 @@ video {
 }
 
 .rounded-sm {
-  border-radius: 0.125rem;
+  border-radius: calc(var(--radius) - 1px);
 }
 
 .border {
   border-width: 1px;
+}
+
+.border-l-2 {
+  border-left-width: 2px;
 }
 
 .border-amber-300 {
@@ -632,9 +1015,17 @@ video {
   border-color: rgb(252 211 77 / var(--tw-border-opacity, 1));
 }
 
+.border-border {
+  border-color: var(--border);
+}
+
 .border-emerald-300 {
   --tw-border-opacity: 1;
   border-color: rgb(110 231 183 / var(--tw-border-opacity, 1));
+}
+
+.border-input {
+  border-color: var(--input);
 }
 
 .border-red-300 {
@@ -647,14 +1038,46 @@ video {
   border-color: rgb(203 213 225 / var(--tw-border-opacity, 1));
 }
 
+.border-l-destructive {
+  border-left-color: var(--destructive);
+}
+
+.border-l-primary {
+  border-left-color: var(--primary);
+}
+
+.border-l-status-busy {
+  border-left-color: var(--status-busy);
+}
+
+.border-l-status-running {
+  border-left-color: var(--status-running);
+}
+
 .bg-amber-500 {
   --tw-bg-opacity: 1;
   background-color: rgb(245 158 11 / var(--tw-bg-opacity, 1));
 }
 
+.bg-background {
+  background-color: var(--background);
+}
+
+.bg-card {
+  background-color: var(--card);
+}
+
+.bg-destructive {
+  background-color: var(--destructive);
+}
+
 .bg-emerald-500 {
   --tw-bg-opacity: 1;
   background-color: rgb(16 185 129 / var(--tw-bg-opacity, 1));
+}
+
+.bg-primary {
+  background-color: var(--primary);
 }
 
 .bg-red-500 {
@@ -667,6 +1090,18 @@ video {
   background-color: rgb(148 163 184 / var(--tw-bg-opacity, 1));
 }
 
+.bg-status-running {
+  background-color: var(--status-running);
+}
+
+.p-3 {
+  padding: 0.75rem;
+}
+
+.p-4 {
+  padding: 1rem;
+}
+
 .p-6 {
   padding: 1.5rem;
 }
@@ -676,9 +1111,41 @@ video {
   padding-right: 0.5rem;
 }
 
+.px-3 {
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
+}
+
+.px-4 {
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+
 .py-0\.5 {
   padding-top: 0.125rem;
   padding-bottom: 0.125rem;
+}
+
+.py-10 {
+  padding-top: 2.5rem;
+  padding-bottom: 2.5rem;
+}
+
+.py-2 {
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+}
+
+.pl-5 {
+  padding-left: 1.25rem;
+}
+
+.text-center {
+  text-align: center;
+}
+
+.font-mono {
+  font-family: Chivo Mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 .text-2xl {
@@ -686,9 +1153,36 @@ video {
   line-height: 2rem;
 }
 
+.text-lg {
+  font-size: 1.125rem;
+  line-height: 1.75rem;
+}
+
+.text-sm {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+
+.text-xl {
+  font-size: 1.25rem;
+  line-height: 1.75rem;
+}
+
 .text-xs {
   font-size: 0.75rem;
   line-height: 1rem;
+}
+
+.font-black {
+  font-weight: 900;
+}
+
+.font-bold {
+  font-weight: 700;
+}
+
+.font-extrabold {
+  font-weight: 800;
 }
 
 .font-medium {
@@ -697,6 +1191,22 @@ video {
 
 .font-semibold {
   font-weight: 600;
+}
+
+.uppercase {
+  text-transform: uppercase;
+}
+
+.tracking-\[0\.1em\] {
+  letter-spacing: 0.1em;
+}
+
+.tracking-\[0\.2em\] {
+  letter-spacing: 0.2em;
+}
+
+.tracking-\[0\.3em\] {
+  letter-spacing: 0.3em;
 }
 
 .tracking-tight {
@@ -708,9 +1218,29 @@ video {
   color: rgb(146 64 14 / var(--tw-text-opacity, 1));
 }
 
+.text-destructive {
+  color: var(--destructive);
+}
+
 .text-emerald-800 {
   --tw-text-opacity: 1;
   color: rgb(6 95 70 / var(--tw-text-opacity, 1));
+}
+
+.text-foreground {
+  color: var(--foreground);
+}
+
+.text-muted-foreground {
+  color: var(--muted-foreground);
+}
+
+.text-primary {
+  color: var(--primary);
+}
+
+.text-primary-foreground {
+  color: var(--primary-foreground);
 }
 
 .text-red-800 {
@@ -718,14 +1248,67 @@ video {
   color: rgb(153 27 27 / var(--tw-text-opacity, 1));
 }
 
-.text-slate-600 {
-  --tw-text-opacity: 1;
-  color: rgb(71 85 105 / var(--tw-text-opacity, 1));
-}
-
 .text-slate-700 {
   --tw-text-opacity: 1;
   color: rgb(51 65 85 / var(--tw-text-opacity, 1));
+}
+
+.text-status-busy {
+  color: var(--status-busy);
+}
+
+.text-status-running {
+  color: var(--status-running);
+}
+
+.outline-none {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+}
+
+.transition {
+  transition-property: color, background-color, border-color, text-decoration-color, fill, stroke, opacity, box-shadow, transform, filter, -webkit-backdrop-filter;
+  transition-property: color, background-color, border-color, text-decoration-color, fill, stroke, opacity, box-shadow, transform, filter, backdrop-filter;
+  transition-property: color, background-color, border-color, text-decoration-color, fill, stroke, opacity, box-shadow, transform, filter, backdrop-filter, -webkit-backdrop-filter;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 150ms;
+}
+
+.hover\:bg-muted:hover {
+  background-color: var(--muted);
+}
+
+.hover\:underline:hover {
+  text-decoration-line: underline;
+}
+
+.hover\:opacity-90:hover {
+  opacity: 0.9;
+}
+
+.focus\:border-ring:focus {
+  border-color: var(--ring);
+}
+
+.focus\:outline-none:focus {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+}
+
+.focus\:ring-1:focus {
+  --tw-ring-offset-shadow: var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color);
+  --tw-ring-shadow: var(--tw-ring-inset) 0 0 0 calc(1px + var(--tw-ring-offset-width)) var(--tw-ring-color);
+  box-shadow: var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow, 0 0 #0000);
+}
+
+.focus\:ring-2:focus {
+  --tw-ring-offset-shadow: var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color);
+  --tw-ring-shadow: var(--tw-ring-inset) 0 0 0 calc(2px + var(--tw-ring-offset-width)) var(--tw-ring-color);
+  box-shadow: var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow, 0 0 #0000);
+}
+
+.focus\:ring-ring:focus {
+  --tw-ring-color: var(--ring);
 }
 
 @media (min-width: 640px) {

@@ -1,0 +1,55 @@
+@page "/account/confirm-email"
+@layout AuthLayout
+@inject UserManager<ApplicationUser> UserManager
+@inject AccountRecoveryService AccountRecovery
+
+@* Confirms an email address from a confirmation link (`email` + `code`). Keyed by email, not the raw
+   user uuid, which is never surfaced (CONTEXT.md). Runs on GET - the link itself is the action. *@
+
+<PageTitle>Confirm email · ZWarden</PageTitle>
+
+<h1 class="text-lg font-semibold text-foreground">Email confirmation</h1>
+
+<div class="mt-4">
+    @if (_confirmed)
+    {
+        <StatusAlert Kind="StatusAlert.AlertKind.Success"
+                     Message="Your email address is confirmed. You can now sign in." />
+    }
+    else
+    {
+        <StatusAlert Kind="StatusAlert.AlertKind.Error"
+                     Message="This confirmation link is invalid or has expired." />
+    }
+</div>
+
+<div class="mt-4 text-center text-sm">
+    <a href="/login" class="text-primary hover:underline">Continue to sign in</a>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "email")]
+    private string? Email { get; set; }
+
+    [SupplyParameterFromQuery(Name = "code")]
+    private string? Code { get; set; }
+
+    private bool _confirmed;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (string.IsNullOrEmpty(Email) || string.IsNullOrEmpty(Code))
+        {
+            return;
+        }
+
+        ApplicationUser? user = await UserManager.FindByEmailAsync(Email);
+        if (user is null)
+        {
+            return;
+        }
+
+        IdentityResult result = await AccountRecovery.ConfirmEmailAsync(user, Code);
+        _confirmed = result.Succeeded;
+    }
+}

@@ -1,3 +1,39 @@
+/* ZWarden.Web Tailwind entry (ADR 0003). The generated wwwroot/app.css is
+   committed and CI-diffed - run `npm run build:css` after editing this file or
+   any markup, or the utilities silently vanish at runtime. */
+
+/* The "Signal" identity tokens (:root light / .dark dark), inlined by
+   postcss-import ahead of Tailwind so BlazorBlueprint and ZWarden utilities
+   both read the same CSS variables. Authoritative source: docs/style-guide/. */
+@import "./zwarden.css";
+
+/* Self-hosted Chivo / Chivo Mono (OFL, see wwwroot/fonts/OFL.txt). No CDN in
+   production (style-guide.md); latin subset, normal style, only the weights the
+   UI uses. `font-display: swap` so text paints immediately on the fallback. */
+@font-face { font-family: "Chivo"; font-style: normal; font-weight: 400; font-display: swap; src: url("/fonts/chivo-400.woff2") format("woff2"); }
+@font-face { font-family: "Chivo"; font-style: normal; font-weight: 600; font-display: swap; src: url("/fonts/chivo-600.woff2") format("woff2"); }
+@font-face { font-family: "Chivo"; font-style: normal; font-weight: 800; font-display: swap; src: url("/fonts/chivo-800.woff2") format("woff2"); }
+@font-face { font-family: "Chivo"; font-style: normal; font-weight: 900; font-display: swap; src: url("/fonts/chivo-900.woff2") format("woff2"); }
+@font-face { font-family: "Chivo Mono"; font-style: normal; font-weight: 400; font-display: swap; src: url("/fonts/chivo-mono-400.woff2") format("woff2"); }
+@font-face { font-family: "Chivo Mono"; font-style: normal; font-weight: 500; font-display: swap; src: url("/fonts/chivo-mono-500.woff2") format("woff2"); }
+@font-face { font-family: "Chivo Mono"; font-style: normal; font-weight: 700; font-display: swap; src: url("/fonts/chivo-mono-700.woff2") format("woff2"); }
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  /* Dark-first ground; the whole app reads the tokens through Tailwind's
+     bg-background / text-foreground (mapped in tailwind.config.js). */
+  html {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: theme("fontFamily.sans");
+  }
+
+  /* Tabular data (player counts, CPU/mem, uptime, versions) is Chivo Mono with
+     lining tabular figures so digits stay in their columns (style-guide.md). */
+  .font-mono {
+    font-variant-numeric: tabular-nums lining-nums;
+  }
+}

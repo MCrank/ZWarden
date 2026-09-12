@@ -1,9 +1,12 @@
 @page "/"
+@* This page uses an interactive Blueprint primitive (BbButton), so it opts into a
+   Server circuit. The Account auth pages deliberately do NOT - they stay static. *@
+@rendermode InteractiveServer
 
 <PageTitle>ZWarden</PageTitle>
 
 <h1 class="text-2xl font-semibold tracking-tight">ZWarden</h1>
-<p class="mt-1 text-slate-600">
+<p class="mt-1 text-muted-foreground">
     Feature 0 engineering foundation - the UI pipeline is wired: Blazor Blueprint under
     ZWarden-owned components over Tailwind utilities.
 </p>

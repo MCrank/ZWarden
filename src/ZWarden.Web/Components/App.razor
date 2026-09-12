@@ -1,5 +1,6 @@
 <!DOCTYPE html>
-<html lang="en">
+@* Dark-first: ZWarden boots with .dark applied (style-guide.md); light stays first-class. *@
+<html lang="en" class="dark">
 
 <head>
     <meta charset="utf-8" />
@@ -13,11 +14,14 @@
     <link rel="stylesheet" href="@Assets["app.css"]" />
     <ImportMap />
     <link rel="icon" type="image/png" href="favicon.png" />
-    <HeadOutlet @rendermode="InteractiveServer" />
+    @* Per-page interactivity (not global): pages are static-rendered by default so the
+       Account auth surface can sign the cookie on a real HTTP request (issue #63); a page
+       opts into a circuit with `@@rendermode InteractiveServer`. *@
+    <HeadOutlet />
 </head>
 
 <body>
-    <Routes @rendermode="InteractiveServer" />
+    <Routes />
     <script src="@Assets["_framework/blazor.web.js"]"></script>
 </body>
 

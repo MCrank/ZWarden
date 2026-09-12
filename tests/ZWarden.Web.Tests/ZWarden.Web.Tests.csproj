@@ -23,7 +23,7 @@
       the switch and they vanish with a clean "Passed!" and exit 0. This floor turns
       that into a hard failure (MTP exit 9). Update the number when tests are added.
     -->
-    <TestingPlatformCommandLineArguments>--minimum-expected-tests 3</TestingPlatformCommandLineArguments>
+    <TestingPlatformCommandLineArguments>--minimum-expected-tests 19</TestingPlatformCommandLineArguments>
   </PropertyGroup>
 
   <ItemGroup>
@@ -33,6 +33,17 @@
   <ItemGroup>
     <PackageReference Include="TUnit" />
     <PackageReference Include="bunit" />
+    <!-- WebApplicationFactory<Program> for the F4 UI cookie-flow endpoint tests (#63). -->
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The app under test (bUnit renders its components; WAF boots its Program). -->
+    <ProjectReference Include="..\..\src\ZWarden.Web\ZWarden.Web.csproj" />
+    <!-- TOTP generator matching Identity's authenticator, for the MFA flow tests. -->
+    <ProjectReference Include="..\ZWarden.TestSupport\ZWarden.TestSupport.csproj" />
+    <!-- The SQLite migration history, so the booted host's MigrateAsync finds the offline provider's migrations. -->
+    <ProjectReference Include="..\..\src\ZWarden.Migrations.Sqlite\ZWarden.Migrations.Sqlite.csproj" />
   </ItemGroup>
 
 </Project>

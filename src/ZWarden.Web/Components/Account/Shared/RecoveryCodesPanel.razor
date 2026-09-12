@@ -1,0 +1,26 @@
+@* Shows two-factor recovery codes EXACTLY ONCE, at generation time (PRD 11, issue #63). The codes
+   are secret-aware at rest (ISecretProtector, ADR 0015); this is the single moment they are visible,
+   so the copy is emphatic about saving them now. Rendered in mono for legibility when copied. *@
+
+@if (Codes is { Count: > 0 })
+{
+    <div class="rounded border border-l-2 border-border border-l-status-busy bg-card p-4">
+        <p class="text-sm font-semibold text-foreground">Save your recovery codes now</p>
+        <p class="mt-1 text-xs text-muted-foreground">
+            Each code works once if you lose your authenticator. They are shown only this once and
+            cannot be retrieved later — store them somewhere safe.
+        </p>
+        <ul class="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 font-mono text-sm text-foreground">
+            @foreach (string recoveryCode in Codes)
+            {
+                <li data-recovery-code>@recoveryCode</li>
+            }
+        </ul>
+    </div>
+}
+
+@code {
+    /// <summary>The freshly generated recovery codes to reveal once.</summary>
+    [Parameter]
+    public IReadOnlyList<string>? Codes { get; set; }
+}

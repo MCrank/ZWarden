@@ -1,0 +1,14 @@
+@inject NavigationManager Navigation
+
+@* Sends an unauthenticated visitor to /login, preserving where they were headed as returnUrl. Used by
+   Routes.razor's NotAuthorized branch (the endpoint cookie challenge covers the static-render case). *@
+
+@code {
+    protected override void OnInitialized()
+    {
+        string returnUrl = "/" + Navigation.ToBaseRelativePath(Navigation.Uri);
+        Navigation.NavigateTo(
+            $"/login?returnUrl={Uri.EscapeDataString(IdentityRedirectManager.ToLocalOrHome(returnUrl))}",
+            forceLoad: true);
+    }
+}

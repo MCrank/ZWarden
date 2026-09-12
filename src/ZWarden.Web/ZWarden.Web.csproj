@@ -5,6 +5,8 @@
   <ItemGroup>
     <!-- UI component library (ADR 0003), exact-pinned in Directory.Packages.props. -->
     <PackageReference Include="BlazorBlueprint.Components" />
+    <!-- Server-side authenticator QR rendering for the static MFA enrolment page (F4 UI). -->
+    <PackageReference Include="QRCoder" />
   </ItemGroup>
 
   <ItemGroup>

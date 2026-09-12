@@ -1,0 +1,26 @@
+@inherits LayoutComponentBase
+
+@* The auth identity surface (style-guide.md "Identity surfaces"): the Z wordmark, a phosphor-cyan
+   glow + scanline panel, and a PZ-toned operational tagline. The console chrome stays plain; the
+   personality lives here. Static-rendered - no circuit, no Blueprint interactive components. The
+   glow/scanline are inline styles (reliable across the Tailwind build) reading the theme tokens. *@
+
+<div class="flex min-h-screen flex-col items-center justify-center bg-background px-4 py-10">
+    <div class="w-full max-w-sm">
+        <div class="mb-6 flex items-center gap-2">
+            <span class="inline-flex h-9 w-9 items-center justify-center rounded bg-primary font-mono text-lg font-black text-primary-foreground">Z</span>
+            <span class="text-2xl font-extrabold uppercase tracking-[0.2em] text-foreground">ZWarden</span>
+        </div>
+
+        <div class="relative overflow-hidden rounded border border-border bg-card p-6"
+             style="box-shadow: 0 0 0 1px var(--ring), 0 12px 44px -14px var(--primary);">
+            <div aria-hidden="true" class="pointer-events-none absolute inset-0"
+                 style="background: repeating-linear-gradient(0deg, color-mix(in oklab, var(--primary) 7%, transparent) 0, transparent 2px, transparent 4px);"></div>
+            <div class="relative">
+                @Body
+            </div>
+        </div>
+
+        <p class="mt-4 text-center text-xs text-muted-foreground">This is how you deploy.</p>
+    </div>
+</div>
