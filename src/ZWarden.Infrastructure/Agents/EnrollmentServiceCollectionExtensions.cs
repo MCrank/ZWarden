@@ -34,8 +34,12 @@ public static class EnrollmentServiceCollectionExtensions
         services.AddScoped<IAgentCredentialVerifier, AgentCredentialVerifier>();
 
         // F10: the durable companion to the in-memory connection registry — stamps the Agent's observed
-        // connection state (last-seen, connection state, negotiated version) as the hub sees it.
+        // connection state (last-seen, connection state, negotiated version) as the hub sees it, and the
+        // background sweeper that reconciles stale connections. The in-memory registry itself is a Web
+        // singleton (it holds live SignalR connections), wired in the Web composition.
         services.AddScoped<IAgentConnectionStateWriter, AgentConnectionStateWriter>();
+        services.AddOptions<AgentConnectionMonitorOptions>();
+        services.AddScoped<AgentConnectionSweeper>();
 
         return services;
     }

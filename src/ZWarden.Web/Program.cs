@@ -6,6 +6,7 @@ using ZWarden.Infrastructure.Identity;
 using ZWarden.Infrastructure.Persistence;
 using ZWarden.Infrastructure.Security;
 using ZWarden.Infrastructure.Tenancy;
+using ZWarden.Web.Agents;
 using ZWarden.Web.Components;
 using ZWarden.Web.Components.Account;
 using ZWarden.Web.Components.Agents;
@@ -42,6 +43,7 @@ builder.Services.AddZWardenAuthentication(allowedHosts);
 builder.Services.AddZWardenAuthorization();        // F5: decision service, policy provider, handlers
 builder.Services.AddZWardenAudit();                 // F6: writer, query, correlation, durable auth sink
 builder.Services.AddZWardenEnrollment();            // F9: enrollment issuance/exchange, trust management, verifier
+builder.Services.AddAgentControlPlane();            // F10: Agent hub, handshake auth scheme, connection registry + monitor
 
 WebApplication app = builder.Build();
 
@@ -66,6 +68,9 @@ app.MapAccountEndpoints();
 
 // The operator enrollment/trust API, gated by Tenant.Enrollment.Manage (F9).
 app.MapEnrollmentEndpoints();
+
+// The SignalR Agent hub (F10) — Agents connect outbound here over WSS, authenticated by the "Agent" scheme.
+app.MapAgentHub();
 
 // Apply migrations, seed the default tenant, and (when configured) the first administrator, before
 // serving traffic. The security foundation loads its key ring here and fails closed if it is absent.

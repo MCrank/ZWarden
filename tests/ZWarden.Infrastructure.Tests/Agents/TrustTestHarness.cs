@@ -42,8 +42,16 @@ internal static class TrustTestHarness
     public static AgentTrustService Trust(
         ZWardenDbContext ctx,
         CapturingAuditWriter audit,
-        string[] held)
-        => new(ctx, new AgentRepository(ctx), new StubPermissionChecker(held), audit, Hasher, new StubClock(Now));
+        string[] held,
+        IAgentConnectionRegistry? connections = null)
+        => new(
+            ctx,
+            new AgentRepository(ctx),
+            new StubPermissionChecker(held),
+            audit,
+            Hasher,
+            new StubClock(Now),
+            connections ?? new RecordingConnectionRegistry());
 
     public static AgentEnrollmentExchange Exchange(
         ZWardenDbContext ctx,
@@ -97,6 +105,27 @@ internal sealed class CapturingAuditWriter : IAuditWriter
     {
         Entries.Add(entry);
         return Task.CompletedTask;
+    }
+}
+
+/// <summary>Records the F10 revoke/disable drop path: the Agent ids <see cref="TryAbort"/> was called for, and
+/// whether it reports a live connection was aborted (primed via <paramref name="abortSucceeds"/>).</summary>
+internal sealed class RecordingConnectionRegistry(bool abortSucceeds = false) : IAgentConnectionRegistry
+{
+    public List<AgentId> Aborted { get; } = [];
+
+    public void Register(AgentId agentId, string connectionId, Action abort) { }
+
+    public void Remove(string connectionId) { }
+
+    public bool IsConnected(AgentId agentId) => false;
+
+    public string? GetConnectionId(AgentId agentId) => null;
+
+    public bool TryAbort(AgentId agentId)
+    {
+        Aborted.Add(agentId);
+        return abortSucceeds;
     }
 }
 
