@@ -1,8 +1,8 @@
 # Feature 11 Mini-Plan — Durable Operations Engine
 
-**Status:** in progress. Branch `feat/f11-durable-operations-engine`, **two PRs** closing
-[F11 (#33)](https://github.com/MCrank/ZWarden/issues/33) — PR-A engine core, **PR-B** Web/Agent
-dispatch + `Diagnostics.Ping` + end-to-end (closes #33). Track C. F6 ([#28](https://github.com/MCrank/ZWarden/issues/28))
+**Status:** PR-A (engine core) complete on branch `feat/f11-durable-operations-engine`; PR-B (Web/Agent
+dispatch + `Diagnostics.Ping` + end-to-end) next. **Two PRs** closing
+[F11 (#33)](https://github.com/MCrank/ZWarden/issues/33) — PR-A engine core, **PR-B** closes #33. Track C. F6 ([#28](https://github.com/MCrank/ZWarden/issues/28))
 and F10 ([#32](https://github.com/MCrank/ZWarden/issues/32)) are merged, so F11 is unblocked; it blocks
 F13 ([#57](https://github.com/MCrank/ZWarden/issues/57)/#… Docker runtime), F15, F20b, F22, F24 —
 five features build on this engine.
@@ -298,20 +298,21 @@ Two PRs on branch `feat/f11-durable-operations-engine`:
 
 **PR-A — engine core** (no Web/Agent wiring; everything testable with fakes):
 
-- **S0 — mini-plan + ADR 0022.** This document + `docs/adr/0022-…`. *(this commit)*
-- **S1 — Domain.** The `Operation` aggregate, `OperationState`/`OperationKind`, the transition guard.
-  *Verify:* test 1. Domain.Tests floor bumped.
-- **S2 — Application seams.** `IOperationCoordinator`, `IOperationDispatcher`, `IOperationStore`,
-  `OperationAuditActions`, `ServerBusyException`, the enqueue/cancel request/ingest DTOs. *Verify:*
-  compile + seam unit tests.
-- **S3 — Persistence + lock + migration.** `OperationConfiguration` (partial index + idempotency
-  index), the coordinator implementation (INSERT-to-acquire + the one inner-exception switch), the
-  paired `Sqlite` + `Postgres` migration (built, never `--no-build`), `AddZWardenOperations()` +
-  options (incl. SQLite `CommandTimeout = 30 s`). *Verify:* tests 2, 3, 4 (SQLite offline; Postgres
-  on the networked tier before merge).
-- **S4 — Reaper + audit + arch guard.** `OperationReaper` hosted service; the `Operation.*` audit
-  writes; extend `DeferredTransactionGuardTests` to the engine. *Verify:* tests 5, 6, 12 (the engine
-  subset). **→ open PR-A.**
+- **S0 — mini-plan + ADR 0022.** ✅ This document + `docs/adr/0022-…`.
+- **S1 — Domain.** ✅ The `Operation` aggregate, `OperationState`/`OperationKind`, the transition
+  guard. Test 1 (20 tests + 3 for the target model). Domain.Tests floor 93 → 116.
+- **S2 — Application seams.** ✅ `IOperationCoordinator`, `IOperationDispatcher`, `IOperationStore`,
+  `EnqueueOperationRequest`, `ServerBusyException`, `OperationNotFoundException`.
+- **S3 — Persistence + lock + migration.** ✅ `OperationConfiguration` (partial index + idempotency
+  index), the coordinator (INSERT-to-acquire + the one inner-exception switch), the store ingest, the
+  paired `Sqlite` + `Postgres` migration (built), `AddZWardenOperations()` + options; wired in
+  `Program.cs`. Tests 2, 3, 4 + ingest on SQLite (Infra floor 153 → 166); Postgres lock + concurrency
+  parity on the networked tier (Integration floor 9 → 11). SQLite `CommandTimeout` confirmed at F0's
+  30 s (ADR-0022).
+- **S4 — Reaper + audit + arch guard.** ✅ `OperationReaper` + `OperationReaperService` hosted timer
+  (both in Infrastructure); the `Operation.*` audit writes across coordinator/store/reaper; a focused
+  engine guard added to `DeferredTransactionGuardTests` (the whole-Infrastructure guard already covers
+  the engine folder). Tests 5, 6, 12 (Infra floor 166 → 170; Arch floor 11 → 12). **→ PR-A complete.**
 
 **PR-B — dispatch + ping + end-to-end** (closes #33):
 
