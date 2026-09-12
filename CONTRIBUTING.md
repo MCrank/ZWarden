@@ -206,6 +206,39 @@ First-party authentication is ASP.NET Core Identity over the `ZWardenDbContext` 
   `UseHostFiltering()`/`UseAuthentication()`/`UseAuthorization()` and the migrate-then-bootstrap startup
   step. The application cookie is HttpOnly + Secure + SameSite; host-header validation is required.
 
+## Authorization (Feature 5)
+
+Authorization is ZWarden-owned RBAC: a closed permission catalogue, tenant-owned roles, tenant-owned
+assignments, and a fail-closed decision service (PRD 12/12A, ADR
+[0018](./docs/adr/0018-zwarden-owned-rbac.md)).
+
+- **Authorize server-side, always.** Hiding a UI control is never authorization (PRD 12). Every decision is
+  re-made in application/business logic through `IPermissionChecker` (`ZWarden.Application.Authorization`),
+  or, on the ASP.NET Core surface, via a permission-named policy — `[Authorize(Policy = "Server.Start")]` /
+  `AuthorizeView(Policy = "Server.Start")`, resolved on demand by `PermissionPolicyProvider`.
+- **Permission names come from the catalogue, never a literal.** Reference `Permissions` (Domain); adding,
+  renaming, or removing one is a catalogue-and-test change (a test asserts the set equals the PRD 12A list),
+  and a new capability area is an ADR. `PermissionScope` marks a permission tenant-wide or server-scopable.
+- **F5 owns roles; they are tenant-owned.** Use the `Role` aggregate (`rol-`, `ITenantOwned`) and
+  `RoleAssignment` (`prm-`, `ITenantOwned`), **not** Identity's `ApplicationRole` (a coarse claim-role).
+  Role names are unique per tenant; both are read through the tenant filter (ADR 0016), so a role or grant
+  can never cross tenants. The decision service reads only F5's model, never Identity role claims.
+- **Scope semantics are fail-closed.** A tenant-wide assignment confers the role's permissions tenant-wide;
+  a server-scoped assignment confers only server-scopable permissions and only on that Server; a tenant-wide
+  grant covers every Server. No grant, no ambient tenant, or a server-scopable permission checked with no
+  Server all deny. Never widen a missing scope.
+- **No self-escalation.** Role administration (`RoleAdministrationService`) requires `Role.Manage`, and an
+  actor may only add to a role a permission it holds tenant-wide. Built-in roles may be adjusted but not
+  deleted (they re-seed). Deleting a custom role removes its assignments (there is no relational FK).
+- **Safety rules are deny-only.** An `IAuthorizationSafetyRule` is consulted only after a grant and may veto,
+  never grant; v1.0 registers none. High-risk safeguards (confirmation, cooldowns, two-person approval,
+  step-up, time-limited grants) bind to the operations that own them later.
+- **The store is ZWarden, not an IdP.** No Auth0/Okta RBAC type in Domain or Application (arch rule 6);
+  ZWarden is authoritative for permissions even under an external IdP (PRD 63A).
+- **Wiring** is `AddZWardenAuthorization()` after `AddZWardenAuthentication(...)`, and
+  `await AuthorizationBootstrapper.EnsureSeededAsync(app.Services, adminEmail)` at startup — it seeds the
+  tenant's built-in roles and grants the first admin the Tenant Owner role, idempotently.
+
 ## Recording a decision
 
 Surprising, hard-to-reverse, real-trade-off decisions become an ADR — see
