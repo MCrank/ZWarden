@@ -36,8 +36,17 @@ public sealed class Operation : IVersioned, ITenantOwned
     /// <inheritdoc />
     public TenantId TenantId { get; init; }
 
-    /// <summary>The Server this Operation targets — the per-server lock key.</summary>
-    public ServerId ServerId { get; init; }
+    /// <summary>The Agent that executes this Operation (its host component). Always present — every
+    /// Operation runs on an Agent. Until F14 inventory exists there is no <c>ServerId → AgentId</c>
+    /// resolution, so the caller supplies this directly; F14 later resolves it from
+    /// <see cref="ServerId"/>.</summary>
+    public AgentId AgentId { get; init; }
+
+    /// <summary>The Server this Operation acts on — the per-server lock key — or <c>null</c> for host-level
+    /// work against the Agent itself (e.g. <see cref="OperationKind.DiagnosticsPing"/>). A mutating Operation
+    /// is always server-scoped (see <see cref="Enqueue"/>), so the per-server lock never has to reason about a
+    /// null Server.</summary>
+    public ServerId? ServerId { get; init; }
 
     /// <summary>What the Operation does. Stored by name.</summary>
     public OperationKind Kind { get; init; }
@@ -94,21 +103,34 @@ public sealed class Operation : IVersioned, ITenantOwned
     public bool IsTerminal => State is OperationState.Succeeded or OperationState.Failed or OperationState.Cancelled;
 
     /// <summary>
-    /// Creates a <see cref="OperationState.Pending"/> Operation. The <see cref="TenantId"/> is left unset so
-    /// the ownership interceptor stamps the ambient tenant on insert (ADR 0016). <paramref name="isMutating"/>
-    /// decides whether the per-server lock applies.
+    /// Creates a <see cref="OperationState.Pending"/> Operation to run on <paramref name="agentId"/>. The
+    /// <see cref="TenantId"/> is left unset so the ownership interceptor stamps the ambient tenant on insert
+    /// (ADR 0016). <paramref name="isMutating"/> decides whether the per-server lock applies; a mutating
+    /// Operation must be server-scoped (<paramref name="serverId"/> non-null), because the lock is per-Server.
     /// </summary>
     public static Operation Enqueue(
-        ServerId serverId,
+        AgentId agentId,
         OperationKind kind,
         bool isMutating,
         string idempotencyKey,
-        DateTimeOffset now)
+        DateTimeOffset now,
+        ServerId? serverId = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(idempotencyKey);
+        if (agentId.IsEmpty)
+        {
+            throw new ArgumentException("An operation must name the executing agent.", nameof(agentId));
+        }
+
+        if (isMutating && serverId is null)
+        {
+            throw new ArgumentException("A mutating operation must be server-scoped.", nameof(serverId));
+        }
+
         return new Operation
         {
             Id = OperationId.New(),
+            AgentId = agentId,
             ServerId = serverId,
             Kind = kind,
             IsMutating = isMutating,

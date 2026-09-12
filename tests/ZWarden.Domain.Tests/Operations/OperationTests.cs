@@ -16,7 +16,7 @@ public class OperationTests
     private static readonly DateTimeOffset Lease = Now.AddMinutes(2);
 
     private static Operation EnqueueMutating(string key = "idem-1")
-        => Operation.Enqueue(ServerId.New(), OperationKind.DiagnosticsPing, isMutating: true, key, Now);
+        => Operation.Enqueue(AgentId.New(), OperationKind.DiagnosticsPing, isMutating: true, key, Now, ServerId.New());
 
     private static Operation Running()
     {
@@ -35,10 +35,12 @@ public class OperationTests
     [Test]
     public async Task Enqueue_creates_a_pending_non_terminal_operation()
     {
+        AgentId agent = AgentId.New();
         ServerId server = ServerId.New();
-        Operation op = Operation.Enqueue(server, OperationKind.DiagnosticsPing, isMutating: false, "idem-42", Now);
+        Operation op = Operation.Enqueue(agent, OperationKind.DiagnosticsPing, isMutating: false, "idem-42", Now, server);
 
         await Assert.That(op.Id.IsEmpty).IsFalse();
+        await Assert.That(op.AgentId).IsEqualTo(agent);
         await Assert.That(op.ServerId).IsEqualTo(server);
         await Assert.That(op.Kind).IsEqualTo(OperationKind.DiagnosticsPing);
         await Assert.That(op.IsMutating).IsFalse();
@@ -53,9 +55,34 @@ public class OperationTests
     }
 
     [Test]
+    public async Task A_diagnostic_ping_is_agent_scoped_with_no_server()
+    {
+        AgentId agent = AgentId.New();
+        Operation op = Operation.Enqueue(agent, OperationKind.DiagnosticsPing, isMutating: false, "ping-1", Now);
+
+        await Assert.That(op.AgentId).IsEqualTo(agent);
+        await Assert.That(op.ServerId).IsNull();
+        await Assert.That(op.IsMutating).IsFalse();
+    }
+
+    [Test]
     public async Task Enqueue_rejects_a_blank_idempotency_key()
     {
-        await Assert.That(() => Operation.Enqueue(ServerId.New(), OperationKind.DiagnosticsPing, true, "  ", Now))
+        await Assert.That(() => Operation.Enqueue(AgentId.New(), OperationKind.DiagnosticsPing, true, "  ", Now, ServerId.New()))
+            .Throws<ArgumentException>();
+    }
+
+    [Test]
+    public async Task Enqueue_rejects_an_empty_agent()
+    {
+        await Assert.That(() => Operation.Enqueue(default, OperationKind.DiagnosticsPing, false, "k", Now))
+            .Throws<ArgumentException>();
+    }
+
+    [Test]
+    public async Task Enqueue_rejects_a_mutating_operation_with_no_server()
+    {
+        await Assert.That(() => Operation.Enqueue(AgentId.New(), OperationKind.DiagnosticsPing, isMutating: true, "k", Now))
             .Throws<ArgumentException>();
     }
 

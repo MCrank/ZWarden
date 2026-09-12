@@ -76,6 +76,14 @@ CREATE UNIQUE INDEX "UX_Operations_ActiveMutating_PerServer"
 
 This is the DDL ADR-0005 measured emitting **verbatim-identically** on both providers.
 
+- **An Operation carries a required `AgentId` (its executor) and a nullable `ServerId` (its subject).**
+  Every Operation runs on an Agent; it acts on a Server, or on the host Agent itself for host-level
+  work (`Diagnostics.Ping` is agent-scoped, `ServerId` null). A **mutating** Operation is always
+  server-scoped (enforced at enqueue), so the lock's partial index never has to reason about a null
+  `ServerId` — mutating ⟹ `ServerId` present, and non-mutating rows are excluded by the `IsMutating`
+  predicate. Until F14 inventory exists there is no `ServerId → AgentId` resolution, so the caller
+  supplies the `AgentId` directly; F14 later resolves it from the Server.
+
 - **Acquire = `INSERT`.** Enqueueing a mutating Operation inserts it `Pending`; a second mutating
   Operation for the same Server in `Pending`/`Running` violates the index and throws
   `DbUpdateException`, which the engine translates to a typed **"server busy"** result. The one

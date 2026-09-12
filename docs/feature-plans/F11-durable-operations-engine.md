@@ -126,8 +126,12 @@ durable handoff:
 ## Scope
 
 1. **Domain — the `Operation` aggregate** (`ZWarden.Domain/Operations/`). `Operation : ITenantOwned,
-   IVersioned` with `OperationId Id`, `ServerId ServerId`, `OperationKind Kind` (enum, stored by
-   name — `DiagnosticsPing` for now), `bool IsMutating`, `OperationState State` (enum:
+   IVersioned` with `OperationId Id`, a **required `AgentId`** (the executor) and a **nullable
+   `ServerId`** (the subject — `null` for host-level/agent-scoped work like the ping; a mutating
+   Operation is always server-scoped, enforced at enqueue). No `Server` entity exists at F11 (F14 adds
+   it), so there is no `ServerId → AgentId` resolution — the caller supplies the `AgentId`; F14 later
+   resolves it. `OperationKind Kind` (enum, stored by name — `DiagnosticsPing` for now), `bool
+   IsMutating`, `OperationState State` (enum:
    `Pending`/`Running`/`Cancelling`/`Succeeded`/`Failed`/`Cancelled`), `string IdempotencyKey`,
    `int PercentComplete`, `string? StatusLine`, `string? FailureReason`, timestamps (`EnqueuedAt`,
    `StartedAt?`, `CompletedAt?`, `LeaseExpiresAt?`, `LastProgressAt?`). Static factory `Enqueue(...)`
@@ -189,6 +193,10 @@ durable handoff:
   (ADR-0022).
 - **`synchronous=FULL` durability tuning.** ADR-0005's open crash-durability edge; belongs to the
   packaging feature, not the engine.
+- **Server registration / inventory and `ServerId → AgentId` resolution (F14).** No `Server` entity
+  exists at F11. An Operation carries the executing `AgentId` directly (caller-supplied); the ping is
+  agent-scoped (`ServerId` null). Resolving which Agent hosts a given Server — and the whole Server
+  inventory — is F14, after which mutating server operations resolve their `AgentId` from `ServerId`.
 - **Multi-instance dispatch routing.** Single Web instance in v1.0 (ADR-0005 condition 4); a command
   dispatched from the wrong instance under a future scale-out needs the v1.1 backplane behind the
   same `IAgentConnectionRegistry` seam (documented in F10's plan). The persisted Operation state is
