@@ -245,6 +245,25 @@ assignments, and a fail-closed decision service (PRD 12/12A, ADR
   `await AuthorizationBootstrapper.EnsureSeededAsync(app.Services, adminEmail)` at startup — it seeds the
   tenant's built-in roles and grants the first admin the Tenant Owner role, idempotently.
 
+## Audit (Feature 6)
+
+Audit is a durable, tenant-owned, append-only record — an `AuditEvent` (`aud-`) — **not a log entry**
+(ADR 0019). Serilog is the intended *operational* logging framework for a later feature; do not route the
+audit trail through a log sink.
+
+- **Write only through `IAuditWriter`** (`ZWarden.Application.Audit`). It is append-only by contract — there
+  is no update or delete. It stamps the ambient tenant (ADR 0016), the clock's `OccurredAt`, and the
+  correlation id, so a call site names only the action, outcome, and non-secret context.
+- **Read only through `IAuditQuery`.** It reads over the tenant filter, so results are tenant-scoped by
+  construction; never bypass it, and never call `IgnoreQueryFilters()` (the guard fails the build).
+- **Actions are stable names, never ad-hoc strings** — e.g. `Authentication.SignInSucceeded`, `Role.Created` —
+  the same discipline permission names follow. Outcomes are the closed `AuditOutcome` set.
+- **Audit carries no secret.** `Action`/`Detail` are non-secret, exactly as `AuthenticationEvent` guarantees.
+- **The viewer is re-authorized server-side.** The `/audit` page is `[Authorize(Policy = "Audit.View")]` —
+  the endpoint enforces it; `AuthorizeView` on the nav is visibility only (PRD 12).
+- **Wiring** is `AddZWardenAudit()` after `AddZWardenAuthorization()`; it registers the writer/query and
+  **supersedes the logging-only authentication sink** with the durable one F4 deferred.
+
 ## Recording a decision
 
 Surprising, hard-to-reverse, real-trade-off decisions become an ADR — see
