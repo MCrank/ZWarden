@@ -11,7 +11,7 @@
     <IsTestProject>true</IsTestProject>
     <LangVersion>14.0</LangVersion>
     <!-- Silent-drop floor (ADR 0002). Update when tests are added or removed. -->
-    <TestingPlatformCommandLineArguments>--minimum-expected-tests 30</TestingPlatformCommandLineArguments>
+    <TestingPlatformCommandLineArguments>--minimum-expected-tests 37</TestingPlatformCommandLineArguments>
   </PropertyGroup>
 
   <ItemGroup>
