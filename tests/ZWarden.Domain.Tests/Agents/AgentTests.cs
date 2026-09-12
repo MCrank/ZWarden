@@ -104,4 +104,62 @@ public class AgentTests
         await Assert.That(agent.IsEnabled).IsTrue();
         await Assert.That(agent.IsTrusted).IsTrue();
     }
+
+    // F10 S1: observed connection state on the trust anchor (decision 2 — a persisted last-seen +
+    // connection state alongside the in-memory registry). It is observed state only and never touches
+    // trust (enabled + credential hash).
+
+    [Test]
+    public async Task A_freshly_enrolled_agent_is_disconnected_and_never_seen()
+    {
+        Agent agent = Enroll();
+
+        await Assert.That(agent.ConnectionState).IsEqualTo(AgentConnectionState.Disconnected);
+        await Assert.That(agent.LastSeenAt).IsNull();
+        await Assert.That(agent.LastProtocolVersion).IsNull();
+    }
+
+    [Test]
+    public async Task MarkConnected_records_the_connection_time_and_protocol_version()
+    {
+        Agent agent = Enroll();
+
+        agent.MarkConnected(protocolVersion: 1, Now.AddMinutes(5));
+
+        await Assert.That(agent.ConnectionState).IsEqualTo(AgentConnectionState.Connected);
+        await Assert.That(agent.LastSeenAt).IsEqualTo(Now.AddMinutes(5));
+        await Assert.That(agent.LastProtocolVersion).IsEqualTo(1);
+        // Trust is untouched by connection observation.
+        await Assert.That(agent.IsTrusted).IsTrue();
+        await Assert.That(agent.CredentialHash).IsEqualTo(Hash);
+    }
+
+    [Test]
+    public async Task MarkHeartbeat_advances_last_seen_without_changing_state_or_trust()
+    {
+        Agent agent = Enroll();
+        agent.MarkConnected(protocolVersion: 1, Now.AddMinutes(5));
+
+        agent.MarkHeartbeat(Now.AddMinutes(6));
+
+        await Assert.That(agent.LastSeenAt).IsEqualTo(Now.AddMinutes(6));
+        await Assert.That(agent.ConnectionState).IsEqualTo(AgentConnectionState.Connected);
+        await Assert.That(agent.LastProtocolVersion).IsEqualTo(1);
+        await Assert.That(agent.IsTrusted).IsTrue();
+    }
+
+    [Test]
+    public async Task MarkDisconnected_sets_disconnected_and_stamps_the_time_keeping_last_protocol_version()
+    {
+        Agent agent = Enroll();
+        agent.MarkConnected(protocolVersion: 1, Now.AddMinutes(5));
+
+        agent.MarkDisconnected(Now.AddMinutes(7));
+
+        await Assert.That(agent.ConnectionState).IsEqualTo(AgentConnectionState.Disconnected);
+        await Assert.That(agent.LastSeenAt).IsEqualTo(Now.AddMinutes(7));
+        await Assert.That(agent.LastProtocolVersion).IsEqualTo(1);
+        // A dropped connection does not untrust the Agent — trust is revoke/disable's job.
+        await Assert.That(agent.IsTrusted).IsTrue();
+    }
 }
