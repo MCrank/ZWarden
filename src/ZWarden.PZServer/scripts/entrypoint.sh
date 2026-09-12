@@ -24,15 +24,16 @@ if pz_needs_install "${SERVER_DIR}"; then
   log "installing Project Zomboid dedicated server (app ${PZ_STEAM_APP_ID}) via anonymous SteamCMD..."
   runscript="$(mktemp)"
   pz_build_steamcmd_runscript "${SERVER_DIR}" > "${runscript}"
-  # Tee so the operator sees progress; capture to parse the (undocumented-exit-code) result.
-  install_out="$("${STEAMCMD}" +runscript "${runscript}" 2>&1 | tee /dev/stderr)"
-  rm -f "${runscript}"
-  if printf '%s' "${install_out}" | pz_install_succeeded; then
+  # A fresh SteamCMD's first app_update often fails with "Missing configuration"; retry to
+  # warm the config, and parse stdout for the result since exit codes are unreliable (F12/#65).
+  if pz_install_with_retry "${STEAMCMD}" "${runscript}"; then
+    rm -f "${runscript}"
     pz_write_appid "${SERVER_DIR}"
     touch "${SERVER_DIR}/${PZ_INSTALL_MARKER}"
     log "install complete."
   else
-    log "SteamCMD did not report 'fully installed'; refusing to launch (fail-closed)." >&2
+    rm -f "${runscript}"
+    log "SteamCMD failed to install after ${ZW_PZ_INSTALL_ATTEMPTS} attempts; refusing to launch (fail-closed)." >&2
     exit 1
   fi
 else

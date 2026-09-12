@@ -305,6 +305,12 @@ jobs:
             status="$(docker inspect --format '{{.State.Health.Status}}' pz 2>/dev/null || echo gone)"
             [ "$status" = "healthy" ] && break
             [ "$status" = "gone" ] && break
+            # A failed install exits the container, but its health status freezes at
+            # "starting" (start-period suppresses "unhealthy"), so waiting on health alone
+            # burns the full ~40-min timeout. Stop the moment it is no longer running (F12/#65).
+            if [ "$(docker inspect --format '{{.State.Running}}' pz 2>/dev/null || echo false)" != "true" ]; then
+              status="exited"; break
+            fi
             sleep 10
           done
           docker logs pz | tail -40

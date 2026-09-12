@@ -17,6 +17,8 @@ PZ_LINUX_LAUNCHER="start-server.sh"              # ships in the install dir
 : "${ZW_PZ_XMX:=4g}"
 : "${ZW_PZ_STOP_GRACE:=30}"        # seconds between `save` and `quit` on stop
 : "${ZW_PZ_SERVERNAME:=servertest}"
+: "${ZW_PZ_INSTALL_ATTEMPTS:=3}"   # SteamCMD install attempts before fail-closed (F12/#65)
+: "${ZW_PZ_INSTALL_RETRY_DELAY:=15}" # seconds between install attempts
 
 # pz_needs_install <server_dir>
 # Exit 0 (needs install) unless BOTH the shipped launcher and our completion marker
@@ -60,6 +62,36 @@ pz_install_succeeded() {
     *"Success! App '${app_id}' fully installed"*) return 0 ;;
     *) return 1 ;;
   esac
+}
+
+# pz_install_with_retry <steamcmd> <runscript>
+# Drives the anonymous install with retries. A FRESH SteamCMD's first app_update routinely
+# dies with "Failed to install app '<id>' (Missing configuration)" - a known Valve gotcha -
+# and, less often, a transient Steam-side error; re-running app_update warms the config and
+# clears both (ADR 0009). Succeeds as soon as the fail-closed "fully installed" line appears
+# (pz_install_succeeded), retrying up to ZW_PZ_INSTALL_ATTEMPTS with ZW_PZ_INSTALL_RETRY_DELAY
+# seconds between tries; returns 1 only after every attempt fails. SteamCMD output is teed
+# through so operators still watch progress live.
+pz_install_with_retry() {
+  local steamcmd="$1" runscript="$2"
+  local attempts="${ZW_PZ_INSTALL_ATTEMPTS:-3}"
+  local delay="${ZW_PZ_INSTALL_RETRY_DELAY:-15}"
+  local n out
+  for (( n = 1; n <= attempts; n++ )); do
+    echo "[zwarden] SteamCMD install attempt ${n}/${attempts}..." >&2
+    # SteamCMD exits non-zero on a failed app_update (@ShutdownOnFailedCommand); keep the
+    # capture from aborting a `set -e` caller so the retry loop can actually run. Success is
+    # decided from stdout, not the exit code (ADR 0009).
+    out="$("${steamcmd}" +runscript "${runscript}" 2>&1 | tee /dev/stderr)" || true
+    if printf '%s' "${out}" | pz_install_succeeded; then
+      return 0
+    fi
+    echo "[zwarden] attempt ${n}/${attempts} did not report a completed install." >&2
+    if [ "${n}" -lt "${attempts}" ]; then
+      sleep "${delay}"
+    fi
+  done
+  return 1
 }
 
 # pz_write_appid <server_dir>
