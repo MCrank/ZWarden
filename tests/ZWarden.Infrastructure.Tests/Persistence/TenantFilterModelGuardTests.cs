@@ -68,4 +68,23 @@ public class TenantFilterModelGuardTests
             await Assert.That(entity.GetDeclaredQueryFilters().Count).IsGreaterThan(0);
         }
     }
+
+    /// <summary>F6: the audit store (<see cref="AuditEvent"/>) is present in the real model and tenant-owned,
+    /// so a tenant can never read another tenant's audit trail (ADR 0016/0019). Dropping the entity or its
+    /// tenant scope is a red build.</summary>
+    [Test]
+    public async Task The_audit_event_is_tenant_owned_and_filtered_in_the_real_model()
+    {
+        DbContextOptions options = new DbContextOptionsBuilder<ZWardenDbContext>()
+            .UseZWardenProvider(ZWardenDbProvider.Sqlite, "Data Source=:memory:")
+            .Options;
+        await using ZWardenDbContext db = new(options, new TestTenantContext(TenantId.New()));
+
+        IEntityType? audit = db.Model.GetEntityTypes()
+            .SingleOrDefault(e => e.ClrType == typeof(ZWarden.Domain.Audit.AuditEvent));
+
+        await Assert.That(audit).IsNotNull();
+        await Assert.That(typeof(ITenantOwned).IsAssignableFrom(typeof(ZWarden.Domain.Audit.AuditEvent))).IsTrue();
+        await Assert.That(audit!.GetDeclaredQueryFilters().Count).IsGreaterThan(0);
+    }
 }

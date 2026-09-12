@@ -62,9 +62,27 @@ _Avoid_: token, JWT, login (as a noun for this)
 
 **Authentication event**:
 A record of an authentication-relevant occurrence — a sign-in, a lockout, an MFA verification, a
-password reset, an external-login link. It is not an Audit event: the audit record and its store are a
-separate, later concern.
+password reset, an external-login link. It is the in-flight signal the auth code emits; it is not an
+**Audit event**, though F6 persists it as one through the durable sink.
 _Avoid_: audit event (as a synonym), log entry
+
+**Audit event**:
+The durable, tenant-owned, append-only record of a security- or administration-relevant occurrence — the
+`aud-` record. It is read only through the tenant filter, is never mutated after it is written, and carries
+only non-secret data. It is **not a log entry**: it is a queryable, filterable store shown to an
+administrator, distinct from operational logging.
+_Avoid_: log entry, audit log line, event log
+
+**Audit action**:
+The stable, machine-readable name of what an Audit event records (e.g. `Authentication.SignInSucceeded`,
+`Role.Created`). It is the audit currency everywhere, exactly as a Permission name is for authorization;
+it is never a free-form, per-call-site string.
+_Avoid_: audit type, event name (as a free-form string)
+
+**Correlation id**:
+The ambient identifier tying the Audit events of one request or operation together, so a sequence can be
+reconstructed in the viewer. Optional; derived from the ambient request, never supplied by the browser.
+_Avoid_: trace (as the whole concept), request id (as a distinct concept)
 
 **Identity provider seam**:
 The abstraction through which an external identity provider authenticates a subject and is mapped to a

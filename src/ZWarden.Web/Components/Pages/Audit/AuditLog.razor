@@ -1,0 +1,107 @@
+@page "/audit"
+@using ZWarden.Application.Audit
+@using ZWarden.Domain.Audit
+@attribute [Authorize(Policy = "Audit.View")]
+@inject IAuditQuery Audit
+
+@* Static server render (no @rendermode): the page runs per request with a live HttpContext, so the
+   session-derived tenant resolves and the read is tenant-filtered server-side. The Audit.View policy
+   gates the endpoint itself — this is enforcement, not UI visibility (PRD 12). Filters are GET query
+   parameters, so a filtered view is bookmarkable. *@
+
+<PageTitle>Audit — ZWarden</PageTitle>
+
+<h1 class="text-2xl font-semibold tracking-tight">Audit</h1>
+<p class="mt-1 text-sm text-muted-foreground">
+    The durable, tenant-scoped record of security and administration events, gated by the
+    <code>Audit.View</code> permission and always filtered to your tenant.
+</p>
+
+<form method="get" class="mt-6 flex flex-wrap items-end gap-3">
+    <label class="flex flex-col text-sm">
+        <span class="mb-1 text-muted-foreground">Action</span>
+        <input name="action" value="@Action" class="rounded-md border border-input bg-background px-2 py-1" />
+    </label>
+    <label class="flex flex-col text-sm">
+        <span class="mb-1 text-muted-foreground">Outcome</span>
+        <select name="outcome" class="rounded-md border border-input bg-background px-2 py-1">
+            <option value="">Any</option>
+            @foreach (AuditOutcome value in Enum.GetValues<AuditOutcome>())
+            {
+                <option value="@value" selected="@(value.ToString() == Outcome)">@value</option>
+            }
+        </select>
+    </label>
+    <label class="flex flex-col text-sm">
+        <span class="mb-1 text-muted-foreground">Correlation id</span>
+        <input name="correlation" value="@Correlation" class="rounded-md border border-input bg-background px-2 py-1" />
+    </label>
+    <button type="submit" class="rounded-md border border-input px-3 py-1 text-sm font-medium">Filter</button>
+</form>
+
+<p class="mt-4 text-sm text-muted-foreground" data-audit-total>@_total event(s)</p>
+
+<div class="mt-2 overflow-x-auto">
+    <table class="w-full border-collapse text-left text-sm">
+        <thead>
+            <tr class="border-b text-muted-foreground">
+                <th class="py-2 pr-4 font-medium">When (UTC)</th>
+                <th class="py-2 pr-4 font-medium">Action</th>
+                <th class="py-2 pr-4 font-medium">Outcome</th>
+                <th class="py-2 pr-4 font-medium">Actor</th>
+                <th class="py-2 pr-4 font-medium">Server</th>
+                <th class="py-2 pr-4 font-medium">Correlation</th>
+                <th class="py-2 pr-4 font-medium">Detail</th>
+            </tr>
+        </thead>
+        <tbody>
+            @if (_events.Count == 0)
+            {
+                <tr>
+                    <td colspan="7" class="py-4 text-muted-foreground">No audit events match.</td>
+                </tr>
+            }
+            @foreach (AuditEventView entry in _events)
+            {
+                <tr class="border-b" data-audit-row>
+                    <td class="py-2 pr-4 tabular-nums">@entry.OccurredAt.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                    <td class="py-2 pr-4 font-medium">@entry.Action</td>
+                    <td class="py-2 pr-4">@entry.Outcome</td>
+                    <td class="py-2 pr-4">@(entry.ActorUserId?.ToString() ?? "—")</td>
+                    <td class="py-2 pr-4">@(entry.ServerId?.ToString() ?? "—")</td>
+                    <td class="py-2 pr-4">@(entry.CorrelationId ?? "—")</td>
+                    <td class="py-2 pr-4">@(entry.Detail ?? "—")</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</div>
+
+@code {
+    /// <summary>Filter by exact action name (GET <c>?action=</c>).</summary>
+    [SupplyParameterFromQuery(Name = "action")]
+    public string? Action { get; set; }
+
+    /// <summary>Filter by outcome name (GET <c>?outcome=</c>).</summary>
+    [SupplyParameterFromQuery(Name = "outcome")]
+    public string? Outcome { get; set; }
+
+    /// <summary>Filter by correlation id (GET <c>?correlation=</c>).</summary>
+    [SupplyParameterFromQuery(Name = "correlation")]
+    public string? Correlation { get; set; }
+
+    private IReadOnlyList<AuditEventView> _events = [];
+    private int _total;
+
+    protected override async Task OnInitializedAsync()
+    {
+        AuditQuery query = new(
+            Action: string.IsNullOrWhiteSpace(Action) ? null : Action,
+            Outcome: Enum.TryParse(Outcome, out AuditOutcome outcome) ? outcome : null,
+            CorrelationId: string.IsNullOrWhiteSpace(Correlation) ? null : Correlation,
+            Take: 100);
+
+        _events = await Audit.QueryAsync(query);
+        _total = await Audit.CountAsync(query);
+    }
+}

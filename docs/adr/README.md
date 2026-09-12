@@ -32,5 +32,7 @@ instead. New ADRs take the next number and follow [`TEMPLATE.md`](./TEMPLATE.md)
 | [0015](./0015-application-layer-secret-encryption.md) | Secret encryption: AES-256-GCM under a per-message HKDF subkey, in a versioned envelope | #24 |
 | [0016](./0016-tenant-isolation-query-filter-and-default-tenant.md) | Tenant isolation: an always-on EF query filter over an ambient tenant context, with a fixed default tenant | #25 |
 | [0017](./0017-external-identity-provider-seam.md) | External identity-provider seam: an Application abstraction proven against a test double, concrete provider deferred to F3B | #26 |
+| [0018](./0018-zwarden-owned-rbac.md) | ZWarden-owned RBAC: permission-name policies + resource handlers, over a closed catalogue | #27 |
+| [0019](./0019-audit-is-append-only-tenant-owned-and-binds-the-auth-sink.md) | Audit is an append-only, tenant-owned table, and F6 binds the durable authentication-event sink | #28 |
 
 When you add an ADR, add its row here in the same commit.
