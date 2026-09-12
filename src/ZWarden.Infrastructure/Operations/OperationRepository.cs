@@ -34,13 +34,16 @@ public sealed class OperationRepository : TenantScopedRepository<Operation>
     /// </summary>
     public async Task<IReadOnlyList<Operation>> FindExpiredLeasesAsync(DateTimeOffset now, CancellationToken cancellationToken = default)
     {
-        IReadOnlyList<Operation> due = await Entities
-            .Where(o => o.LeaseExpiresAt != null && o.LeaseExpiresAt < now)
-            .ToListAsync(cancellationToken)
-            .ConfigureAwait(false);
+        // The DateTimeOffset comparison and the string-converted enum are not translatable inside the
+        // predicate, so the filter runs in memory over the tenant's Operations — as AgentRepository does for
+        // the connection sweep. Acceptable at v1.0's operation volumes; a later feature can index/narrow this
+        // if history growth warrants it.
+        IReadOnlyList<Operation> all = await ListAsync(cancellationToken).ConfigureAwait(false);
 
-        return due
-            .Where(o => o.State is OperationState.Running or OperationState.Cancelling)
+        return all
+            .Where(o => o.State is OperationState.Running or OperationState.Cancelling
+                && o.LeaseExpiresAt is { } lease
+                && lease < now)
             .ToList();
     }
 }

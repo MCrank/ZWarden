@@ -42,6 +42,35 @@ public class DeferredTransactionGuardTests
         await Assert.That(violations).IsEmpty();
     }
 
+    /// <summary>
+    /// F11/ADR 0022: the operations engine claims the per-server lock row, commits, then works — it never
+    /// holds a transaction across Agent work and never opens its own database connection (which is the only
+    /// way to reach a raw-ADO or deferred transaction, ADR 0005 conditions 3 and 5). This pins that guarantee
+    /// to the engine folder specifically, so a future move of the engine out of Infrastructure cannot silently
+    /// drop the whole-Infrastructure guard above.
+    /// </summary>
+    [Test]
+    public async Task The_operations_engine_opens_no_deferred_or_raw_connection()
+    {
+        string engine = Path.Combine(RepoRoot(), "src", "ZWarden.Infrastructure", "Operations");
+        string[] forbidden = [.. Forbidden, "new SqliteConnection", "new NpgsqlConnection"];
+        List<string> violations = [];
+
+        foreach (string file in Directory.EnumerateFiles(engine, "*.cs", SearchOption.AllDirectories))
+        {
+            string text = await File.ReadAllTextAsync(file);
+            foreach (string needle in forbidden)
+            {
+                if (text.Contains(needle, StringComparison.Ordinal))
+                {
+                    violations.Add($"'{needle}' in {Path.GetFileName(file)}");
+                }
+            }
+        }
+
+        await Assert.That(violations).IsEmpty();
+    }
+
     private static string RepoRoot()
     {
         DirectoryInfo? dir = new(AppContext.BaseDirectory);

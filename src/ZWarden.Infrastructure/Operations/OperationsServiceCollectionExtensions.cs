@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 using ZWarden.Application.Operations;
 
 namespace ZWarden.Infrastructure.Operations;
@@ -23,6 +24,10 @@ public static class OperationsServiceCollectionExtensions
         services.AddScoped<OperationRepository>();
         services.AddScoped<IOperationCoordinator, OperationCoordinator>();
         services.AddScoped<IOperationStore, OperationStore>();
+
+        // The lease-expiry safety net (ADR 0022): a scoped reaper driven by a hosted timer.
+        services.AddScoped<OperationReaper>();
+        services.AddHostedService<OperationReaperService>();
 
         // No-op unless a transport is wired; Web's real dispatcher (PR-B) is registered ahead of this
         // TryAdd, so it wins.
