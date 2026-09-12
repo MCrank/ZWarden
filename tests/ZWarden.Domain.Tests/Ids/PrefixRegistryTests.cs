@@ -43,7 +43,7 @@ public class PrefixRegistryTests
         string[] expected =
         [
             "ten-", "usr-", "rol-", "agt-", "srv-", "op-", "aud-", "bkp-", "diag-", "enr-",
-            "cfg-", "mod-", "wsi-", "mdp-", "ban-", "ply-", "prm-", "crt-", "ntf-",
+            "cfg-", "mod-", "wsi-", "mdp-", "ban-", "ply-", "prm-", "crt-", "ntf-", "msg-",
         ];
 
         List<string> actual = TypedIdStructs().ConvertAll(PrefixOf);

@@ -288,6 +288,12 @@
         "contentHash": "OvGz3PrzuAI/Sj7LTcXcCe3FClRI1IyRMZjNONcZtFh+Ww7nAtSh4kh08r8KVe/xxkXJPjR0Y1jF7H+N42d4xQ=="
       },
       "zwarden.contracts": {
+        "type": "Project",
+        "dependencies": {
+          "ZWarden.Domain": "[1.0.0, )"
+        }
+      },
+      "zwarden.domain": {
         "type": "Project"
       },
       "zwarden.rcon": {

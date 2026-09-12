@@ -126,6 +126,18 @@ A durable, auditable unit of mutating work against a Server, with its own lifecy
 Only one conflicting mutating Operation may run against a Server at a time.
 _Avoid_: job, task, command (as a synonym), action
 
+**Protocol message**:
+A single, strongly-typed unit crossing the ZWarden.Web ↔ ZWarden.Agent boundary — either a command
+(Web → Agent, from a closed vocabulary) or an event (Agent → Web report). It always travels wrapped
+with its metadata and carries a `msg-` identity; it is never a free-form command, script or shell
+string.
+_Avoid_: packet, RPC call, payload (as the whole message)
+
+**Protocol version**:
+The single integer both components stamp on every Protocol message and check for compatibility when
+an Agent connects. It is not an API or database-schema version.
+_Avoid_: API version, schema version, protocol revision
+
 **Configuration Revision**:
 A recorded before-and-after state of a Server's configuration, captured as parsed values rather
 than file bytes.
@@ -171,7 +183,7 @@ never reused for another entity type; adding one is an ADR (PRD 7).
 | Audit event | `aud-` | Certificate record | `crt-` |
 | Backup | `bkp-` | Notification | `ntf-` |
 | Diagnostic package | `diag-` | Enrollment | `enr-` |
-| Configuration revision | `cfg-` | | |
+| Configuration revision | `cfg-` | Protocol message | `msg-` |
 
 ### Security
 
