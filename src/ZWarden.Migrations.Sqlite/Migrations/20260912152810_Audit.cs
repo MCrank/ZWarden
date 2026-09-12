@@ -17,7 +17,7 @@ namespace ZWarden.Migrations.Sqlite.Migrations
                 {
                     Id = table.Column<Guid>(type: "TEXT", nullable: false),
                     TenantId = table.Column<Guid>(type: "TEXT", nullable: false),
-                    OccurredAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: false),
+                    OccurredAt = table.Column<DateTime>(type: "TEXT", nullable: false),
                     Action = table.Column<string>(type: "TEXT", maxLength: 256, nullable: false),
                     Outcome = table.Column<string>(type: "TEXT", maxLength: 32, nullable: false),
                     ActorUserId = table.Column<Guid>(type: "TEXT", nullable: true),

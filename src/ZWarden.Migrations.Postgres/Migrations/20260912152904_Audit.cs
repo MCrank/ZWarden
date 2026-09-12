@@ -17,7 +17,7 @@ namespace ZWarden.Migrations.Postgres.Migrations
                 {
                     Id = table.Column<Guid>(type: "uuid", nullable: false),
                     TenantId = table.Column<Guid>(type: "uuid", nullable: false),
-                    OccurredAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
+                    OccurredAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
                     Action = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
                     Outcome = table.Column<string>(type: "character varying(32)", maxLength: 32, nullable: false),
                     ActorUserId = table.Column<Guid>(type: "uuid", nullable: true),

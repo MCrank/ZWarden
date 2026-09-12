@@ -20,7 +20,14 @@ public sealed class AuditEventConfiguration : IEntityTypeConfiguration<AuditEven
         builder.ToTable("AuditEvents");
         builder.HasKey(a => a.Id);
 
-        builder.Property(a => a.OccurredAt).IsRequired();
+        // SQLite cannot order or range-compare a DateTimeOffset in SQL (ADR 0005: both providers ship).
+        // An order-preserving conversion to a UTC DateTime keeps the DateTimeOffset domain API while making
+        // OccurredAt sortable/filterable on both providers (audit timestamps are always UTC).
+        builder.Property(a => a.OccurredAt)
+            .HasConversion(
+                value => value.UtcDateTime,
+                value => new DateTimeOffset(value, TimeSpan.Zero))
+            .IsRequired();
         builder.Property(a => a.Action).IsRequired().HasMaxLength(256);
         builder.Property(a => a.Outcome).HasConversion<string>().HasMaxLength(32).IsRequired();
         builder.Property(a => a.ActorUserId);
