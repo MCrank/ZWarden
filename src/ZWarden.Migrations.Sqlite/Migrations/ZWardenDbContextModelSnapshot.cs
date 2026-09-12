@@ -121,6 +121,11 @@ namespace ZWarden.Migrations.Sqlite.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("ConnectionState")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("CredentialHash")
                         .IsRequired()
                         .HasMaxLength(64)
@@ -140,6 +145,12 @@ namespace ZWarden.Migrations.Sqlite.Migrations
 
                     b.Property<string>("Label")
                         .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("LastProtocolVersion")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTimeOffset?>("LastSeenAt")
                         .HasColumnType("TEXT");
 
                     b.Property<Guid>("TenantId")

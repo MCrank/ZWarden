@@ -21,6 +21,8 @@
     <PackageVersion Include="Npgsql" Version="10.0.3" />
     <!-- WebApplicationFactory<Program> for the F4 UI cookie-flow endpoint tests (offline tier). -->
     <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.12" />
+    <!-- The Agent's outbound control-plane connection (F10, ZWarden.Agent) and the hub integration tests. -->
+    <PackageVersion Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.12" />
   </ItemGroup>
 
   <ItemGroup>

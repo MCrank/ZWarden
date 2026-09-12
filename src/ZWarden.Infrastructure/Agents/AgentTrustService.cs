@@ -24,6 +24,7 @@ public sealed class AgentTrustService : IAgentTrustService
     private readonly IAuditWriter _audit;
     private readonly ICredentialHasher _hasher;
     private readonly TimeProvider _clock;
+    private readonly IAgentConnectionRegistry _connections;
 
     public AgentTrustService(
         ZWardenDbContext context,
@@ -31,7 +32,8 @@ public sealed class AgentTrustService : IAgentTrustService
         IPermissionChecker checker,
         IAuditWriter audit,
         ICredentialHasher hasher,
-        TimeProvider clock)
+        TimeProvider clock,
+        IAgentConnectionRegistry connections)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(agents);
@@ -39,12 +41,14 @@ public sealed class AgentTrustService : IAgentTrustService
         ArgumentNullException.ThrowIfNull(audit);
         ArgumentNullException.ThrowIfNull(hasher);
         ArgumentNullException.ThrowIfNull(clock);
+        ArgumentNullException.ThrowIfNull(connections);
         _context = context;
         _agents = agents;
         _checker = checker;
         _audit = audit;
         _hasher = hasher;
         _clock = clock;
+        _connections = connections;
     }
 
     /// <inheritdoc />
@@ -82,6 +86,7 @@ public sealed class AgentTrustService : IAgentTrustService
         await _context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
         await AuditAsync(EnrollmentAuditActions.CredentialRevoked, actor, agent.Id, cancellationToken).ConfigureAwait(false);
+        await DropLiveConnectionAsync(actor, agent.Id, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -94,6 +99,7 @@ public sealed class AgentTrustService : IAgentTrustService
         await _context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
         await AuditAsync(EnrollmentAuditActions.AgentDisabled, actor, agent.Id, cancellationToken).ConfigureAwait(false);
+        await DropLiveConnectionAsync(actor, agent.Id, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -107,6 +113,17 @@ public sealed class AgentTrustService : IAgentTrustService
 
         await AuditAsync(EnrollmentAuditActions.AgentEnabled, actor, agent.Id, cancellationToken).ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// F10: revoke/disable must take effect on an already-connected Agent immediately, not only at its next
+    /// reconnect — so drop the live connection here. The registry is per-process (single Web instance, ADR
+    /// 0005); a multi-instance deployment (F10A/v1.1) fulfils this through the backplane. A dropped connection
+    /// is audited so the operator sees the revoke reached a live Agent.
+    /// </summary>
+    private Task DropLiveConnectionAsync(UserId actor, AgentId agentId, CancellationToken cancellationToken)
+        => _connections.TryAbort(agentId)
+            ? AuditAsync(AgentConnectionAuditActions.CredentialRevokedWhileConnected, actor, agentId, cancellationToken)
+            : Task.CompletedTask;
 
     private async Task<Agent> RequireAgentAsync(AgentId agentId, CancellationToken cancellationToken)
         => await _agents.FindByIdAsync(agentId, cancellationToken).ConfigureAwait(false)

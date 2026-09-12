@@ -48,6 +48,20 @@ public sealed class Agent : IVersioned, ITenantOwned
     /// <inheritdoc />
     public Guid Version { get; set; }
 
+    /// <summary>The Agent's observed connection state as ZWarden.Web last recorded it (F10). Observed state,
+    /// not trust — a disconnected Agent stays trusted. The in-memory registry is authoritative for "connected
+    /// now"; this persists the last-known state across restarts.</summary>
+    public AgentConnectionState ConnectionState { get; private set; } = AgentConnectionState.Disconnected;
+
+    /// <summary>When the Agent was last observed — its last connect, heartbeat or snapshot (UTC); <c>null</c>
+    /// until it first connects. On heartbeat loss the connection monitor marks this record stale; it is never
+    /// promoted back to current without a fresh observation (trust-boundaries.md §3).</summary>
+    public DateTimeOffset? LastSeenAt { get; private set; }
+
+    /// <summary>The protocol version negotiated on the Agent's last connect (F10, ADR 0020); <c>null</c> until
+    /// it first connects.</summary>
+    public int? LastProtocolVersion { get; private set; }
+
     /// <summary>True when the Agent is trusted: enabled and holding a credential. The actual secret match
     /// is the verifier's (Infrastructure); this is the fail-closed gate around it.</summary>
     public bool IsTrusted => IsEnabled && !string.IsNullOrEmpty(CredentialHash);
@@ -96,4 +110,25 @@ public sealed class Agent : IVersioned, ITenantOwned
 
     /// <summary>Re-enables a disabled Agent.</summary>
     public void Enable() => IsEnabled = true;
+
+    /// <summary>Records that the Agent connected and negotiated <paramref name="protocolVersion"/> (F10). Observed
+    /// state only — it does not change trust.</summary>
+    public void MarkConnected(int protocolVersion, DateTimeOffset now)
+    {
+        ConnectionState = AgentConnectionState.Connected;
+        LastProtocolVersion = protocolVersion;
+        LastSeenAt = now;
+    }
+
+    /// <summary>Advances the last-seen time on a heartbeat or snapshot (F10), leaving the connection state and
+    /// negotiated version as they were. Observed state only.</summary>
+    public void MarkHeartbeat(DateTimeOffset now) => LastSeenAt = now;
+
+    /// <summary>Records that the Agent's connection ended (F10), keeping the last negotiated version as the
+    /// last-known. Observed state only — a dropped connection does not untrust the Agent.</summary>
+    public void MarkDisconnected(DateTimeOffset now)
+    {
+        ConnectionState = AgentConnectionState.Disconnected;
+        LastSeenAt = now;
+    }
 }

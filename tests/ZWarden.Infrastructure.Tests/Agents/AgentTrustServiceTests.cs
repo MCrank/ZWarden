@@ -83,6 +83,44 @@ public class AgentTrustServiceTests
     }
 
     [Test]
+    public async Task Revoking_or_disabling_drops_a_live_connection_and_audits_it()
+    {
+        await TrustTestHarness.WithSqlite(async options =>
+        {
+            CapturingAuditWriter audit = new();
+            await using ZWardenDbContext ctx = TrustTestHarness.Context(options);
+            (AgentId id, _) = SeedAgent(ctx);
+            RecordingConnectionRegistry connections = new(abortSucceeds: true);
+
+            await TrustTestHarness.Trust(ctx, audit, Manage, connections)
+                .RevokeCredentialAsync(TrustTestHarness.Manager, id);
+
+            // The live connection is aborted immediately (F10), not left until the Agent reconnects.
+            await Assert.That(connections.Aborted).Contains(id);
+            await Assert.That(audit.Actions).Contains(AgentConnectionAuditActions.CredentialRevokedWhileConnected);
+        });
+    }
+
+    [Test]
+    public async Task Revoking_an_agent_with_no_live_connection_does_not_audit_a_drop()
+    {
+        await TrustTestHarness.WithSqlite(async options =>
+        {
+            CapturingAuditWriter audit = new();
+            await using ZWardenDbContext ctx = TrustTestHarness.Context(options);
+            (AgentId id, _) = SeedAgent(ctx);
+            RecordingConnectionRegistry connections = new(abortSucceeds: false);
+
+            await TrustTestHarness.Trust(ctx, audit, Manage, connections)
+                .RevokeCredentialAsync(TrustTestHarness.Manager, id);
+
+            await Assert.That(connections.Aborted).Contains(id);
+            await Assert.That(audit.Actions).DoesNotContain(AgentConnectionAuditActions.CredentialRevokedWhileConnected);
+            await Assert.That(audit.Actions).Contains(EnrollmentAuditActions.CredentialRevoked);
+        });
+    }
+
+    [Test]
     public async Task Every_operation_requires_the_permission()
     {
         await TrustTestHarness.WithSqlite(async options =>
