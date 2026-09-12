@@ -32,6 +32,18 @@
   <ItemGroup>
     <!-- Runtime host packages. -->
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.10" />
+    <!-- Options binding + startup validation for AgentOptions (F8). -->
+    <PackageVersion Include="Microsoft.Extensions.Options.DataAnnotations" Version="10.0.10" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Logging stack (ADR 0021): Serilog, introduced by the Agent runtime (F8). Two-stage
+         bootstrap via Serilog.Extensions.Hosting; Console + rolling File sinks; levels from
+         configuration. Exact pins (ADR 0002 discipline). -->
+    <PackageVersion Include="Serilog.Extensions.Hosting" Version="10.0.0" />
+    <PackageVersion Include="Serilog.Settings.Configuration" Version="10.0.1" />
+    <PackageVersion Include="Serilog.Sinks.Console" Version="6.1.1" />
+    <PackageVersion Include="Serilog.Sinks.File" Version="7.0.0" />
   </ItemGroup>
 
   <ItemGroup>

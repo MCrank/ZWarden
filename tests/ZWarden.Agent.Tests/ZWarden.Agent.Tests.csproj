@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Tier-1 offline unit tests (ADR 0002) for the F8 Agent runtime skeleton: file-based
+    self-identity, options validation, the in-process health-state model, the worker
+    lifecycle and the diagnostics banner. MTP test app; LangVersion pinned (ADR 0002 item 6).
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <LangVersion>14.0</LangVersion>
+    <!-- Silent-drop floor (ADR 0002). Update when tests are added or removed. -->
+    <TestingPlatformCommandLineArguments>--minimum-expected-tests 24</TestingPlatformCommandLineArguments>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="TUnit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\ZWarden.Agent\ZWarden.Agent.csproj" />
+  </ItemGroup>
+
+</Project>
