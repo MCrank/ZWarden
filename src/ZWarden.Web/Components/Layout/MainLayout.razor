@@ -1,6 +1,12 @@
 @inherits LayoutComponentBase
 
 <div class="min-h-screen">
+    <AuthorizeView Policy="Audit.View">
+        @* Visibility convenience only — the /audit endpoint re-authorizes server-side (PRD 12). *@
+        <nav class="mx-auto max-w-5xl px-6 pt-6">
+            <a href="/audit" class="text-sm font-medium text-muted-foreground hover:text-foreground">Audit</a>
+        </nav>
+    </AuthorizeView>
     <main class="mx-auto max-w-5xl p-6">
         @Body
     </main>

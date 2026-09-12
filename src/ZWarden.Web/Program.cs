@@ -1,4 +1,5 @@
 using BlazorBlueprint.Components;
+using ZWarden.Infrastructure.Audit;
 using ZWarden.Infrastructure.Authorization;
 using ZWarden.Infrastructure.Identity;
 using ZWarden.Infrastructure.Persistence;
@@ -37,6 +38,7 @@ builder.Services.AddTenantFoundation();
 builder.Services.AddZWardenPersistence(provider, connectionString);
 builder.Services.AddZWardenAuthentication(allowedHosts);
 builder.Services.AddZWardenAuthorization();        // F5: decision service, policy provider, handlers
+builder.Services.AddZWardenAudit();                 // F6: writer, query, correlation, durable auth sink
 
 WebApplication app = builder.Build();
 
