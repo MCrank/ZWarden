@@ -17,6 +17,18 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!--
+      The provider migration assemblies. The host runs MigrateAndBootstrapDefaultTenantAsync() on
+      startup, and EF resolves the migrations by assembly NAME (ZWardenDbProvider.*MigrationsAssembly),
+      so both must be present in the app's output/deps.json or startup fails with a FileNotFoundException.
+      Both providers ship in v1.0 (ADR 0005); the active one is chosen by ZWarden:Database:Provider.
+      ReferenceOutputAssembly stays true so the DLLs land in the output and the dependency context.
+    -->
+    <ProjectReference Include="..\ZWarden.Migrations.Sqlite\ZWarden.Migrations.Sqlite.csproj" />
+    <ProjectReference Include="..\ZWarden.Migrations.Postgres\ZWarden.Migrations.Postgres.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Tailwind sources are inputs to the CSS build, not compiled content. The
          generated wwwroot/app.css IS committed and diffed by CI (ADR 0003). -->
     <Content Remove="Styles\**" />

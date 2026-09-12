@@ -292,6 +292,12 @@
           "ZWarden.Application": "[1.0.0, )"
         }
       },
+      "zwarden.migrations.postgres": {
+        "type": "Project",
+        "dependencies": {
+          "ZWarden.Infrastructure": "[1.0.0, )"
+        }
+      },
       "zwarden.migrations.sqlite": {
         "type": "Project",
         "dependencies": {
@@ -312,7 +318,9 @@
           "ZWarden.Application": "[1.0.0, )",
           "ZWarden.Contracts": "[1.0.0, )",
           "ZWarden.Diagnostics": "[1.0.0, )",
-          "ZWarden.Infrastructure": "[1.0.0, )"
+          "ZWarden.Infrastructure": "[1.0.0, )",
+          "ZWarden.Migrations.Postgres": "[1.0.0, )",
+          "ZWarden.Migrations.Sqlite": "[1.0.0, )"
         }
       },
       "BlazorBlueprint.Components": {

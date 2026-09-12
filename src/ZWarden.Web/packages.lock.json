@@ -169,6 +169,18 @@
           "ZWarden.Application": "[1.0.0, )"
         }
       },
+      "zwarden.migrations.postgres": {
+        "type": "Project",
+        "dependencies": {
+          "ZWarden.Infrastructure": "[1.0.0, )"
+        }
+      },
+      "zwarden.migrations.sqlite": {
+        "type": "Project",
+        "dependencies": {
+          "ZWarden.Infrastructure": "[1.0.0, )"
+        }
+      },
       "BlazorBlueprint.Primitives": {
         "type": "CentralTransitive",
         "requested": "[3.16.0, )",
