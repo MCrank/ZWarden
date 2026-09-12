@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 
 namespace ZWarden.Infrastructure.Persistence;
 
@@ -48,6 +49,9 @@ public static class ZWardenDbProviderExtensions
         ArgumentNullException.ThrowIfNull(builder);
 
         builder.AddInterceptors(new VersionStampingInterceptor(), new TenantScopeInterceptor());
+        // A secret-protecting context has a different model (encrypted Identity token column, F4), so it
+        // must not share a cached model with a plain one (ADR 0015).
+        builder.ReplaceService<IModelCacheKeyFactory, ZWardenModelCacheKeyFactory>();
 
         return provider switch
         {

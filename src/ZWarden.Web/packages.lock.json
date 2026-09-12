@@ -156,6 +156,7 @@
       "zwarden.infrastructure": {
         "type": "Project",
         "dependencies": {
+          "Microsoft.AspNetCore.Identity.EntityFrameworkCore": "[10.0.12, )",
           "Microsoft.EntityFrameworkCore": "[10.0.12, )",
           "Microsoft.EntityFrameworkCore.Sqlite": "[10.0.12, )",
           "Npgsql.EntityFrameworkCore.PostgreSQL": "[10.0.3, )",
@@ -167,6 +168,15 @@
         "requested": "[3.16.0, )",
         "resolved": "3.16.0",
         "contentHash": "FQXgRNRTyqYp25MTm/Z3rSP6/vUOWiHIm6D4/fcY4Ksm58IqI1gyxf/o7bMrSJDngF1bUq8TDon8BbEX/kNerw=="
+      },
+      "Microsoft.AspNetCore.Identity.EntityFrameworkCore": {
+        "type": "CentralTransitive",
+        "requested": "[10.0.12, )",
+        "resolved": "10.0.12",
+        "contentHash": "7W/9vKC65y41W6JXwC6WSU++D43wY/ANhrm7tJdbm2lrbzNkYClja6uL3Cg69y+PJ1Q4nARb3eWs9PNMWCdYxQ==",
+        "dependencies": {
+          "Microsoft.EntityFrameworkCore.Relational": "10.0.12"
+        }
       },
       "Microsoft.EntityFrameworkCore": {
         "type": "CentralTransitive",

@@ -40,4 +40,10 @@
     <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Identity store over EF Core (F4). Standalone NuGet package (not in the ASP.NET Core shared
+         framework); pinned to the EF Core band (ADR 0002/0006). -->
+    <PackageVersion Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.12" />
+  </ItemGroup>
+
 </Project>

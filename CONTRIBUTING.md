@@ -169,6 +169,43 @@ Every tenant-owned record is scoped to a tenant, and cross-tenant access is deni
   the host calls these when the first persisting feature (Feature 4) lands; the seam lives in
   `ZWarden.Infrastructure` so that is a one-liner.
 
+## Identity and authentication (Feature 4)
+
+First-party authentication is ASP.NET Core Identity over the `ZWardenDbContext` Identity store
+(PRD 11, ADR [0006](./docs/adr/0006-identity-hardening-and-deferred-passkeys.md),
+[0017](./docs/adr/0017-external-identity-provider-seam.md)).
+
+- **Identity types live in `ZWarden.Infrastructure`, never Domain or Application.** `ApplicationUser` /
+  `ApplicationRole` and everything Identity-shaped stay there — arch rules 2 and 6 fail the build if
+  Identity or an external-IdP SDK leaks up. `ApplicationUser` is `ITenantOwned`, so a user is always
+  scoped to a tenant.
+- **Keys are native UUIDv7 `Guid`s** (ADR 0004): Identity uses one key CLR type across users and roles,
+  so the distinct `UserId` (`usr-`) / `RoleId` (`rol-`) typed ids wrap the stored `Guid` and stay the
+  domain/API/log currency — the raw uuid is never surfaced.
+- **The tenant is the session's tenant claim.** `ClaimsPrincipalTenantContext` reads it, stamped at
+  sign-in by `TenantClaimsPrincipalFactory` from the user's own `TenantId`; register it *before*
+  `AddTenantFoundation` (`AddSessionTenantContext`) so it wins. Never derive the tenant from anything the
+  browser sends.
+- **The password policy and hashing are configured, not inherited** (ADR 0006, PRD 2.1). The PBKDF2
+  iteration count is the dated constant `IdentityHashingParameters.Pbkdf2IterationCount` (chosen against
+  OWASP, reviewed at the F40 gate); the policy is NIST SP 800-63-4 (15-char floor, no composition rules,
+  64 max, mandatory breached-password check via `IBreachedPasswordBlocklist`). Do not re-inherit the
+  framework defaults.
+- **MFA and recovery secrets are secret-aware and protected at rest.** The TOTP authenticator key and
+  recovery codes are encrypted in the Identity token column through `ISecretProtector` (ADR 0015) — the
+  database holds only envelopes. Passkeys stay out of v1.0 (ADR 0006); enabling `Stores.SchemaVersion`
+  later is a planned migration, not a `Program.cs` line.
+- **Authentication events go through the seam.** Emit `AuthenticationEvent`s via
+  `IAuthenticationEventSink` (Application); the payload carries typed ids and non-secret detail only —
+  never a password, token, TOTP secret, or recovery code. Feature 6 binds the durable sink.
+- **External identity providers are optional and abstracted.** `IExternalIdentityProvider` (Application)
+  has no concrete IdP SDK behind it in v1.0; the OIDC/Auth0 implementation is F3B. A deployment that
+  configures none never touches the seam (PRD 63).
+- **Wiring** is `AddSecurityFoundation()` → `AddSessionTenantContext()` → `AddTenantFoundation()` →
+  `AddZWardenPersistence(...)` → `AddZWardenAuthentication(allowedHosts)`, then
+  `UseHostFiltering()`/`UseAuthentication()`/`UseAuthorization()` and the migrate-then-bootstrap startup
+  step. The application cookie is HttpOnly + Secure + SameSite; host-header validation is required.
+
 ## Recording a decision
 
 Surprising, hard-to-reverse, real-trade-off decisions become an ADR — see

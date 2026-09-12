@@ -1,9 +1,14 @@
 using System.Reflection;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using ZWarden.Application.Tenancy;
 using ZWarden.Domain;
 using ZWarden.Domain.Ids;
+using ZWarden.Domain.Security;
 using ZWarden.Domain.Tenancy;
+using ZWarden.Infrastructure.Identity;
 using ZWarden.Infrastructure.Ids;
 
 namespace ZWarden.Infrastructure.Persistence;
@@ -15,10 +20,19 @@ namespace ZWarden.Infrastructure.Persistence;
 /// value conversion (ADR 0004), the <see cref="IVersioned"/> concurrency token (ADR 0005), and the
 /// tenant filter on every <see cref="ITenantOwned"/> entity (ADR 0016) - so none is ever hand-written
 /// per property or per query.
+/// <para>
+/// It is the ASP.NET Core Identity store (F4): the base maps the <c>AspNet*</c> tables keyed by native
+/// UUIDv7 <see cref="Guid"/> (ADR 0004), and <see cref="ApplicationUser"/> is tenant-owned, so the three
+/// conventions run over the Identity model too - the user table gets the typed-id column conversions and
+/// the tenant filter with no per-entity wiring. Because the model now always maps the tenant-owned
+/// <see cref="ApplicationUser"/>, the context always requires an <see cref="ITenantContext"/> (the
+/// no-tenant constructor fails closed at model creation) - self-hosted resolves it to the default tenant.
+/// </para>
 /// </summary>
-public class ZWardenDbContext : DbContext
+public class ZWardenDbContext : IdentityDbContext<ApplicationUser, ApplicationRole, Guid>
 {
     private readonly ITenantContext? _tenantContext;
+    private readonly ISecretProtector? _secretProtector;
 
     /// <summary>Constructs a context with no tenant scope. Valid only for a model that maps no
     /// <see cref="ITenantOwned"/> entity; a tenant-owned model built this way throws (fail closed).</summary>
@@ -36,6 +50,22 @@ public class ZWardenDbContext : DbContext
         _tenantContext = tenantContext;
     }
 
+    /// <summary>Constructs a tenant-scoped context that also <b>encrypts sensitive Identity token values
+    /// at rest</b> (F4): the TOTP authenticator key and the two-factor recovery codes, which Identity
+    /// stores in the token table, are protected through <paramref name="secretProtector"/> (ADR 0015) via
+    /// a value converter, so they never sit in the database as plaintext. Supplying a protector changes
+    /// the model, so the model-cache key distinguishes it (see <see cref="ZWardenModelCacheKeyFactory"/>).</summary>
+    public ZWardenDbContext(DbContextOptions options, ITenantContext tenantContext, ISecretProtector secretProtector)
+        : this(options, tenantContext)
+    {
+        ArgumentNullException.ThrowIfNull(secretProtector);
+        _secretProtector = secretProtector;
+    }
+
+    /// <summary>Whether this context encrypts Identity token values at rest (a protector was supplied).
+    /// Part of the model-cache key so a protected and an unprotected model never share a cache entry.</summary>
+    internal bool HasSecretProtection => _secretProtector is not null;
+
     /// <summary>Assemblies scanned for entity configurations. Override to add a feature's assembly.</summary>
     protected virtual IEnumerable<Assembly> ConfigurationAssemblies => [typeof(ZWardenDbContext).Assembly];
 
@@ -51,17 +81,40 @@ public class ZWardenDbContext : DbContext
                 "This ZWardenDbContext maps tenant-owned entities but was constructed without an ITenantContext.")
             : _tenantContext.CurrentTenantId;
 
-    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    protected override void OnModelCreating(ModelBuilder builder)
     {
-        ArgumentNullException.ThrowIfNull(modelBuilder);
-        base.OnModelCreating(modelBuilder);
+        ArgumentNullException.ThrowIfNull(builder);
+        base.OnModelCreating(builder);
 
         foreach (Assembly assembly in ConfigurationAssemblies)
         {
-            modelBuilder.ApplyConfigurationsFromAssembly(assembly);
+            builder.ApplyConfigurationsFromAssembly(assembly);
         }
 
-        ApplyConventions(modelBuilder);
+        ApplyConventions(builder);
+        ApplySecretProtectionToIdentityTokens(builder);
+    }
+
+    // Encrypt the Identity token Value column at rest (the TOTP authenticator key and the two-factor
+    // recovery codes live there). A value converter protects on write and reveals on read, so the
+    // column type is unchanged (no migration) but the stored bytes are an authenticated-encryption
+    // envelope (ADR 0015), never plaintext. Only applied when a protector was supplied.
+    private void ApplySecretProtectionToIdentityTokens(ModelBuilder builder)
+    {
+        if (_secretProtector is null)
+        {
+            return;
+        }
+
+        ISecretProtector protector = _secretProtector;
+        // EF applies a value converter only to non-null values, so the reveal side never sees null.
+        ValueConverter<string?, string> converter = new(
+            plaintext => protector.ProtectString(plaintext!),
+            envelope => protector.UnprotectString(envelope));
+
+        builder.Entity<IdentityUserToken<Guid>>()
+            .Property(token => token.Value)
+            .HasConversion(converter);
     }
 
     private void ApplyConventions(ModelBuilder modelBuilder)

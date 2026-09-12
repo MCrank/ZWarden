@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using ZWarden.Application.Tenancy;
+using ZWarden.Domain.Security;
 using ZWarden.Infrastructure.Tenancy;
 
 namespace ZWarden.Infrastructure.Persistence;
@@ -31,7 +32,16 @@ public static class ZWardenPersistenceServiceCollectionExtensions
         builder.UseZWardenProvider(provider, connectionString);
         DbContextOptions<ZWardenDbContext> options = builder.Options;
 
-        services.AddScoped(sp => new ZWardenDbContext(options, sp.GetRequiredService<ITenantContext>()));
+        // When the security foundation is present, the context encrypts sensitive Identity token values
+        // at rest (F4/ADR 0015); without it (some tests, and pre-F4 hosts) the context is unprotected.
+        services.AddScoped(sp =>
+        {
+            ITenantContext tenantContext = sp.GetRequiredService<ITenantContext>();
+            ISecretProtector? protector = sp.GetService<ISecretProtector>();
+            return protector is null
+                ? new ZWardenDbContext(options, tenantContext)
+                : new ZWardenDbContext(options, tenantContext, protector);
+        });
         return services;
     }
 
