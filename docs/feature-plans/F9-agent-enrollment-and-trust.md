@@ -1,0 +1,147 @@
+# Feature 9 Mini-Plan — Agent Enrollment and Trust
+
+**Status:** ready for implementation. Roadmap issue: [F9 (#31)](https://github.com/MCrank/ZWarden/issues/31). Track C.
+
+**Format:** PRD 60. **Written against:** PRD 17 (Agent authentication — *overturned for v1.0* by [ADR 0007](../adr/0007-agent-authentication-enrollment-credential-in-v1-0.md)), PRD 63A (single-use, short-lived enrollment), PRD 12/12A (authorization is re-made server-side; the `Tenant.Enrollment.Manage` permission), PRD 16 / criterion 14 (outbound-only Agent connection); Feature 9 (§ "Agent Enrollment and Trust"); [`scope-and-sequencing.md`](../scope-and-sequencing.md) §6 (Track C, F9), §5/§12 (the DAG: F8 → **F9** → F10) and §10 item 1 (the enrollment-credential ADR); [`trust-boundaries.md`](../trust-boundaries.md) §1 (Agent inside the host trust domain), §3 (the Web ↔ Agent boundary, credential strength), §6 (tenant isolation), §9 rule 1 (a compromised Agent must not reach the database); the F8 Agent runtime it extends; the F7 contracts ([ADR 0020](../adr/0020-agent-protocol-versioning-and-catalogue.md)); the F5 authorization mechanism ([ADR 0018](../adr/0018-zwarden-owned-rbac.md)); the F6 audit sink ([ADR 0019](../adr/0019-audit-is-append-only-tenant-owned-and-binds-the-auth-sink.md)); the F3 secret foundation ([ADR 0015](../adr/0015-application-layer-secret-encryption.md)); the F3A tenant foundation ([ADR 0016](../adr/0016-tenant-isolation-query-filter-and-default-tenant.md)); and the F1 typed IDs ([ADR 0014](../adr/0014-typed-id-pattern.md)). Three load-bearing decisions were settled with the maintainer before writing (below).
+
+## Objective
+
+Turn an **unknown** Agent — which F8 gave only a self-minted `agt-` id that is explicitly *"not a credential and not proof of trust"* — into a **trusted** one. F9 delivers, end to end: a **one-time, short-lived enrollment credential** an operator mints; the **exchange** of that credential over an HTTPS endpoint for a **revocable, rotatable per-Agent credential**; the trusted **Agent** record the exchange creates; **credential storage** on both sides (hashed server-side, file-based agent-side); **revocation**, **credential rotation**, and **Agent disablement**; a server-side **trust check** (the seam F10's SignalR handshake will call); and the trust tests. It realizes [ADR 0007](../adr/0007-agent-authentication-enrollment-credential-in-v1-0.md) — bearer credential now, mTLS in v1.1 — and is, by that ADR, the first item on the Feature 40 attack list.
+
+## The settled decisions
+
+1. **The enrollment exchange ships end to end over HTTPS, now — it does not wait on F10 (maintainer decision).** F10 (SignalR) is not built, so the exchange needs its own transport. F9 ships a **dedicated one-shot HTTPS endpoint** (`POST /agent/enroll`) on ZWarden.Web *and* the **agent-side enrollment client** that calls it, so enrollment is complete and testable now. Enrollment is a **pre-trust bootstrap**; a one-shot HTTPS POST authenticated by the enrollment secret is the honest transport for it, and it is architecturally cleaner than tunnelling a bootstrap through the persistent hub. F10 then consumes the per-Agent credential purely to authenticate the ongoing connection. Chosen over "server-side + storage only, defer the wire to F10" because the issue's scope names *Agent registration* and *trust tests*, both of which need the wire.
+
+2. **Credentials are stored hash-only, shown once (maintainer decision).** Both the enrollment secret and the per-Agent credential are **256-bit random secrets** returned to the operator/agent **once** and never persisted in raw form; the server stores only a **one-way SHA-256 hash**. Verification hashes the presented secret and compares in constant time (`CryptographicOperations.FixedTimeEquals`). This is the API-token pattern: a database compromise yields hashes, not usable credentials. No salt/KDF is used or needed — the secrets are full-entropy random, so there is nothing to brute-force, and this keeps clear of the AEAD/KDF architecture guard (which confines `AesGcm`/`ChaCha20Poly1305`/`HKDF` to `Infrastructure/Security`). Rotation issues a **brand-new** secret rather than re-showing the old one; recoverability (which would need `ISecretProtector`) is therefore not required and not used.
+
+3. **Delivered as two PRs on one branch (`feat/f9-agent-enrollment-trust`) (maintainer decision), mirroring F5.** **PR1** — the server-side trust model, persistence, issuance/verification services and the operator surface. **PR2** — the HTTPS exchange endpoint, the agent-side client + storage, and the end-to-end trust tests. Each PR is independently reviewable and deployable.
+
+Decisions taken without escalation (low-risk, pattern-matching existing work), recorded here as the durable handoff:
+
+- **The `Agent` aggregate is introduced by F9** (`agt-`, `ITenantOwned`, `IVersioned`): the trust anchor holding the current credential hash and an `IsEnabled` flag. F14 later adds Agent-to-Server association onto it. The Agent's *self-identity* file (F8) and this *trusted-Agent record* are distinct: the file proves nothing; this record, plus a matching credential, is what trust means.
+- **Revoke, rotate and disable are three distinct operations.** *Revoke* invalidates the current credential (the Agent must re-enroll to regain trust). *Rotate* issues a fresh credential, shown once (the old one stops working immediately — no overlap window; the Agent is not continuously connected until F10, and an overlap is a v1.1 nicety). *Disable* is a flag that refuses the Agent even with a valid credential (and *enable* reverses it). The trust check is **enabled AND credential-hash matches** — both, fail-closed.
+- **The pre-trust exchange runs under the default tenant, with no special tenant plumbing.** The registered `ClaimsPrincipalTenantContext` already **falls back to `Tenant.DefaultId`** for an unauthenticated request (it is how the login page resolves), so the secret-hash lookup runs through the **normal tenant filter** — no `IgnoreQueryFilters`, respecting the guard. v1.0 self-hosted enrollment is single-tenant by construction; **hosted, tenant-bound enrollment is F10A (v1.1)**, which registers a non-falling-back context. This reliance is documented in Security considerations.
+- **No new ADR.** [ADR 0007](../adr/0007-agent-authentication-enrollment-credential-in-v1-0.md) already records the one hard-to-reverse, surprising decision (bearer credential, mTLS deferred, residual risk stated). F9's remaining choices (hash-only storage, HTTPS exchange, revoke/rotate/disable semantics) are conventional realizations of it and live in this mini-plan. **No new typed-ID prefix and no new permission** — `AgentId` (`agt-`), `EnrollmentId` (`enr-`) and `Permissions.TenantEnrollmentManage` (`Tenant.Enrollment.Manage`, already excluded from built-in roles) all exist.
+
+## Dependencies
+
+**F3, F5, F8** (issue-declared), plus F1/F2/F3A/F6/F7 transitively. Consumes:
+
+- **F5 authorization** — the operator surface authorizes every issuance/management operation against `Permissions.TenantEnrollmentManage` via the fail-closed `IPermissionChecker` (or the `Tenant.Enrollment.Manage` policy on the endpoint/page). The exchange endpoint is **not** permission-gated — the enrollment secret *is* the authorization there.
+- **F6 audit** — every issuance, redemption (success and failure, with a non-secret reason), rotation, revocation, enable and disable writes an `AuditEntry` through `IAuditWriter`. No credential is ever placed in an audit record.
+- **F3 secret foundation** — the per-Agent credential is a `SecretString` in memory wherever it is held before it goes on the wire or to the agent file; nothing stringifies it. Raw crypto (RNG, SHA-256, fixed-time compare) lives in `Infrastructure/Security`.
+- **F3A tenant foundation** — `Enrollment` and `Agent` are `ITenantOwned`; the interceptor stamps the tenant and the filter scopes every read. The default-tenant fallback (above) makes the exchange work pre-session.
+- **F8 Agent runtime** — F9 adds the trust store and enrollment client to the existing host; `AgentOptions` already declares `ControlPlaneUri` "for F10" (F9 is its first real consumer). `trust-boundaries.md` §9 rule 1 keeps the agent side **file-based, no Infrastructure/EF** — enforced by the existing arch test, which stays green.
+- **F7 contracts** — the shared enrollment request/response DTOs live in `ZWarden.Contracts` (both Web and Agent already reference it). They are plain records, **not** `AgentCommand`/`AgentEvent` and carry **no** `[ProtocolMessage]` attribute — the enrollment exchange is the bootstrap that *establishes* the boundary, not a message that crosses the closed command/event vocabulary; the closed-vocabulary guard is therefore unaffected.
+
+## Scope
+
+1. **Domain — the `Enrollment` and `Agent` aggregates.** `Enrollment` (`enr-`, tenant-owned): secret hash, `CreatedBy` (`UserId`), `CreatedAt`, `ExpiresAt`, optional `Label`, a status (`Pending`/`Consumed`/`Revoked`), and `ConsumedByAgent` (`AgentId?`). Factory `Enrollment.Issue(...)`; `Consume(agentId, now)` and `Revoke(now)` enforce the single-use / not-expired / not-already-terminal invariants; `IsRedeemable(now)` is the read model. `Agent` (`agt-`, tenant-owned): current credential hash, `Label`, `IsEnabled`, `EnrolledAt`, `CredentialRotatedAt`, `EnrolledVia` (`EnrollmentId`). Factory `Agent.Enroll(...)`; `RotateCredential(newHash, now)`, `RevokeCredential(now)`, `Disable(now)`/`Enable(now)`. No crypto in the domain — it stores hashes it is given.
+2. **Application — interfaces + DTOs (no EF/ASP.NET).** `IEnrollmentService` (mint a token → `EnrollmentTokenResult { EnrollmentId, Secret: SecretString, ExpiresAt }`; list/revoke enrollments). `IAgentTrustService` (list agents; `RotateCredentialAsync` → new `SecretString`; `RevokeCredentialAsync`; `DisableAsync`/`EnableAsync`). `IAgentEnrollmentExchange` (`RedeemAsync(SecretString presented)` → `AgentEnrollmentResult { AgentId, AgentCredential: SecretString, Label? }` on success; a **generic** failure otherwise — no oracle to the agent). `IAgentCredentialVerifier` (`VerifyAsync(SecretString presented)` → `AgentId?`; the seam F10 calls at handshake — trusted iff enabled and hash matches). An `IEnrollmentSecretHasher` seam (generate, hash, verify) implemented in Infrastructure. DTOs and a redemption-failure enum (for audit detail, not returned to the agent).
+3. **Infrastructure — persistence, services, crypto.** `EnrollmentConfiguration`/`AgentConfiguration` (`IEntityTypeConfiguration`), tenant-scoped `EnrollmentRepository`/`AgentRepository`, a per-provider **`AgentEnrollment` migration** (Sqlite + Postgres). The concrete services above, each authorizing (where operator-facing) then auditing then mutating via factories under `ITenantContext`. `EnrollmentSecretHasher` in `Infrastructure/Security`: `RandomNumberGenerator.GetBytes(32)`, `SHA256.HashData`, `CryptographicOperations.FixedTimeEquals`.
+4. **Web — the operator surface and the exchange endpoint.** `EnrollmentEndpoints` (or a mix of a minimal Blazor admin page + minimal-API): mint an enrollment token, list Agents, rotate/revoke/disable/enable — all guarded by `Tenant.Enrollment.Manage`, showing each freshly-minted secret exactly once. The **agent-facing** `POST /agent/enroll` — **no cookie auth**, accepts the enrollment secret, calls `IAgentEnrollmentExchange`, returns the DTO or a generic 4xx; runs under the default-tenant fallback. New audit actions wired.
+5. **Contracts — the exchange DTOs.** `EnrollmentRequest`/`EnrollmentResponse` plain records in `ZWarden.Contracts` (no `[ProtocolMessage]`).
+6. **Agent — trust store + enrollment client.** `AgentTrustMaterial` (`AgentId` + credential `SecretString`) persisted by a `FileAgentTrustStore` (single local file, atomic temp-file + replace, **BOM-less UTF-8**, typed failure on malformed — the F8 identity-store pattern, distinct file). `HttpEnrollmentClient : IEnrollmentClient` POSTs to `ControlPlaneUri` + `/agent/enroll`. An enrollment orchestration step (hosted service): if no trust material and an enrollment secret is configured, enroll and store it; if already enrolled, skip; if unenrolled with no secret, log and continue (the F8 host still runs). `AgentOptions` gains `EnrollmentSecret` (`SecretString?`, a one-shot bootstrap input) and `TrustFilePath`.
+7. **Tests** — domain invariants, cross-provider persistence, service authorization/audit/trust semantics, endpoint behaviour, agent-side store + client, and an end-to-end enroll-then-verify. Plus the closed-set guards (prefix registry unchanged, catalogue unchanged) stay green.
+
+## Non-scope
+
+- **The persistent connection and handshake authentication (F10).** F9 defines and **verifies** the per-Agent credential (`IAgentCredentialVerifier`); F10 calls that seam during the SignalR/WSS handshake and owns reconnect. F9 does not open a hub or a socket.
+- **mTLS and the certificate authority (v1.1, ADR 0007).** No `crt-` records, no CA, no certificate lifecycle. The `crt-` prefix stays reserved and unused.
+- **Hosted / multi-tenant enrollment (F10A, v1.1).** Agent-to-tenant binding, tenant-scoped enrollment credentials and enrollment-specific hosted audit. F9 is single-tenant (default-tenant) by construction.
+- **Live credential rotation *push* to a running Agent.** F9 provides the rotation *mechanism* (new secret, shown once); delivering it to a connected Agent over the wire needs F10. In v1.0 a rotated/revoked Agent re-acquires trust by re-enrollment, out of band — the same path as first enrollment.
+- **Agent-to-Server association, inventory, health, last-seen (F14/F16).** The `Agent` record carries trust state only; connection/observed state is later.
+- **Membership management / who may hold `Tenant.Enrollment.Manage` beyond the seeded admin (F3D, v1.1).**
+- **First-run setup UX (F33).** F33 builds the guided enrollment flow and consumes the style guide; F9's operator surface is deliberately minimal.
+
+## Domain changes
+
+Two new entities in `ZWarden.Domain` — `Enrollment` (`ZWarden.Domain/Enrollment/`) and `Agent` (`ZWarden.Domain/Agents/`), both `ITenantOwned, IVersioned`, both with static factories and invariant-guarded mutators. **No new typed ID** — `AgentId`/`EnrollmentId` exist; the prefix registry stays at **20** and `PrefixRegistryTests` is unchanged. **No new permission** — `Tenant.Enrollment.Manage` exists; `PermissionCatalogueTests`/`BuiltInRolesTests` are unchanged. A new **`EnrollmentStatus`** enum (Domain) and a small `AgentTrustState`/redemption-failure enum as needed. **`CONTEXT.md`** already defines **Enrollment**; add **Agent (trusted)** if the term proves load-bearing (see Documentation).
+
+## Contract changes
+
+Two plain records added to `ZWarden.Contracts` (`Enrollment/` namespace): `EnrollmentRequest { string EnrollmentSecret }`, `EnrollmentResponse { string AgentId, string AgentCredential, string? Label }`. **No** `[ProtocolMessage]`, **not** subtypes of `AgentCommand`/`AgentEvent` — so the closed-vocabulary and discriminator-uniqueness guards are unaffected and stay green. The F7 protocol surface (envelope, five lifecycle messages) is otherwise untouched; `AgentHello` still carries only the `AgentId` — F10 pairs it with the credential over the transport.
+
+## Package changes
+
+**Expected none.** The exchange uses `System.Net.Http.Json` / `HttpClient` (BCL) on the agent side and minimal APIs on the Web side; crypto is BCL (`RandomNumberGenerator`, `SHA256`, `CryptographicOperations`). If the end-to-end Web test needs an in-memory host, `Microsoft.AspNetCore.Mvc.Testing` may be added **to the test project only** (verify whether the existing Web.Tests already has a harness before adding). Any add is pinned in `Directory.Packages.props` with the lock file regenerated on the **pinned SDK** and both `ZWarden.Web`/agent lock files committed (toolchain note).
+
+## Security considerations
+
+- **Hash-only, shown once (decision 2).** A DB compromise yields SHA-256 hashes of full-entropy secrets — not usable credentials. The raw secret exists only in transit and in the `SecretString` returned once; it is never logged, never audited, never re-shown.
+- **The enrollment secret is the authorization on the exchange endpoint.** `POST /agent/enroll` is intentionally cookie-unauthenticated; it must be rate-limitable and must return a **generic** failure (no distinction between unknown / expired / consumed / revoked) so it is not an oracle. The specific reason is audited server-side only.
+- **Single-use, short-lived (PRD 63A).** An enrollment record is consumed atomically on first success (concurrency token guards a double-redeem race) and rejected past `ExpiresAt`. A sensible default TTL, operator-overridable within bounds.
+- **The residual risk is ADR 0007's, restated:** a bearer credential read off a compromised host impersonates that Agent until revoked/rotated/disabled. F9 does not close this (mTLS in v1.1 does); it **bounds** it — revoke, rotate and disable are the operator's time-boxing tools, and `trust-boundaries.md` §1 already places the Agent inside the host trust domain. This is deliberately the first Feature 40 attack-list item.
+- **Default-tenant reliance (documented).** The exchange runs under `ClaimsPrincipalTenantContext`'s default-tenant fallback — correct for single-tenant v1.0, and the seam F10A/v1.1 replaces for hosted, tenant-bound enrollment. No `IgnoreQueryFilters`; the guard stays load-bearing.
+- **Agent side stays file-only (trust-boundaries §9 rule 1).** The trust file is written atomically and BOM-less, holds a real credential (unlike the F8 identity file), and never touches a database. The arch test stays green.
+- **No secret crosses a boundary it must not (trust-boundaries §3):** the credential goes Web → Agent once, over HTTPS, at enrollment; it is never sent to the browser, never in a log, never in an audit record.
+
+## Test plan
+
+Written before the code (PRD 2.2). Assemblies noted; offline tier unless marked networked.
+
+**PR1 — server-side trust model**
+
+1. **Domain — `Enrollment` invariants** (`ZWarden.Domain.Tests`). `Issue` sets pending + expiry; `Consume` on a redeemable token succeeds and binds the `AgentId`; `Consume` fails on expired / already-consumed / revoked; `Revoke` is terminal; `IsRedeemable` reflects time and status. `ITenantOwned`/`IVersioned` assignable; tenant not set by caller.
+2. **Domain — `Agent` invariants** (`ZWarden.Domain.Tests`). `Enroll` starts enabled with the given hash and provenance; `RotateCredential` swaps the hash and stamps the time; `RevokeCredential` invalidates (no hash matches); `Disable`/`Enable` toggle; trust requires enabled + hash — asserted via the verifier (test 8).
+3. **Secret hasher** (`ZWarden.Infrastructure.Tests`). Generated secrets are 256-bit and distinct; `Hash` is stable and one-way (hash ≠ secret); `Verify` is true for the right secret, false for a wrong one; uses fixed-time compare (behavioural: right/wrong both return, no throw).
+4. **Persistence — round-trip + tenant stamping + isolation** (SQLite: `ZWarden.Infrastructure.Tests`; **Postgres**: `ZWarden.IntegrationTests`, networked). Enrollment and Agent persist and reload; tenant is stamped by the interceptor; a second tenant cannot read the first's rows; the credential **hash** (never a raw secret) is what is stored. Same behaviours on both providers, no branch. Model-level tenant-filter guard covers both new entities.
+5. **`IEnrollmentService.Issue`** (`ZWarden.Infrastructure.Tests`). Requires `Tenant.Enrollment.Manage` — denied throws `AuthorizationDeniedException` and writes nothing; granted returns a one-time secret + persists only its hash + audits `Enrollment.TokenIssued`. Revoke enrollment audits and blocks later redemption.
+6. **`IAgentEnrollmentExchange.Redeem`** (`ZWarden.Infrastructure.Tests`). A valid secret creates a trusted `Agent`, consumes the enrollment, returns a per-Agent credential, and audits `Enrollment.Redeemed` + `Agent.Enrolled`. Expired/consumed/revoked/unknown all return the **same** generic failure and audit `Enrollment.RedemptionFailed` with the specific reason; a concurrent double-redeem consumes exactly once (one succeeds, one fails). Runs under the default tenant with no session.
+7. **`IAgentTrustService`** (`ZWarden.Infrastructure.Tests`). Rotate returns a new secret, invalidates the old (verifier rejects the old, accepts the new), audits `Agent.CredentialRotated`. Revoke invalidates (verifier rejects), audits `Agent.CredentialRevoked`. Disable makes the verifier reject even a matching hash; enable restores; both audit. All gated by `Tenant.Enrollment.Manage`.
+8. **`IAgentCredentialVerifier`** (`ZWarden.Infrastructure.Tests`). Returns the `AgentId` for an enabled Agent with a matching credential; `null` for a wrong credential, a disabled Agent, a revoked credential, or an unknown one — fail-closed. Constant-time comparison.
+9. **Web operator surface** (`ZWarden.Web.Tests`). The mint/list/manage endpoints require the policy (unauthenticated/under-permissioned → 401/403); a freshly minted secret appears in the response exactly once.
+
+**PR2 — the wire + the agent**
+
+10. **`POST /agent/enroll`** (`ZWarden.Web.Tests`, in-memory host). A valid enrollment secret returns `EnrollmentResponse` with an `agt-` id and a credential; an invalid/expired/consumed secret returns a **generic** 4xx with no distinguishing detail; the endpoint needs no cookie.
+11. **Contracts DTOs** (`ZWarden.Contracts.Tests`). `EnrollmentRequest`/`EnrollmentResponse` round-trip through `System.Text.Json`; they carry no `[ProtocolMessage]` and are not in the command/event vocabulary (closed-vocabulary guard stays green).
+12. **Agent trust store** (`ZWarden.Agent.Tests`). Save-then-load returns identical `AgentTrustMaterial`; the file is BOM-less and atomic (temp-then-replace, no torn file, no stray temp); a malformed file is a typed failure, never silently replaced; the credential is held as a `SecretString` and never stringified.
+13. **Agent enrollment client + orchestration** (`ZWarden.Agent.Tests`). With a configured secret and no trust file, the client POSTs and stores the returned material; already-enrolled skips the exchange; unenrolled with no secret logs and continues (host still starts). A failed exchange does not write a partial/committed trust file. (Client tested against a stub `HttpMessageHandler`.)
+14. **End-to-end trust** (`ZWarden.IntegrationTests` or a Web+Agent seam test). Operator mints a token → agent client redeems it against the in-memory Web host → agent stores the credential → `IAgentCredentialVerifier` accepts that exact credential and returns the enrolled `agt-` id; then revoke → the same credential is rejected.
+15. **Architecture** (`ZWarden.ArchitectureTests`). Agent still references no Infrastructure/EF/provider/SignalR/Docker (the enrollment client is `HttpClient`, not a hub); raw crypto stays confined to `Infrastructure/Security`; no `IgnoreQueryFilters` anywhere. All existing guards stay green.
+
+## Implementation slices
+
+**PR1 (server side)** — branch `feat/f9-agent-enrollment-trust`:
+
+- **S1 — Domain entities.** `Enrollment` + `Agent` + `EnrollmentStatus` and factories/mutators. *Verify:* tests 1, 2. Pure Domain; Domain.Tests floor bumped.
+- **S2 — Application seams + secret hasher.** The interfaces + DTOs (Application) and `EnrollmentSecretHasher` (`Infrastructure/Security`). *Verify:* test 3.
+- **S3 — Persistence + migration.** EF configs, tenant-scoped repositories, the `AgentEnrollment` migration in **both** provider projects (build, never `--no-build`; per-provider factory). *Verify:* test 4 (SQLite offline; Postgres deferred to the networked tier before merge, like F4/F5). Model-guard covers the new entities.
+- **S4 — Infrastructure services.** `EnrollmentService`, `AgentTrustService`, `AgentEnrollmentExchange`, `AgentCredentialVerifier` — authorization + audit + tenant-scoped mutation; new `AuditActions` constants. *Verify:* tests 5, 6, 7, 8.
+- **S5 — Web operator surface + DI wiring + docs.** Endpoints/admin page under `Tenant.Enrollment.Manage`; `AddZWardenEnrollment()` (or fold into existing composition) wired in `Program.cs`; CONTRIBUTING note; `CONTEXT.md` term if warranted. *Verify:* test 9; full offline tier green, no warnings. **→ open PR1.**
+
+**PR2 (wire + agent)** — same branch, after PR1 merges (or stacked):
+
+- **S6 — Contracts DTOs.** `EnrollmentRequest`/`EnrollmentResponse`. *Verify:* test 11.
+- **S7 — The exchange endpoint.** `POST /agent/enroll` over `IAgentEnrollmentExchange`, default-tenant, generic failure. *Verify:* test 10.
+- **S8 — Agent trust store.** `AgentTrustMaterial` + `IAgentTrustStore` + `FileAgentTrustStore` (atomic, BOM-less, typed failure). *Verify:* test 12.
+- **S9 — Agent enrollment client + orchestration + options.** `IEnrollmentClient`/`HttpEnrollmentClient`, the enroll-on-start hosted step, `AgentOptions.EnrollmentSecret`/`TrustFilePath` + validation. *Verify:* test 13.
+- **S10 — End-to-end + arch guard + docs.** The enroll-then-verify test and the revoke-rejects test; confirm arch guards (test 15); update this mini-plan's status and the progress memory. *Verify:* full offline tier + arch green; floors set on every touched test project. **→ open PR2 closing #31.**
+
+## Diagnostics
+
+- **Issuance, redemption, rotation, revocation, enable/disable each emit a named audit event** — the operator can reconstruct an Agent's whole trust history in the F6 viewer, with no credential in any record.
+- **A redemption failure is audited with its specific reason** (expired / consumed / revoked / unknown) even though the agent is told only a generic failure — the operator sees *why*, an attacker does not.
+- **The agent logs its enrollment outcome** structured: enrolled-now (new `agt-`), already-enrolled (skip), or not-enrolled-no-secret (continue) — never logging the secret or the credential.
+- **Config/exchange failures are actionable** — a malformed trust file fails typed with the path; a failed exchange names the HTTP outcome, not the secret.
+
+## Documentation
+
+- **`CONTEXT.md`** — **Enrollment** is already defined. Add a **trusted Agent record** clarification only if review finds the `Agent` term ambiguous against the ZWarden.Agent *component*; the glossary already separates the component. No prefix table change.
+- **CONTRIBUTING** — an "Agent Enrollment (Feature 9)" section: how to mint an enrollment token, that credentials are hash-only and shown once, and the revoke/rotate/disable distinction.
+- **`appsettings`** (agent) — document `EnrollmentSecret` as a one-shot bootstrap input (env-supplied, consumed on first run) and `TrustFilePath`.
+- **No new ADR** (see settled decisions) — [ADR 0007](../adr/0007-agent-authentication-enrollment-credential-in-v1-0.md) is the record; this mini-plan carries the realization detail.
+
+## Acceptance criteria
+
+1. An operator with `Tenant.Enrollment.Manage` can **mint a one-time, short-lived enrollment credential**; it is shown once and stored only as a hash; a caller without the permission is denied and nothing is written.
+2. An Agent presenting a valid enrollment secret to `POST /agent/enroll` **exchanges it for a per-Agent credential**, creating a trusted `Agent` record and consuming the enrollment single-use; the secret is never reusable.
+3. The per-Agent credential is **stored hash-only server-side** and **file-only on the agent** (atomic, BOM-less, typed-failure), and is **verifiable** through `IAgentCredentialVerifier` (the seam F10 will call) — trusted iff enabled and matching, fail-closed.
+4. An operator can **revoke**, **rotate** (new secret, old invalid immediately) and **disable/enable** an Agent; each takes effect on the next verification and is audited; no credential appears in any audit record.
+5. The exchange endpoint is not an oracle (generic failure), runs under the default tenant with **no `IgnoreQueryFilters`**, and the **agent references no Infrastructure/EF/SignalR/Docker** — all architecture guards pass.
+6. Both provider migrations exist and the model matches; the offline tier is green with no warnings (Postgres verified on the networked tier before merge); the closed-set guards (prefix registry at 20, permission catalogue, built-in roles) are unchanged and green.
+
+## Definition of Done
+
+Per PRD 61, the applicable subset: acceptance criteria met; tests authored first as executable specifications; unit + persistence (both providers) + service + endpoint + agent + end-to-end tests pass; **architecture rules pass** (agent stays Contracts/Rcon-only + BCL; crypto confined; no `IgnoreQueryFilters`); every trust operation **authorized server-side** and **audited** with no credential leakage; error conditions modelled and typed (redemption failures generic to the agent, specific in audit; malformed trust file typed); diagnostics exist (the named audit events + structured agent enrollment outcome); both provider migrations generated on the pinned SDK with lock files committed; CONTRIBUTING/appsettings documented; CI green; no unresolved warnings; the two PRs merged, #31 closed.
