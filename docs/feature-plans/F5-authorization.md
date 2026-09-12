@@ -104,10 +104,12 @@ boundary is exercised with (trust-boundaries §6).
    This is the enforcement surface PRD 12's exit condition names — enforced in application/business logic, **not**
    UI visibility.
 8. **Resource-based (server-scoped) authorization (Infrastructure/Web).** A resource handler
-   `AuthorizationHandler<PermissionRequirement, IServerScoped>` (and an `IResourceAuthorizationService`
-   convenience for business logic) so a check against a specific Server is `ServerId`-aware end to end, matching
-   PRD 12A's "target resource + ownership/tenant scope" term. Server-scopable permissions evaluated without a
-   resource fail closed rather than silently widening.
+   `AuthorizationHandler<PermissionRequirement, IServerScoped>` so a check against a specific Server is
+   `ServerId`-aware end to end, matching PRD 12A's "target resource + ownership/tenant scope" term.
+   Server-scopable permissions evaluated without a resource fail closed rather than silently widening.
+   *(As built: business logic gets the same server-scoped check directly from
+   `IPermissionChecker.EvaluateAsync(user, permission, serverId)`, so no separate `IResourceAuthorizationService`
+   was added — see ADR 0018.)*
 9. **Applicable-safety-rule seam (PRD 12A).** The decision "must include … applicable safety rules": an
    `IAuthorizationSafetyRule` evaluated **last**, able only to **deny** an otherwise-allowed decision (a rule
    never grants). v1.0 ships the seam and a no-op default; concrete high-risk safeguards (confirmation prompts,
@@ -253,8 +255,9 @@ with a working, tested decision service with no ASP.NET Core surface; PR 2 wires
 
 **PR 2 — enforcement surface**
 - **S6 — `PermissionRequirement` + handler + dynamic policy provider (Infrastructure/Web).** *Verify:* test 9.
-- **S7 — Resource-based server-scoped handler + `IResourceAuthorizationService` (Infrastructure/Web).**
-  *Verify:* test 10.
+- **S7 — Resource-based server-scoped handler (Infrastructure/Web).** `ServerScopedPermissionHandler` over an
+  `IServerScoped` resource; business logic uses `IPermissionChecker.EvaluateAsync` with a `ServerId` directly
+  (no separate `IResourceAuthorizationService`, ADR 0018). *Verify:* test 10.
 - **S8 — Per-provider migration.** Role-permission + assignment tables on SQLite and Postgres. *Verify:* test 12
   (SQLite offline; Postgres networked).
 - **S9 — Host wiring.** `AddZWardenAuthorization`, seed built-in roles in the bootstrap, composition order after

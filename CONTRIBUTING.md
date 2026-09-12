@@ -214,8 +214,14 @@ assignments, and a fail-closed decision service (PRD 12/12A, ADR
 
 - **Authorize server-side, always.** Hiding a UI control is never authorization (PRD 12). Every decision is
   re-made in application/business logic through `IPermissionChecker` (`ZWarden.Application.Authorization`),
-  or, on the ASP.NET Core surface, via a permission-named policy — `[Authorize(Policy = "Server.Start")]` /
-  `AuthorizeView(Policy = "Server.Start")`, resolved on demand by `PermissionPolicyProvider`.
+  or, on the ASP.NET Core surface, via a permission-named policy — `[Authorize(Policy = "Tenant.Manage")]` /
+  `AuthorizeView(Policy = "Role.Manage")`, resolved on demand by `PermissionPolicyProvider`.
+- **A server-scopable permission needs a resource — a bare policy attribute denies it.** A plain
+  `[Authorize(Policy = "Server.Start")]` (no resource) fails closed for every `Server.*`/`Mod.*`/`Player.*`/
+  `Console.*`/`Backup.*` permission, by design — even for a Tenant Owner. Authorize those against the target
+  Server: pass an `IServerScoped` resource to `IAuthorizationService.AuthorizeAsync(user, resource, policy)`,
+  or check `IPermissionChecker.EvaluateAsync(user, permission, serverId)` in business logic. Bare policy
+  attributes are for tenant-wide permissions only.
 - **Permission names come from the catalogue, never a literal.** Reference `Permissions` (Domain); adding,
   renaming, or removing one is a catalogue-and-test change (a test asserts the set equals the PRD 12A list),
   and a new capability area is an ADR. `PermissionScope` marks a permission tenant-wide or server-scopable.

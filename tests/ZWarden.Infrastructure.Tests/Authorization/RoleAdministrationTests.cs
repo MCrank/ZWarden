@@ -73,6 +73,27 @@ public class RoleAdministrationTests
     }
 
     [Test]
+    public async Task Adjusting_a_role_cannot_add_a_permission_the_actor_does_not_hold()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId actor = UserId.New();
+            // The actor may manage roles and holds Server.View, but not Server.Start.
+            await GrantActorAsync(options, actor, Permissions.RoleManage, Permissions.ServerView);
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(TenantA));
+            RoleAdministrationService admin = NewAdmin(db);
+
+            Role role = await admin.CreateRoleAsync(actor, "Ops", [Permissions.ServerView]);
+
+            // Adding Server.Start on adjust is an escalation and must be blocked (removals stay free).
+            await Assert.That(async () =>
+                    await admin.AdjustRoleAsync(actor, role.Id, [Permissions.ServerView, Permissions.ServerStart]))
+                .Throws<AuthorizationDeniedException>();
+        });
+    }
+
+    [Test]
     public async Task Adjusting_a_role_changes_its_bundle()
     {
         await WithSqlite(async options =>
