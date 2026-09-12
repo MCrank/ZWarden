@@ -113,8 +113,13 @@ jobs:
           exe="tests/ZWarden.Web.Tests/bin/Release/net10.0/ZWarden.Web.Tests"
           echo "--- discovery without reflection mode ---"; "$exe" --list-tests || true
 
+          # The floor must equal the full test count (keep in sync with the csproj's
+          # --minimum-expected-tests). With reflection mode on, all N tests are discovered and
+          # the floor is met; stripping it drops the .razor-file test(s), so N-1 < N trips the
+          # floor - proving the reflection switch is load-bearing. A floor below the source-gen
+          # -discoverable count (the .cs tests) would pass even with the drop and defeat the guard.
           set +e
-          "$exe" --minimum-expected-tests 3 > guarded.log 2>&1
+          "$exe" --minimum-expected-tests 19 > guarded.log 2>&1
           guarded=$?
           set -e
           cat guarded.log
