@@ -1,4 +1,5 @@
 using BlazorBlueprint.Components;
+using ZWarden.Infrastructure.Agents;
 using ZWarden.Infrastructure.Audit;
 using ZWarden.Infrastructure.Authorization;
 using ZWarden.Infrastructure.Identity;
@@ -7,6 +8,7 @@ using ZWarden.Infrastructure.Security;
 using ZWarden.Infrastructure.Tenancy;
 using ZWarden.Web.Components;
 using ZWarden.Web.Components.Account;
+using ZWarden.Web.Components.Agents;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
@@ -39,6 +41,7 @@ builder.Services.AddZWardenPersistence(provider, connectionString);
 builder.Services.AddZWardenAuthentication(allowedHosts);
 builder.Services.AddZWardenAuthorization();        // F5: decision service, policy provider, handlers
 builder.Services.AddZWardenAudit();                 // F6: writer, query, correlation, durable auth sink
+builder.Services.AddZWardenEnrollment();            // F9: enrollment issuance/exchange, trust management, verifier
 
 WebApplication app = builder.Build();
 
@@ -60,6 +63,9 @@ app.MapRazorComponents<App>()
 
 // The Account sign-out endpoint (must act on the raw HTTP response, not a circuit) - F4 UI #63.
 app.MapAccountEndpoints();
+
+// The operator enrollment/trust API, gated by Tenant.Enrollment.Manage (F9).
+app.MapEnrollmentEndpoints();
 
 // Apply migrations, seed the default tenant, and (when configured) the first administrator, before
 // serving traffic. The security foundation loads its key ring here and fails closed if it is absent.

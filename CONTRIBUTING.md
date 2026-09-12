@@ -264,6 +264,31 @@ audit trail through a log sink.
 - **Wiring** is `AddZWardenAudit()` after `AddZWardenAuthorization()`; it registers the writer/query and
   **supersedes the logging-only authentication sink** with the durable one F4 deferred.
 
+## Agent Enrollment and Trust (Feature 9)
+
+An unknown Agent becomes trusted by exchanging a **one-time, short-lived enrollment credential** for a
+**revocable, rotatable per-Agent credential** ([ADR 0007](./docs/adr/0007-agent-authentication-enrollment-credential-in-v1-0.md);
+bearer credential in v1.0, mTLS in v1.1). The `Enrollment` (`enr-`) and `Agent` (`agt-`) records are
+tenant-owned.
+
+- **Credentials are hash-only, shown once.** A secret is a full-entropy random value returned exactly once
+  (from a mint or a rotation); only its **SHA-256 hash** is stored (`ICredentialHasher`, in
+  `Infrastructure/Security`). A database compromise yields hashes, not usable credentials. Never store,
+  log, or audit a raw secret — audit records carry ids and reasons only.
+- **Mint, revoke, rotate, disable through the services.** `IEnrollmentService` (mint/list/revoke tokens)
+  and `IAgentTrustService` (list/rotate/revoke/disable/enable) each require `Tenant.Enrollment.Manage`
+  server-side (fail-closed) and audit the outcome. **Revoke** clears the credential (the Agent must
+  re-enroll); **rotate** issues a fresh one (the old stops matching immediately); **disable** refuses the
+  Agent even with a valid credential. Trust is **enabled AND credential matches**.
+- **The exchange is the one un-gated path.** `IAgentEnrollmentExchange` is authorized by the presented
+  enrollment secret itself, not a permission. It runs under the ambient (default) tenant, so its lookup is a
+  normal tenant-filtered read — never `IgnoreQueryFilters()`. Every failure returns one **generic** result
+  (the specific reason is audited, not disclosed): the exchange is not an oracle.
+- **F10 calls `IAgentCredentialVerifier`** at the connection handshake; F9 defines and verifies the
+  credential but opens no transport. **Wiring** is `AddZWardenEnrollment()` after `AddZWardenAudit()`; the
+  operator API (`/api/enrollments`, `/api/agents`) is behind the `Tenant.Enrollment.Manage` policy. The
+  guided operator UI is Feature 33.
+
 ## Recording a decision
 
 Surprising, hard-to-reverse, real-trade-off decisions become an ADR — see
