@@ -35,15 +35,15 @@ public class ReferenceDirectionTests
         await Assert.That(agent.PackageReferences.Any(IsPersistence)).IsFalse();
     }
 
-    // F8 skeleton scope boundary: the Agent runtime carries no transport (SignalR, F10) and no
-    // Docker client (F13) yet. This fails the build if a later feature's dependency is pulled
-    // forward into the skeleton before its own feature lands.
+    // F10 relaxes the F8 boundary: the Agent now carries the SignalR *client* for its outbound control-plane
+    // connection, but still no Docker client (F13) — that dependency must not be pulled forward until its
+    // feature lands. The persistence guard above still holds: SignalR is transport, not persistence.
     [Test]
-    public async Task Agent_does_not_reference_transport_or_docker()
+    public async Task Agent_references_the_signalr_client_but_not_a_docker_client()
     {
         var agent = ProjectGraph.ForSourceProject("ZWarden.Agent");
 
-        await Assert.That(agent.PackageReferences.Any(IsSignalRClient)).IsFalse();
+        await Assert.That(agent.PackageReferences.Any(IsSignalRClient)).IsTrue();
         await Assert.That(agent.PackageReferences.Any(IsDockerClient)).IsFalse();
     }
 

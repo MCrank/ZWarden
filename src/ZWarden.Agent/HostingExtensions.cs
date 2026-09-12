@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using ZWarden.Agent.Configuration;
+using ZWarden.Agent.ControlPlane;
 using ZWarden.Agent.Diagnostics;
 using ZWarden.Agent.Health;
 using ZWarden.Agent.Identity;
@@ -47,9 +48,14 @@ public static class HostingExtensions
             new HttpClient { BaseAddress = ToHttpBase(sp.GetRequiredService<IOptions<AgentOptions>>().Value.ControlPlaneUri) },
             sp.GetRequiredService<ILogger<HttpEnrollmentClient>>()));
 
-        // Order matters: identity resolves, then enrollment runs, before the worker's banner reads them.
+        // Control plane (F10): the outbound SignalR connection the Agent opens once enrolled.
+        services.AddSingleton<IAgentControlPlaneConnection, SignalRControlPlaneConnection>();
+
+        // Order matters: identity resolves, then enrollment runs, then the connection opens, before/while the
+        // worker runs. Each hosted service's StartAsync completes before the next begins.
         services.AddHostedService<AgentIdentityInitializer>();
         services.AddHostedService<AgentEnrollmentInitializer>();
+        services.AddHostedService<AgentConnectionInitializer>();
         services.AddHostedService<AgentWorker>();
 
         return services;

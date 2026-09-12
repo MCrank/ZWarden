@@ -289,6 +289,35 @@ tenant-owned.
   operator API (`/api/enrollments`, `/api/agents`) is behind the `Tenant.Enrollment.Manage` policy. The
   guided operator UI is Feature 33.
 
+## Agent Control Plane (Feature 10)
+
+A trusted Agent connects **outbound** to ZWarden.Web's SignalR hub at `/agent/hub` over WSS — no inbound
+management port on the host (criterion 14). It realises the transport half of
+[ADR 0007](./docs/adr/0007-agent-authentication-enrollment-credential-in-v1-0.md) and calls
+[ADR 0020](./docs/adr/0020-agent-protocol-versioning-and-catalogue.md)'s negotiation rule.
+
+- **The credential authenticates the handshake.** The Agent presents its F9 per-Agent credential as a
+  SignalR access token; a custom `"Agent"` authentication scheme (`AgentAuthenticationHandler`) resolves it
+  through `IAgentCredentialVerifier` and mints a principal carrying the `AgentId` — **before** any hub method
+  runs. An untrusted connection is refused at the handshake (401) and audited; the Agent sees only a generic
+  failure (the reason is audited, not disclosed).
+- **Negotiation is the first message, not the handshake.** The Agent's opening `Hello` carries its
+  `AgentHello` envelope; the hub runs `ProtocolCompatibility.Negotiate` and returns the result. An
+  incompatible peer gets the actionable reason and is then aborted. No new protocol-message leaf is added, so
+  the closed command/event vocabulary is untouched.
+- **Two records of "connected".** The in-memory `IAgentConnectionRegistry` (a Web singleton) is authoritative
+  for *connected now* — the seam F11 dispatches through and F9 revoke/disable drops a live connection through.
+  The Agent's persisted `LastSeenAt`/`ConnectionState` is the durable companion for the operator view and the
+  `AgentConnectionSweeper` staleness safety net. This is **single Web instance** for v1.0
+  ([ADR 0005](./docs/adr/0005-both-database-providers-ship-in-v1-0.md)); multi-instance is F10A/v1.1, which
+  swaps a backplane-backed registry behind the same interface.
+- **The Agent reconnects on its own.** `SignalRControlPlaneConnection` uses `WithAutomaticReconnect` with a
+  capped backoff and re-sends `Hello` + `AgentStateSnapshot` on every reconnect (the server never trusts
+  stale state). The snapshot is host-level (empty server set) until F13/F14 give the Agent inventory.
+- **Wiring** is `AddAgentControlPlane()` after `AddZWardenEnrollment()` on the Web side, `MapAgentHub()` for
+  the endpoint; on the Agent side the connection is a hosted service after enrollment. An un-enrolled Agent
+  starts but does not connect.
+
 ## Recording a decision
 
 Surprising, hard-to-reverse, real-trade-off decisions become an ADR — see
