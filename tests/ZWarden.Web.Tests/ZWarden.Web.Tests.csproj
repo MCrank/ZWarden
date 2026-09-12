@@ -23,7 +23,7 @@
       the switch and they vanish with a clean "Passed!" and exit 0. This floor turns
       that into a hard failure (MTP exit 9). Update the number when tests are added.
     -->
-    <TestingPlatformCommandLineArguments>--minimum-expected-tests 27</TestingPlatformCommandLineArguments>
+    <TestingPlatformCommandLineArguments>--minimum-expected-tests 31</TestingPlatformCommandLineArguments>
   </PropertyGroup>
 
   <ItemGroup>

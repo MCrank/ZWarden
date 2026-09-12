@@ -1,6 +1,12 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using System.Text.RegularExpressions;
+using Microsoft.Extensions.DependencyInjection;
+using ZWarden.Application.Agents;
+using ZWarden.Contracts.Enrollment;
+using ZWarden.Domain.Ids;
+using ZWarden.Domain.Security;
 using ZWarden.Infrastructure.Authorization;
 using ZWarden.Web.Tests.Account;
 
@@ -63,6 +69,99 @@ public sealed class EnrollmentEndpointsTests
         await Assert.That(list.StatusCode).IsEqualTo(HttpStatusCode.OK);
         await Assert.That(listBody).Contains("host-alpha");
         await Assert.That(listBody).DoesNotContain("secret"); // the secret is shown once, never in the listing
+    }
+
+    [Test]
+    public async Task A_valid_secret_enrolls_over_the_exchange_endpoint()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        string secret = await MintSecretAsync(factory, "host-alpha");
+
+        using HttpClient agent = factory.CreateWebClient(); // no session — the secret is the authorization
+        HttpResponseMessage enroll = await agent.PostAsJsonAsync(
+            new Uri("/agent/enroll", UriKind.Relative), new EnrollmentRequest(secret));
+
+        await Assert.That(enroll.StatusCode).IsEqualTo(HttpStatusCode.OK);
+        EnrollmentResponse? response = await enroll.Content.ReadFromJsonAsync<EnrollmentResponse>();
+        await Assert.That(response!.AgentId).StartsWith("agt-");
+        await Assert.That(response.AgentCredential).StartsWith("zwa_");
+        await Assert.That(response.Label).IsEqualTo("host-alpha");
+    }
+
+    [Test]
+    public async Task An_invalid_secret_fails_generically()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        using HttpClient agent = factory.CreateWebClient();
+
+        HttpResponseMessage enroll = await agent.PostAsJsonAsync(
+            new Uri("/agent/enroll", UriKind.Relative), new EnrollmentRequest("zwe_not-a-real-secret"));
+
+        await Assert.That(enroll.StatusCode).IsEqualTo(HttpStatusCode.Unauthorized);
+    }
+
+    [Test]
+    public async Task A_consumed_secret_cannot_be_reused_over_the_endpoint()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        string secret = await MintSecretAsync(factory, null);
+        using HttpClient agent = factory.CreateWebClient();
+
+        HttpResponseMessage first = await agent.PostAsJsonAsync(
+            new Uri("/agent/enroll", UriKind.Relative), new EnrollmentRequest(secret));
+        HttpResponseMessage second = await agent.PostAsJsonAsync(
+            new Uri("/agent/enroll", UriKind.Relative), new EnrollmentRequest(secret));
+
+        await Assert.That(first.StatusCode).IsEqualTo(HttpStatusCode.OK);
+        await Assert.That(second.StatusCode).IsEqualTo(HttpStatusCode.Unauthorized); // single-use
+    }
+
+    [Test]
+    public async Task An_enrolled_credential_verifies_then_a_revoke_rejects_it()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        string secret = await MintSecretAsync(factory, "host-alpha");
+
+        // The Agent's exchange (unauthenticated) yields the per-Agent credential.
+        using HttpClient agent = factory.CreateWebClient();
+        HttpResponseMessage enroll = await agent.PostAsJsonAsync(
+            new Uri("/agent/enroll", UriKind.Relative), new EnrollmentRequest(secret));
+        EnrollmentResponse credential = (await enroll.Content.ReadFromJsonAsync<EnrollmentResponse>())!;
+        AgentId agentId = AgentId.Parse(credential.AgentId);
+
+        // The server-side verifier (the seam F10 calls) accepts that exact credential.
+        await Assert.That(await VerifyAsync(factory, credential.AgentCredential)).IsEqualTo(agentId);
+
+        // An operator revokes the Agent's credential...
+        using HttpClient op = factory.CreateWebClient();
+        await LoginAsync(op, "op@zwarden.test", StrongPassword);
+        HttpResponseMessage revoke = await op.PostAsync(
+            new Uri($"/api/agents/{agentId}/revoke", UriKind.Relative), content: null);
+        await Assert.That(revoke.StatusCode).IsEqualTo(HttpStatusCode.NoContent);
+
+        // ...and the same credential no longer verifies.
+        await Assert.That(await VerifyAsync(factory, credential.AgentCredential)).IsNull();
+    }
+
+    private static async Task<AgentId?> VerifyAsync(ZWardenWebAppFactory factory, string credential)
+    {
+        await using AsyncServiceScope scope = factory.Services.CreateAsyncScope();
+        IAgentCredentialVerifier verifier = scope.ServiceProvider.GetRequiredService<IAgentCredentialVerifier>();
+        return await verifier.VerifyAsync(new SecretString(credential));
+    }
+
+    // Mints an enrollment token as an authorized operator and returns its one-time secret.
+    private static async Task<string> MintSecretAsync(ZWardenWebAppFactory factory, string? label)
+    {
+        await factory.CreateConfirmedUserAsync("op@zwarden.test", StrongPassword);
+        await AuthorizationBootstrapper.EnsureSeededAsync(factory.Services, "op@zwarden.test");
+        using HttpClient op = factory.CreateWebClient();
+        await LoginAsync(op, "op@zwarden.test", StrongPassword);
+
+        HttpResponseMessage mint = await op.PostAsJsonAsync(
+            new Uri("/api/enrollments", UriKind.Relative), new { label });
+        using JsonDocument body = JsonDocument.Parse(await mint.Content.ReadAsStringAsync());
+        return body.RootElement.GetProperty("secret").GetString()!;
     }
 
     private static async Task LoginAsync(HttpClient client, string email, string password)

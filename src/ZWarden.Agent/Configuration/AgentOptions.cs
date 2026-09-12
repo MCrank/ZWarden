@@ -28,6 +28,21 @@ public sealed class AgentOptions
     [Required]
     public string ControlPlaneUri { get; set; } = "https://localhost:8443";
 
+    /// <summary>
+    /// Where the Agent persists its <b>trust material</b> once enrolled (F9): the assigned Agent id and the
+    /// per-Agent credential. A single local file, never a database (trust-boundaries.md §9 rule 1). Defaults
+    /// alongside the identity file.
+    /// </summary>
+    [Required]
+    public string TrustFilePath { get; set; } = DefaultTrustFilePath();
+
+    /// <summary>
+    /// The one-time enrollment secret used to enrol on first run (F9). <b>A secret — never logged.</b>
+    /// Supplied out of band (env/config) for the bootstrap and consumed once: after enrolment the trust file
+    /// exists, so this is ignored on subsequent runs. Optional; when absent the Agent starts un-enrolled.
+    /// </summary>
+    public string? EnrollmentSecret { get; set; }
+
     /// <summary>How often the Agent will emit a heartbeat once transport lands (F10). Must be positive.</summary>
     public TimeSpan HeartbeatInterval { get; set; } = TimeSpan.FromSeconds(30);
 
@@ -38,10 +53,15 @@ public sealed class AgentOptions
     public TimeSpan ShutdownTimeout { get; set; } = TimeSpan.FromSeconds(10);
 
     /// <summary>The default identity-file location: <c>%LOCALAPPDATA%/ZWarden/Agent/agent-id.txt</c>.</summary>
-    public static string DefaultIdentityFilePath() =>
+    public static string DefaultIdentityFilePath() => DefaultAgentFile("agent-id.txt");
+
+    /// <summary>The default trust-file location: <c>%LOCALAPPDATA%/ZWarden/Agent/agent-trust.json</c>.</summary>
+    public static string DefaultTrustFilePath() => DefaultAgentFile("agent-trust.json");
+
+    private static string DefaultAgentFile(string fileName) =>
         Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "ZWarden",
             "Agent",
-            "agent-id.txt");
+            fileName);
 }

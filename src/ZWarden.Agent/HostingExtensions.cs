@@ -6,6 +6,7 @@ using ZWarden.Agent.Configuration;
 using ZWarden.Agent.Diagnostics;
 using ZWarden.Agent.Health;
 using ZWarden.Agent.Identity;
+using ZWarden.Agent.Trust;
 
 namespace ZWarden.Agent;
 
@@ -38,10 +39,33 @@ public static class HostingExtensions
         services.AddSingleton<IAgentHealthState, AgentHealthState>();
         services.AddSingleton<IAgentDiagnostics, AgentDiagnostics>();
 
-        // Order matters: the initializer resolves the identity before the worker's banner reads it.
+        // Trust (F9): the file-backed trust store and the HTTPS enrollment client, whose HttpClient targets
+        // the control plane (ws/wss mapped to http/https for the one-shot enrollment POST).
+        services.AddSingleton<IAgentTrustStore>(sp => new FileAgentTrustStore(
+            sp.GetRequiredService<IOptions<AgentOptions>>().Value.TrustFilePath));
+        services.AddSingleton<IEnrollmentClient>(sp => new HttpEnrollmentClient(
+            new HttpClient { BaseAddress = ToHttpBase(sp.GetRequiredService<IOptions<AgentOptions>>().Value.ControlPlaneUri) },
+            sp.GetRequiredService<ILogger<HttpEnrollmentClient>>()));
+
+        // Order matters: identity resolves, then enrollment runs, before the worker's banner reads them.
         services.AddHostedService<AgentIdentityInitializer>();
+        services.AddHostedService<AgentEnrollmentInitializer>();
         services.AddHostedService<AgentWorker>();
 
         return services;
+    }
+
+    // The control-plane URI is validated as https/wss (F8); the one-shot enrollment POST is HTTP, so map the
+    // WebSocket schemes to their HTTP equivalents for the client's base address.
+    private static Uri ToHttpBase(string controlPlaneUri)
+    {
+        Uri uri = new(controlPlaneUri, UriKind.Absolute);
+        string scheme = uri.Scheme switch
+        {
+            "wss" => Uri.UriSchemeHttps,
+            "ws" => Uri.UriSchemeHttp,
+            _ => uri.Scheme,
+        };
+        return new UriBuilder(uri) { Scheme = scheme }.Uri;
     }
 }
