@@ -124,7 +124,7 @@ jobs:
           # floor - proving the reflection switch is load-bearing. A floor below the source-gen
           # -discoverable count (the .cs tests) would pass even with the drop and defeat the guard.
           set +e
-          "$exe" --minimum-expected-tests 23 > guarded.log 2>&1
+          "$exe" --minimum-expected-tests 24 > guarded.log 2>&1
           guarded=$?
           set -e
           cat guarded.log
