@@ -2,8 +2,10 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using ZWarden.Application.Agents;
+using ZWarden.Contracts.Enrollment;
 using ZWarden.Domain.Authorization;
 using ZWarden.Domain.Ids;
+using ZWarden.Domain.Security;
 using ZWarden.Infrastructure.Identity;
 
 namespace ZWarden.Web.Components.Agents;
@@ -122,6 +124,30 @@ public static class EnrollmentEndpoints
         MapAgentAction(api, "revoke", (svc, actor, agentId, ct) => svc.RevokeCredentialAsync(actor, agentId, ct));
         MapAgentAction(api, "disable", (svc, actor, agentId, ct) => svc.DisableAsync(actor, agentId, ct));
         MapAgentAction(api, "enable", (svc, actor, agentId, ct) => svc.EnableAsync(actor, agentId, ct));
+
+        // The pre-trust exchange (F9). Unauthenticated by cookie — the enrollment secret is the
+        // authorization. It runs under the ambient (default) tenant, so its lookup is tenant-filtered
+        // (no IgnoreQueryFilters). Every failure returns the SAME generic 401 so the endpoint is not an
+        // oracle; the specific reason is audited server-side. It reads a JSON body, not a form, so the
+        // antiforgery middleware does not apply. Rate-limiting belongs in front of it operationally.
+        endpoints.MapPost("/agent/enroll", async (
+            EnrollmentRequest? request,
+            IAgentEnrollmentExchange exchange,
+            CancellationToken cancellationToken) =>
+        {
+            if (request is null || string.IsNullOrWhiteSpace(request.EnrollmentSecret))
+            {
+                return Results.Json(new { error = "enrollment_failed" }, statusCode: StatusCodes.Status401Unauthorized);
+            }
+
+            AgentEnrollmentResult result = await exchange
+                .RedeemAsync(new SecretString(request.EnrollmentSecret), cancellationToken)
+                .ConfigureAwait(false);
+
+            return result.Succeeded
+                ? Results.Ok(new EnrollmentResponse(result.AgentId!.Value.ToString(), result.Credential.Reveal(), result.Label))
+                : Results.Json(new { error = "enrollment_failed" }, statusCode: StatusCodes.Status401Unauthorized);
+        }).AllowAnonymous();
 
         return endpoints;
     }
