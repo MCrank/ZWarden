@@ -368,3 +368,23 @@ public readonly record struct NotificationId(Guid Value) : ITypedId<Notification
     /// <inheritdoc />
     public override string ToString() => TypedId.Format<NotificationId>(Value);
 }
+
+/// <summary>Identifies a single protocol message on the Web ↔ Agent wire (F7, PRD 18's
+/// <c>MessageId</c>). Canonical form <c>msg-&lt;uuid&gt;</c>; doubles as an envelope dedup key.</summary>
+public readonly record struct MessageId(Guid Value) : ITypedId<MessageId>
+{
+    /// <inheritdoc />
+    public static string Prefix => "msg-";
+    /// <inheritdoc />
+    public static MessageId FromGuid(Guid value) => new(value);
+    /// <summary>A fresh, non-empty UUIDv7 id.</summary>
+    public static MessageId New() => TypedId.New<MessageId>();
+    /// <summary>Parses the canonical form; throws on the wrong prefix or a malformed UUID.</summary>
+    public static MessageId Parse(string s) => TypedId.Parse<MessageId>(s);
+    /// <summary>Non-throwing parse of the canonical form.</summary>
+    public static bool TryParse(string? s, out MessageId id) => TypedId.TryParse(s, out id);
+    /// <summary>True when this is the default (unset) id.</summary>
+    public bool IsEmpty => Value == Guid.Empty;
+    /// <inheritdoc />
+    public override string ToString() => TypedId.Format<MessageId>(Value);
+}
