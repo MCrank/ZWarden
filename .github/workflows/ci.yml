@@ -73,7 +73,8 @@ jobs:
             tests/ZWarden.Contracts.Tests/ZWarden.Contracts.Tests.csproj \
             tests/ZWarden.Infrastructure.Tests/ZWarden.Infrastructure.Tests.csproj \
             tests/ZWarden.Web.Tests/ZWarden.Web.Tests.csproj \
-            tests/ZWarden.ArchitectureTests/ZWarden.ArchitectureTests.csproj
+            tests/ZWarden.ArchitectureTests/ZWarden.ArchitectureTests.csproj \
+            tests/ZWarden.Agent.Tests/ZWarden.Agent.Tests.csproj
           do
             echo "=== $proj ==="
             ci/offline-run.sh dotnet test --project "$proj" -c Release --no-build \

@@ -35,5 +35,6 @@ instead. New ADRs take the next number and follow [`TEMPLATE.md`](./TEMPLATE.md)
 | [0018](./0018-zwarden-owned-rbac.md) | ZWarden-owned RBAC: permission-name policies + resource handlers, over a closed catalogue | #27 |
 | [0019](./0019-audit-is-append-only-tenant-owned-and-binds-the-auth-sink.md) | Audit is an append-only, tenant-owned table, and F6 binds the durable authentication-event sink | #28 |
 | [0020](./0020-agent-protocol-versioning-and-catalogue.md) | Agent protocol: a single integer version + range, and F7 ships the envelope and lifecycle messages only | #29 |
+| [0021](./0021-serilog-is-the-logging-stack.md) | Serilog is ZWarden's logging stack, introduced by the Agent runtime (F8) | #30 |
 
 When you add an ADR, add its row here in the same commit.
