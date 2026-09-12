@@ -1,0 +1,99 @@
+@page "/account/manage/enable-authenticator"
+@attribute [Authorize]
+@inject UserManager<ApplicationUser> UserManager
+@inject MfaService Mfa
+
+@* Authenticator (TOTP) enrolment: show the key + server-side QR, verify a code to enable 2FA, then
+   reveal the recovery codes ONCE (PRD 11). Static-rendered - the QR is drawn server-side, so no circuit
+   is needed. The shared key and recovery codes are secret; they appear only in this response. *@
+
+<PageTitle>Enable authenticator · ZWarden</PageTitle>
+
+<h1 class="text-xl font-bold tracking-tight text-foreground">Enable authenticator</h1>
+
+@if (_recoveryCodes is not null)
+{
+    <div class="mt-4 space-y-4">
+        <StatusAlert Kind="StatusAlert.AlertKind.Success" Message="Authenticator enabled. Two-factor authentication is now required at sign-in." />
+        <RecoveryCodesPanel Codes="_recoveryCodes" />
+        <a href="/account/manage" class="inline-block text-sm text-primary hover:underline">Back to account</a>
+    </div>
+}
+else if (_user is not null)
+{
+    <div class="mt-4 max-w-md space-y-5">
+        <AuthenticatorSetupPanel UnformattedKey="@_key" Email="@(_user.Email ?? _user.UserName ?? string.Empty)" />
+
+        <EditForm class="space-y-3" Model="Input" method="post" OnValidSubmit="VerifyAsync" FormName="enable-authenticator">
+            <DataAnnotationsValidator />
+
+            @if (!string.IsNullOrEmpty(_error))
+            {
+                <StatusAlert Message="@_error" Kind="StatusAlert.AlertKind.Error" />
+            }
+
+            <div class="space-y-1">
+                <label for="code" class="block text-xs font-medium uppercase tracking-[0.1em] text-muted-foreground">Verification code</label>
+                <InputText id="code" @bind-Value="Input.Code" autocomplete="one-time-code" inputmode="numeric"
+                           class="w-full rounded border border-input bg-background px-3 py-2 text-center font-mono text-lg tracking-[0.3em] text-foreground outline-none focus:border-ring focus:ring-1 focus:ring-ring" />
+                <ValidationMessage For="() => Input.Code" class="text-xs text-destructive" />
+            </div>
+
+            <button type="submit"
+                    class="rounded bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground transition hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-ring">
+                Verify &amp; enable
+            </button>
+        </EditForm>
+    </div>
+}
+
+@code {
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    [SupplyParameterFromForm]
+    private InputModel Input { get; set; } = default!;
+
+    private ApplicationUser? _user;
+    private string _key = string.Empty;
+    private string? _error;
+    private IReadOnlyList<string>? _recoveryCodes;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Input ??= new();
+        _user = await UserManager.GetUserAsync(HttpContext.User);
+        if (_user is not null)
+        {
+            // Same key across the GET and the POST re-render (created once, then returned).
+            _key = await Mfa.GetOrCreateAuthenticatorKeyAsync(_user);
+        }
+    }
+
+    private async Task VerifyAsync()
+    {
+        if (_user is null)
+        {
+            return;
+        }
+
+        string code = Input.Code.Replace(" ", string.Empty, StringComparison.Ordinal)
+                                .Replace("-", string.Empty, StringComparison.Ordinal);
+
+        if (!await Mfa.EnableAuthenticatorAsync(_user, code))
+        {
+            _error = "That code was not valid. Check your device's clock and try again.";
+            return;
+        }
+
+        // Enrolment succeeded - issue and reveal the recovery codes exactly once.
+        IEnumerable<string>? codes = await Mfa.GenerateRecoveryCodesAsync(_user);
+        _recoveryCodes = codes?.ToArray() ?? [];
+    }
+
+    private sealed class InputModel
+    {
+        [Required]
+        public string Code { get; set; } = string.Empty;
+    }
+}

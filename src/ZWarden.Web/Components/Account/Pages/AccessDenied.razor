@@ -1,0 +1,15 @@
+@page "/access-denied"
+@layout AuthLayout
+
+<PageTitle>Access denied · ZWarden</PageTitle>
+
+<h1 class="text-lg font-semibold text-foreground">Access denied</h1>
+
+<div class="mt-4">
+    <StatusAlert Kind="StatusAlert.AlertKind.Error"
+                 Message="You are signed in, but you do not have permission to view that page." />
+</div>
+
+<div class="mt-4 text-center text-sm">
+    <a href="/" class="text-primary hover:underline">Return to the console</a>
+</div>

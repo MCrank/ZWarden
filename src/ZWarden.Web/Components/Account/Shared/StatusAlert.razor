@@ -1,0 +1,48 @@
+@* ZWarden-owned status alert for the static auth surface (ADR 0003 wrapper seam - Blueprint's
+   BbAlert is an interactive component and these pages carry no circuit). Theme-safe: a coloured
+   dot + left rule carry the signal, text stays on the card ground so contrast holds in both
+   themes without opacity math. *@
+
+@if (!string.IsNullOrWhiteSpace(Message))
+{
+    <div class="flex items-start gap-2 rounded border border-l-2 border-border bg-card px-3 py-2 text-sm text-foreground @AccentClass"
+         role="@Role" data-alert-kind="@Kind.ToString().ToLowerInvariant()">
+        <span class="mt-1 inline-block h-2 w-2 shrink-0 rounded-full @DotClass"></span>
+        <span>@Message</span>
+    </div>
+}
+
+@code {
+    /// <summary>The three auth-surface alert flavours.</summary>
+    public enum AlertKind
+    {
+        Error,
+        Success,
+        Info,
+    }
+
+    /// <summary>The message to show; nothing renders when it is blank.</summary>
+    [Parameter]
+    public string? Message { get; set; }
+
+    /// <summary>Which flavour to render (colours the dot and left rule).</summary>
+    [Parameter]
+    public AlertKind Kind { get; set; } = AlertKind.Error;
+
+    // Errors are assertive for assistive tech; success/info are polite status updates.
+    private string Role => Kind == AlertKind.Error ? "alert" : "status";
+
+    private string AccentClass => Kind switch
+    {
+        AlertKind.Error => "border-l-destructive",
+        AlertKind.Success => "border-l-status-running",
+        _ => "border-l-primary",
+    };
+
+    private string DotClass => Kind switch
+    {
+        AlertKind.Error => "bg-destructive",
+        AlertKind.Success => "bg-status-running",
+        _ => "bg-primary",
+    };
+}

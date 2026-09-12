@@ -1,0 +1,70 @@
+@page "/account/manage"
+@attribute [Authorize]
+@inject UserManager<ApplicationUser> UserManager
+
+@* Signed-in account overview. Static-rendered and [Authorize] - an anonymous request is challenged by
+   the cookie handler and redirected to /login (LoginPath). Uses the console chrome (MainLayout). *@
+
+<PageTitle>Account · ZWarden</PageTitle>
+
+<h1 class="text-xl font-bold tracking-tight text-foreground">Account</h1>
+
+@if (_user is not null)
+{
+    <dl class="mt-4 grid grid-cols-[auto,1fr] gap-x-6 gap-y-2 text-sm">
+        <dt class="text-muted-foreground">Email</dt>
+        <dd class="font-mono text-foreground">@_user.Email</dd>
+
+        <dt class="text-muted-foreground">Two-factor</dt>
+        <dd>
+            @if (_twoFactorEnabled)
+            {
+                <span class="text-status-running">Enabled</span>
+                <span class="text-muted-foreground">· @_recoveryCodesLeft recovery codes left</span>
+            }
+            else
+            {
+                <span class="text-status-busy">Not enabled</span>
+            }
+        </dd>
+    </dl>
+
+    <div class="mt-6 flex flex-wrap gap-3">
+        <a href="/account/manage/enable-authenticator"
+           class="rounded bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground transition hover:opacity-90">
+            @(_twoFactorEnabled ? "Reconfigure authenticator" : "Enable authenticator (2FA)")
+        </a>
+        @if (_twoFactorEnabled)
+        {
+            <a href="/account/manage/recovery-codes"
+               class="rounded border border-border px-3 py-2 text-sm font-medium text-foreground transition hover:bg-muted">
+                Regenerate recovery codes
+            </a>
+        }
+    </div>
+
+    <form method="post" action="/logout" class="mt-8">
+        <AntiforgeryToken />
+        <input type="hidden" name="returnUrl" value="login" />
+        <button type="submit" class="text-sm text-primary hover:underline">Sign out</button>
+    </form>
+}
+
+@code {
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    private ApplicationUser? _user;
+    private bool _twoFactorEnabled;
+    private int _recoveryCodesLeft;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _user = await UserManager.GetUserAsync(HttpContext.User);
+        if (_user is not null)
+        {
+            _twoFactorEnabled = await UserManager.GetTwoFactorEnabledAsync(_user);
+            _recoveryCodesLeft = await UserManager.CountRecoveryCodesAsync(_user);
+        }
+    }
+}

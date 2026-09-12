@@ -1,0 +1,144 @@
+@page "/login"
+@layout AuthLayout
+@inject SignInService SignInService
+@inject SignInManager<ApplicationUser> SignInManager
+@inject UserManager<ApplicationUser> UserManager
+@inject IdentityRedirectManager RedirectManager
+
+@* Static-rendered (no @@rendermode): cookie sign-in must run on the real HTTP request/response, not an
+   interactive circuit (issue #63). The form handler runs during the POST while HttpContext is live, so
+   SignInManager can write the auth cookie and issue a redirect. *@
+
+<PageTitle>Sign in · ZWarden</PageTitle>
+
+<h1 class="text-lg font-semibold text-foreground">Sign in</h1>
+<p class="mt-1 text-sm text-muted-foreground">Authenticate to the control plane.</p>
+
+@if (_noUsers)
+{
+    <div class="mt-4">
+        <StatusAlert Kind="StatusAlert.AlertKind.Info"
+                     Message="No accounts exist yet. Seed the first administrator by setting ZWarden:Admin:Email and ZWarden:Admin:Password, then restart." />
+    </div>
+}
+
+<EditForm class="mt-5 space-y-4" Model="Input" method="post" OnValidSubmit="LogInUserAsync" FormName="login">
+    <DataAnnotationsValidator />
+
+    @if (!string.IsNullOrEmpty(_error))
+    {
+        <StatusAlert Message="@_error" Kind="StatusAlert.AlertKind.Error" />
+    }
+
+    <div class="space-y-1">
+        <label for="email" class="block text-xs font-medium uppercase tracking-[0.1em] text-muted-foreground">Email</label>
+        <InputText id="email" @bind-Value="Input.Email" autocomplete="username" autofocus
+                   class="w-full rounded border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-ring focus:ring-1 focus:ring-ring" />
+        <ValidationMessage For="() => Input.Email" class="text-xs text-destructive" />
+    </div>
+
+    <div class="space-y-1">
+        <label for="password" class="block text-xs font-medium uppercase tracking-[0.1em] text-muted-foreground">Password</label>
+        <InputText id="password" type="password" @bind-Value="Input.Password" autocomplete="current-password"
+                   class="w-full rounded border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-ring focus:ring-1 focus:ring-ring" />
+        <ValidationMessage For="() => Input.Password" class="text-xs text-destructive" />
+    </div>
+
+    <label class="flex items-center gap-2 text-sm text-muted-foreground">
+        <InputCheckbox @bind-Value="Input.RememberMe" class="h-4 w-4 rounded border-input" />
+        Remember me on this device
+    </label>
+
+    <button type="submit"
+            class="w-full rounded bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground transition hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-ring">
+        Sign in
+    </button>
+</EditForm>
+
+<div class="mt-4 text-center text-sm">
+    <a href="/account/forgot-password" class="text-primary hover:underline">Forgot your password?</a>
+</div>
+
+@code {
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    // No initializer on a [SupplyParameterFromForm] property (BL0008) - it is created in OnInitialized,
+    // after model binding, so a POST for this form populates it and a GET/other-form POST gets a fresh one.
+    [SupplyParameterFromForm]
+    private InputModel Input { get; set; } = default!;
+
+    [SupplyParameterFromQuery]
+    private string? ReturnUrl { get; set; }
+
+    private string? _error;
+    private bool _noUsers;
+
+    protected override void OnInitialized()
+    {
+        Input ??= new();
+        // First-run hint: in self-hosted, an empty user table means no admin has been seeded yet.
+        _noUsers = !UserManager.Users.Any();
+    }
+
+    private async Task LogInUserAsync()
+    {
+        ApplicationUser? user = await UserManager.FindByEmailAsync(Input.Email);
+        if (user is null)
+        {
+            // Never reveal whether the address exists (no account enumeration).
+            _error = "Invalid login attempt.";
+            return;
+        }
+
+        // The password decision + authentication event go through the tested seam (records
+        // success/failure/lockout); it verifies the password but does NOT issue the cookie.
+        SignInResult result = await SignInService.PasswordSignInAsync(user, Input.Password);
+
+        if (result.IsLockedOut)
+        {
+            RedirectManager.RedirectTo("/login/lockout");
+        }
+
+        if (result.IsNotAllowed)
+        {
+            _error = "You must confirm your account before you can sign in.";
+            return;
+        }
+
+        if (!result.Succeeded)
+        {
+            _error = "Invalid login attempt.";
+            return;
+        }
+
+        if (await UserManager.GetTwoFactorEnabledAsync(user))
+        {
+            // Hand off to Identity's two-factor machinery, which sets the short-lived two-factor
+            // partial cookie. Identity exposes no public way to establish that cookie without
+            // PasswordSignInAsync, so the already-verified password is re-checked once here, on the
+            // MFA branch only (lockoutOnFailure:false - the count was handled above). See #63 plan.
+            await SignInManager.PasswordSignInAsync(user, Input.Password, Input.RememberMe, lockoutOnFailure: false);
+            RedirectManager.RedirectTo(
+                $"/login/2fa?returnUrl={Uri.EscapeDataString(IdentityRedirectManager.ToLocalOrHome(ReturnUrl))}&rememberMe={Input.RememberMe}");
+        }
+
+        // No second factor: issue the full application cookie. SignInAsync runs the claims factory,
+        // so the tenant claim is stamped into the session here (PRD 7A).
+        await SignInManager.SignInAsync(user, Input.RememberMe);
+        RedirectManager.RedirectToLocal(ReturnUrl);
+    }
+
+    private sealed class InputModel
+    {
+        [Required]
+        [EmailAddress]
+        public string Email { get; set; } = string.Empty;
+
+        [Required]
+        [DataType(DataType.Password)]
+        public string Password { get; set; } = string.Empty;
+
+        public bool RememberMe { get; set; }
+    }
+}

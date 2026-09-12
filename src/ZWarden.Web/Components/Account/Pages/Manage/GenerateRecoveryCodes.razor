@@ -1,0 +1,69 @@
+@page "/account/manage/recovery-codes"
+@attribute [Authorize]
+@inject UserManager<ApplicationUser> UserManager
+@inject MfaService Mfa
+@inject IdentityRedirectManager RedirectManager
+
+@* Regenerates two-factor recovery codes and reveals the new set ONCE. Regenerating invalidates the old
+   codes. Only meaningful once 2FA is enabled. Static-rendered. *@
+
+<PageTitle>Recovery codes · ZWarden</PageTitle>
+
+<h1 class="text-xl font-bold tracking-tight text-foreground">Recovery codes</h1>
+
+@if (_recoveryCodes is not null)
+{
+    <div class="mt-4 max-w-md space-y-4">
+        <RecoveryCodesPanel Codes="_recoveryCodes" />
+        <a href="/account/manage" class="inline-block text-sm text-primary hover:underline">Back to account</a>
+    </div>
+}
+else
+{
+    <div class="mt-4 max-w-md space-y-4">
+        <StatusAlert Kind="StatusAlert.AlertKind.Info"
+                     Message="Regenerating replaces your existing recovery codes. The old codes stop working immediately." />
+
+        <EditForm Model="Form" method="post" OnValidSubmit="RegenerateAsync" FormName="regenerate-recovery-codes">
+            <button type="submit"
+                    class="rounded bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground transition hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-ring">
+                Generate new recovery codes
+            </button>
+        </EditForm>
+    </div>
+}
+
+@code {
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    // EditForm needs a model even when the form has no fields (the antiforgery token is what matters).
+    [SupplyParameterFromForm]
+    private FormMarker Form { get; set; } = default!;
+
+    private IReadOnlyList<string>? _recoveryCodes;
+
+    protected override void OnInitialized() => Form ??= new();
+
+    private async Task RegenerateAsync()
+    {
+        ApplicationUser? user = await UserManager.GetUserAsync(HttpContext.User);
+        if (user is null)
+        {
+            // [DoesNotReturn]: control leaves here, so `user` is non-null below.
+            RedirectManager.RedirectTo("/login");
+        }
+
+        if (!await UserManager.GetTwoFactorEnabledAsync(user))
+        {
+            RedirectManager.RedirectTo("/account/manage/enable-authenticator");
+        }
+
+        IEnumerable<string>? codes = await Mfa.GenerateRecoveryCodesAsync(user);
+        _recoveryCodes = codes?.ToArray() ?? [];
+    }
+
+    private sealed class FormMarker
+    {
+    }
+}

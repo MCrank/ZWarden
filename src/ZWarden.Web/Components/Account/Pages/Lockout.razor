@@ -1,0 +1,15 @@
+@page "/login/lockout"
+@layout AuthLayout
+
+<PageTitle>Locked out · ZWarden</PageTitle>
+
+<h1 class="text-lg font-semibold text-foreground">Account locked</h1>
+
+<div class="mt-4">
+    <StatusAlert Kind="StatusAlert.AlertKind.Error"
+                 Message="Too many failed attempts. This account is temporarily locked. Wait a few minutes and try again." />
+</div>
+
+<div class="mt-4 text-center text-sm">
+    <a href="/login" class="text-primary hover:underline">Back to sign in</a>
+</div>

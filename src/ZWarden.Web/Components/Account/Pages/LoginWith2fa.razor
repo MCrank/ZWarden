@@ -1,0 +1,98 @@
+@page "/login/2fa"
+@layout AuthLayout
+@inject SignInManager<ApplicationUser> SignInManager
+@inject IdentityRedirectManager RedirectManager
+
+@* Second factor. Reached only with the two-factor partial cookie set by the password step; the app
+   cookie is issued here, on this real request, once the code verifies. Static-rendered. *@
+
+<PageTitle>Two-factor · ZWarden</PageTitle>
+
+<h1 class="text-lg font-semibold text-foreground">Two-factor authentication</h1>
+<p class="mt-1 text-sm text-muted-foreground">Enter the 6-digit code from your authenticator app.</p>
+
+<EditForm class="mt-5 space-y-4" Model="Input" method="post" OnValidSubmit="VerifyAsync" FormName="login-2fa">
+    <DataAnnotationsValidator />
+
+    @if (!string.IsNullOrEmpty(_error))
+    {
+        <StatusAlert Message="@_error" Kind="StatusAlert.AlertKind.Error" />
+    }
+
+    <div class="space-y-1">
+        <label for="code" class="block text-xs font-medium uppercase tracking-[0.1em] text-muted-foreground">Authenticator code</label>
+        <InputText id="code" @bind-Value="Input.Code" autocomplete="one-time-code" inputmode="numeric" autofocus
+                   class="w-full rounded border border-input bg-background px-3 py-2 text-center font-mono text-lg tracking-[0.3em] text-foreground outline-none focus:border-ring focus:ring-1 focus:ring-ring" />
+        <ValidationMessage For="() => Input.Code" class="text-xs text-destructive" />
+    </div>
+
+    <label class="flex items-center gap-2 text-sm text-muted-foreground">
+        <InputCheckbox @bind-Value="Input.RememberMachine" class="h-4 w-4 rounded border-input" />
+        Trust this device for 30 days
+    </label>
+
+    <button type="submit"
+            class="w-full rounded bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground transition hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-ring">
+        Verify
+    </button>
+</EditForm>
+
+<div class="mt-4 text-center text-sm">
+    <a href="@RecoveryHref" class="text-primary hover:underline">Use a recovery code instead</a>
+</div>
+
+@code {
+    [SupplyParameterFromForm]
+    private InputModel Input { get; set; } = default!;
+
+    [SupplyParameterFromQuery]
+    private string? ReturnUrl { get; set; }
+
+    [SupplyParameterFromQuery]
+    private bool RememberMe { get; set; }
+
+    private string? _error;
+
+    private string RecoveryHref =>
+        $"/login/recovery?returnUrl={Uri.EscapeDataString(IdentityRedirectManager.ToLocalOrHome(ReturnUrl))}";
+
+    protected override async Task OnInitializedAsync()
+    {
+        Input ??= new();
+
+        // No pending two-factor user (no partial cookie) means the password step was skipped.
+        if (await SignInManager.GetTwoFactorAuthenticationUserAsync() is null)
+        {
+            RedirectManager.RedirectTo("/login");
+        }
+    }
+
+    private async Task VerifyAsync()
+    {
+        string code = Input.Code.Replace(" ", string.Empty, StringComparison.Ordinal)
+                                .Replace("-", string.Empty, StringComparison.Ordinal);
+
+        SignInResult result = await SignInManager.TwoFactorAuthenticatorSignInAsync(
+            code, isPersistent: RememberMe, rememberClient: Input.RememberMachine);
+
+        if (result.Succeeded)
+        {
+            RedirectManager.RedirectToLocal(ReturnUrl);
+        }
+
+        if (result.IsLockedOut)
+        {
+            RedirectManager.RedirectTo("/login/lockout");
+        }
+
+        _error = "Invalid authenticator code.";
+    }
+
+    private sealed class InputModel
+    {
+        [Required]
+        public string Code { get; set; } = string.Empty;
+
+        public bool RememberMachine { get; set; }
+    }
+}

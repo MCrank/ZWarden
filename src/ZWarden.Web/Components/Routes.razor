@@ -1,6 +1,20 @@
 <Router AppAssembly="typeof(Program).Assembly">
     <Found Context="routeData">
-        <RouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)" />
+        <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)">
+            <NotAuthorized>
+                @* For static-rendered [Authorize] pages the cookie handler challenges anonymous requests
+                   at the endpoint (redirect to LoginPath) before this renders; this branch is the
+                   belt-and-braces path for an interactively-rendered authorized page. *@
+                @if (context.User.Identity?.IsAuthenticated is not true)
+                {
+                    <RedirectToLogin />
+                }
+                else
+                {
+                    <p class="p-6 text-sm text-muted-foreground">You do not have access to this page.</p>
+                }
+            </NotAuthorized>
+        </AuthorizeRouteView>
         <FocusOnNavigate RouteData="routeData" Selector="h1" />
     </Found>
 </Router>
