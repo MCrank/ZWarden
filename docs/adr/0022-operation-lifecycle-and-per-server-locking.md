@@ -125,8 +125,11 @@ never orphaned because its holder is the Operation row and the reaper always fai
 
 ### The SQLite conditions this feature owed
 
-- **`CommandTimeout = 30 seconds`** on the engine's SQLite path (ADR-0005 condition 2: `0` means
-  *infinite* busy-retry, which must not be inherited). A stuck write fails at 30 s rather than hangs.
+- **`CommandTimeout = 30 seconds`** is confirmed as the deliberate operations-engine value (ADR-0005
+  condition 2: `0` means *infinite* busy-retry, which must not be inherited). The persistence
+  foundation (F0) already applies `ZWardenDbProviderExtensions.CommandTimeoutSeconds = 30` on both
+  providers; F11 adopts that as the engine's value and records it here — a stuck write fails at 30 s
+  rather than hangs. If the engine ever needs a different bound it changes here, not silently.
 - **An architecture test forbids `BeginTransaction(deferred: true)` and raw-ADO transactions**
   anywhere in the operations engine (ADR-0005 condition 3 — the one path to SQLite's unreachable
   `SQLITE_BUSY_SNAPSHOT` trap). This extends the existing `DeferredTransactionGuardTests`.
