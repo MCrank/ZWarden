@@ -9,6 +9,11 @@ on:
   pull_request:
     branches: [development]
   workflow_dispatch:
+    inputs:
+      run_pzserver:
+        description: "Also run the ~40-min pzserver-real-install (real SteamCMD 6.72 GiB PZ install + boot)."
+        type: boolean
+        default: false
   schedule:
     # Exercises the networked tier and the advisory-promotion job on their own cadence.
     - cron: "17 4 * * 1"
@@ -277,9 +282,12 @@ jobs:
           inspect '{{json .Config.Volumes}}' | grep -q '/pz/data'
           echo "PZServer image contract OK."
 
+  # The scheduled cadence always exercises this. A workflow_dispatch runs it only
+  # when explicitly opted in (run_pzserver=true), so dispatching the networked
+  # Postgres/integration tier on its own no longer forces this ~40-min job (F12/#65).
   pzserver-real-install:
     name: pzserver-real-install
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_pzserver)
     runs-on: ubuntu-latest
     timeout-minutes: 45
     defaults:
