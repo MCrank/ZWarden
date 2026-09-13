@@ -72,7 +72,9 @@ public sealed class DockerDotNetEngine : IDockerEngine
         string? health = r.State?.Health?.Status;
         long exitCode = r.State?.ExitCode ?? 0;
         bool oomKilled = r.State?.OOMKilled ?? false;
-        return new EngineContainer(r.ID, labels, state, MapPorts(r.NetworkSettings?.Ports), health, exitCode, oomKilled);
+        return new EngineContainer(
+            r.ID, labels, state, MapPorts(r.NetworkSettings?.Ports), health, exitCode, oomKilled,
+            MapNetworkAddresses(r.NetworkSettings?.Networks));
     }
 
     /// <inheritdoc />
@@ -124,6 +126,29 @@ public sealed class DockerDotNetEngine : IDockerEngine
 
     private static IReadOnlyDictionary<string, string> ToReadOnly(IDictionary<string, string>? labels) =>
         labels is null ? NoLabels : new Dictionary<string, string>(labels, StringComparer.Ordinal);
+
+    // Projects inspect's NetworkSettings.Networks into an undecorated network-name -> IPv4 map. F18 reads the
+    // ZWarden-network address to reach the container's private RCON port. Entries with no address (a network the
+    // container is attached to but not yet assigned an IP on) are skipped.
+    private static IReadOnlyDictionary<string, string> MapNetworkAddresses(
+        IDictionary<string, EndpointSettings>? networks)
+    {
+        if (networks is null)
+        {
+            return NoLabels; // reuse the shared empty ordinal dictionary
+        }
+
+        Dictionary<string, string> mapped = new(StringComparer.Ordinal);
+        foreach (KeyValuePair<string, EndpointSettings> entry in networks)
+        {
+            if (!string.IsNullOrEmpty(entry.Value?.IPAddress))
+            {
+                mapped[entry.Key] = entry.Value.IPAddress;
+            }
+        }
+
+        return mapped;
+    }
 
     // Captures the single stats frame Stream=false delivers, synchronously as the client reports it.
     private sealed class SingleStats : IProgress<ContainerStatsResponse>

@@ -11,8 +11,10 @@ using ZWarden.Agent.Docker;
 using ZWarden.Agent.Health;
 using ZWarden.Agent.Identity;
 using ZWarden.Agent.Observability;
+using ZWarden.Agent.Rcon;
 using ZWarden.Agent.SteamCmd;
 using ZWarden.Agent.Trust;
+using ZWarden.Rcon;
 
 namespace ZWarden.Agent;
 
@@ -86,6 +88,14 @@ public static class HostingExtensions
         // the control-file + restart + log-parse loop (no exec — ADR 0008) and reads back the installed build id.
         services.AddSingleton<IServerInstallPaths, ServerInstallPaths>();
         services.AddSingleton<IServerUpdateRunner, ServerUpdateRunner>();
+
+        // RCON foundation (F18): the Agent owns the RCON credential (seeded host-side into servertest.ini at
+        // provision), resolves the container's private-network endpoint, and runs the on-demand health probe over
+        // the ZWarden.Rcon client. The RCON password type lives only here in the Agent — never in Web (§9 rule 7).
+        services.AddSingleton<IRconServerConfig, RconServerConfig>();
+        services.AddSingleton<IRconConnectionFactory>(_ => new RconConnectionFactory());
+        services.AddSingleton<IRconEndpointResolver, RconEndpointResolver>();
+        services.AddSingleton<IRconHealthProbe, RconHealthProbe>();
 
         // Observability baseline (F16, ADR 0024): OpenTelemetry SDK + HttpClient instrumentation + opt-in OTLP.
         services.AddAgentTelemetry(configuration, environment);

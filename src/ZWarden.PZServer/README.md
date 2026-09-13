@@ -32,7 +32,12 @@ network (Debian packages + Valve's SteamCMD tarball) but never reaches Steam.
 ## Ports
 
 `16261/udp` (game + Steam queries) and `16262/udp` (direct connection) are exposed. RCON `27015/tcp`
-is **private** and owned by the Agent (F18, PRD 29) — it is deliberately not exposed.
+is **private** and owned by the Agent (F18, PRD 29) — it is deliberately not exposed. The Agent reaches
+it over the private ZWarden network (from the container's inspected IP, never a host port), and at
+provision it seeds `RCONPort=27015` + a generated `RCONPassword` into `Server/servertest.ini` host-side
+so RCON is enabled on first launch. The password is Agent-owned and never leaves the host; PZ reads the
+pre-seeded INI and fills only the keys it is missing. Do **not** set `-Drconlo` (it would bind RCON to
+container loopback and lock the Agent out). See ADR 0026.
 
 ## Build and run by hand
 

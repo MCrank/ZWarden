@@ -3,6 +3,7 @@ using Docker.DotNet;
 using Microsoft.Extensions.Options;
 using ZWarden.Agent.Configuration;
 using ZWarden.Agent.Docker;
+using ZWarden.Agent.Rcon;
 using ZWarden.Agent.SteamCmd;
 using ZWarden.Contracts.Protocol;
 using ZWarden.Contracts.Protocol.Messages;
@@ -24,6 +25,8 @@ public sealed class AgentCommandProcessor
     private readonly TimeProvider _timeProvider;
     private readonly IContainerRuntime _containerRuntime;
     private readonly IServerUpdateRunner _updates;
+    private readonly IRconHealthProbe _rconProbe;
+    private readonly IRconServerConfig _rconConfig;
     private readonly AgentOptions _options;
     private readonly ConcurrentDictionary<OperationId, byte> _handled = new();
 
@@ -31,15 +34,21 @@ public sealed class AgentCommandProcessor
         TimeProvider timeProvider,
         IContainerRuntime containerRuntime,
         IServerUpdateRunner updates,
+        IRconHealthProbe rconProbe,
+        IRconServerConfig rconConfig,
         IOptions<AgentOptions> options)
     {
         ArgumentNullException.ThrowIfNull(timeProvider);
         ArgumentNullException.ThrowIfNull(containerRuntime);
         ArgumentNullException.ThrowIfNull(updates);
+        ArgumentNullException.ThrowIfNull(rconProbe);
+        ArgumentNullException.ThrowIfNull(rconConfig);
         ArgumentNullException.ThrowIfNull(options);
         _timeProvider = timeProvider;
         _containerRuntime = containerRuntime;
         _updates = updates;
+        _rconProbe = rconProbe;
+        _rconConfig = rconConfig;
         _options = options.Value;
     }
 
@@ -81,6 +90,26 @@ public sealed class AgentCommandProcessor
                 return health.DaemonReachable
                     ? Completed(OperationOutcome.Succeeded, failureReason: null, operationId)
                     : Completed(OperationOutcome.Failed, health.Detail, operationId);
+
+            case ProbeRconHealth:
+                if (envelope.ServerId is not { } rconServerId)
+                {
+                    // A per-server RCON probe with no target Server is malformed — fail it explicitly.
+                    return Completed(OperationOutcome.Failed, "No target Server on the RCON health probe.", operationId);
+                }
+
+                if (!_handled.TryAdd(operationId, 0))
+                {
+                    return null; // Already handled this operation — a redelivered command (PRD 20).
+                }
+
+                RconHealthResult rcon = await _rconProbe.ProbeAsync(rconServerId, cancellationToken).ConfigureAwait(false);
+                return Completed(
+                    rcon.Authenticated ? OperationOutcome.Succeeded : OperationOutcome.Failed,
+                    rcon.Authenticated ? null : rcon.Detail,
+                    operationId,
+                    rconServerId,
+                    rcon: rcon);
 
             case CreateServer:
                 if (envelope.ServerId is not { } serverId)
@@ -160,6 +189,11 @@ public sealed class AgentCommandProcessor
                 Ports: ports,
                 MemoryLimitBytes: _options.DefaultMemoryLimitBytes);
 
+            // Seed RCON into the Server's config on the (Agent-owned) data mount before the container first
+            // launches, so PZ enables RCON with an Agent-generated password on first boot (F18 D-2). Idempotent:
+            // a re-provision keeps the existing password. Host-side surgical write, no container env var, no exec.
+            _rconConfig.EnsureEnabled(serverId);
+
             string containerId = await _containerRuntime.CreateAsync(spec, cancellationToken).ConfigureAwait(false);
             await _containerRuntime.StartAsync(containerId, cancellationToken).ConfigureAwait(false);
 
@@ -174,6 +208,15 @@ public sealed class AgentCommandProcessor
         {
             // Actionable, Agent-authored reason (e.g. the pinned image is not pre-provisioned, ADR 0008 D5).
             return Completed(OperationOutcome.Failed, ex.Message, operationId, serverId);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // The RCON config seed (or a host-path write) failed — report it rather than crash the operation.
+            return Completed(
+                OperationOutcome.Failed,
+                $"Could not prepare the server's host data before launch: {ex.Message}",
+                operationId,
+                serverId);
         }
     }
 
@@ -235,9 +278,10 @@ public sealed class AgentCommandProcessor
         OperationId operationId,
         ServerId? serverId = null,
         ProvisionResult? provision = null,
-        UpdateResult? update = null) =>
+        UpdateResult? update = null,
+        RconHealthResult? rcon = null) =>
         Envelope.Create(
-            new OperationCompleted(outcome, failureReason, provision, update),
+            new OperationCompleted(outcome, failureReason, provision, update, rcon),
             _timeProvider.GetUtcNow(),
             serverId: serverId,
             operationId: operationId);

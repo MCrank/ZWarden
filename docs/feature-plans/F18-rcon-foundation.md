@@ -1,8 +1,12 @@
 # Feature 18 Mini-Plan — RCON Foundation
 
-**Status:** READY FOR IMPLEMENTATION — the five load-bearing decisions below were **locked
-as-recommended** (2026-09-13, maintainer sign-off). Implementation proceeds PR-A → PR-B → PR-C.
-Roadmap issue: [F18 (#39)](https://github.com/MCrank/ZWarden/issues/39). Track D — the
+**Status:** IN PROGRESS — decisions locked as-recommended (2026-09-13). **PR-A DONE** (PR #98 merged:
+`ZWarden.Rcon` client + fake-server harness). **PR-B DONE** (Agent integration: password ownership +
+INI config seam, container-IP resolver, `diagnostics.rcon-health` additive contract + probe, the §9
+rule-7 architecture test, ADR 0026). **PR-C next** (operator enqueue surface). A real-PZ-container
+networked integration test (validating the empty-result quirk against a live server) is deferred to a
+follow-up in the opt-in tier. Roadmap issue: [F18 (#39)](https://github.com/MCrank/ZWarden/issues/39).
+Track D — the
 feature that gives ZWarden a *voice* inside a running Project Zomboid server: a Source RCON client
 the Agent owns end to end. **Depends on F12, F14, F16 — all merged.** Unblocks
 [F19 (#41)](https://github.com/MCrank/ZWarden/issues/41) — Player Management,

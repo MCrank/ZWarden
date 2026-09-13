@@ -152,6 +152,7 @@ public class ServerUpdateRunnerTests
             return Task.FromResult(snapshot);
         }
 
+        public Task<string?> ResolveNetworkAddressAsync(ServerId serverId, string networkName, CancellationToken cancellationToken) => throw new NotSupportedException();
         public Task<DockerHealth> ProbeHealthAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
         public Task<IReadOnlyList<ManagedContainer>> ListManagedAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
         public Task<IReadOnlyList<ObservedContainer>> InspectManagedAsync(CancellationToken cancellationToken) => throw new NotSupportedException();

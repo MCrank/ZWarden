@@ -69,6 +69,37 @@ public class ReferenceDirectionTests
         await Assert.That(web.PackageReferences.Any(IsDockerClient)).IsFalse();
     }
 
+    // §9 rule 7: the RCON password type lives only in ZWarden.Rcon, an Agent-only assembly (F18). Web must
+    // never reference it - anywhere in its transitive closure - so "the browser never receives RCON credential
+    // material" holds by construction: Web cannot leak a credential type it cannot even see.
+    [Test]
+    public async Task Web_does_not_reference_the_rcon_client()
+    {
+        HashSet<string> closure = TransitiveProjectClosure("ZWarden.Web");
+
+        await Assert.That(closure).DoesNotContain("ZWarden.Rcon");
+    }
+
+    // Walks the project-reference graph from a root src project, returning every project it can reach.
+    private static HashSet<string> TransitiveProjectClosure(string projectName)
+    {
+        HashSet<string> visited = new(StringComparer.OrdinalIgnoreCase);
+        Stack<string> pending = new();
+        pending.Push(projectName);
+        while (pending.Count > 0)
+        {
+            foreach (string reference in ProjectGraph.ForSourceProject(pending.Pop()).ProjectReferences)
+            {
+                if (visited.Add(reference))
+                {
+                    pending.Push(reference);
+                }
+            }
+        }
+
+        return visited;
+    }
+
     // §9 rule 6: Auth0/IdP specifics never leak into Domain or Application (PRD 11).
     [Test]
     [Arguments("ZWarden.Domain")]
