@@ -4,6 +4,7 @@ using ZWarden.Agent.ControlPlane;
 using ZWarden.Agent.Health;
 using ZWarden.Agent.Trust;
 using ZWarden.Contracts.Protocol;
+using ZWarden.Contracts.Protocol.Messages;
 using ZWarden.Domain.Ids;
 using ZWarden.Domain.Security;
 
@@ -88,6 +89,18 @@ public class AgentConnectionInitializerTests
             Interlocked.Increment(ref _heartbeats);
             return Task.CompletedTask;
         }
+
+        public Task SendServerStateChangedAsync(
+            ServerId serverId, ServerRunState runState, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task SendHealthChangedAsync(
+            ServerId serverId,
+            ServerHealth health,
+            string reason,
+            HealthBreakdown breakdown,
+            CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
 
         public Task StopAsync(CancellationToken cancellationToken = default)
         {

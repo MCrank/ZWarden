@@ -70,6 +70,11 @@ public static class HostingExtensions
         services.AddSingleton<PzContainerFactory>();
         services.AddSingleton<IContainerRuntime, ContainerRuntime>();
 
+        // Health and observability (F16): the pure rollup's inputs — the best-effort network probe and the
+        // observer that inspects owned containers and evaluates their hierarchical health.
+        services.AddSingleton<INetworkReachabilityProbe, UdpNetworkReachabilityProbe>();
+        services.AddSingleton<IServerHealthObserver, ServerHealthObserver>();
+
         // Control plane (F10): the outbound SignalR connection the Agent opens once enrolled.
         services.AddSingleton<AgentCommandProcessor>();
         services.AddSingleton<IAgentControlPlaneConnection, SignalRControlPlaneConnection>();
@@ -79,6 +84,9 @@ public static class HostingExtensions
         services.AddHostedService<AgentIdentityInitializer>();
         services.AddHostedService<AgentEnrollmentInitializer>();
         services.AddHostedService<AgentConnectionInitializer>();
+        // F16: reports server-health transitions between snapshots. Runs after the connection is opened; its sends
+        // no-op while disconnected, so ordering is a convenience, not a correctness requirement.
+        services.AddHostedService<ServerHealthMonitor>();
         services.AddHostedService<AgentWorker>();
 
         return services;

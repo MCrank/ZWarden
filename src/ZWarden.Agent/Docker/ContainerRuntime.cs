@@ -76,6 +76,37 @@ public sealed partial class ContainerRuntime : IContainerRuntime
     }
 
     /// <inheritdoc />
+    public async Task<IReadOnlyList<ObservedContainer>> InspectManagedAsync(CancellationToken cancellationToken)
+    {
+        IReadOnlyList<ManagedContainer> managed = await ListManagedAsync(cancellationToken).ConfigureAwait(false);
+        List<ObservedContainer> observed = [];
+        foreach (ManagedContainer container in managed)
+        {
+            try
+            {
+                EngineContainer inspected = await _engine.InspectAsync(container.DockerId, cancellationToken)
+                    .ConfigureAwait(false);
+                observed.Add(new ObservedContainer(
+                    container.ServerId,
+                    new ContainerHealthFacts(
+                        inspected.State,
+                        inspected.HealthStatus,
+                        inspected.ExitCode,
+                        inspected.OomKilled,
+                        inspected.Ports)));
+            }
+            catch (DockerApiException ex)
+            {
+                // The container vanished (or the daemon refused) between the list and this inspect — skip it; the
+                // next sweep re-observes. One missing container must not fail health reporting for the rest.
+                LogInspectSkipped(container.ServerId, ex.Message);
+            }
+        }
+
+        return observed;
+    }
+
+    /// <inheritdoc />
     public async Task<PortAllocation> AllocateNextPortsAsync(CancellationToken cancellationToken)
     {
         IReadOnlyList<EngineContainer> all = await _engine.ListAsync(cancellationToken).ConfigureAwait(false);
@@ -228,6 +259,9 @@ public sealed partial class ContainerRuntime : IContainerRuntime
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "No canonical container owned by this Agent for server {ServerId}.")]
     private partial void LogNoContainerForServer(ServerId serverId);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Skipped health inspect for server {ServerId}: {Detail}")]
+    private partial void LogInspectSkipped(ServerId serverId, string detail);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "The Docker verb '{Verb}' on {ContainerId} was denied (HTTP {Status}).")]
     private partial void LogVerbDenied(string verb, string containerId, int status);

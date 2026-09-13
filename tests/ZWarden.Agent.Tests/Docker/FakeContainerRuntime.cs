@@ -50,6 +50,9 @@ internal sealed class FakeContainerRuntime : IContainerRuntime
     public Task<IReadOnlyList<ManagedContainer>> ListManagedAsync(CancellationToken cancellationToken) =>
         throw new NotSupportedException();
 
+    public Task<IReadOnlyList<ObservedContainer>> InspectManagedAsync(CancellationToken cancellationToken) =>
+        throw new NotSupportedException();
+
     public Task<PortAllocation> AllocateNextPortsAsync(CancellationToken cancellationToken) =>
         Task.FromResult(NextPorts);
 
