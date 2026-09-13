@@ -1,0 +1,106 @@
+@page "/servers/{Id}"
+@attribute [Authorize]
+@using System.Security.Claims
+@using ZWarden.Domain.Ids
+@inject IServerInventory Inventory
+@inject UserManager<ApplicationUser> Users
+
+@* The server-detail page (F16). Static server render like /servers: it runs per request with a live HttpContext,
+   so the session-derived tenant resolves and the authorized load is tenant-filtered. Authorization is the
+   fail-closed per-Server Server.View inside Inventory.GetVisibleAsync — a caller who may not view this Server
+   (or a Server outside the tenant) gets nothing. The durable metadata + last-reported health render statically
+   here; the LIVE meters and health ride an interactive island (LiveServerPanel) that reads only the
+   ownership-guarded in-memory caches, so it needs no tenant context (which a circuit lacks). *@
+
+<PageTitle>@(_server?.Name ?? "Server") — ZWarden</PageTitle>
+
+<p class="text-sm"><a href="/servers" class="text-muted-foreground hover:text-foreground">← Servers</a></p>
+
+@if (_server is null)
+{
+    <div class="mt-6" data-server-missing>
+        <BbAlert Variant="AlertVariant.Warning" AccentBorder>
+            <BbAlertDescription>That server does not exist, or you do not have permission to view it.</BbAlertDescription>
+        </BbAlert>
+    </div>
+}
+else
+{
+    <div class="mt-2 flex items-center gap-3">
+        <h1 class="text-2xl font-semibold tracking-tight">@_server.Name</h1>
+        <StatusBadge State="_server.LastRunState" />
+    </div>
+    @if (!string.IsNullOrWhiteSpace(_server.Description))
+    {
+        <p class="mt-1 text-sm text-muted-foreground">@_server.Description</p>
+    }
+
+    <div class="mt-6 grid gap-6 sm:grid-cols-2">
+        <BbCard Class="p-5">
+            <h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Details</h2>
+            <dl class="mt-3 space-y-2 text-sm">
+                <div class="flex justify-between gap-4">
+                    <dt class="text-muted-foreground">Host</dt>
+                    <dd class="font-mono text-xs">@_server.AgentId</dd>
+                </div>
+                <div class="flex justify-between gap-4">
+                    <dt class="text-muted-foreground">Ports</dt>
+                    <dd class="font-mono tabular-nums text-xs">@Ports()</dd>
+                </div>
+                <div class="flex justify-between gap-4">
+                    <dt class="text-muted-foreground">Last-reported health</dt>
+                    <dd data-last-health>@(_server.LastHealth?.ToString() ?? "—")</dd>
+                </div>
+                <div class="flex justify-between gap-4">
+                    <dt class="text-muted-foreground">Health reported (UTC)</dt>
+                    <dd class="tabular-nums">@Reported(_server.LastHealthReportedAt)</dd>
+                </div>
+            </dl>
+        </BbCard>
+
+        <BbCard Class="p-5">
+            <h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Live telemetry</h2>
+            <div class="mt-3">
+                <LiveServerPanel @rendermode="InteractiveServer"
+                                 ServerId="@_server.Id.ToString()"
+                                 AgentId="@_server.AgentId.ToString()"
+                                 InitialHealth="@(_server.LastHealth?.ToString())" />
+            </div>
+        </BbCard>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public string Id { get; set; } = string.Empty;
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthState { get; set; }
+
+    private ServerSummary? _server;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!ServerId.TryParse(Id, out ServerId serverId))
+        {
+            return;
+        }
+
+        _server = await Inventory.GetVisibleAsync(await CurrentUserAsync(), serverId);
+    }
+
+    private string Ports() => _server is { GamePort: { } game, QueryPort: { } query }
+        ? $"{game} / {query} udp"
+        : "—";
+
+    private static string Reported(DateTimeOffset? at) =>
+        at?.UtcDateTime.ToString("yyyy-MM-dd HH:mm", System.Globalization.CultureInfo.InvariantCulture) ?? "never";
+
+    private async Task<UserId> CurrentUserAsync()
+    {
+        ClaimsPrincipal principal = (await AuthState!).User;
+        return Guid.TryParse(Users.GetUserId(principal), out Guid id)
+            ? UserId.FromGuid(id)
+            : throw new InvalidOperationException("Authenticated request carries no user id claim.");
+    }
+}

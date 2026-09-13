@@ -31,6 +31,7 @@ public sealed partial class AgentHub : Hub
     private readonly IOperationStore _operations;
     private readonly IServerStateReconciler _servers;
     private readonly IServerMetricsCache _metrics;
+    private readonly IServerHealthCache _healthCache;
     private readonly ControlPlaneMetrics _telemetry;
     private readonly IAuditWriter _audit;
     private readonly ILogger<AgentHub> _logger;
@@ -41,6 +42,7 @@ public sealed partial class AgentHub : Hub
         IOperationStore operations,
         IServerStateReconciler servers,
         IServerMetricsCache metrics,
+        IServerHealthCache healthCache,
         ControlPlaneMetrics telemetry,
         IAuditWriter audit,
         ILogger<AgentHub> logger)
@@ -50,6 +52,7 @@ public sealed partial class AgentHub : Hub
         ArgumentNullException.ThrowIfNull(operations);
         ArgumentNullException.ThrowIfNull(servers);
         ArgumentNullException.ThrowIfNull(metrics);
+        ArgumentNullException.ThrowIfNull(healthCache);
         ArgumentNullException.ThrowIfNull(telemetry);
         ArgumentNullException.ThrowIfNull(audit);
         ArgumentNullException.ThrowIfNull(logger);
@@ -58,6 +61,7 @@ public sealed partial class AgentHub : Hub
         _operations = operations;
         _servers = servers;
         _metrics = metrics;
+        _healthCache = healthCache;
         _telemetry = telemetry;
         _audit = audit;
         _logger = logger;
@@ -196,11 +200,16 @@ public sealed partial class AgentHub : Hub
         if (AgentClaims.TryGetAgentId(Context.User, out AgentId agentId))
         {
             await _state.MarkHeartbeatAsync(agentId, Context.ConnectionAborted).ConfigureAwait(false);
+            Domain.Servers.ServerHealth health = WireServerHealth.ToDomain(change.Payload.Health);
             await _servers.RecordObservedHealthAsync(
                 agentId,
                 change.Payload.ServerId,
-                WireServerHealth.ToDomain(change.Payload.Health),
+                health,
                 Context.ConnectionAborted).ConfigureAwait(false);
+            // Also cache the live rollup + reason so the interactive detail panel can show it without a
+            // tenant-scoped read. The reason is untrusted (trust-boundaries.md §8), stored as data.
+            _healthCache.Record(new ServerLiveHealth(
+                agentId, change.Payload.ServerId, health, change.Payload.Reason, change.Timestamp));
             _telemetry.RecordHealthTransition(change.Payload.Health);
         }
     }
