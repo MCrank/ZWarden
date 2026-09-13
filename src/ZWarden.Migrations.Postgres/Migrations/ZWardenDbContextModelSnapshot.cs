@@ -436,6 +436,13 @@ namespace ZWarden.Migrations.Postgres.Migrations
                     b.Property<int?>("GamePort")
                         .HasColumnType("integer");
 
+                    b.Property<string>("InstalledBuildId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset?>("InstalledBuildReportedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("LastHealth")
                         .HasMaxLength(32)
                         .HasColumnType("character varying(32)");

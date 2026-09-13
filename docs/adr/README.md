@@ -39,5 +39,6 @@ instead. New ADRs take the next number and follow [`TEMPLATE.md`](./TEMPLATE.md)
 | [0022](./0022-operation-lifecycle-and-per-server-locking.md) | The Operation lifecycle, its failure/timeout semantics, and the realized per-server lock | #33 |
 | [0023](./0023-server-health-model-and-observed-delivery.md) | The hierarchical server-health model (five states, four probes) and its observed delivery | #37 |
 | [0024](./0024-opentelemetry-observability-baseline.md) | The OpenTelemetry observability baseline: SDK, opt-in OTLP, no Prometheus | #37 |
+| [0025](./0025-steamcmd-update-orchestration.md) | SteamCMD updates driven through the container (no exec): control-file + restart + log-parse, persistent install bind + tmpfs runtime | #38 |
 
 When you add an ADR, add its row here in the same commit.
