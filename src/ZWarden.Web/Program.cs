@@ -12,6 +12,7 @@ using ZWarden.Web.Operations;
 using ZWarden.Web.Components;
 using ZWarden.Web.Components.Account;
 using ZWarden.Web.Components.Agents;
+using ZWarden.Web.Components.Operations;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
@@ -72,6 +73,9 @@ app.MapAccountEndpoints();
 
 // The operator enrollment/trust API, gated by Tenant.Enrollment.Manage (F9).
 app.MapEnrollmentEndpoints();
+
+// The operator operations API (enqueue a diagnostic ping, read operation state), gated by Agent.Manage (F11).
+app.MapOperationEndpoints();
 
 // The SignalR Agent hub (F10) — Agents connect outbound here over WSS, authenticated by the "Agent" scheme.
 app.MapAgentHub();
