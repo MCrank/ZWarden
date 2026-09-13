@@ -17,7 +17,7 @@ public class PermissionCatalogueTests
     private static readonly string[] PrdPermissionNames =
     [
         "Server.View", "Server.Start", "Server.Stop", "Server.Restart",
-        "Server.Configuration.View", "Server.Configuration.Edit",
+        "Server.Configuration.View", "Server.Configuration.Edit", "Server.Register",
         "Mod.View", "Mod.Install", "Mod.Remove", "Mod.Update", "Mod.ApplyApprovedProfile",
         "Player.View", "Player.Kick", "Player.Ban", "Player.Unban",
         "Console.View", "Console.Execute",
@@ -61,12 +61,24 @@ public class PermissionCatalogueTests
         foreach (PermissionDefinition permission in Permissions.All)
         {
             bool expectedServerScopable =
-                serverScopablePrefixes.Any(prefix => permission.Name.StartsWith(prefix, StringComparison.Ordinal));
+                // Server.Register is the recorded exception (ADR 0018): tenant-wide despite the Server. prefix,
+                // because it precedes the Server's existence — there is no Server to scope it to.
+                permission != Permissions.ServerRegister
+                && serverScopablePrefixes.Any(prefix => permission.Name.StartsWith(prefix, StringComparison.Ordinal));
             PermissionScope expected =
                 expectedServerScopable ? PermissionScope.ServerScopable : PermissionScope.TenantWide;
 
             await Assert.That(permission.Scope).IsEqualTo(expected);
         }
+    }
+
+    [Test]
+    public async Task Server_register_is_tenant_wide_because_it_precedes_the_server()
+    {
+        // F14: a server-scoped permission checked with no Server is denied by the checker, so registration —
+        // which creates the Server — must be tenant-wide (ADR 0018, the recorded Server.* exception).
+        await Assert.That(Permissions.TryGet("Server.Register", out PermissionDefinition permission)).IsTrue();
+        await Assert.That(permission.Scope).IsEqualTo(PermissionScope.TenantWide);
     }
 
     [Test]

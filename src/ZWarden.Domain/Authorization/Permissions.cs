@@ -28,6 +28,12 @@ public static class Permissions
     public static readonly PermissionDefinition ServerConfigurationView = Server("Server.Configuration.View");
     public static readonly PermissionDefinition ServerConfigurationEdit = Server("Server.Configuration.Edit");
 
+    // Bringing a Server under management — importing a discovered container or registering (and provisioning)
+    // a new one (F14). Tenant-wide, not server-scopable: the Server does not exist yet at registration time,
+    // so there is no ServerId to scope to (a server-scoped permission checked with no Server is denied). This
+    // is the one Server.* permission that is tenant-wide — the recorded exception in ADR 0018.
+    public static readonly PermissionDefinition ServerRegister = Tenant("Server.Register");
+
     // Mods (per-server).
     public static readonly PermissionDefinition ModView = Server("Mod.View");
     public static readonly PermissionDefinition ModInstall = Server("Mod.Install");
@@ -72,7 +78,7 @@ public static class Permissions
     public static IReadOnlyList<PermissionDefinition> All { get; } =
     [
         ServerView, ServerStart, ServerStop, ServerRestart,
-        ServerConfigurationView, ServerConfigurationEdit,
+        ServerConfigurationView, ServerConfigurationEdit, ServerRegister,
         ModView, ModInstall, ModRemove, ModUpdate, ModApplyApprovedProfile,
         PlayerView, PlayerKick, PlayerBan, PlayerUnban,
         ConsoleView, ConsoleExecute,

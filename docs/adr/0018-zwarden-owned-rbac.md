@@ -39,7 +39,12 @@ Tenant Owner or Administrator may author. Two forces shaped the design:
   kind), the single source of truth for the PRD 12A permission names. A test asserts it equals the PRD
   naming list exactly. Scope kind: the per-server families `Server.*`, `Mod.*`, `Player.*`, `Console.*`,
   `Backup.*` are **server-scopable**; host/tenant permissions (`Agent.*`, `Tenant.*`, `User.Manage`,
-  `Role.Manage`, `Audit.View`, `Diagnostics.*`) are **tenant-wide**.
+  `Role.Manage`, `Audit.View`, `Diagnostics.*`) are **tenant-wide**. **Exception (F14):** `Server.Register`
+  is a `Server.*` name that is **tenant-wide**, not server-scopable — it is the capability to *bring a
+  Server under management* (import a discovered container, or register and provision a new one), which
+  necessarily precedes the Server's existence, so there is no `ServerId` to scope it to (and a
+  server-scopable permission checked with no Server denies, above). The scope-family test carves it out
+  explicitly.
 - **F5 owns roles.** A tenant-owned `Role` (`rol-`, `ITenantOwned`) bundles permissions
   (`RolePermissionGrant`), **separate from** Identity's `ApplicationRole`. Role names are unique **per
   tenant**. Built-in roles carry a `BuiltInRoleKind` and are seeded per tenant from `BuiltInRoles`; custom
