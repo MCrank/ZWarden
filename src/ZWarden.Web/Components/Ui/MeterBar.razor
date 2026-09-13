@@ -1,0 +1,51 @@
+@* ZWarden owns the meter bar (ADR 0003, #88): the second and last Feature-0 wrapper, sibling of
+   StatusBadge. It renders a value (0-100%, or value/max) as a thin horizontal meter coloured by the
+   --meter-* threshold ramp (style-guide.md "Status & meter ramps"): a track in --meter-track, the fill
+   in the threshold colour, and a mono percentage right-aligned. Squared and fixed-width, like the status
+   pills - no ragged ovals (#18). MeterBar (with StatusBadge) is the ONLY sanctioned consumer of the
+   --meter-* tokens (style-guide.md line 25), so no view reaches for a meter colour directly. The class
+   strings are full literals so the Tailwind content scan emits them (ADR 0003 condition 2); only the
+   fill WIDTH is an inline style, because Tailwind cannot generate an arbitrary runtime width. *@
+
+<div class="inline-flex w-[160px] items-center gap-2"
+     role="meter"
+     aria-valuenow="@Rounded"
+     aria-valuemin="0"
+     aria-valuemax="100"
+     aria-label="@AriaLabel">
+    <span class="h-2 flex-1 overflow-hidden rounded-sm bg-meter-track">
+        <span class="block h-full @FillClass" style="width: @(Rounded)%"></span>
+    </span>
+    <span class="w-10 text-right font-mono text-xs tabular-nums text-foreground">@Rounded%</span>
+</div>
+
+@code {
+    /// <summary>The measured value. Interpreted against <see cref="Max"/> (default 100, i.e. a percentage).</summary>
+    [Parameter]
+    [EditorRequired]
+    public double Value { get; set; }
+
+    /// <summary>The value that represents a full meter (100%). Defaults to 100 so <see cref="Value"/> is a percentage.</summary>
+    [Parameter]
+    public double Max { get; set; } = 100;
+
+    /// <summary>An accessible label naming what the meter measures (e.g. "CPU"), for screen readers.</summary>
+    [Parameter]
+    public string? Label { get; set; }
+
+    // Clamp to 0-100: an over-limit sample (usage briefly above a soft limit) must not overflow the track,
+    // and a negative or zero Max must not divide by zero or render a negative fill.
+    private double Percent => Max <= 0 ? 0 : Math.Clamp(Value / Max * 100, 0, 100);
+
+    private int Rounded => (int)Math.Round(Percent);
+
+    private string AriaLabel => Label is { Length: > 0 } label ? $"{label}: {Rounded}%" : $"{Rounded}%";
+
+    // nominal < 60, watch 60-85, hot > 85 (style-guide.md). Full literal classes for the Tailwind scan.
+    private string FillClass => Percent switch
+    {
+        < 60 => "bg-meter-nominal",
+        <= 85 => "bg-meter-watch",
+        _ => "bg-meter-hot",
+    };
+}

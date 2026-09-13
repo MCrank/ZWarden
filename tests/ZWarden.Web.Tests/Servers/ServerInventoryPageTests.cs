@@ -127,6 +127,37 @@ public sealed class ServerInventoryPageTests
     }
 
     [Test]
+    public async Task The_detail_page_shows_the_server_and_embeds_the_live_panel()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "detail-me");
+
+        string html = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        // The authorized static load rendered the server, and the interactive telemetry island prerendered with
+        // its "awaiting" state (no sample cached yet).
+        await Assert.That(html).Contains("detail-me");
+        await Assert.That(html).Contains("data-live-panel");
+        await Assert.That(html).Contains("data-live-awaiting");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task The_fleet_table_links_each_row_to_its_detail_page()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "linked");
+
+        string html = await (await client.GetAsync(new Uri("/servers", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        await Assert.That(html).Contains($"/servers/{serverId}");
+        await Assert.That(html).Contains("data-server-health");
+        client.Dispose();
+    }
+
+    [Test]
     public async Task The_lifecycle_form_posts_and_enqueues_an_operation()
     {
         await using ZWardenWebAppFactory factory = new();

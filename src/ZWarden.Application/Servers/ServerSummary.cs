@@ -13,4 +13,6 @@ public sealed record ServerSummary(
     int? GamePort,
     int? QueryPort,
     ServerRunState LastRunState,
-    DateTimeOffset? LastStateReportedAt);
+    DateTimeOffset? LastStateReportedAt,
+    ServerHealth? LastHealth,
+    DateTimeOffset? LastHealthReportedAt);

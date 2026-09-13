@@ -69,6 +69,7 @@
             <tr class="border-b border-border text-muted-foreground">
                 <th class="py-2 pr-4 font-medium">Name</th>
                 <th class="py-2 pr-4 font-medium">Status</th>
+                <th class="py-2 pr-4 font-medium">Health</th>
                 <th class="py-2 pr-4 font-medium">Host</th>
                 <th class="py-2 pr-4 font-medium">Ports</th>
                 <th class="py-2 pr-4 font-medium">Last reported (UTC)</th>
@@ -79,7 +80,7 @@
             @if (_servers.Count == 0)
             {
                 <tr>
-                    <td colspan="6" class="py-4 text-muted-foreground" data-servers-empty>
+                    <td colspan="7" class="py-4 text-muted-foreground" data-servers-empty>
                         No servers yet. Import a discovered container below to bring one under management.
                     </td>
                 </tr>
@@ -88,13 +89,14 @@
             {
                 <tr class="border-b border-border" data-server-row>
                     <td class="py-2 pr-4 font-medium">
-                        @server.Name
+                        <a href="@($"/servers/{server.Id}")" class="hover:underline" data-server-link>@server.Name</a>
                         @if (!string.IsNullOrWhiteSpace(server.Description))
                         {
                             <span class="block text-xs text-muted-foreground">@server.Description</span>
                         }
                     </td>
                     <td class="py-2 pr-4"><StatusBadge State="server.LastRunState" /></td>
+                    <td class="py-2 pr-4 text-muted-foreground" data-server-health>@(server.LastHealth?.ToString() ?? "—")</td>
                     <td class="py-2 pr-4 font-mono text-xs text-muted-foreground">@server.AgentId</td>
                     <td class="py-2 pr-4 font-mono tabular-nums text-xs">@Ports(server)</td>
                     <td class="py-2 pr-4 tabular-nums text-muted-foreground">@Reported(server)</td>

@@ -1,0 +1,129 @@
+@using ZWarden.Application.Servers
+@using ZWarden.Domain.Ids
+@using ZWarden.Web.Components.Ui
+@implements IDisposable
+@inject IServerMetricsCache Metrics
+@inject IServerHealthCache HealthCache
+
+@* The live per-server panel (F16): an interactive island embedded in the static server-detail page. The parent
+   does the authorized, tenant-filtered load (it has an HttpContext); this child only reads the process-local,
+   ownership-guarded caches (keyed by ServerId + owning AgentId), so it needs no tenant context — which a circuit
+   lacks. It refreshes once per second (ADR 0003's 1 Hz circuit push) and renders the health rollup + reason and
+   the CPU / memory / disk MeterBars. Ids arrive as strings so they cross the static→interactive boundary
+   cleanly. All Agent-reported text is untrusted and rendered as data (trust-boundaries.md §8). *@
+
+<div data-live-panel>
+    <div class="flex items-center gap-3">
+        <span class="text-sm font-medium">Health:</span>
+        <span class="text-sm @HealthClass" data-live-health>@HealthLabel</span>
+    </div>
+    @if (!string.IsNullOrWhiteSpace(Reason))
+    {
+        <p class="mt-1 text-xs text-muted-foreground" data-live-reason>@Reason</p>
+    }
+
+    @if (_metrics is { } m)
+    {
+        <dl class="mt-4 space-y-3">
+            <div class="flex items-center justify-between gap-4">
+                <dt class="text-sm text-muted-foreground">CPU</dt>
+                <dd><MeterBar Value="m.CpuPercent" Max="100" Label="CPU" /></dd>
+            </div>
+            <div class="flex items-center justify-between gap-4">
+                <dt class="text-sm text-muted-foreground">Memory <span class="font-mono text-xs tabular-nums">@Bytes(m.MemoryUsedBytes) / @Bytes(m.MemoryLimitBytes)</span></dt>
+                <dd><MeterBar Value="m.MemoryUsedBytes" Max="@(m.MemoryLimitBytes)" Label="Memory" /></dd>
+            </div>
+            @if (m.DiskUsedBytes is { } used && m.DiskCapacityBytes is { } cap && cap > 0)
+            {
+                <div class="flex items-center justify-between gap-4">
+                    <dt class="text-sm text-muted-foreground">Disk <span class="font-mono text-xs tabular-nums">@Bytes(used) / @Bytes(cap)</span></dt>
+                    <dd><MeterBar Value="used" Max="@cap" Label="Disk" /></dd>
+                </div>
+            }
+        </dl>
+    }
+    else
+    {
+        <p class="mt-4 text-sm text-muted-foreground" data-live-awaiting>Awaiting telemetry from the host…</p>
+    }
+</div>
+
+@code {
+    /// <summary>The Server, as its canonical string id (crosses the static→interactive boundary as a string).</summary>
+    [Parameter]
+    [EditorRequired]
+    public string ServerId { get; set; } = string.Empty;
+
+    /// <summary>The Server's owning Agent, as its canonical string id (the cache ownership-guard key).</summary>
+    [Parameter]
+    [EditorRequired]
+    public string AgentId { get; set; } = string.Empty;
+
+    /// <summary>The last-reported health from the durable load, shown until the first live sample arrives.</summary>
+    [Parameter]
+    public string? InitialHealth { get; set; }
+
+    private ServerId _server;
+    private AgentId _agent;
+    private bool _parsed;
+    private ServerMetrics? _metrics;
+    private ServerLiveHealth? _health;
+    private PeriodicTimer? _timer;
+    private Task? _loop;
+
+    protected override void OnInitialized()
+    {
+        _parsed = Domain.Ids.ServerId.TryParse(ServerId, out _server)
+            & Domain.Ids.AgentId.TryParse(AgentId, out _agent);
+        Refresh();
+        _timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+        _loop = RunAsync();
+    }
+
+    private async Task RunAsync()
+    {
+        try
+        {
+            while (await _timer!.WaitForNextTickAsync().ConfigureAwait(false))
+            {
+                Refresh();
+                await InvokeAsync(StateHasChanged).ConfigureAwait(false);
+            }
+        }
+        catch (ObjectDisposedException)
+        {
+            // The panel was disposed while awaiting the next tick — expected on navigation away.
+        }
+    }
+
+    private void Refresh()
+    {
+        if (!_parsed)
+        {
+            return;
+        }
+
+        _metrics = Metrics.GetLatest(_server, _agent);
+        _health = HealthCache.GetLatest(_server, _agent);
+    }
+
+    private string HealthLabel => _health?.Health.ToString() ?? InitialHealth ?? "Unknown";
+
+    private string? Reason => _health?.Reason;
+
+    // Health carries no colour token here (StatusBadge/MeterBar are the only sanctioned --status-*/--meter-*
+    // consumers, style-guide.md line 25); the panel leans on the meters for colour and states health as text,
+    // muted when it is only the last-reported (pre-live) value.
+    private string HealthClass => _health is null ? "text-muted-foreground" : "text-foreground";
+
+    private static string Bytes(long value)
+    {
+        const double gib = 1024d * 1024 * 1024;
+        const double mib = 1024d * 1024;
+        return value >= gib
+            ? $"{value / gib:0.0} GiB"
+            : $"{value / mib:0.0} MiB";
+    }
+
+    public void Dispose() => _timer?.Dispose();
+}

@@ -38,6 +38,10 @@ public static class ServersServiceCollectionExtensions
         // discovery cache. Never persisted — metrics are display data, not durable state.
         services.AddSingleton<IServerMetricsCache, ServerMetricsCache>();
 
+        // The latest-health-per-Server cache (F16), beside the metrics cache: lets an interactive circuit show
+        // live health without a tenant-scoped read. Transient; the durable value is Server.LastHealth.
+        services.AddSingleton<IServerHealthCache, ServerHealthCache>();
+
         return services;
     }
 }

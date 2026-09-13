@@ -230,5 +230,7 @@ public sealed class ServerInventory : IServerInventory
         server.GamePort,
         server.QueryPort,
         server.LastRunState,
-        server.LastStateReportedAt);
+        server.LastStateReportedAt,
+        server.LastHealth,
+        server.LastHealthReportedAt);
 }

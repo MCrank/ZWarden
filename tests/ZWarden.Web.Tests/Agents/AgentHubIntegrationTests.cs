@@ -141,6 +141,13 @@ public class AgentHubIntegrationTests
         await Assert.That(server.LastRunState).IsEqualTo(Domain.Servers.ServerRunState.Stopping);
         await Assert.That(server.LastHealthReportedAt).IsNotNull();
 
+        // The live health cache also carries the rollup + reason for the interactive detail panel.
+        IServerHealthCache healthCache = factory.Services.GetRequiredService<IServerHealthCache>();
+        ServerLiveHealth? live = healthCache.GetLatest(serverId, agentId);
+        await Assert.That(live).IsNotNull();
+        await Assert.That(live!.Health).IsEqualTo(Domain.Servers.ServerHealth.Degraded);
+        await Assert.That(live.Reason).IsEqualTo("a port is unreachable");
+
         await connection.StopAsync();
     }
 
