@@ -60,6 +60,25 @@ so the FIFO `save`→`quit` finishes before Docker's SIGKILL — the socket allo
 `stop`/`restart` but not `exec`/`attach`, so the trap, not a direct FIFO write, is how the blessed
 shutdown is reached. Operators with very large worlds should raise both grace and stop timeout together.
 
+## Update path (Feature 17)
+
+An **update** re-runs the same anonymous `app_update 380870 validate` as the first-run install. The
+socket allowlist (ADR 0008) denies `exec`/`attach`, so the Agent cannot run SteamCMD in a live
+container; instead it drops a control-file into the writable data volume and restarts:
+
+1. The Agent writes `/pz/data/.zwarden-update-requested` containing the **OperationId**, then issues
+   `docker restart` (which runs the blessed `save`→`quit` stop first).
+2. On reboot the entrypoint sees the request and runs `app_update … validate` **past** the install
+   marker, bracketing the SteamCMD output with `steamcmd update session <OperationId> begin` … `end
+   (success|failure)` so the Agent can bound its `docker logs` parse to this update.
+3. The control-file is **always cleared** afterwards (success or failure) so a persisted request can
+   never drive a restart loop.
+4. A **failed** update is non-fatal — unlike a first-run install it does not `exit 1`; the existing
+   install is intact, so the server boots on it and the Operation reports the failure from the log.
+
+The Agent-side orchestration (persistent install/Steam-root mounts, log-parsed progress, version
+detection) lands with F17's later PRs; this container-side contract is the half that lives here.
+
 ## Tests
 
 `tests/pzserver/*.bats` unit-test the entrypoint shell functions against synthetic fixtures with no
