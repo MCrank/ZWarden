@@ -11,6 +11,7 @@ using ZWarden.Agent.Docker;
 using ZWarden.Agent.Health;
 using ZWarden.Agent.Identity;
 using ZWarden.Agent.Observability;
+using ZWarden.Agent.SteamCmd;
 using ZWarden.Agent.Trust;
 
 namespace ZWarden.Agent;
@@ -80,6 +81,11 @@ public static class HostingExtensions
         services.AddSingleton<IServerHealthObserver, ServerHealthObserver>();
         services.AddSingleton<IServerDiskUsageReader, ServerDiskUsageReader>();
         services.AddSingleton<IServerMetricsSampler, ServerMetricsSampler>();
+
+        // SteamCMD lifecycle (F17): the host-side install paths and the update runner that drives an update via
+        // the control-file + restart + log-parse loop (no exec — ADR 0008) and reads back the installed build id.
+        services.AddSingleton<IServerInstallPaths, ServerInstallPaths>();
+        services.AddSingleton<IServerUpdateRunner, ServerUpdateRunner>();
 
         // Observability baseline (F16, ADR 0024): OpenTelemetry SDK + HttpClient instrumentation + opt-in OTLP.
         services.AddAgentTelemetry(configuration, environment);

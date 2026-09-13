@@ -184,6 +184,24 @@ public sealed partial class ContainerRuntime : IContainerRuntime
     public Task RestartAsync(ServerId serverId, CancellationToken cancellationToken)
         => ResolveThenAsync(serverId, RestartAsync, cancellationToken);
 
+    /// <inheritdoc />
+    public async Task<string> ReadServerLogsAsync(ServerId serverId, DateTimeOffset? since, CancellationToken cancellationToken)
+    {
+        // Reading logs is a read verb, not a mutation, so it does not pass the ownership guard's mutate check —
+        // but discovery already scopes to containers this Agent owns, so an unmatched ServerId is nothing to read.
+        IReadOnlyList<ManagedContainer> managed = await ListManagedAsync(cancellationToken).ConfigureAwait(false);
+        foreach (ManagedContainer container in managed)
+        {
+            if (container.ServerId == serverId)
+            {
+                return await _engine.ReadLogsAsync(container.DockerId, since, cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        LogNoContainerForServer(serverId);
+        throw new ContainerNotFoundException(serverId);
+    }
+
     // Resolve the canonical container this Agent owns for the Server, then run the container-id verb (which
     // re-asserts ownership before acting). Discovery already scopes to owned containers, so an unmatched
     // ServerId means there is nothing owned to act on — a ContainerNotFoundException, not a foreign refusal.

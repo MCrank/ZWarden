@@ -85,6 +85,8 @@ public class ServerHealthObserverTests
         public Task StopAsync(ServerId serverId, CancellationToken cancellationToken) => throw new NotSupportedException();
 
         public Task RestartAsync(ServerId serverId, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<string> ReadServerLogsAsync(ServerId serverId, DateTimeOffset? since, CancellationToken cancellationToken) => throw new NotSupportedException();
     }
 
     private sealed class RecordingProbe(bool? reachable) : INetworkReachabilityProbe

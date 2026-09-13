@@ -161,7 +161,11 @@ public sealed partial class SignalRControlPlaneConnection : IAgentControlPlaneCo
         {
             try
             {
-                Envelope<OperationCompleted>? reply = await _commands.ProcessAsync(commandJson, CancellationToken.None).ConfigureAwait(false);
+                // A live progress emitter over this connection (F17): a long SteamCMD update sends interim
+                // OperationProgress through it; other commands ignore it. Built here, never a DI singleton, to
+                // avoid a cycle with the connection this processor is wired into.
+                HubOperationProgressReporter progress = new(connection, _timeProvider);
+                Envelope<OperationCompleted>? reply = await _commands.ProcessAsync(commandJson, CancellationToken.None, progress).ConfigureAwait(false);
                 if (reply is not null)
                 {
                     await connection.SendAsync(AgentHubProtocol.OperationCompleted, reply).ConfigureAwait(false);

@@ -3,6 +3,7 @@ using Docker.DotNet;
 using Microsoft.Extensions.Options;
 using ZWarden.Agent.Configuration;
 using ZWarden.Agent.Docker;
+using ZWarden.Agent.SteamCmd;
 using ZWarden.Contracts.Protocol;
 using ZWarden.Contracts.Protocol.Messages;
 using ZWarden.Domain.Ids;
@@ -22,19 +23,23 @@ public sealed class AgentCommandProcessor
 {
     private readonly TimeProvider _timeProvider;
     private readonly IContainerRuntime _containerRuntime;
+    private readonly IServerUpdateRunner _updates;
     private readonly AgentOptions _options;
     private readonly ConcurrentDictionary<OperationId, byte> _handled = new();
 
     public AgentCommandProcessor(
         TimeProvider timeProvider,
         IContainerRuntime containerRuntime,
+        IServerUpdateRunner updates,
         IOptions<AgentOptions> options)
     {
         ArgumentNullException.ThrowIfNull(timeProvider);
         ArgumentNullException.ThrowIfNull(containerRuntime);
+        ArgumentNullException.ThrowIfNull(updates);
         ArgumentNullException.ThrowIfNull(options);
         _timeProvider = timeProvider;
         _containerRuntime = containerRuntime;
+        _updates = updates;
         _options = options.Value;
     }
 
@@ -42,9 +47,11 @@ public sealed class AgentCommandProcessor
     /// Processes a dispatched command's canonical wire JSON and returns the terminal
     /// <see cref="OperationCompleted"/> envelope to send back, or <c>null</c> when there is nothing to send —
     /// a replay of an already-handled operation, a command carrying no <c>OperationId</c>, or a command this
-    /// Agent version does not handle.
+    /// Agent version does not handle. A long-running command (F17's SteamCMD update) emits interim
+    /// <c>OperationProgress</c> through <paramref name="progress"/>; omit it (or pass null) for the no-op reporter.
     /// </summary>
-    public async Task<Envelope<OperationCompleted>?> ProcessAsync(string commandJson, CancellationToken cancellationToken)
+    public async Task<Envelope<OperationCompleted>?> ProcessAsync(
+        string commandJson, CancellationToken cancellationToken, IOperationProgressReporter? progress = null)
     {
         ArgumentNullException.ThrowIfNull(commandJson);
 
@@ -100,6 +107,25 @@ public sealed class AgentCommandProcessor
             case RestartServer:
                 return await LifecycleAsync(
                     envelope, operationId, "restart", _containerRuntime.RestartAsync, cancellationToken).ConfigureAwait(false);
+
+            case UpdateServer:
+                if (envelope.ServerId is not { } updateServerId)
+                {
+                    // An update command with no target Server is malformed — fail it explicitly.
+                    return Completed(OperationOutcome.Failed, "No target Server on the update command.", operationId);
+                }
+
+                if (!_handled.TryAdd(operationId, 0))
+                {
+                    return null; // Already handling this update — a redelivered command (PRD 20).
+                }
+
+                ServerUpdateOutcome update = await _updates
+                    .RunAsync(updateServerId, operationId, progress ?? NullOperationProgressReporter.Instance, cancellationToken)
+                    .ConfigureAwait(false);
+                return update.Succeeded
+                    ? Completed(OperationOutcome.Succeeded, failureReason: null, operationId, updateServerId, update: new UpdateResult(update.InstalledBuildId))
+                    : Completed(OperationOutcome.Failed, update.FailureReason, operationId, updateServerId);
 
             default:
                 // A command this Agent version does not understand: leave it unhandled (not marked handled) so
@@ -208,9 +234,10 @@ public sealed class AgentCommandProcessor
         string? failureReason,
         OperationId operationId,
         ServerId? serverId = null,
-        ProvisionResult? provision = null) =>
+        ProvisionResult? provision = null,
+        UpdateResult? update = null) =>
         Envelope.Create(
-            new OperationCompleted(outcome, failureReason, provision),
+            new OperationCompleted(outcome, failureReason, provision, update),
             _timeProvider.GetUtcNow(),
             serverId: serverId,
             operationId: operationId);
