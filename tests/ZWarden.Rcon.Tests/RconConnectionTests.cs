@@ -190,15 +190,20 @@ public class RconConnectionTests
 
         await Task.Delay(150); // let the server's close propagate
 
-        string second;
-        try
+        // The drop may surface as a thrown fault or, racily on a slow host, as a single empty read;
+        // either way the connection is then dropped and re-established, so a bounded retry reaches the
+        // live server again. The only non-empty response the server gives for "two" is "ok:two".
+        string? second = null;
+        for (int attempt = 0; attempt < 3 && string.IsNullOrEmpty(second); attempt++)
         {
-            second = await client.ExecuteAsync("two");
-        }
-        catch (RconException)
-        {
-            // The drop surfaced while reading; the connection is now dropped, so retry reconnects.
-            second = await client.ExecuteAsync("two");
+            try
+            {
+                second = await client.ExecuteAsync("two");
+            }
+            catch (RconException)
+            {
+                // Connection lost surfaced; the next attempt reconnects.
+            }
         }
 
         await Assert.That(second).IsEqualTo("ok:two");

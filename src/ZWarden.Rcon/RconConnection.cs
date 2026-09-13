@@ -224,25 +224,18 @@ public sealed class RconConnection : IAsyncDisposable
     {
         var builder = new StringBuilder();
         int totalBytes = 0;
-        bool sawEof = false;
 
         while (true)
         {
-            RconPacket? frame;
-            try
-            {
-                frame = await TryReadFrameWithinIdleAsync(userToken, deadlineToken).ConfigureAwait(false);
-            }
-            catch (EndOfStreamException)
-            {
-                // PZ closed the socket. Whatever we have is all we will get; the connection is dead.
-                sawEof = true;
-                break;
-            }
-
+            // An idle window with the socket still open means the response is complete (and an empty
+            // string when nothing was sent - trap 2). An EOF is different: the socket closed, so the
+            // connection is lost. TryReadFrameWithinIdleAsync returns null for the former and throws
+            // EndOfStreamException for the latter, which the caller turns into a connection fault and
+            // reconnects from - a dropped connection must never masquerade as an empty result.
+            RconPacket? frame = await TryReadFrameWithinIdleAsync(userToken, deadlineToken).ConfigureAwait(false);
             if (frame is null)
             {
-                break; // idle: no more data within the window => response complete (empty if nothing seen)
+                break; // idle: response complete (empty if nothing was received)
             }
 
             RconPacket packet = frame.Value;
@@ -260,11 +253,6 @@ public sealed class RconConnection : IAsyncDisposable
             {
                 break; // a short chunk is the last chunk
             }
-        }
-
-        if (sawEof)
-        {
-            DropConnection();
         }
 
         return builder.ToString();
