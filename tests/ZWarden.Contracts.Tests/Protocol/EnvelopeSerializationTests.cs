@@ -58,6 +58,19 @@ public class EnvelopeSerializationTests
     }
 
     [Test]
+    public async Task PingAgent_command_round_trips_with_its_operation_id()
+    {
+        Envelope<PingAgent> original = Envelope.Create(new PingAgent(), At, operationId: OperationId.New());
+
+        string json = ProtocolJson.Serialize(original);
+        Envelope<PingAgent> back = ProtocolJson.Deserialize<PingAgent>(json);
+
+        await Assert.That(json).Contains("diagnostics.ping");
+        await Assert.That(back.Payload).IsEqualTo(original.Payload);
+        await Assert.That(back.OperationId).IsEqualTo(original.OperationId);
+    }
+
+    [Test]
     public async Task AgentStateSnapshot_round_trips_its_server_states()
     {
         AgentStateSnapshot snapshot = new([

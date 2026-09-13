@@ -103,15 +103,17 @@ public class ClosedCommandVocabularyTests
     }
 
     [Test]
-    public async Task No_concrete_command_leaf_exists_yet_but_the_root_is_ready()
+    public async Task The_diagnostics_ping_is_the_first_command_leaf_and_the_root_stays_closed()
     {
-        // F7 ships the AgentCommand root and its guarantee; concrete commands land with F15+.
+        // F7 shipped the AgentCommand root; F11 adds the first concrete leaf (Diagnostics.Ping). The rest of
+        // the mutating vocabulary still lands with the owning features (RestartServer → F15, …).
         List<string> commandLeaves = ConcreteMessages()
             .Where(t => typeof(AgentCommand).IsAssignableFrom(t))
             .Select(t => t.Name)
             .ToList();
 
         await Assert.That(typeof(AgentCommand).IsAbstract).IsTrue();
-        await Assert.That(commandLeaves).IsEmpty();
+        await Assert.That(commandLeaves).Contains(nameof(PingAgent));
+        await Assert.That(ProtocolJson.MessageTypes.ContainsKey("diagnostics.ping")).IsTrue();
     }
 }
