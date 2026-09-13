@@ -318,6 +318,40 @@ management port on the host (criterion 14). It realises the transport half of
   the endpoint; on the Agent side the connection is a hosted service after enrollment. An un-enrolled Agent
   starts but does not connect.
 
+## Operations Engine (Feature 11)
+
+Every mutating action against a Server runs as a durable, auditable **Operation** (`op-`), not a
+fire-and-forget call. See [ADR 0022](./docs/adr/0022-operation-lifecycle-and-per-server-locking.md).
+
+- **The state machine is closed.** `Pending → Running → (Succeeded | Failed | Cancelled)`, with
+  `Cancelling` the one transient. Illegal transitions throw; terminal states are immutable. The Operation
+  state — not the Agent-reported outcome — is authoritative.
+- **The per-server lock is the Operation row.** A partial unique index admits at most one *mutating*
+  Operation per Server in `Pending`/`Running`, so acquiring the lock **is** the `INSERT` (a conflict →
+  `ServerBusyException`) and releasing it **is** reaching a terminal state — the portable mechanism ADR 0005
+  proved on both providers. Read-only and host-level Operations (a diagnostic ping) never contend. An
+  Operation carries a required `AgentId` (executor) and a nullable `ServerId` (subject); a mutating Operation
+  is always server-scoped. No Operation holds a DB transaction across Agent work (ADR 0005 condition 5).
+- **Idempotency is two-layer** (PRD 20): enqueue dedupes on `(TenantId, IdempotencyKey)`; the Agent dedupes a
+  redelivered command on the envelope's `OperationId`.
+- **A lease + reaper is the safety net.** A dispatched Operation runs under a lease (extended by each progress
+  report); `OperationReaper` (a hosted timer) fails an expired one, releasing the lock a dead Agent would
+  otherwise wedge.
+- **Dispatch rides the F10 connection.** `OperationCoordinator.EnqueueAsync` acquires the lock, then the
+  Web `IOperationDispatcher` resolves the live connection via `IAgentConnectionRegistry`, **persists `Running`
+  before the command leaves**, and sends the canonical `Envelope<AgentCommand>` wire string over the single
+  `AgentHubProtocol.ReceiveCommand` channel (polymorphic on the discriminator — every future command rides
+  it). The Agent reports back with the typed `OperationProgress`/`OperationCompleted` hub methods, which the
+  hub feeds to `IOperationStore` (idempotent, default-tenant fallback, Agent text untrusted).
+- **F11 ships one command: `Diagnostics.Ping`** (`diagnostics.ping`) — a non-mutating agent round-trip, the
+  first leaf of the closed `AgentCommand` vocabulary and the vehicle that proves the engine end-to-end. Real
+  mutating commands (`RestartServer` → F15, …) land with their owning features.
+- **Operator surface.** `POST /api/agents/{id}/ping` enqueues one and `GET /api/operations/{id}` reads its
+  state, both gated by `Agent.Manage`. The rich operations UI/history is F14/F16.
+- **Wiring** is `AddZWardenOperations()` (coordinator, store, reaper, no-op dispatcher default) after
+  `AddZWardenEnrollment()`, then `AddOperationDispatch()` after `AddAgentControlPlane()` (the real dispatcher,
+  which wins over the default) and `MapOperationEndpoints()`.
+
 ## Recording a decision
 
 Surprising, hard-to-reverse, real-trade-off decisions become an ADR — see

@@ -1,8 +1,9 @@
 # Feature 11 Mini-Plan — Durable Operations Engine
 
-**Status:** PR-A (engine core) complete on branch `feat/f11-durable-operations-engine`; PR-B (Web/Agent
-dispatch + `Diagnostics.Ping` + end-to-end) next. **Two PRs** closing
-[F11 (#33)](https://github.com/MCrank/ZWarden/issues/33) — PR-A engine core, **PR-B** closes #33. Track C. F6 ([#28](https://github.com/MCrank/ZWarden/issues/28))
+**Status:** delivered across **two PRs** closing [F11 (#33)](https://github.com/MCrank/ZWarden/issues/33).
+PR-A (engine core) merged as [#78](https://github.com/MCrank/ZWarden/pull/78); PR-B (Web/Agent dispatch +
+`Diagnostics.Ping` + minimal operator API + end-to-end) on branch `feat/f11-operations-dispatch`, **closes
+#33**. Track C. F6 ([#28](https://github.com/MCrank/ZWarden/issues/28))
 and F10 ([#32](https://github.com/MCrank/ZWarden/issues/32)) are merged, so F11 is unblocked; it blocks
 F13 ([#57](https://github.com/MCrank/ZWarden/issues/57)/#… Docker runtime), F15, F20b, F22, F24 —
 five features build on this engine.
@@ -316,14 +317,21 @@ Two PRs on branch `feat/f11-durable-operations-engine`:
 
 **PR-B — dispatch + ping + end-to-end** (closes #33):
 
-- **S5 — Contracts + Web dispatch/ingest.** `PingAgent` leaf; `IOperationDispatcher` Web impl
-  (registry + `IHubContext<AgentHub>`); hub receivers for the two operation events; DI/wiring.
-  *Verify:* tests 7, 8, 9.
-- **S6 — Agent handler + operator surface + e2e + docs.** The Agent `PingAgent` handler + replay
-  dedupe; the minimal operator entry point to issue a ping and read state; the end-to-end test;
-  CONTRIBUTING + this plan's status + the progress memory; the full arch guard. *Verify:* tests 10,
-  11, 12; full offline tier + arch green; floors set on every touched project. **→ open PR-B, close
-  #33.**
+- **S5 — Contracts + Web dispatch/ingest.** ✅ `PingAgent` leaf (`diagnostics.ping`) auto-registered;
+  `OperationDispatcher` Web impl (registry + `IHubContext<AgentHub>`, persists Running before send);
+  `AgentHubProtocol.ReceiveCommand`/`OperationProgress`/`OperationCompleted`; hub receivers →
+  `IOperationStore`; `AddOperationDispatch` (wins over the null default). Contracts floor 33 → 34.
+- **S6 — Agent handler + operator surface + e2e + docs.** ✅ `AgentCommandProcessor` (dedupe by
+  `OperationId`, ping → `OperationCompleted`) wired to `ReceiveCommand`; the minimal operator API
+  (`POST /api/agents/{id}/ping`, `GET /api/operations/{id}`, gated by `Agent.Manage`); the Web
+  enqueue→dispatch→reply→`Succeeded` end-to-end + offline-stays-`Pending`; this plan's status + the
+  progress memory. *Verified:* AgentCommandProcessor tests (Agent floor 39 → 43); Web dispatch e2e +
+  endpoint tests (Web floor 39 → 44, CI silent-drop-guard synced); PingAgent round-trip (Contracts).
+  Full offline tier green. **→ PR-B closes #33.**
+
+The command→agent dispatch uses a single `ReceiveCommand` channel carrying the canonical
+`Envelope<AgentCommand>` wire string (polymorphic on the discriminator), so every future command rides it
+with no new hub method; agent→web events (`OperationProgress`/`OperationCompleted`) are typed hub methods.
 
 ## Diagnostics
 
