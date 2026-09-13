@@ -27,12 +27,18 @@ public class PermissionCatalogueTests
         "User.Manage", "Role.Manage", "Audit.View", "Diagnostics.View", "Diagnostics.Export",
     ];
 
+    // Permissions added after the original PRD 12A list as deliberate catalogue changes, each recorded in an
+    // ADR: "Server.Diagnostics" is F18's per-server RCON diagnostic probe (#39, ADR 0026).
+    private static readonly string[] PostPrdAdditions = ["Server.Diagnostics"];
+
+    private static readonly string[] ExpectedPermissionNames = [.. PrdPermissionNames, .. PostPrdAdditions];
+
     [Test]
-    public async Task Catalogue_holds_exactly_the_prd_permission_names()
+    public async Task Catalogue_holds_exactly_the_expected_permission_names()
     {
         List<string> actual = Permissions.All.Select(p => p.Name).ToList();
         actual.Sort(StringComparer.Ordinal);
-        string[] expected = [.. PrdPermissionNames];
+        string[] expected = [.. ExpectedPermissionNames];
         Array.Sort(expected, StringComparer.Ordinal);
 
         await Assert.That(actual).IsEquivalentTo(expected);

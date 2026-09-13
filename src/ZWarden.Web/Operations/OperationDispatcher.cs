@@ -102,6 +102,7 @@ public sealed class OperationDispatcher : IOperationDispatcher
         OperationKind.StopServer => new StopServer(),
         OperationKind.RestartServer => new RestartServer(),
         OperationKind.UpdateServer => new UpdateServer(),
+        OperationKind.RconHealthProbe => new ProbeRconHealth(),
         _ => throw new NotSupportedException($"No command mapping for operation kind '{kind}'."),
     };
 }

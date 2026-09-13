@@ -28,6 +28,7 @@ public static class ServersServiceCollectionExtensions
 
         services.AddScoped<IServerInventory, ServerInventory>();
         services.AddScoped<IServerLifecycle, ServerLifecycle>();
+        services.AddScoped<IServerDiagnostics, ServerDiagnostics>();
         services.AddScoped<IServerStateReconciler, ServerStateReconciler>();
 
         // The discovery cache holds the last snapshot per Agent in-process; a singleton, like the connection

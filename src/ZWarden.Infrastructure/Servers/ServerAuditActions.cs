@@ -23,4 +23,7 @@ public static class ServerAuditActions
 
     /// <summary>An operator requested a SteamCMD update/validate (an update Operation was enqueued — F17).</summary>
     public const string Updated = "Server.Updated";
+
+    /// <summary>An operator ran an RCON health check (a diagnostics probe Operation was enqueued — F18).</summary>
+    public const string RconChecked = "Server.RconChecked";
 }
