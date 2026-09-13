@@ -186,6 +186,15 @@ public sealed partial class AgentHub : Hub
 
         if (completed.Payload.Outcome == OperationOutcome.Succeeded)
         {
+            // A successful provisioning Operation carries the container facts the Agent observed; record the
+            // Server's container linkage before marking the operation done (F14 PR-B). Observed, tenant-scoped.
+            if (completed.Payload.Provision is { } provision && completed.ServerId is { } serverId)
+            {
+                await _servers.RecordProvisionedAsync(
+                    serverId, provision.GamePort, provision.QueryPort, provision.ContainerId, Context.ConnectionAborted)
+                    .ConfigureAwait(false);
+            }
+
             await _operations.CompleteSucceededAsync(operationId, Context.ConnectionAborted).ConfigureAwait(false);
         }
         else

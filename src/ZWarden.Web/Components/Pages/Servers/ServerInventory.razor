@@ -5,6 +5,7 @@
 @using ZWarden.Domain.Authorization
 @using ZWarden.Domain.Ids
 @inject IServerInventory Inventory
+@inject IServerDiscoveryCache Discovery
 @inject IPermissionChecker PermissionChecker
 @inject UserManager<ApplicationUser> Users
 @inject NavigationManager Nav
@@ -88,6 +89,49 @@
 @if (_canRegister)
 {
     <section class="mt-10">
+        <h2 class="text-lg font-semibold tracking-tight">Register a new server</h2>
+        <p class="mt-1 text-sm text-muted-foreground">
+            Provision a fresh Project Zomboid container on a connected host. The server appears immediately and
+            starts once its Agent has built the container.
+        </p>
+
+        @if (_registerMessage is not null)
+        {
+            <p class="mt-3 rounded border border-border bg-card px-3 py-2 text-sm" data-register-message>@_registerMessage</p>
+        }
+
+        @if (_knownAgents.Count == 0)
+        {
+            <p class="mt-3 text-sm text-muted-foreground" data-no-hosts>
+                No connected hosts. A host appears here once its Agent connects and reports in.
+            </p>
+        }
+        else
+        {
+            <EditForm Model="_registerForm" FormName="register-server" OnValidSubmit="RegisterAsync" class="mt-4 flex flex-wrap items-end gap-3">
+                <DataAnnotationsValidator />
+                <label class="flex flex-col text-sm">
+                    <span class="mb-1 text-muted-foreground">Host</span>
+                    <InputSelect @bind-Value="_registerForm!.AgentId" class="rounded border border-input bg-background px-2 py-1">
+                        <option value="">Select…</option>
+                        @foreach (AgentId agent in _knownAgents)
+                        {
+                            <option value="@agent">@agent</option>
+                        }
+                    </InputSelect>
+                </label>
+                <label class="flex flex-col text-sm">
+                    <span class="mb-1 text-muted-foreground">Name</span>
+                    <InputText @bind-Value="_registerForm!.Name" class="rounded border border-input bg-background px-2 py-1" />
+                </label>
+                <button type="submit" class="rounded border border-input bg-primary px-3 py-1 text-sm font-medium text-primary-foreground">
+                    Register
+                </button>
+            </EditForm>
+        }
+    </section>
+
+    <section class="mt-10">
         <h2 class="text-lg font-semibold tracking-tight">Import a discovered container</h2>
         <p class="mt-1 text-sm text-muted-foreground">
             Canonical containers an Agent has reported that are not yet registered. Adopting one brings it
@@ -138,17 +182,23 @@
     [SupplyParameterFromForm(FormName = "import-server")]
     private ImportModel? _form { get; set; }
 
+    [SupplyParameterFromForm(FormName = "register-server")]
+    private RegisterModel? _registerForm { get; set; }
+
     private IReadOnlyList<ServerSummary> _servers = [];
     private IReadOnlyList<DiscoveredServerOnAgent> _discovered = [];
+    private IReadOnlyList<AgentId> _knownAgents = [];
     private bool _canRegister;
     private int _running;
     private int _needsAttention;
     private int _hosts;
     private string? _importMessage;
+    private string? _registerMessage;
 
     protected override async Task OnInitializedAsync()
     {
         _form ??= new ImportModel();
+        _registerForm ??= new RegisterModel();
         UserId user = await CurrentUserAsync();
 
         _servers = await Inventory.ListVisibleAsync(user);
@@ -160,6 +210,7 @@
         if (_canRegister)
         {
             _discovered = await Inventory.ListAllDiscoveredUnregisteredAsync();
+            _knownAgents = [.. Discovery.KnownAgents()];
         }
     }
 
@@ -199,6 +250,39 @@
         };
     }
 
+    private async Task RegisterAsync()
+    {
+        UserId user = await CurrentUserAsync();
+        RegisterModel form = _registerForm ?? new RegisterModel();
+        if (string.IsNullOrWhiteSpace(form.AgentId) || string.IsNullOrWhiteSpace(form.Name))
+        {
+            _registerMessage = "Choose a host and a name.";
+            return;
+        }
+
+        if (!AgentId.TryParse(form.AgentId, out AgentId agentId))
+        {
+            _registerMessage = "That host selection is no longer valid.";
+            return;
+        }
+
+        ServerRegisterResult result = await Inventory.RegisterAsync(user, agentId, form.Name.Trim());
+        if (result.Succeeded)
+        {
+            // Redirect after post so a refresh does not re-submit; the new server shows in Unknown state
+            // and starts once its Agent provisions the container.
+            Nav.NavigateTo("/servers");
+            return;
+        }
+
+        _registerMessage = result.Failure switch
+        {
+            ServerRegisterFailure.NotAuthorized => "You are not permitted to register servers.",
+            ServerRegisterFailure.AgentNotFound => "That host is no longer known.",
+            _ => "The server could not be registered.",
+        };
+    }
+
     private async Task<UserId> CurrentUserAsync()
     {
         ClaimsPrincipal principal = (await AuthState!).User;
@@ -216,6 +300,13 @@
     private sealed class ImportModel
     {
         public string? Target { get; set; }
+
+        public string? Name { get; set; }
+    }
+
+    private sealed class RegisterModel
+    {
+        public string? AgentId { get; set; }
 
         public string? Name { get; set; }
     }

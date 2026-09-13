@@ -72,6 +72,18 @@ public sealed class ServerInventoryPageTests
         client.Dispose();
     }
 
+    [Test]
+    public async Task An_operator_sees_the_register_section()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+
+        string html = await (await client.GetAsync(new Uri("/servers", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        await Assert.That(html).Contains("Register a new server");
+        client.Dispose();
+    }
+
     private static async Task<HttpClient> SignedInOperatorAsync(ZWardenWebAppFactory factory)
     {
         await factory.CreateConfirmedUserAsync("op@zwarden.test", StrongPassword);

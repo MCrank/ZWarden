@@ -101,6 +101,30 @@ public sealed class Server : IVersioned, ITenantOwned
         };
     }
 
+    /// <summary>
+    /// <b>Registers</b> a new Server: mints a fresh <see cref="ServerId"/> for a Server whose canonical
+    /// container does not exist yet — a provisioning Operation (F14 PR-B) creates it, stamped with this id.
+    /// Run-state starts <see cref="ServerRunState.Unknown"/> and the ports/container id are recorded once the
+    /// Agent reports them. The <see cref="TenantId"/> is left unset for the ownership interceptor (ADR 0016).
+    /// </summary>
+    public static Server Register(AgentId agentId, string name, DateTimeOffset now, string? description = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        if (agentId.IsEmpty)
+        {
+            throw new ArgumentException("A registered Server must be bound to an Agent.", nameof(agentId));
+        }
+
+        return new Server
+        {
+            Id = ServerId.New(),
+            AgentId = agentId,
+            Name = name,
+            Description = description,
+            CreatedAt = now,
+        };
+    }
+
     /// <summary>Records a freshly observed run-state and the time it was reported (trust-boundaries.md §3 —
     /// observed, never inferred).</summary>
     public void RecordObservedState(ServerRunState state, DateTimeOffset reportedAt)

@@ -1,4 +1,6 @@
 using System.Collections.Concurrent;
+using Microsoft.Extensions.Options;
+using ZWarden.Agent.Configuration;
 using ZWarden.Agent.Docker;
 using ZWarden.Contracts.Protocol;
 using ZWarden.Contracts.Protocol.Messages;
@@ -19,14 +21,20 @@ public sealed class AgentCommandProcessor
 {
     private readonly TimeProvider _timeProvider;
     private readonly IContainerRuntime _containerRuntime;
+    private readonly AgentOptions _options;
     private readonly ConcurrentDictionary<OperationId, byte> _handled = new();
 
-    public AgentCommandProcessor(TimeProvider timeProvider, IContainerRuntime containerRuntime)
+    public AgentCommandProcessor(
+        TimeProvider timeProvider,
+        IContainerRuntime containerRuntime,
+        IOptions<AgentOptions> options)
     {
         ArgumentNullException.ThrowIfNull(timeProvider);
         ArgumentNullException.ThrowIfNull(containerRuntime);
+        ArgumentNullException.ThrowIfNull(options);
         _timeProvider = timeProvider;
         _containerRuntime = containerRuntime;
+        _options = options.Value;
     }
 
     /// <summary>
@@ -66,6 +74,20 @@ public sealed class AgentCommandProcessor
                     ? Completed(OperationOutcome.Succeeded, failureReason: null, operationId)
                     : Completed(OperationOutcome.Failed, health.Detail, operationId);
 
+            case CreateServer:
+                if (envelope.ServerId is not { } serverId)
+                {
+                    // A provisioning command with no target Server is malformed — fail it explicitly.
+                    return Completed(OperationOutcome.Failed, "No target Server on the provisioning command.", operationId);
+                }
+
+                if (!_handled.TryAdd(operationId, 0))
+                {
+                    return null; // Already handled this operation — a redelivered command (PRD 20).
+                }
+
+                return await ProvisionAsync(serverId, operationId, cancellationToken).ConfigureAwait(false);
+
             default:
                 // A command this Agent version does not understand: leave it unhandled (not marked handled) so
                 // a future version can process a redelivery. The operation's lease reaps it if never handled.
@@ -73,9 +95,55 @@ public sealed class AgentCommandProcessor
         }
     }
 
-    private Envelope<OperationCompleted> Completed(OperationOutcome outcome, string? failureReason, OperationId operationId) =>
+    /// <summary>
+    /// Provisions the canonical container for <paramref name="serverId"/> (F14): allocate the port stride from
+    /// the host's live bindings (F13), build the closed create-template from Agent configuration, create and
+    /// start the container, and report the allocated ports and container id. A create failure (e.g. the image
+    /// is not pre-provisioned) becomes a failed completion carrying the actionable, Agent-authored reason.
+    /// </summary>
+    private async Task<Envelope<OperationCompleted>> ProvisionAsync(
+        ServerId serverId,
+        OperationId operationId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            PortAllocation ports = await _containerRuntime.AllocateNextPortsAsync(cancellationToken).ConfigureAwait(false);
+            PzContainerSpec spec = new(
+                serverId,
+                ContainerName: serverId.ToString(),
+                ImageReference: _options.PzImageReference ?? string.Empty,
+                NetworkName: _options.NetworkName,
+                DataMountSource: Path.Combine(_options.DataMountRoot, serverId.ToString()),
+                Ports: ports,
+                MemoryLimitBytes: _options.DefaultMemoryLimitBytes);
+
+            string containerId = await _containerRuntime.CreateAsync(spec, cancellationToken).ConfigureAwait(false);
+            await _containerRuntime.StartAsync(containerId, cancellationToken).ConfigureAwait(false);
+
+            return Completed(
+                OperationOutcome.Succeeded,
+                failureReason: null,
+                operationId,
+                serverId,
+                new ProvisionResult(ports.GamePort, ports.DirectPort, containerId));
+        }
+        catch (ContainerCreateException ex)
+        {
+            // Actionable, Agent-authored reason (e.g. the pinned image is not pre-provisioned, ADR 0008 D5).
+            return Completed(OperationOutcome.Failed, ex.Message, operationId, serverId);
+        }
+    }
+
+    private Envelope<OperationCompleted> Completed(
+        OperationOutcome outcome,
+        string? failureReason,
+        OperationId operationId,
+        ServerId? serverId = null,
+        ProvisionResult? provision = null) =>
         Envelope.Create(
-            new OperationCompleted(outcome, failureReason),
+            new OperationCompleted(outcome, failureReason, provision),
             _timeProvider.GetUtcNow(),
+            serverId: serverId,
             operationId: operationId);
 }

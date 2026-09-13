@@ -17,4 +17,16 @@ public interface IServerStateReconciler
         AgentId agentId,
         IReadOnlyList<DiscoveredServer> observed,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Records the container linkage a successful provisioning Operation reported (F14 PR-B): the allocated
+    /// ports and the created container id, against the Server the completion named. Observed, tenant-scoped —
+    /// a report for a Server not in the current tenant is a no-op (trust-boundaries.md §3/§8).
+    /// </summary>
+    Task RecordProvisionedAsync(
+        ServerId serverId,
+        int gamePort,
+        int queryPort,
+        string containerId,
+        CancellationToken cancellationToken = default);
 }

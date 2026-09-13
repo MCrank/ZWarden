@@ -19,4 +19,10 @@ public enum OperationKind
     /// and the negotiated API version. It acts on the host Agent, not a Server, so it never claims a per-server
     /// lock (ADR 0022: host-level Operations never contend).</summary>
     DiagnosticsDockerHealth = 1,
+
+    /// <summary>Provision the canonical ZWarden.PZServer container for a registered Server (F14). A
+    /// <b>mutating, server-scoped</b> Operation, so it claims the per-server lock (ADR 0022). The Agent builds
+    /// the container from F13's closed create-template and allocates the port stride itself, then reports the
+    /// allocated ports and container id on completion.</summary>
+    ProvisionServer = 2,
 }

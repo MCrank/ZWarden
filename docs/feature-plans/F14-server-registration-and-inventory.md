@@ -1,6 +1,8 @@
 # Feature 14 Mini-Plan — Server Registration and Inventory
 
-**Status:** PR-A IMPLEMENTED (S1–S6, tests green — Domain/Infra/Web/Arch/Integration all pass); PR-B PLANNED. Roadmap issue: [F14 (#35)](https://github.com/MCrank/ZWarden/issues/35). Track D — the first server-operations feature and **the first UI-bearing feature**; **unblocks F15, F16, F17, F18, F20, F24** (and #52, #45, #40, #39, #36).
+**Status:** PR-A MERGED (#81; S1–S6) + PR-B IMPLEMENTED (S7–S9, full solution green). Roadmap issue: [F14 (#35)](https://github.com/MCrank/ZWarden/issues/35).
+
+**PR-B result-reporting decision (settled in build):** the Agent allocates the port stride itself (F13, authoritative from live host bindings) and reports the allocated ports + container id back by an **additive optional `ProvisionResult` on `OperationCompleted`** (ADR 0020), with the target Server on the completion envelope's `ServerId`. This is the least-plumbing option (the hub already handles `OperationCompleted`) and keeps `Provisioning.CreateServer` payload-free (ServerId rides the command envelope, like `ProbeDockerHealth`). The hub records the container via `IServerStateReconciler.RecordProvisionedAsync` — the same observed-facts-update-persisted-Servers seam as the state snapshot. New Agent config (`PzImageReference`, `NetworkName`, `DataMountRoot`, `DefaultMemoryLimitBytes`) feeds F13's closed create-template. Track D — the first server-operations feature and **the first UI-bearing feature**; **unblocks F15, F16, F17, F18, F20, F24** (and #52, #45, #40, #39, #36).
 
 **As-built corrections (PR-A), each an honest consequence of the checker/render facts, flagged for review:**
 

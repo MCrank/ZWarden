@@ -1,10 +1,12 @@
 using ZWarden.Application.Audit;
 using ZWarden.Application.Authorization;
+using ZWarden.Application.Operations;
 using ZWarden.Application.Servers;
 using ZWarden.Domain.Agents;
 using ZWarden.Domain.Audit;
 using ZWarden.Domain.Authorization;
 using ZWarden.Domain.Ids;
+using ZWarden.Domain.Operations;
 using ZWarden.Domain.Servers;
 using ZWarden.Infrastructure.Agents;
 using ZWarden.Infrastructure.Persistence;
@@ -25,6 +27,7 @@ public sealed class ServerInventory : IServerInventory
     private readonly AgentRepository _agents;
     private readonly IServerDiscoveryCache _discovery;
     private readonly IPermissionChecker _permissions;
+    private readonly IOperationCoordinator _operations;
     private readonly IAuditWriter _audit;
     private readonly TimeProvider _clock;
 
@@ -34,6 +37,7 @@ public sealed class ServerInventory : IServerInventory
         AgentRepository agents,
         IServerDiscoveryCache discovery,
         IPermissionChecker permissions,
+        IOperationCoordinator operations,
         IAuditWriter audit,
         TimeProvider clock)
     {
@@ -42,6 +46,7 @@ public sealed class ServerInventory : IServerInventory
         ArgumentNullException.ThrowIfNull(agents);
         ArgumentNullException.ThrowIfNull(discovery);
         ArgumentNullException.ThrowIfNull(permissions);
+        ArgumentNullException.ThrowIfNull(operations);
         ArgumentNullException.ThrowIfNull(audit);
         ArgumentNullException.ThrowIfNull(clock);
         _context = context;
@@ -49,6 +54,7 @@ public sealed class ServerInventory : IServerInventory
         _agents = agents;
         _discovery = discovery;
         _permissions = permissions;
+        _operations = operations;
         _audit = audit;
         _clock = clock;
     }
@@ -173,6 +179,47 @@ public sealed class ServerInventory : IServerInventory
             cancellationToken).ConfigureAwait(false);
 
         return ServerImportResult.Success(server.Id);
+    }
+
+    /// <inheritdoc />
+    public async Task<ServerRegisterResult> RegisterAsync(
+        UserId user,
+        AgentId agentId,
+        string name,
+        CancellationToken cancellationToken = default)
+    {
+        AuthorizationDecision decision = await _permissions
+            .EvaluateAsync(user, Permissions.ServerRegister, server: null, cancellationToken).ConfigureAwait(false);
+        if (!decision.IsAllowed)
+        {
+            return ServerRegisterResult.Denied(ServerRegisterFailure.NotAuthorized);
+        }
+
+        Agent? agent = await _agents.FindByIdAsync(agentId, cancellationToken).ConfigureAwait(false);
+        if (agent is null)
+        {
+            return ServerRegisterResult.Denied(ServerRegisterFailure.AgentNotFound);
+        }
+
+        Server server = Server.Register(agentId, name, _clock.GetUtcNow());
+        _servers.Add(server);
+        await _context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        await _audit.WriteAsync(
+            new AuditEntry(ServerAuditActions.Registered, AuditOutcome.Succeeded, user, server.Id, $"agent {agentId}"),
+            cancellationToken).ConfigureAwait(false);
+
+        // Enqueue the mutating, server-scoped provisioning Operation that creates the container (ADR 0022).
+        Operation operation = await _operations.EnqueueAsync(
+            new EnqueueOperationRequest(
+                agentId,
+                OperationKind.ProvisionServer,
+                IsMutating: true,
+                Guid.NewGuid().ToString("N"),
+                ServerId: server.Id),
+            user,
+            cancellationToken).ConfigureAwait(false);
+
+        return ServerRegisterResult.Success(server.Id, operation.Id);
     }
 
     private static ServerSummary ToSummary(Server server) => new(

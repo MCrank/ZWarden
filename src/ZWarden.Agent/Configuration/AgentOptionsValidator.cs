@@ -34,6 +34,21 @@ public sealed class AgentOptionsValidator : IValidateOptions<AgentOptions>
             failures.Add($"{AgentOptions.SectionName}:{nameof(AgentOptions.DockerEndpoint)} must be an absolute URI when set (e.g. unix:///var/run/docker.sock).");
         }
 
+        if (string.IsNullOrWhiteSpace(options.NetworkName))
+        {
+            failures.Add($"{AgentOptions.SectionName}:{nameof(AgentOptions.NetworkName)} must be a non-empty network name.");
+        }
+
+        if (string.IsNullOrWhiteSpace(options.DataMountRoot) || !Path.IsPathFullyQualified(options.DataMountRoot))
+        {
+            failures.Add($"{AgentOptions.SectionName}:{nameof(AgentOptions.DataMountRoot)} must be an absolute host path.");
+        }
+
+        if (options.DefaultMemoryLimitBytes <= 0)
+        {
+            failures.Add($"{AgentOptions.SectionName}:{nameof(AgentOptions.DefaultMemoryLimitBytes)} must be positive.");
+        }
+
         if (options.HeartbeatInterval <= TimeSpan.Zero)
         {
             failures.Add($"{AgentOptions.SectionName}:{nameof(AgentOptions.HeartbeatInterval)} must be positive.");
