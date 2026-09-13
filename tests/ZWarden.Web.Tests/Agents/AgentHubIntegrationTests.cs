@@ -103,6 +103,52 @@ public class AgentHubIntegrationTests
         await Assert.That(negotiation.RejectionReason).IsNotNull();
     }
 
+    [Test]
+    public async Task An_agent_reports_state_and_health_that_persist_on_an_owned_server()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        (AgentId agentId, string credential) = await SeedTrustedAgentAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, agentId);
+        await using HubConnection connection = BuildConnection(factory, credential);
+
+        await connection.StartAsync();
+        await connection.InvokeAsync<ProtocolNegotiationResult>(
+            AgentHubProtocol.Hello, Hello(agentId, ProtocolVersion.Current));
+
+        // A full snapshot carrying health, then an incremental health transition.
+        await connection.InvokeAsync(
+            AgentHubProtocol.StateSnapshot,
+            Snapshot(agentId, new AgentStateSnapshot(
+                [new ServerState(serverId, ServerRunState.Running, ServerHealth.Healthy)])));
+        await connection.InvokeAsync(
+            AgentHubProtocol.HealthChanged,
+            Envelope.Create(
+                new HealthChanged(serverId, ServerHealth.Degraded, "a port is unreachable", Breakdown()),
+                Now, agentId, serverId));
+        await connection.InvokeAsync(
+            AgentHubProtocol.ServerStateChanged,
+            Envelope.Create(new ServerStateChanged(serverId, ServerRunState.Stopping), Now, agentId, serverId));
+
+        await WaitUntilAsync(async () =>
+        {
+            Domain.Servers.Server s = await LoadServerAsync(factory, serverId);
+            return s is { LastHealth: Domain.Servers.ServerHealth.Degraded, LastRunState: Domain.Servers.ServerRunState.Stopping };
+        });
+
+        Domain.Servers.Server server = await LoadServerAsync(factory, serverId);
+        await Assert.That(server.LastHealth).IsEqualTo(Domain.Servers.ServerHealth.Degraded);
+        await Assert.That(server.LastRunState).IsEqualTo(Domain.Servers.ServerRunState.Stopping);
+        await Assert.That(server.LastHealthReportedAt).IsNotNull();
+
+        await connection.StopAsync();
+    }
+
+    private static HealthBreakdown Breakdown() => new(
+        new ProbeCheck(ProbeStatus.Pass),
+        new ProbeCheck(ProbeStatus.Pass),
+        new ProbeCheck(ProbeStatus.Pass),
+        new ProbeCheck(ProbeStatus.Fail, "query port unreachable"));
+
     private static HubConnection BuildConnection(ZWardenWebAppFactory factory, string? credential)
         => new HubConnectionBuilder()
             .WithUrl(new Uri(factory.Server.BaseAddress, AgentHubProtocol.Path), options =>
@@ -150,6 +196,25 @@ public class AgentHubIntegrationTests
         using IServiceScope scope = factory.Services.CreateScope();
         AgentRepository repo = new(scope.ServiceProvider.GetRequiredService<ZWardenDbContext>());
         return (await repo.FindByIdAsync(agentId))!;
+    }
+
+    private static async Task<ServerId> SeedServerAsync(ZWardenWebAppFactory factory, AgentId agentId)
+    {
+        using IServiceScope scope = factory.Services.CreateScope();
+        ZWardenDbContext context = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
+        // The ownership interceptor stamps the ambient (default) tenant on insert (ADR 0016), the same tenant the
+        // hub reconciles under — so the reported transitions resolve to this Server.
+        Domain.Servers.Server server = Domain.Servers.Server.Import(agentId, ServerId.New(), "alpha", Now);
+        context.Add(server);
+        await context.SaveChangesAsync();
+        return server.Id;
+    }
+
+    private static async Task<Domain.Servers.Server> LoadServerAsync(ZWardenWebAppFactory factory, ServerId serverId)
+    {
+        using IServiceScope scope = factory.Services.CreateScope();
+        ZWardenDbContext context = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
+        return (await context.Set<Domain.Servers.Server>().FirstAsync(s => s.Id == serverId));
     }
 
     private static async Task<bool> HasAuditActionAsync(ZWardenWebAppFactory factory, string action)
