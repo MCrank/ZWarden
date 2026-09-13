@@ -42,6 +42,131 @@ public class ServerStateReconcilerTests
     }
 
     [Test]
+    public async Task Reconcile_records_health_from_the_snapshot_when_present()
+    {
+        await WithSqlite(async options =>
+        {
+            AgentId agent = AgentId.New();
+            ServerId id = ServerId.New();
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            ServerRepository repo = new(db);
+            repo.Add(Server.Import(agent, id, "alpha", Now));
+            await db.SaveChangesAsync();
+
+            ServerStateReconciler reconciler = new(db, repo, new ServerDiscoveryCache(), new StubClock(Now.AddMinutes(5)));
+            await reconciler.ReconcileAsync(
+                agent, [new DiscoveredServer(id, ServerRunState.Running, ServerHealth.Degraded)]);
+
+            Server reloaded = (await repo.FindByIdAsync(id))!;
+            await Assert.That(reloaded.LastHealth).IsEqualTo(ServerHealth.Degraded);
+            await Assert.That(reloaded.LastHealthReportedAt).IsEqualTo(Now.AddMinutes(5));
+        });
+    }
+
+    [Test]
+    public async Task Reconcile_leaves_health_untouched_when_the_snapshot_omits_it()
+    {
+        await WithSqlite(async options =>
+        {
+            AgentId agent = AgentId.New();
+            ServerId id = ServerId.New();
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            ServerRepository repo = new(db);
+            repo.Add(Server.Import(agent, id, "alpha", Now));
+            await db.SaveChangesAsync();
+
+            ServerStateReconciler reconciler = new(db, repo, new ServerDiscoveryCache(), new StubClock(Now.AddMinutes(5)));
+            // Run-state present, health null (a pre-F16 Agent): run-state records, health stays null.
+            await reconciler.ReconcileAsync(agent, [new DiscoveredServer(id, ServerRunState.Running)]);
+
+            Server reloaded = (await repo.FindByIdAsync(id))!;
+            await Assert.That(reloaded.LastRunState).IsEqualTo(ServerRunState.Running);
+            await Assert.That(reloaded.LastHealth).IsNull();
+        });
+    }
+
+    [Test]
+    public async Task RecordObservedHealth_records_health_on_an_owned_server()
+    {
+        await WithSqlite(async options =>
+        {
+            AgentId agent = AgentId.New();
+            ServerId id = ServerId.New();
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            ServerRepository repo = new(db);
+            repo.Add(Server.Import(agent, id, "alpha", Now));
+            await db.SaveChangesAsync();
+
+            ServerStateReconciler reconciler = new(db, repo, new ServerDiscoveryCache(), new StubClock(Now.AddMinutes(2)));
+            await reconciler.RecordObservedHealthAsync(agent, id, ServerHealth.Healthy);
+
+            Server reloaded = (await repo.FindByIdAsync(id))!;
+            await Assert.That(reloaded.LastHealth).IsEqualTo(ServerHealth.Healthy);
+            await Assert.That(reloaded.LastHealthReportedAt).IsEqualTo(Now.AddMinutes(2));
+        });
+    }
+
+    [Test]
+    public async Task RecordObservedState_records_state_on_an_owned_server()
+    {
+        await WithSqlite(async options =>
+        {
+            AgentId agent = AgentId.New();
+            ServerId id = ServerId.New();
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            ServerRepository repo = new(db);
+            repo.Add(Server.Import(agent, id, "alpha", Now));
+            await db.SaveChangesAsync();
+
+            ServerStateReconciler reconciler = new(db, repo, new ServerDiscoveryCache(), new StubClock(Now.AddMinutes(1)));
+            await reconciler.RecordObservedStateAsync(agent, id, ServerRunState.Stopping);
+
+            Server reloaded = (await repo.FindByIdAsync(id))!;
+            await Assert.That(reloaded.LastRunState).IsEqualTo(ServerRunState.Stopping);
+            await Assert.That(reloaded.LastStateReportedAt).IsEqualTo(Now.AddMinutes(1));
+        });
+    }
+
+    [Test]
+    public async Task A_transition_for_a_server_owned_by_another_agent_is_a_no_op()
+    {
+        await WithSqlite(async options =>
+        {
+            AgentId owner = AgentId.New();
+            AgentId impostor = AgentId.New();
+            ServerId id = ServerId.New();
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            ServerRepository repo = new(db);
+            repo.Add(Server.Import(owner, id, "alpha", Now));
+            await db.SaveChangesAsync();
+
+            ServerStateReconciler reconciler = new(db, repo, new ServerDiscoveryCache(), new StubClock(Now.AddMinutes(5)));
+            // An Agent that does not own the Server may not move its state (trust §8).
+            await reconciler.RecordObservedHealthAsync(impostor, id, ServerHealth.Failed);
+            await reconciler.RecordObservedStateAsync(impostor, id, ServerRunState.Failed);
+
+            Server reloaded = (await repo.FindByIdAsync(id))!;
+            await Assert.That(reloaded.LastHealth).IsNull();
+            await Assert.That(reloaded.LastRunState).IsEqualTo(ServerRunState.Unknown);
+        });
+    }
+
+    [Test]
+    public async Task A_health_transition_for_an_unknown_server_is_a_no_op()
+    {
+        await WithSqlite(async options =>
+        {
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            ServerRepository repo = new(db);
+            ServerStateReconciler reconciler = new(db, repo, new ServerDiscoveryCache(), new StubClock(Now));
+
+            await reconciler.RecordObservedHealthAsync(AgentId.New(), ServerId.New(), ServerHealth.Failed);
+
+            await Assert.That(await repo.CountAsync()).IsEqualTo(0);
+        });
+    }
+
+    [Test]
     public async Task Reconcile_caches_every_observed_container_including_unregistered_ones()
     {
         await WithSqlite(async options =>

@@ -65,11 +65,46 @@ public sealed class DockerDotNetEngine : IDockerEngine
 
         IReadOnlyDictionary<string, string> labels = ToReadOnly(r.Config?.Labels);
         string state = r.State?.Status ?? string.Empty;
-        return new EngineContainer(r.ID, labels, state, []);
+        // State.Health is null when the image declares no HEALTHCHECK; the PZServer image (F12) declares one, so
+        // a managed container reports healthy/unhealthy/starting here — F16's process and startup probes.
+        string? health = r.State?.Health?.Status;
+        long exitCode = r.State?.ExitCode ?? 0;
+        bool oomKilled = r.State?.OOMKilled ?? false;
+        return new EngineContainer(r.ID, labels, state, MapPorts(r.NetworkSettings?.Ports), health, exitCode, oomKilled);
     }
 
     private static IReadOnlyDictionary<string, string> ToReadOnly(IDictionary<string, string>? labels) =>
         labels is null ? NoLabels : new Dictionary<string, string>(labels, StringComparer.Ordinal);
+
+    // Projects inspect's port map ("16261/udp" -> host bindings) into undecorated PublishedPorts. F16's network
+    // probe needs the host-side port of a container's published game/query ports.
+    private static List<PublishedPort> MapPorts(IDictionary<string, IList<PortBinding>>? ports)
+    {
+        if (ports is null)
+        {
+            return [];
+        }
+
+        List<PublishedPort> mapped = [];
+        foreach (KeyValuePair<string, IList<PortBinding>> entry in ports)
+        {
+            string[] parts = entry.Key.Split('/');
+            if (parts.Length != 2 || !ushort.TryParse(parts[0], out ushort containerPort) || entry.Value is null)
+            {
+                continue;
+            }
+
+            foreach (PortBinding binding in entry.Value)
+            {
+                if (ushort.TryParse(binding?.HostPort, out ushort hostPort))
+                {
+                    mapped.Add(new PublishedPort(hostPort, containerPort, parts[1]));
+                }
+            }
+        }
+
+        return mapped;
+    }
 
     /// <inheritdoc />
     public async Task<string> CreateAsync(CreateContainerParameters parameters, CancellationToken cancellationToken)

@@ -28,6 +28,14 @@ public static class AgentHubProtocol
     /// <summary>The Agent's post-(re)connect state report, carrying an <c>Envelope&lt;AgentStateSnapshot&gt;</c>.</summary>
     public const string StateSnapshot = "StateSnapshot";
 
+    /// <summary>The Agent's incremental run-state transition report, carrying an
+    /// <c>Envelope&lt;ServerStateChanged&gt;</c> (F16); the Server is the envelope's <c>ServerId</c>.</summary>
+    public const string ServerStateChanged = "ServerStateChanged";
+
+    /// <summary>The Agent's incremental health transition report, carrying an
+    /// <c>Envelope&lt;HealthChanged&gt;</c> (F16); the Server is the envelope's <c>ServerId</c>.</summary>
+    public const string HealthChanged = "HealthChanged";
+
     /// <summary>
     /// The client method ZWarden.Web invokes on the Agent to dispatch an operation's command (F11). Its one
     /// argument is the <b>canonical wire JSON string</b> of an <c>Envelope&lt;AgentCommand&gt;</c> (produced by

@@ -43,6 +43,51 @@ public enum ServerRunState
     Failed = 5,
 }
 
+/// <summary>
+/// A Server's hierarchical <b>health</b> as the Agent rolls it up from its container / process / startup /
+/// network probes (F16) — the operator-facing taxonomy the issue names, and only these five. It is distinct
+/// from <see cref="ServerRunState"/> (the coarse lifecycle position): a <see cref="ServerRunState.Running"/>
+/// Server is <see cref="Healthy"/>, <see cref="Degraded"/> or <see cref="Failed"/> depending on the probes.
+/// "Not heard from" is deliberately <b>not</b> a member — it is the staleness of the last report
+/// (<c>Server.LastHealthReportedAt</c>), rendered by the UI. Serialized by name.
+/// </summary>
+public enum ServerHealth
+{
+    /// <summary>Not running — intentionally off. The healthy resting state of a stopped Server.</summary>
+    Stopped = 0,
+
+    /// <summary>Coming up: the process is alive but still inside its startup window, not yet accepting players.</summary>
+    Starting = 1,
+
+    /// <summary>Running and all probes pass.</summary>
+    Healthy = 2,
+
+    /// <summary>Running but impaired — a probe warns or a non-fatal check fails (e.g. a port is unreachable).</summary>
+    Degraded = 3,
+
+    /// <summary>Running abnormally or exited unexpectedly — a fatal probe failure (crash, OOM, unhealthy process).</summary>
+    Failed = 4,
+}
+
+/// <summary>
+/// One probe's verdict within a <see cref="Messages.HealthBreakdown"/> (F16). Serialized by name, so a later
+/// addition is additive.
+/// </summary>
+public enum ProbeStatus
+{
+    /// <summary>The probe passed.</summary>
+    Pass = 0,
+
+    /// <summary>The probe is non-fatally impaired — degrades health but does not fail it.</summary>
+    Warn = 1,
+
+    /// <summary>The probe failed fatally.</summary>
+    Fail = 2,
+
+    /// <summary>The probe did not apply in this state (e.g. network probing a stopped container).</summary>
+    Skipped = 3,
+}
+
 /// <summary>The terminal outcome of an Operation, reported by the Agent (PRD 18). Serialized by name.</summary>
 public enum OperationOutcome
 {

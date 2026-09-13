@@ -147,10 +147,51 @@ public sealed partial class AgentHub : Hub
             await _state.MarkHeartbeatAsync(agentId, Context.ConnectionAborted).ConfigureAwait(false);
 
             List<DiscoveredServer> observed = snapshot.Payload.Servers
-                .Select(s => new DiscoveredServer(s.ServerId, WireServerRunState.ToDomain(s.RunState)))
+                .Select(s => new DiscoveredServer(
+                    s.ServerId,
+                    WireServerRunState.ToDomain(s.RunState),
+                    s.Health is { } health ? WireServerHealth.ToDomain(health) : null))
                 .ToList();
             await _servers.ReconcileAsync(agentId, observed, Context.ConnectionAborted).ConfigureAwait(false);
             LogSnapshot(agentId, snapshot.Payload.Servers.Count);
+        }
+    }
+
+    /// <summary>
+    /// The Agent's incremental run-state transition (F16): record the observed run-state on the named Server —
+    /// observed, never inferred (trust-boundaries.md §3). Tenant-scoped and ownership-guarded in the reconciler:
+    /// a report for a Server this Agent does not own is a no-op (trust-boundaries.md §8).
+    /// </summary>
+    public async Task ServerStateChanged(Envelope<ServerStateChanged> change)
+    {
+        ArgumentNullException.ThrowIfNull(change);
+        if (AgentClaims.TryGetAgentId(Context.User, out AgentId agentId))
+        {
+            await _state.MarkHeartbeatAsync(agentId, Context.ConnectionAborted).ConfigureAwait(false);
+            await _servers.RecordObservedStateAsync(
+                agentId,
+                change.Payload.ServerId,
+                WireServerRunState.ToDomain(change.Payload.RunState),
+                Context.ConnectionAborted).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// The Agent's incremental health transition (F16): record the observed health rollup on the named Server.
+    /// Health is observed telemetry, not an audit event; the reconciler applies it only to a Server this Agent
+    /// owns. The reason/breakdown are untrusted (trust-boundaries.md §8) and are not persisted in PR-A.
+    /// </summary>
+    public async Task HealthChanged(Envelope<HealthChanged> change)
+    {
+        ArgumentNullException.ThrowIfNull(change);
+        if (AgentClaims.TryGetAgentId(Context.User, out AgentId agentId))
+        {
+            await _state.MarkHeartbeatAsync(agentId, Context.ConnectionAborted).ConfigureAwait(false);
+            await _servers.RecordObservedHealthAsync(
+                agentId,
+                change.Payload.ServerId,
+                WireServerHealth.ToDomain(change.Payload.Health),
+                Context.ConnectionAborted).ConfigureAwait(false);
         }
     }
 

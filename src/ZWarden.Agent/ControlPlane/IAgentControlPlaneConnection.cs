@@ -1,4 +1,6 @@
 using ZWarden.Contracts.Protocol;
+using ZWarden.Contracts.Protocol.Messages;
+using ZWarden.Domain.Ids;
 
 namespace ZWarden.Agent.ControlPlane;
 
@@ -19,6 +21,19 @@ public interface IAgentControlPlaneConnection : IAsyncDisposable
 
     /// <summary>Sends one heartbeat if the connection is live; a no-op while disconnected/reconnecting.</summary>
     Task SendHeartbeatAsync(AgentHealthStatus health, CancellationToken cancellationToken = default);
+
+    /// <summary>Reports a Server's observed run-state transition (F16); a no-op while disconnected/reconnecting.</summary>
+    Task SendServerStateChangedAsync(
+        ServerId serverId, ServerRunState runState, CancellationToken cancellationToken = default);
+
+    /// <summary>Reports a Server's observed health transition and breakdown (F16); a no-op while
+    /// disconnected/reconnecting.</summary>
+    Task SendHealthChangedAsync(
+        ServerId serverId,
+        ServerHealth health,
+        string reason,
+        HealthBreakdown breakdown,
+        CancellationToken cancellationToken = default);
 
     /// <summary>Stops the connection.</summary>
     Task StopAsync(CancellationToken cancellationToken = default);

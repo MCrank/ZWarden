@@ -18,6 +18,14 @@ public interface IContainerRuntime
     /// <summary>Lists the canonical containers this Agent owns; foreign and non-canonical ones are excluded.</summary>
     Task<IReadOnlyList<ManagedContainer>> ListManagedAsync(CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Inspects every canonical container this Agent owns and returns its health-relevant facts (F16): state,
+    /// HEALTHCHECK verdict, exit/OOM, and published ports. A container that vanishes between the list and its
+    /// inspect is skipped rather than failing the whole sweep. Foreign and non-canonical containers are excluded
+    /// exactly as <see cref="ListManagedAsync"/>.
+    /// </summary>
+    Task<IReadOnlyList<ObservedContainer>> InspectManagedAsync(CancellationToken cancellationToken);
+
     /// <summary>Allocates the next free two-port-stride pair given the strides already occupied on the host.</summary>
     Task<PortAllocation> AllocateNextPortsAsync(CancellationToken cancellationToken);
 

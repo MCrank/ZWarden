@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using ZWarden.Agent.Configuration;
+using ZWarden.Agent.Health;
 using ZWarden.Agent.Trust;
 using ZWarden.Contracts.Protocol;
 using ZWarden.Contracts.Protocol.Messages;
@@ -21,6 +22,7 @@ public sealed partial class SignalRControlPlaneConnection : IAgentControlPlaneCo
 {
     private readonly IAgentTrustStore _trustStore;
     private readonly AgentCommandProcessor _commands;
+    private readonly IServerHealthObserver _health;
     private readonly AgentOptions _options;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<SignalRControlPlaneConnection> _logger;
@@ -29,17 +31,20 @@ public sealed partial class SignalRControlPlaneConnection : IAgentControlPlaneCo
     public SignalRControlPlaneConnection(
         IAgentTrustStore trustStore,
         AgentCommandProcessor commands,
+        IServerHealthObserver health,
         IOptions<AgentOptions> options,
         TimeProvider timeProvider,
         ILogger<SignalRControlPlaneConnection> logger)
     {
         ArgumentNullException.ThrowIfNull(trustStore);
         ArgumentNullException.ThrowIfNull(commands);
+        ArgumentNullException.ThrowIfNull(health);
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(timeProvider);
         ArgumentNullException.ThrowIfNull(logger);
         _trustStore = trustStore;
         _commands = commands;
+        _health = health;
         _options = options.Value;
         _timeProvider = timeProvider;
         _logger = logger;
@@ -68,6 +73,38 @@ public sealed partial class SignalRControlPlaneConnection : IAgentControlPlaneCo
 
         Envelope<AgentHeartbeat> envelope = Envelope.Create(new AgentHeartbeat(health), _timeProvider.GetUtcNow());
         await connection.InvokeAsync(AgentHubProtocol.Heartbeat, envelope, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task SendServerStateChangedAsync(
+        ServerId serverId, ServerRunState runState, CancellationToken cancellationToken = default)
+    {
+        if (_connection is not { State: HubConnectionState.Connected } connection)
+        {
+            return;
+        }
+
+        Envelope<ServerStateChanged> envelope = Envelope.Create(
+            new ServerStateChanged(serverId, runState), _timeProvider.GetUtcNow(), serverId: serverId);
+        await connection.SendAsync(AgentHubProtocol.ServerStateChanged, envelope, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task SendHealthChangedAsync(
+        ServerId serverId,
+        ServerHealth health,
+        string reason,
+        HealthBreakdown breakdown,
+        CancellationToken cancellationToken = default)
+    {
+        if (_connection is not { State: HubConnectionState.Connected } connection)
+        {
+            return;
+        }
+
+        Envelope<HealthChanged> envelope = Envelope.Create(
+            new HealthChanged(serverId, health, reason, breakdown), _timeProvider.GetUtcNow(), serverId: serverId);
+        await connection.SendAsync(AgentHubProtocol.HealthChanged, envelope, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -159,9 +196,34 @@ public sealed partial class SignalRControlPlaneConnection : IAgentControlPlaneCo
         }
 
         Envelope<AgentStateSnapshot> snapshot =
-            Envelope.Create(AgentStateSnapshot.Empty, _timeProvider.GetUtcNow(), agentId);
+            Envelope.Create(await BuildSnapshotAsync(cancellationToken).ConfigureAwait(false), _timeProvider.GetUtcNow(), agentId);
         await connection.InvokeAsync(AgentHubProtocol.StateSnapshot, snapshot, cancellationToken).ConfigureAwait(false);
         return result;
+    }
+
+    // The authoritative post-(re)connect snapshot: the observed run-state and health of every owned Server (F16).
+    // Docker being unreachable must not break the control-plane handshake, so a failed observation sends an empty
+    // snapshot — Web keeps the last observed state and marks it stale (trust-boundaries.md §3).
+    private async Task<AgentStateSnapshot> BuildSnapshotAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            IReadOnlyList<ServerObservation> observed = await _health.ObserveAllAsync(cancellationToken).ConfigureAwait(false);
+            if (observed.Count == 0)
+            {
+                return AgentStateSnapshot.Empty;
+            }
+
+            return new AgentStateSnapshot(
+                observed.Select(o => new ServerState(o.ServerId, o.RunState, o.Health)).ToList());
+        }
+#pragma warning disable CA1031 // A failed observation must not break the handshake; send an empty snapshot instead.
+        catch (Exception ex)
+        {
+            LogSnapshotObservationFailed(ex);
+            return AgentStateSnapshot.Empty;
+        }
+#pragma warning restore CA1031
     }
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Control-plane protocol negotiation was rejected: {Reason}")]
@@ -172,6 +234,9 @@ public sealed partial class SignalRControlPlaneConnection : IAgentControlPlaneCo
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Handling a dispatched command failed; the operation's lease will reap it.")]
     private partial void LogCommandFailed(Exception ex);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Observing server health for the connect snapshot failed; sending an empty snapshot.")]
+    private partial void LogSnapshotObservationFailed(Exception ex);
 
     // Reconnect forever with an exponential backoff capped at 30s — the Agent should keep trying to reach the
     // control plane rather than give up (SignalR's default policy stops after ~30s).

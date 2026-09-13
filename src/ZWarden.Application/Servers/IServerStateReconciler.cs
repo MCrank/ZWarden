@@ -1,4 +1,5 @@
 using ZWarden.Domain.Ids;
+using ZWarden.Domain.Servers;
 
 namespace ZWarden.Application.Servers;
 
@@ -11,11 +12,33 @@ namespace ZWarden.Application.Servers;
 /// </summary>
 public interface IServerStateReconciler
 {
-    /// <summary>Applies the Agent's latest snapshot: update matching Servers' last-reported state and refresh
-    /// the discovery cache.</summary>
+    /// <summary>Applies the Agent's latest snapshot: update matching Servers' last-reported run-state (and health,
+    /// when the snapshot carries it) and refresh the discovery cache.</summary>
     Task ReconcileAsync(
         AgentId agentId,
         IReadOnlyList<DiscoveredServer> observed,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Records a single observed <b>run-state</b> transition the Agent reported (F16 <c>ServerStateChanged</c>) —
+    /// the incremental companion to a full snapshot. Tenant-scoped and ownership-guarded: a report for a Server
+    /// not in the current tenant, or not owned by <paramref name="agentId"/>, is a no-op (trust-boundaries.md §3/§8).
+    /// </summary>
+    Task RecordObservedStateAsync(
+        AgentId agentId,
+        ServerId serverId,
+        ServerRunState runState,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Records a single observed <b>health</b> transition the Agent reported (F16 <c>HealthChanged</c>). Tenant-scoped
+    /// and ownership-guarded exactly as <see cref="RecordObservedStateAsync"/>. Health is observed telemetry, not an
+    /// audit event.
+    /// </summary>
+    Task RecordObservedHealthAsync(
+        AgentId agentId,
+        ServerId serverId,
+        ServerHealth health,
         CancellationToken cancellationToken = default);
 
     /// <summary>

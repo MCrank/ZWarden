@@ -17,10 +17,19 @@ public readonly record struct PublishedPort(ushort HostPort, ushort ContainerPor
 /// </summary>
 /// <param name="Id">The Docker container id.</param>
 /// <param name="Labels">The container's labels (possibly empty; never null here).</param>
-/// <param name="State">The container's state string (e.g. <c>running</c>).</param>
+/// <param name="State">The container's state string (e.g. <c>running</c>, <c>exited</c>, <c>dead</c>).</param>
 /// <param name="Ports">The published port mappings.</param>
+/// <param name="HealthStatus">The container's own HEALTHCHECK verdict from inspect <c>State.Health.Status</c>
+/// (<c>healthy</c>/<c>unhealthy</c>/<c>starting</c>), or <c>null</c> when the image declares no healthcheck or
+/// the list API (which does not carry it) produced this record. F16's process/startup probes read it.</param>
+/// <param name="ExitCode">The last exit code from inspect <c>State.ExitCode</c> (0 unless known). Distinguishes a
+/// clean stop from a crash in the health rollup.</param>
+/// <param name="OomKilled">Whether the container was OOM-killed (inspect <c>State.OOMKilled</c>).</param>
 public sealed record EngineContainer(
     string Id,
     IReadOnlyDictionary<string, string> Labels,
     string State,
-    IReadOnlyList<PublishedPort> Ports);
+    IReadOnlyList<PublishedPort> Ports,
+    string? HealthStatus = null,
+    long ExitCode = 0,
+    bool OomKilled = false);
