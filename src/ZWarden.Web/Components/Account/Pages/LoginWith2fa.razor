@@ -19,22 +19,20 @@
         <StatusAlert Message="@_error" Kind="StatusAlert.AlertKind.Error" />
     }
 
+    @* Blueprint form primitives over the seam (ADR 0003; issue #84) — SSR-safe subset, static POST. *@
     <div class="space-y-1">
-        <label for="code" class="block text-xs font-medium uppercase tracking-[0.1em] text-muted-foreground">Authenticator code</label>
-        <InputText id="code" @bind-Value="Input.Code" autocomplete="one-time-code" inputmode="numeric" autofocus
-                   class="w-full rounded border border-input bg-background px-3 py-2 text-center font-mono text-lg tracking-[0.3em] text-foreground outline-none focus:border-ring focus:ring-1 focus:ring-ring" />
+        <BbLabel For="code" Class="block text-xs font-medium uppercase tracking-[0.1em] text-muted-foreground">Authenticator code</BbLabel>
+        <BbInput Id="code" @bind-Value="Input.Code" autocomplete="one-time-code" inputmode="numeric" autofocus
+                 Class="w-full text-center font-mono text-lg tracking-[0.3em]" />
         <ValidationMessage For="() => Input.Code" class="text-xs text-destructive" />
     </div>
 
     <label class="flex items-center gap-2 text-sm text-muted-foreground">
-        <InputCheckbox @bind-Value="Input.RememberMachine" class="h-4 w-4 rounded border-input" />
+        <BbCheckbox @bind-Checked="Input.RememberMachine" Class="h-4 w-4" />
         Trust this device for 30 days
     </label>
 
-    <button type="submit"
-            class="w-full rounded bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground transition hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-ring">
-        Verify
-    </button>
+    <BbButton Type="ButtonType.Submit" Class="w-full">Verify</BbButton>
 </EditForm>
 
 <div class="mt-4 text-center text-sm">

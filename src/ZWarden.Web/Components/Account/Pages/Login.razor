@@ -30,29 +30,27 @@
         <StatusAlert Message="@_error" Kind="StatusAlert.AlertKind.Error" />
     }
 
+    @* Blueprint form primitives over the seam (ADR 0003; issue #84). The SSR-safe subset (BbInput/
+       BbCheckbox/BbButton) renders real named controls that bind on a static-SSR EditForm POST — no
+       circuit. BbInput/BbCheckbox derive the full model path (Input.Email …) from the bound expression. *@
     <div class="space-y-1">
-        <label for="email" class="block text-xs font-medium uppercase tracking-[0.1em] text-muted-foreground">Email</label>
-        <InputText id="email" @bind-Value="Input.Email" autocomplete="username" autofocus
-                   class="w-full rounded border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-ring focus:ring-1 focus:ring-ring" />
+        <BbLabel For="email" Class="block text-xs font-medium uppercase tracking-[0.1em] text-muted-foreground">Email</BbLabel>
+        <BbInput Id="email" @bind-Value="Input.Email" autocomplete="username" autofocus Class="w-full" />
         <ValidationMessage For="() => Input.Email" class="text-xs text-destructive" />
     </div>
 
     <div class="space-y-1">
-        <label for="password" class="block text-xs font-medium uppercase tracking-[0.1em] text-muted-foreground">Password</label>
-        <InputText id="password" type="password" @bind-Value="Input.Password" autocomplete="current-password"
-                   class="w-full rounded border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-ring focus:ring-1 focus:ring-ring" />
+        <BbLabel For="password" Class="block text-xs font-medium uppercase tracking-[0.1em] text-muted-foreground">Password</BbLabel>
+        <BbInput Id="password" Type="InputType.Password" @bind-Value="Input.Password" autocomplete="current-password" Class="w-full" />
         <ValidationMessage For="() => Input.Password" class="text-xs text-destructive" />
     </div>
 
     <label class="flex items-center gap-2 text-sm text-muted-foreground">
-        <InputCheckbox @bind-Value="Input.RememberMe" class="h-4 w-4 rounded border-input" />
+        <BbCheckbox @bind-Checked="Input.RememberMe" Class="h-4 w-4" />
         Remember me on this device
     </label>
 
-    <button type="submit"
-            class="w-full rounded bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground transition hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-ring">
-        Sign in
-    </button>
+    <BbButton Type="ButtonType.Submit" Class="w-full">Sign in</BbButton>
 </EditForm>
 
 <div class="mt-4 text-center text-sm">

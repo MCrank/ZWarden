@@ -19,17 +19,14 @@
         <StatusAlert Message="@_error" Kind="StatusAlert.AlertKind.Error" />
     }
 
+    @* Blueprint form primitives over the seam (ADR 0003; issue #84) — SSR-safe subset, static POST. *@
     <div class="space-y-1">
-        <label for="code" class="block text-xs font-medium uppercase tracking-[0.1em] text-muted-foreground">Recovery code</label>
-        <InputText id="code" @bind-Value="Input.RecoveryCode" autocomplete="off" autofocus
-                   class="w-full rounded border border-input bg-background px-3 py-2 font-mono text-sm text-foreground outline-none focus:border-ring focus:ring-1 focus:ring-ring" />
+        <BbLabel For="code" Class="block text-xs font-medium uppercase tracking-[0.1em] text-muted-foreground">Recovery code</BbLabel>
+        <BbInput Id="code" @bind-Value="Input.RecoveryCode" autocomplete="off" autofocus Class="w-full font-mono" />
         <ValidationMessage For="() => Input.RecoveryCode" class="text-xs text-destructive" />
     </div>
 
-    <button type="submit"
-            class="w-full rounded bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground transition hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-ring">
-        Sign in
-    </button>
+    <BbButton Type="ButtonType.Submit" Class="w-full">Sign in</BbButton>
 </EditForm>
 
 @code {
