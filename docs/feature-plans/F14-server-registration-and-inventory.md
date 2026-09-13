@@ -1,6 +1,12 @@
 # Feature 14 Mini-Plan — Server Registration and Inventory
 
-**Status:** PLANNED. Roadmap issue: [F14 (#35)](https://github.com/MCrank/ZWarden/issues/35). Track D — the first server-operations feature and **the first UI-bearing feature**; **unblocks F15, F16, F17, F18, F20, F24** (and #52, #45, #40, #39, #36).
+**Status:** PR-A IMPLEMENTED (S1–S6, tests green — Domain/Infra/Web/Arch/Integration all pass); PR-B PLANNED. Roadmap issue: [F14 (#35)](https://github.com/MCrank/ZWarden/issues/35). Track D — the first server-operations feature and **the first UI-bearing feature**; **unblocks F15, F16, F17, F18, F20, F24** (and #52, #45, #40, #39, #36).
+
+**As-built corrections (PR-A), each an honest consequence of the checker/render facts, flagged for review:**
+
+- **The `/servers` page and nav are gated by `[Authorize]` (authenticated), not `Server.View`.** Same root cause as D3: `Server.View` is server-scoped, and a server-scoped policy checked with no resource **denies** (`PermissionChecker`), so a page/nav-level `Server.View` gate would hide the inventory even from operators who *can* view servers. The list self-filters fail-closed in `ListVisibleAsync`; the import section is gated by the tenant-wide `Server.Register`.
+- **F14 renders the fleet as a plain server-rendered table, not `BbDataGrid`.** ADR 0003 chose `BbDataGrid` for the *interactive, live-push* fleet view: its virtualization needs a circuit, so on a static page it paints empty. F14's inventory is static (D6) and shows last-reported state with no telemetry yet, so a plain SSR table (like `/audit`) is correct here. The virtualized `BbDataGrid` graduates in with F16 telemetry / F36 when the view goes interactive.
+- **No overlay providers added.** With a static SSR import form (`EditForm`, redirect-after-post) rather than a Blueprint dialog, F14 needs no `BbPortalHost`/`BbToastProvider`/`BbDialogProvider`; MainLayout's "first feature that needs an overlay" note stands for whichever later feature first uses a dialog/toast.
 
 **Delivered as two PRs** (the F11 precedent), each independently verifiable, in one context, and inside PRD 59's ~100K guardrail:
 
