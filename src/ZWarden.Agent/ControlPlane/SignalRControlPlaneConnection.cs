@@ -20,6 +20,7 @@ namespace ZWarden.Agent.ControlPlane;
 public sealed partial class SignalRControlPlaneConnection : IAgentControlPlaneConnection
 {
     private readonly IAgentTrustStore _trustStore;
+    private readonly AgentCommandProcessor _commands;
     private readonly AgentOptions _options;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<SignalRControlPlaneConnection> _logger;
@@ -27,15 +28,18 @@ public sealed partial class SignalRControlPlaneConnection : IAgentControlPlaneCo
 
     public SignalRControlPlaneConnection(
         IAgentTrustStore trustStore,
+        AgentCommandProcessor commands,
         IOptions<AgentOptions> options,
         TimeProvider timeProvider,
         ILogger<SignalRControlPlaneConnection> logger)
     {
         ArgumentNullException.ThrowIfNull(trustStore);
+        ArgumentNullException.ThrowIfNull(commands);
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(timeProvider);
         ArgumentNullException.ThrowIfNull(logger);
         _trustStore = trustStore;
+        _commands = commands;
         _options = options.Value;
         _timeProvider = timeProvider;
         _logger = logger;
@@ -98,6 +102,27 @@ public sealed partial class SignalRControlPlaneConnection : IAgentControlPlaneCo
             .AddJsonProtocol(json => json.PayloadSerializerOptions = ProtocolJson.Options)
             .Build();
 
+        // Handle commands the control plane dispatches (F11): deserialize, act, and report the result on the
+        // same OperationId. A failed handling must not tear the connection down; the operation's lease reaps
+        // it if no report arrives.
+        connection.On<string>(AgentHubProtocol.ReceiveCommand, async commandJson =>
+        {
+            try
+            {
+                Envelope<OperationCompleted>? reply = _commands.Process(commandJson);
+                if (reply is not null)
+                {
+                    await connection.SendAsync(AgentHubProtocol.OperationCompleted, reply).ConfigureAwait(false);
+                }
+            }
+#pragma warning disable CA1031 // A bad command must not crash the connection; the lease reaps an unreported operation.
+            catch (Exception ex)
+            {
+                LogCommandFailed(ex);
+            }
+#pragma warning restore CA1031
+        });
+
         // On every reconnect, re-negotiate and resend the snapshot so the server never trusts stale state.
         connection.Reconnected += async _ =>
         {
@@ -144,6 +169,9 @@ public sealed partial class SignalRControlPlaneConnection : IAgentControlPlaneCo
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Re-handshake after reconnect failed; will retry on the next reconnect.")]
     private partial void LogReconnectHandshakeFailed(Exception ex);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Handling a dispatched command failed; the operation's lease will reap it.")]
+    private partial void LogCommandFailed(Exception ex);
 
     // Reconnect forever with an exponential backoff capped at 30s — the Agent should keep trying to reach the
     // control plane rather than give up (SignalR's default policy stops after ~30s).

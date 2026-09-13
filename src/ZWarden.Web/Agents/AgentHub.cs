@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using ZWarden.Application.Agents;
 using ZWarden.Application.Audit;
+using ZWarden.Application.Operations;
 using ZWarden.Contracts.Protocol;
 using ZWarden.Contracts.Protocol.Messages;
 using ZWarden.Domain.Audit;
@@ -24,21 +25,25 @@ public sealed partial class AgentHub : Hub
 {
     private readonly IAgentConnectionRegistry _registry;
     private readonly IAgentConnectionStateWriter _state;
+    private readonly IOperationStore _operations;
     private readonly IAuditWriter _audit;
     private readonly ILogger<AgentHub> _logger;
 
     public AgentHub(
         IAgentConnectionRegistry registry,
         IAgentConnectionStateWriter state,
+        IOperationStore operations,
         IAuditWriter audit,
         ILogger<AgentHub> logger)
     {
         ArgumentNullException.ThrowIfNull(registry);
         ArgumentNullException.ThrowIfNull(state);
+        ArgumentNullException.ThrowIfNull(operations);
         ArgumentNullException.ThrowIfNull(audit);
         ArgumentNullException.ThrowIfNull(logger);
         _registry = registry;
         _state = state;
+        _operations = operations;
         _audit = audit;
         _logger = logger;
     }
@@ -133,6 +138,47 @@ public sealed partial class AgentHub : Hub
         {
             await _state.MarkHeartbeatAsync(agentId, Context.ConnectionAborted).ConfigureAwait(false);
             LogSnapshot(agentId, snapshot.Payload.Servers.Count);
+        }
+    }
+
+    /// <summary>
+    /// The Agent's progress report for an in-flight operation (F11). The operation is the envelope's
+    /// <see cref="Envelope{TPayload}.OperationId"/>; the ingest is idempotent and resolves the operation in
+    /// the (default) tenant. <see cref="OperationProgress.StatusLine"/> is untrusted (trust-boundaries.md §3).
+    /// </summary>
+    public async Task OperationProgress(Envelope<OperationProgress> progress)
+    {
+        ArgumentNullException.ThrowIfNull(progress);
+        if (progress.OperationId is { } operationId)
+        {
+            await _operations.ApplyProgressAsync(
+                operationId,
+                progress.Payload.PercentComplete,
+                progress.Payload.StatusLine,
+                Context.ConnectionAborted).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// The Agent's terminal report for an operation (F11): success or failure, mapped onto the operation's
+    /// state. Idempotent — a redelivered completion for an already-terminal operation is ignored.
+    /// </summary>
+    public async Task OperationCompleted(Envelope<OperationCompleted> completed)
+    {
+        ArgumentNullException.ThrowIfNull(completed);
+        if (completed.OperationId is not { } operationId)
+        {
+            return;
+        }
+
+        if (completed.Payload.Outcome == OperationOutcome.Succeeded)
+        {
+            await _operations.CompleteSucceededAsync(operationId, Context.ConnectionAborted).ConfigureAwait(false);
+        }
+        else
+        {
+            await _operations.CompleteFailedAsync(operationId, completed.Payload.FailureReason, Context.ConnectionAborted)
+                .ConfigureAwait(false);
         }
     }
 

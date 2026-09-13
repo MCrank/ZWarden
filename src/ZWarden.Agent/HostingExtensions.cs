@@ -49,6 +49,7 @@ public static class HostingExtensions
             sp.GetRequiredService<ILogger<HttpEnrollmentClient>>()));
 
         // Control plane (F10): the outbound SignalR connection the Agent opens once enrolled.
+        services.AddSingleton<AgentCommandProcessor>();
         services.AddSingleton<IAgentControlPlaneConnection, SignalRControlPlaneConnection>();
 
         // Order matters: identity resolves, then enrollment runs, then the connection opens, before/while the
