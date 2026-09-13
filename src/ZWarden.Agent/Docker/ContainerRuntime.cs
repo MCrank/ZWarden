@@ -202,6 +202,36 @@ public sealed partial class ContainerRuntime : IContainerRuntime
         throw new ContainerNotFoundException(serverId);
     }
 
+    /// <inheritdoc />
+    public async Task<string?> ResolveNetworkAddressAsync(
+        ServerId serverId, string networkName, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(networkName);
+
+        // Discovery already scopes to owned containers, so an unmatched ServerId simply has no address to read.
+        IReadOnlyList<ManagedContainer> managed = await ListManagedAsync(cancellationToken).ConfigureAwait(false);
+        foreach (ManagedContainer container in managed)
+        {
+            if (container.ServerId != serverId)
+            {
+                continue;
+            }
+
+            EngineContainer inspected = await _engine.InspectAsync(container.DockerId, cancellationToken)
+                .ConfigureAwait(false);
+            if (inspected.NetworkAddresses is { } addresses
+                && addresses.TryGetValue(networkName, out string? address)
+                && !string.IsNullOrEmpty(address))
+            {
+                return address;
+            }
+
+            return null; // owned, but no address on that network (e.g. not running)
+        }
+
+        return null; // no owned container for this Server
+    }
+
     // Resolve the canonical container this Agent owns for the Server, then run the container-id verb (which
     // re-asserts ownership before acting). Discovery already scopes to owned containers, so an unmatched
     // ServerId means there is nothing owned to act on — a ContainerNotFoundException, not a foreign refusal.

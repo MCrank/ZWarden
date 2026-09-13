@@ -25,6 +25,10 @@ public readonly record struct PublishedPort(ushort HostPort, ushort ContainerPor
 /// <param name="ExitCode">The last exit code from inspect <c>State.ExitCode</c> (0 unless known). Distinguishes a
 /// clean stop from a crash in the health rollup.</param>
 /// <param name="OomKilled">Whether the container was OOM-killed (inspect <c>State.OOMKilled</c>).</param>
+/// <param name="NetworkAddresses">The container's IP address on each network it is attached to, keyed by network
+/// name (inspect <c>NetworkSettings.Networks[name].IPAddress</c>). <c>null</c> when produced by the list API
+/// (which does not carry it) and empty when the container is not running. F18 reads the ZWarden-network address
+/// here to reach the private, never-host-published RCON port.</param>
 public sealed record EngineContainer(
     string Id,
     IReadOnlyDictionary<string, string> Labels,
@@ -32,4 +36,5 @@ public sealed record EngineContainer(
     IReadOnlyList<PublishedPort> Ports,
     string? HealthStatus = null,
     long ExitCode = 0,
-    bool OomKilled = false);
+    bool OomKilled = false,
+    IReadOnlyDictionary<string, string>? NetworkAddresses = null);

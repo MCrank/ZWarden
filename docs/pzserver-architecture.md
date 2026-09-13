@@ -161,7 +161,8 @@ yet.** Today they exist and PZ manages them; ZWarden has no config editor.
 | SteamCMD update / validate + installed build id | F17 | ✅ |
 | **Edit PZ config / sandbox settings** | F20a / F20b | ⛔ not built |
 | **Workshop / mods** | F21 / F22 | ⛔ not built |
-| **RCON console** | F18 / F28 | ⛔ not built |
+| **RCON client + health probe** | F18 | ✅ built (private-network transport, Agent-owned credential; ADR 0026) |
+| **RCON console** | F28 | ⛔ not built |
 | **Destroy / deprovision a server** | (future) | ⛔ not built |
 
 ---

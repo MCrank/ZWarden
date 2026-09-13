@@ -2,8 +2,10 @@ using Microsoft.Extensions.Options;
 using ZWarden.Agent.Configuration;
 using ZWarden.Agent.ControlPlane;
 using ZWarden.Agent.Docker;
+using ZWarden.Agent.Rcon;
 using ZWarden.Agent.SteamCmd;
 using ZWarden.Agent.Tests.Docker;
+using ZWarden.Agent.Tests.Rcon;
 using ZWarden.Contracts.Protocol;
 using ZWarden.Contracts.Protocol.Messages;
 using ZWarden.Domain.Ids;
@@ -20,11 +22,17 @@ public class AgentCommandProcessorTests
 {
     private static readonly DateTimeOffset Now = new(2026, 9, 12, 10, 0, 0, TimeSpan.Zero);
 
-    private static AgentCommandProcessor Processor(IContainerRuntime? runtime = null, IServerUpdateRunner? updates = null) =>
+    private static AgentCommandProcessor Processor(
+        IContainerRuntime? runtime = null,
+        IServerUpdateRunner? updates = null,
+        IRconHealthProbe? rconProbe = null,
+        IRconServerConfig? rconConfig = null) =>
         new(
             TimeProvider.System,
             runtime ?? new FakeContainerRuntime(),
             updates ?? new FakeServerUpdateRunner(),
+            rconProbe ?? new FakeRconHealthProbe(),
+            rconConfig ?? new FakeRconServerConfig(),
             Options.Create(new AgentOptions
             {
                 PzImageReference = "zwarden/pzserver:pinned",
@@ -102,6 +110,77 @@ public class AgentCommandProcessorTests
 
         await Assert.That(second).IsNull();
         await Assert.That(runtime.ProbeCount).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task An_rcon_health_probe_succeeds_and_carries_the_result_when_authenticated()
+    {
+        var probe = new FakeRconHealthProbe { Result = new RconHealthResult(true, true, null) };
+        ServerId server = ServerId.New();
+        OperationId operationId = OperationId.New();
+
+        Envelope<OperationCompleted>? reply = await Processor(rconProbe: probe)
+            .ProcessAsync(Json(new ProbeRconHealth(), operationId, server), CancellationToken.None);
+
+        await Assert.That(reply!.OperationId).IsEqualTo(operationId);
+        await Assert.That(reply.ServerId).IsEqualTo(server);
+        await Assert.That(reply.Payload.Outcome).IsEqualTo(OperationOutcome.Succeeded);
+        await Assert.That(reply.Payload.Rcon!.Authenticated).IsTrue();
+        await Assert.That(probe.ProbeCount).IsEqualTo(1);
+        await Assert.That(probe.LastServerId).IsEqualTo(server);
+    }
+
+    [Test]
+    public async Task An_rcon_health_probe_fails_with_the_detail_when_not_authenticated()
+    {
+        var probe = new FakeRconHealthProbe
+        {
+            Result = new RconHealthResult(false, false, "RCON is disabled: no password is set in the server configuration."),
+        };
+
+        Envelope<OperationCompleted>? reply = await Processor(rconProbe: probe)
+            .ProcessAsync(Json(new ProbeRconHealth(), OperationId.New(), ServerId.New()), CancellationToken.None);
+
+        await Assert.That(reply!.Payload.Outcome).IsEqualTo(OperationOutcome.Failed);
+        await Assert.That(reply.Payload.FailureReason).IsEqualTo("RCON is disabled: no password is set in the server configuration.");
+        await Assert.That(reply.Payload.Rcon!.Reachable).IsFalse();
+    }
+
+    [Test]
+    public async Task An_rcon_health_probe_without_a_target_server_fails()
+    {
+        Envelope<OperationCompleted>? reply = await Processor()
+            .ProcessAsync(Json(new ProbeRconHealth(), OperationId.New()), CancellationToken.None);
+
+        await Assert.That(reply!.Payload.Outcome).IsEqualTo(OperationOutcome.Failed);
+        await Assert.That(reply.Payload.FailureReason).IsEqualTo("No target Server on the RCON health probe.");
+    }
+
+    [Test]
+    public async Task A_redelivered_rcon_health_probe_runs_once()
+    {
+        var probe = new FakeRconHealthProbe();
+        AgentCommandProcessor sut = Processor(rconProbe: probe);
+        string json = Json(new ProbeRconHealth(), OperationId.New(), ServerId.New());
+
+        await sut.ProcessAsync(json, CancellationToken.None);
+        Envelope<OperationCompleted>? second = await sut.ProcessAsync(json, CancellationToken.None);
+
+        await Assert.That(second).IsNull();
+        await Assert.That(probe.ProbeCount).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task Provisioning_seeds_rcon_into_the_server_config_before_launch()
+    {
+        var config = new FakeRconServerConfig();
+        ServerId server = ServerId.New();
+
+        Envelope<OperationCompleted>? reply = await Processor(rconConfig: config)
+            .ProcessAsync(Json(new CreateServer(), OperationId.New(), server), CancellationToken.None);
+
+        await Assert.That(reply!.Payload.Outcome).IsEqualTo(OperationOutcome.Succeeded);
+        await Assert.That(config.EnabledServers).Contains(server);
     }
 
     [Test]

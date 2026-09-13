@@ -118,4 +118,16 @@ internal sealed class FakeContainerRuntime : IContainerRuntime
     // a call here means a test wired it wrong, so be loud.
     public Task<string> ReadServerLogsAsync(ServerId serverId, DateTimeOffset? since, CancellationToken cancellationToken) =>
         throw new NotSupportedException();
+
+    /// <summary>The address <see cref="ResolveNetworkAddressAsync"/> returns; <c>null</c> models no owned
+    /// container or no address on the network.</summary>
+    public string? NetworkAddress { get; set; }
+
+    public string? LastResolvedNetworkName { get; private set; }
+
+    public Task<string?> ResolveNetworkAddressAsync(ServerId serverId, string networkName, CancellationToken cancellationToken)
+    {
+        LastResolvedNetworkName = networkName;
+        return Task.FromResult(NetworkAddress);
+    }
 }

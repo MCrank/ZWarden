@@ -64,4 +64,11 @@ public interface IContainerRuntime
     /// cannot <c>exec</c> (ADR 0008). Throws <see cref="ContainerNotFoundException"/> when no owned container
     /// carries that ServerId.</summary>
     Task<string> ReadServerLogsAsync(ServerId serverId, DateTimeOffset? since, CancellationToken cancellationToken);
+
+    /// <summary>Resolves the IP address of the canonical container this Agent owns for <paramref name="serverId"/>
+    /// on the named network (F18): inspects the container and reads
+    /// <c>NetworkSettings.Networks[networkName].IPAddress</c>. Returns <c>null</c> when no owned container carries
+    /// that ServerId, or it has no address on that network (e.g. it is not running). This is how the Agent reaches
+    /// the private, never-host-published RCON port.</summary>
+    Task<string?> ResolveNetworkAddressAsync(ServerId serverId, string networkName, CancellationToken cancellationToken);
 }

@@ -13,7 +13,7 @@ namespace ZWarden.Rcon;
 /// alive across commands (PZ never idle-closes it, quirk 5) and reconnected lazily only when it is
 /// found dead <b>before</b> a command is sent, so a command is never silently run twice.
 /// </summary>
-public sealed class RconConnection : IAsyncDisposable
+public sealed class RconConnection : IRconConnection
 {
     private readonly RconEndpoint _endpoint;
     private readonly RconOptions _options;
