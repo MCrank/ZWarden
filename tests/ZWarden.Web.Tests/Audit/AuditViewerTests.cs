@@ -32,6 +32,9 @@ public class AuditViewerTests
     public async Task It_renders_a_row_per_audit_event_from_the_query()
     {
         using BunitContext ctx = new();
+        // The Blueprint filter controls invoke JSInterop in bUnit's render lifecycle (OnAfterRender, which
+        // real static SSR does not run); loose mode tolerates it. See issue #84.
+        ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddSingleton<IAuditQuery>(new StubQuery(
         [
             new AuditEventView(AuditEventId.New(), DateTimeOffset.UnixEpoch, "Authentication.SignInSucceeded",
@@ -51,12 +54,29 @@ public class AuditViewerTests
     public async Task It_shows_an_empty_state_when_there_are_no_events()
     {
         using BunitContext ctx = new();
+        ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddSingleton<IAuditQuery>(new StubQuery([]));
 
         IRenderedComponent<AuditLog> cut = ctx.Render<AuditLog>();
 
         await Assert.That(cut.FindAll("[data-audit-row]").Count).IsEqualTo(0);
         await Assert.That(cut.Markup).Contains("No audit events match.");
+    }
+
+    [Test]
+    public async Task The_filter_controls_carry_the_query_keys()
+    {
+        // After the Blueprint conversion (issue #84) the GET filter is a bookmarkable query form, so the
+        // controls must still render the exact query keys. BbInput/BbNativeSelect carry them via explicit Name.
+        using BunitContext ctx = new();
+        ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+        ctx.Services.AddSingleton<IAuditQuery>(new StubQuery([]));
+
+        IRenderedComponent<AuditLog> cut = ctx.Render<AuditLog>();
+
+        await Assert.That(cut.Markup).Contains("name=\"action\"");
+        await Assert.That(cut.Markup).Contains("name=\"outcome\"");
+        await Assert.That(cut.Markup).Contains("name=\"correlation\"");
     }
 
     [Test]

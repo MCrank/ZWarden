@@ -17,26 +17,30 @@
     <code>Audit.View</code> permission and always filtered to your tenant.
 </p>
 
+@* Blueprint form primitives over the seam (ADR 0003; issue #84). This is a GET form (bookmarkable filters,
+   bound via [SupplyParameterFromQuery]), not an EditForm — so the controls carry an explicit Name (the query
+   key) and Value (the current filter), not @bind. The SSR-safe subset renders real named controls, so the
+   GET submit still builds ?action=&outcome=&correlation= as before. *@
 <form method="get" class="mt-6 flex flex-wrap items-end gap-3">
-    <label class="flex flex-col text-sm">
-        <span class="mb-1 text-muted-foreground">Action</span>
-        <input name="action" value="@Action" class="rounded-md border border-input bg-background px-2 py-1" />
-    </label>
-    <label class="flex flex-col text-sm">
-        <span class="mb-1 text-muted-foreground">Outcome</span>
-        <select name="outcome" class="rounded-md border border-input bg-background px-2 py-1">
+    <div class="flex flex-col text-sm">
+        <BbLabel For="filter-action" Class="mb-1 text-muted-foreground">Action</BbLabel>
+        <BbInput Id="filter-action" Name="action" Value="@Action" />
+    </div>
+    <div class="flex flex-col text-sm">
+        <BbLabel For="filter-outcome" Class="mb-1 text-muted-foreground">Outcome</BbLabel>
+        <BbNativeSelect TValue="string" Id="filter-outcome" Name="outcome" Value="@(Outcome ?? string.Empty)">
             <option value="">Any</option>
             @foreach (AuditOutcome value in Enum.GetValues<AuditOutcome>())
             {
-                <option value="@value" selected="@(value.ToString() == Outcome)">@value</option>
+                <option value="@value">@value</option>
             }
-        </select>
-    </label>
-    <label class="flex flex-col text-sm">
-        <span class="mb-1 text-muted-foreground">Correlation id</span>
-        <input name="correlation" value="@Correlation" class="rounded-md border border-input bg-background px-2 py-1" />
-    </label>
-    <button type="submit" class="rounded-md border border-input px-3 py-1 text-sm font-medium">Filter</button>
+        </BbNativeSelect>
+    </div>
+    <div class="flex flex-col text-sm">
+        <BbLabel For="filter-correlation" Class="mb-1 text-muted-foreground">Correlation id</BbLabel>
+        <BbInput Id="filter-correlation" Name="correlation" Value="@Correlation" />
+    </div>
+    <BbButton Type="ButtonType.Submit" Variant="ButtonVariant.Outline">Filter</BbButton>
 </form>
 
 <p class="mt-4 text-sm text-muted-foreground" data-audit-total>@_total event(s)</p>

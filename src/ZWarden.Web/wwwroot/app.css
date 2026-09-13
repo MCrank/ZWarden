@@ -1096,10 +1096,6 @@ html {
   border-radius: 9999px;
 }
 
-.rounded-md {
-  border-radius: var(--radius);
-}
-
 .rounded-sm {
   border-radius: calc(var(--radius) - 1px);
 }
@@ -1231,11 +1227,6 @@ html {
 .py-0\.5 {
   padding-top: 0.125rem;
   padding-bottom: 0.125rem;
-}
-
-.py-1 {
-  padding-top: 0.25rem;
-  padding-bottom: 0.25rem;
 }
 
 .py-10 {
@@ -1382,6 +1373,10 @@ html {
 .outline-none {
   outline: 2px solid transparent;
   outline-offset: 2px;
+}
+
+.filter {
+  filter: var(--tw-blur) var(--tw-brightness) var(--tw-contrast) var(--tw-grayscale) var(--tw-hue-rotate) var(--tw-invert) var(--tw-saturate) var(--tw-sepia) var(--tw-drop-shadow);
 }
 
 .transition {
