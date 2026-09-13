@@ -55,6 +55,10 @@ public sealed class ServerLifecycle : IServerLifecycle
     public Task<ServerLifecycleResult> RestartAsync(UserId user, ServerId server, CancellationToken cancellationToken = default)
         => RunAsync(user, server, Permissions.ServerRestart, OperationKind.RestartServer, ServerAuditActions.Restarted, cancellationToken);
 
+    /// <inheritdoc />
+    public Task<ServerLifecycleResult> UpdateAsync(UserId user, ServerId server, CancellationToken cancellationToken = default)
+        => RunAsync(user, server, Permissions.ServerUpdate, OperationKind.UpdateServer, ServerAuditActions.Updated, cancellationToken);
+
     private async Task<ServerLifecycleResult> RunAsync(
         UserId user,
         ServerId serverId,

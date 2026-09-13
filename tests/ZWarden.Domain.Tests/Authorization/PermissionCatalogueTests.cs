@@ -16,7 +16,7 @@ public class PermissionCatalogueTests
     // reconciled onto these in S2 (ADR 0018).
     private static readonly string[] PrdPermissionNames =
     [
-        "Server.View", "Server.Start", "Server.Stop", "Server.Restart",
+        "Server.View", "Server.Start", "Server.Stop", "Server.Restart", "Server.Update",
         "Server.Configuration.View", "Server.Configuration.Edit", "Server.Register",
         "Mod.View", "Mod.Install", "Mod.Remove", "Mod.Update", "Mod.ApplyApprovedProfile",
         "Player.View", "Player.Kick", "Player.Ban", "Player.Unban",

@@ -80,6 +80,26 @@ public sealed class ServerLifecycleEndpointsTests
     }
 
     [Test]
+    public async Task The_update_endpoint_enqueues_an_update_operation()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory);
+
+        HttpResponseMessage response = await client.PostAsync(
+            new Uri($"/api/servers/{serverId}/update", UriKind.Relative), content: null);
+
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.Accepted);
+
+        string op = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement
+            .GetProperty("operationId").GetString()!;
+        string read = await (await client.GetAsync(new Uri($"/api/operations/{op}", UriKind.Relative)))
+            .Content.ReadAsStringAsync();
+        await Assert.That(read).Contains("UpdateServer");
+        client.Dispose();
+    }
+
+    [Test]
     public async Task An_unknown_server_is_not_found()
     {
         await using ZWardenWebAppFactory factory = new();

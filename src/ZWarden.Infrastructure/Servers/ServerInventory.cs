@@ -232,5 +232,6 @@ public sealed class ServerInventory : IServerInventory
         server.LastRunState,
         server.LastStateReportedAt,
         server.LastHealth,
-        server.LastHealthReportedAt);
+        server.LastHealthReportedAt,
+        server.InstalledBuildId);
 }

@@ -20,4 +20,7 @@ public static class ServerAuditActions
 
     /// <summary>An operator requested a safe Server restart (a restart Operation was enqueued — F15).</summary>
     public const string Restarted = "Server.Restarted";
+
+    /// <summary>An operator requested a SteamCMD update/validate (an update Operation was enqueued — F17).</summary>
+    public const string Updated = "Server.Updated";
 }

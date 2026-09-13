@@ -114,6 +114,12 @@ public static class ServerEndpoints
             IServerLifecycle svc, CancellationToken ct) =>
             RunLifecycleAsync(id, principal, users, (u, s) => svc.RestartAsync(u, s, ct)));
 
+        // Update (F17): install/validate the PZ install via anonymous SteamCMD — a long, progress-reporting
+        // mutating Operation. Same fail-closed server-scoped gate (Server.Update); poll /api/operations/{id}.
+        lifecycle.MapPost("/{id}/update", (string id, ClaimsPrincipal principal, UserManager<ApplicationUser> users,
+            IServerLifecycle svc, CancellationToken ct) =>
+            RunLifecycleAsync(id, principal, users, (u, s) => svc.UpdateAsync(u, s, ct)));
+
         register.MapPost("/servers/import", async (
             ImportServerRequest? request,
             ClaimsPrincipal principal,
@@ -195,6 +201,7 @@ public static class ServerEndpoints
         queryPort = s.QueryPort,
         lastRunState = s.LastRunState.ToString(),
         lastStateReportedAt = s.LastStateReportedAt,
+        installedBuildId = s.InstalledBuildId,
     };
 
     private static UserId Actor(ClaimsPrincipal principal, UserManager<ApplicationUser> users)

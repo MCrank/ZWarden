@@ -72,6 +72,7 @@
                 <th class="py-2 pr-4 font-medium">Health</th>
                 <th class="py-2 pr-4 font-medium">Host</th>
                 <th class="py-2 pr-4 font-medium">Ports</th>
+                <th class="py-2 pr-4 font-medium">Build</th>
                 <th class="py-2 pr-4 font-medium">Last reported (UTC)</th>
                 <th class="py-2 pr-4 font-medium">Actions</th>
             </tr>
@@ -80,7 +81,7 @@
             @if (_servers.Count == 0)
             {
                 <tr>
-                    <td colspan="7" class="py-4 text-muted-foreground" data-servers-empty>
+                    <td colspan="8" class="py-4 text-muted-foreground" data-servers-empty>
                         No servers yet. Import a discovered container below to bring one under management.
                     </td>
                 </tr>
@@ -99,6 +100,7 @@
                     <td class="py-2 pr-4 text-muted-foreground" data-server-health>@(server.LastHealth?.ToString() ?? "—")</td>
                     <td class="py-2 pr-4 font-mono text-xs text-muted-foreground">@server.AgentId</td>
                     <td class="py-2 pr-4 font-mono tabular-nums text-xs">@Ports(server)</td>
+                    <td class="py-2 pr-4 font-mono tabular-nums text-xs text-muted-foreground" data-server-build>@(string.IsNullOrWhiteSpace(server.InstalledBuildId) ? "—" : server.InstalledBuildId)</td>
                     <td class="py-2 pr-4 tabular-nums text-muted-foreground">@Reported(server)</td>
                     <td class="py-2 pr-4" data-lifecycle-actions>
                         @{ LifecyclePermissions perm = PermissionsFor(server.Id); }
@@ -124,7 +126,12 @@
                                 <BbButton Type="ButtonType.Submit" Variant="ButtonVariant.Outline" Size="ButtonSize.Small"
                                           name="_lifecycleForm.Target" value="@($"{server.Id}|restart")" data-action="restart">Restart</BbButton>
                             }
-                            @if (!perm.CanStart && !perm.CanStop && !perm.CanRestart)
+                            @if (perm.CanUpdate)
+                            {
+                                <BbButton Type="ButtonType.Submit" Variant="ButtonVariant.Outline" Size="ButtonSize.Small"
+                                          name="_lifecycleForm.Target" value="@($"{server.Id}|update")" data-action="update">Update</BbButton>
+                            }
+                            @if (!perm.CanStart && !perm.CanStop && !perm.CanRestart && !perm.CanUpdate)
                             {
                                 <span class="text-xs text-muted-foreground">—</span>
                             }
@@ -277,7 +284,8 @@
             _permissions[server.Id] = new LifecyclePermissions(
                 CanStart: (await PermissionChecker.EvaluateAsync(user, Permissions.ServerStart, server.Id)).IsAllowed,
                 CanStop: (await PermissionChecker.EvaluateAsync(user, Permissions.ServerStop, server.Id)).IsAllowed,
-                CanRestart: (await PermissionChecker.EvaluateAsync(user, Permissions.ServerRestart, server.Id)).IsAllowed);
+                CanRestart: (await PermissionChecker.EvaluateAsync(user, Permissions.ServerRestart, server.Id)).IsAllowed,
+                CanUpdate: (await PermissionChecker.EvaluateAsync(user, Permissions.ServerUpdate, server.Id)).IsAllowed);
         }
 
         _canRegister = (await PermissionChecker.EvaluateAsync(user, Permissions.ServerRegister)).IsAllowed;
@@ -313,6 +321,7 @@
             "start" => await Lifecycle.StartAsync(user, serverId),
             "stop" => await Lifecycle.StopAsync(user, serverId),
             "restart" => await Lifecycle.RestartAsync(user, serverId),
+            "update" => await Lifecycle.UpdateAsync(user, serverId),
             _ => ServerLifecycleResult.Denied(ServerLifecycleFailure.NotAuthorized),
         };
 
@@ -435,5 +444,5 @@
         public string? Target { get; set; }
     }
 
-    private readonly record struct LifecyclePermissions(bool CanStart, bool CanStop, bool CanRestart);
+    private readonly record struct LifecyclePermissions(bool CanStart, bool CanStop, bool CanRestart, bool CanUpdate);
 }

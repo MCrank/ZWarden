@@ -123,6 +123,8 @@ public sealed class ServerInventoryPageTests
         await Assert.That(html).Contains("data-action=\"start\"");
         await Assert.That(html).Contains("data-action=\"stop\"");
         await Assert.That(html).Contains("data-action=\"restart\"");
+        await Assert.That(html).Contains("data-action=\"update\"");
+        await Assert.That(html).Contains("data-server-build");
         client.Dispose();
     }
 

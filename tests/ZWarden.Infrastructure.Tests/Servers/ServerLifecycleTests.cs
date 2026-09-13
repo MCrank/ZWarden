@@ -78,6 +78,50 @@ public class ServerLifecycleTests
     }
 
     [Test]
+    public async Task Update_enqueues_the_update_kind_and_audits_it()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            AgentId agent = AgentId.New();
+            ServerId serverId = await SeedServerAsync(options, agent);
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ServerUpdate);
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            RecordingCoordinator coordinator = new();
+            CapturingAuditWriter audit = new();
+            ServerLifecycle sut = Lifecycle(db, coordinator, audit);
+
+            ServerLifecycleResult update = await sut.UpdateAsync(user, serverId);
+
+            await Assert.That(update.Succeeded).IsTrue();
+            await Assert.That(coordinator.LastRequest!.Kind).IsEqualTo(OperationKind.UpdateServer);
+            await Assert.That(coordinator.LastRequest!.IsMutating).IsTrue();
+            await Assert.That(audit.Actions).Contains(ServerAuditActions.Updated);
+        });
+    }
+
+    [Test]
+    public async Task Update_denies_without_the_server_scoped_update_permission()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            AgentId agent = AgentId.New();
+            ServerId serverId = await SeedServerAsync(options, agent);
+            // No Server.Update assignment.
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            ServerLifecycle sut = Lifecycle(db, new RecordingCoordinator(), new CapturingAuditWriter());
+
+            ServerLifecycleResult update = await sut.UpdateAsync(user, serverId);
+
+            await Assert.That(update.Succeeded).IsFalse();
+            await Assert.That(update.Failure).IsEqualTo(ServerLifecycleFailure.NotAuthorized);
+        });
+    }
+
+    [Test]
     public async Task Start_denies_without_the_server_scoped_start_permission()
     {
         await WithSqlite(async options =>

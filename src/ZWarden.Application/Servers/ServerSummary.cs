@@ -15,4 +15,5 @@ public sealed record ServerSummary(
     ServerRunState LastRunState,
     DateTimeOffset? LastStateReportedAt,
     ServerHealth? LastHealth,
-    DateTimeOffset? LastHealthReportedAt);
+    DateTimeOffset? LastHealthReportedAt,
+    string? InstalledBuildId);
