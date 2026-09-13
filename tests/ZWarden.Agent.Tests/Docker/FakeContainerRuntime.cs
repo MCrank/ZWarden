@@ -113,4 +113,9 @@ internal sealed class FakeContainerRuntime : IContainerRuntime
         RestartedServerId = serverId;
         return Task.CompletedTask;
     }
+
+    // The command processor delegates a SteamCMD update to IServerUpdateRunner, so it never reads logs directly;
+    // a call here means a test wired it wrong, so be loud.
+    public Task<string> ReadServerLogsAsync(ServerId serverId, DateTimeOffset? since, CancellationToken cancellationToken) =>
+        throw new NotSupportedException();
 }

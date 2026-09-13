@@ -266,6 +266,42 @@ public class ServerStateReconcilerTests
         });
     }
 
+    [Test]
+    public async Task RecordInstalledBuild_records_the_build_id_and_time_on_a_matching_server()
+    {
+        await WithSqlite(async options =>
+        {
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            ServerRepository repo = new(db);
+            Server registered = Server.Register(AgentId.New(), "alpha", Now);
+            ServerId registeredId = registered.Id;
+            repo.Add(registered);
+            await db.SaveChangesAsync();
+
+            ServerStateReconciler reconciler = new(db, repo, new ServerDiscoveryCache(), new StubClock(Now));
+            await reconciler.RecordInstalledBuildAsync(registeredId, "24909836");
+
+            Server reloaded = (await repo.FindByIdAsync(registeredId))!;
+            await Assert.That(reloaded.InstalledBuildId).IsEqualTo("24909836");
+            await Assert.That(reloaded.InstalledBuildReportedAt).IsEqualTo(Now);
+        });
+    }
+
+    [Test]
+    public async Task RecordInstalledBuild_is_a_no_op_for_an_unknown_server()
+    {
+        await WithSqlite(async options =>
+        {
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            ServerRepository repo = new(db);
+            ServerStateReconciler reconciler = new(db, repo, new ServerDiscoveryCache(), new StubClock(Now));
+
+            await reconciler.RecordInstalledBuildAsync(ServerId.New(), "24909836");
+
+            await Assert.That(await repo.CountAsync()).IsEqualTo(0);
+        });
+    }
+
     private static async Task WithSqlite(Func<DbContextOptions, Task> body)
     {
         string file = Path.Combine(Path.GetTempPath(), $"zw-{Guid.NewGuid():N}.db");

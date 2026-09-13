@@ -18,13 +18,15 @@ public class PzContainerFactoryTests
     private const string PinnedImage = "ghcr.io/mcrank/zwarden-pzserver@sha256:abc";
     private const long MemoryLimit = 6L * 1024 * 1024 * 1024;
 
-    private static PzContainerSpec ValidSpec(string? image = null, string? network = null, string? mount = null, long? memory = null) =>
+    private static PzContainerSpec ValidSpec(
+        string? image = null, string? network = null, string? mount = null, string? serverMount = null, long? memory = null) =>
         new(
             Server,
             "zwarden-srv-abc",
             image ?? PinnedImage,
             network ?? "zwarden-pz",
             mount ?? "/srv/zwarden/servers/abc/data",
+            serverMount ?? "/srv/zwarden/servers/abc.server",
             PortStrideAllocator.ForStride(0),
             memory ?? MemoryLimit);
 
@@ -80,17 +82,34 @@ public class PzContainerFactoryTests
     }
 
     [Test]
-    public async Task Invariant7_the_only_mount_is_the_writable_data_directory()
+    public async Task Invariant7_the_writable_binds_are_exactly_data_and_server()
     {
         HostConfig host = Host(ValidSpec());
 
         await Assert.That(host.Binds!).IsEmpty();
-        await Assert.That(host.Mounts!).HasSingleItem();
-        Mount mount = host.Mounts![0];
-        await Assert.That(mount.Type).IsEqualTo("bind");
-        await Assert.That(mount.Source).IsEqualTo("/srv/zwarden/servers/abc/data");
-        await Assert.That(mount.Target).IsEqualTo("/pz/data");
-        await Assert.That(mount.ReadOnly).IsFalse();
+        await Assert.That(host.Mounts!).Count().IsEqualTo(2);
+
+        Mount data = host.Mounts!.Single(m => m.Target == "/pz/data");
+        await Assert.That(data.Type).IsEqualTo("bind");
+        await Assert.That(data.Source).IsEqualTo("/srv/zwarden/servers/abc/data");
+        await Assert.That(data.ReadOnly).IsFalse();
+
+        Mount server = host.Mounts!.Single(m => m.Target == "/pz/server");
+        await Assert.That(server.Type).IsEqualTo("bind");
+        await Assert.That(server.Source).IsEqualTo("/srv/zwarden/servers/abc.server");
+        await Assert.That(server.ReadOnly).IsFalse();
+    }
+
+    [Test]
+    public async Task Invariant7_the_runtime_is_an_ephemeral_exec_tmpfs()
+    {
+        // SteamCMD's self-updating client + the stdin FIFO need writable, exec-capable storage, but nothing
+        // under /pz/runtime must survive a recreate (F17). It is a tmpfs, never a bind, never a persistent mount.
+        HostConfig host = Host(ValidSpec());
+
+        await Assert.That(host.Tmpfs!.ContainsKey("/pz/runtime")).IsTrue();
+        await Assert.That(host.Tmpfs!["/pz/runtime"]).Contains("exec");
+        await Assert.That(host.Mounts!.Any(m => m.Target == "/pz/runtime")).IsFalse();
     }
 
     [Test]
@@ -160,6 +179,12 @@ public class PzContainerFactoryTests
     public async Task A_relative_mount_source_is_rejected()
     {
         await Assert.That(() => Build(ValidSpec(mount: "relative/path"))).Throws<ArgumentException>();
+    }
+
+    [Test]
+    public async Task A_relative_server_mount_source_is_rejected()
+    {
+        await Assert.That(() => Build(ValidSpec(serverMount: "relative/server"))).Throws<ArgumentException>();
     }
 
     [Test]

@@ -97,6 +97,14 @@ public sealed class AgentOptions
     /// <summary>How long graceful shutdown may take before the host stops forcibly. Must be positive.</summary>
     public TimeSpan ShutdownTimeout { get; set; } = TimeSpan.FromSeconds(10);
 
+    /// <summary>How often the Agent polls the container log while a SteamCMD update runs (F17), turning SteamCMD's
+    /// progress lines into <c>OperationProgress</c>. Each report also extends the operation's lease.</summary>
+    public TimeSpan UpdatePollInterval { get; set; } = TimeSpan.FromSeconds(3);
+
+    /// <summary>The overall wall-clock budget for one SteamCMD update before the Agent gives up (F17). Sized for a
+    /// cold ~6.72 GiB first install; the operation's lease is the control plane's independent safety net.</summary>
+    public TimeSpan UpdateTimeout { get; set; } = TimeSpan.FromMinutes(30);
+
     /// <summary>The default identity-file location: <c>%LOCALAPPDATA%/ZWarden/Agent/agent-id.txt</c>.</summary>
     public static string DefaultIdentityFilePath() => DefaultAgentFile("agent-id.txt");
 

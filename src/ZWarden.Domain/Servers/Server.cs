@@ -69,6 +69,14 @@ public sealed class Server : IVersioned, ITenantOwned
     /// <summary>When <see cref="LastHealth"/> was last reported (UTC); <c>null</c> until the first health report.</summary>
     public DateTimeOffset? LastHealthReportedAt { get; private set; }
 
+    /// <summary>The Steam build id installed for this Server, as last observed after a SteamCMD update (F17), or
+    /// <c>null</c> until an update reports one. Observed, never inferred — changes only via
+    /// <see cref="RecordObservedBuild"/>.</summary>
+    public string? InstalledBuildId { get; private set; }
+
+    /// <summary>When <see cref="InstalledBuildId"/> was last reported (UTC); <c>null</c> until the first update.</summary>
+    public DateTimeOffset? InstalledBuildReportedAt { get; private set; }
+
     /// <summary>When the Server was brought under management (UTC).</summary>
     public DateTimeOffset CreatedAt { get; init; }
 
@@ -148,6 +156,15 @@ public sealed class Server : IVersioned, ITenantOwned
     {
         LastHealth = health;
         LastHealthReportedAt = reportedAt;
+    }
+
+    /// <summary>Records the Steam build id observed after a SteamCMD update (F17; trust-boundaries.md §3 —
+    /// observed, never inferred). A <c>null</c> build id (the update succeeded but the manifest could not be
+    /// read) still stamps the reported time, so "when did we last update?" stays answerable.</summary>
+    public void RecordObservedBuild(string? buildId, DateTimeOffset reportedAt)
+    {
+        InstalledBuildId = buildId;
+        InstalledBuildReportedAt = reportedAt;
     }
 
     /// <summary>Records the observed container linkage: its Docker id and the two allocated UDP ports. RCON

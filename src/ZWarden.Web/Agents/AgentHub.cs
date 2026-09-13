@@ -284,6 +284,14 @@ public sealed partial class AgentHub : Hub
                     .ConfigureAwait(false);
             }
 
+            // A successful update Operation carries the build id the Agent read from the manifest (F17); record
+            // it against the Server before the operation is marked done. Observed, tenant-scoped.
+            if (completed.Payload.Update is { } update && completed.ServerId is { } updatedServerId)
+            {
+                await _servers.RecordInstalledBuildAsync(updatedServerId, update.InstalledBuildId, Context.ConnectionAborted)
+                    .ConfigureAwait(false);
+            }
+
             await _operations.CompleteSucceededAsync(operationId, Context.ConnectionAborted).ConfigureAwait(false);
         }
         else

@@ -58,4 +58,10 @@ public interface IContainerRuntime
     /// carrying the same safe stop timeout as <see cref="StopAsync(ServerId, CancellationToken)"/>. Throws
     /// <see cref="ContainerNotFoundException"/> when no owned container carries that ServerId.</summary>
     Task RestartAsync(ServerId serverId, CancellationToken cancellationToken);
+
+    /// <summary>Reads the logs of the canonical container this Agent owns for <paramref name="serverId"/> (F17):
+    /// stdout+stderr, non-following, since an optional time. This is how the Agent observes a SteamCMD update it
+    /// cannot <c>exec</c> (ADR 0008). Throws <see cref="ContainerNotFoundException"/> when no owned container
+    /// carries that ServerId.</summary>
+    Task<string> ReadServerLogsAsync(ServerId serverId, DateTimeOffset? since, CancellationToken cancellationToken);
 }

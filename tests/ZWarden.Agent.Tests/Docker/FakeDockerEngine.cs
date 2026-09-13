@@ -48,6 +48,18 @@ internal sealed class FakeDockerEngine : IDockerEngine
     public Task<ContainerStatsSnapshot> StatsAsync(string containerId, CancellationToken cancellationToken) =>
         Task.FromResult(StatsResult);
 
+    /// <summary>The log text <see cref="ReadLogsAsync"/> returns.</summary>
+    public string LogText { get; set; } = string.Empty;
+
+    /// <summary>The <c>since</c> the last <see cref="ReadLogsAsync"/> was asked for.</summary>
+    public DateTimeOffset? LastLogsSince { get; private set; }
+
+    public Task<string> ReadLogsAsync(string containerId, DateTimeOffset? since, CancellationToken cancellationToken)
+    {
+        LastLogsSince = since;
+        return Task.FromResult(LogText);
+    }
+
     public Task<string> CreateAsync(CreateContainerParameters parameters, CancellationToken cancellationToken)
     {
         CreatedWith = parameters;

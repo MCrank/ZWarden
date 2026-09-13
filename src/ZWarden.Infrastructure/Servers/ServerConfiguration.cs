@@ -26,6 +26,8 @@ public sealed class ServerConfiguration : IEntityTypeConfiguration<Server>
         // F16: the last-reported hierarchical health rollup, stored by name and nullable — null means "never
         // reported" (the age of LastHealthReportedAt is the staleness signal), not a default state.
         builder.Property(s => s.LastHealth).HasConversion<string>().HasMaxLength(32);
+        // F17: the installed Steam build id observed after an update; untrusted Agent-observed text, length-bounded.
+        builder.Property(s => s.InstalledBuildId).HasMaxLength(64);
 
         builder.HasIndex(s => s.AgentId);
     }

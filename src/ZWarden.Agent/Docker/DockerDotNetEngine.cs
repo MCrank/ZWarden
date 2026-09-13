@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text;
 using Docker.DotNet;
 using Docker.DotNet.Models;
 
@@ -159,6 +161,42 @@ public sealed class DockerDotNetEngine : IDockerEngine
         }
 
         return mapped;
+    }
+
+    /// <inheritdoc />
+    public async Task<string> ReadLogsAsync(string containerId, DateTimeOffset? since, CancellationToken cancellationToken)
+    {
+        ContainerLogsParameters parameters = new()
+        {
+            ShowStdout = true,
+            ShowStderr = true,
+            Follow = false,
+            Timestamps = false,
+        };
+        if (since is { } s)
+        {
+            parameters.Since = s.ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture);
+        }
+
+        // The fork demultiplexes stdout/stderr and reports each log line (newline stripped) in order; with
+        // Follow=false the task completes once all current lines are read. A synchronous IProgress sink captures
+        // them without marshalling (unlike System.Progress<T>), so the entrypoint's stdout banners and SteamCMD's
+        // stderr progress lines land in the returned text in arrival order for the parser.
+        LogSink sink = new();
+        await _client.Containers
+            .GetContainerLogsAsync(containerId, parameters, sink, cancellationToken)
+            .ConfigureAwait(false);
+        return sink.Text;
+    }
+
+    // Accumulates the log lines the client reports, one per line, in arrival order.
+    private sealed class LogSink : IProgress<string>
+    {
+        private readonly StringBuilder _builder = new();
+
+        public string Text => _builder.ToString();
+
+        public void Report(string value) => _builder.Append(value).Append('\n');
     }
 
     /// <inheritdoc />

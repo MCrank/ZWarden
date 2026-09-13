@@ -2,6 +2,7 @@ using Microsoft.Extensions.Options;
 using ZWarden.Agent.Configuration;
 using ZWarden.Agent.ControlPlane;
 using ZWarden.Agent.Docker;
+using ZWarden.Agent.SteamCmd;
 using ZWarden.Agent.Tests.Docker;
 using ZWarden.Contracts.Protocol;
 using ZWarden.Contracts.Protocol.Messages;
@@ -19,10 +20,11 @@ public class AgentCommandProcessorTests
 {
     private static readonly DateTimeOffset Now = new(2026, 9, 12, 10, 0, 0, TimeSpan.Zero);
 
-    private static AgentCommandProcessor Processor(IContainerRuntime? runtime = null) =>
+    private static AgentCommandProcessor Processor(IContainerRuntime? runtime = null, IServerUpdateRunner? updates = null) =>
         new(
             TimeProvider.System,
             runtime ?? new FakeContainerRuntime(),
+            updates ?? new FakeServerUpdateRunner(),
             Options.Create(new AgentOptions
             {
                 PzImageReference = "zwarden/pzserver:pinned",
@@ -265,5 +267,61 @@ public class AgentCommandProcessorTests
 
         await Assert.That(second).IsNull();
         await Assert.That(runtime.StartServerCount).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task Update_server_reports_the_installed_build_id_on_success()
+    {
+        var updates = new FakeServerUpdateRunner { Outcome = new(true, "24909836", null) };
+        OperationId operationId = OperationId.New();
+        ServerId serverId = ServerId.New();
+
+        Envelope<OperationCompleted>? reply = await Processor(updates: updates)
+            .ProcessAsync(Json(new UpdateServer(), operationId, serverId), CancellationToken.None);
+
+        await Assert.That(reply!.OperationId).IsEqualTo(operationId);
+        await Assert.That(reply.ServerId).IsEqualTo(serverId);
+        await Assert.That(reply.Payload.Outcome).IsEqualTo(OperationOutcome.Succeeded);
+        await Assert.That(reply.Payload.Update!.InstalledBuildId).IsEqualTo("24909836");
+        await Assert.That(updates.LastServerId).IsEqualTo(serverId);
+    }
+
+    [Test]
+    public async Task Update_server_fails_with_the_runners_reason()
+    {
+        var updates = new FakeServerUpdateRunner { Outcome = new(false, null, "Error! App '380870' state is 0x202.") };
+
+        Envelope<OperationCompleted>? reply = await Processor(updates: updates)
+            .ProcessAsync(Json(new UpdateServer(), OperationId.New(), ServerId.New()), CancellationToken.None);
+
+        await Assert.That(reply!.Payload.Outcome).IsEqualTo(OperationOutcome.Failed);
+        await Assert.That(reply.Payload.FailureReason).IsEqualTo("Error! App '380870' state is 0x202.");
+        await Assert.That(reply.Payload.Update).IsNull();
+    }
+
+    [Test]
+    public async Task Update_server_without_a_target_server_fails_and_does_not_run()
+    {
+        var updates = new FakeServerUpdateRunner();
+
+        Envelope<OperationCompleted>? reply = await Processor(updates: updates)
+            .ProcessAsync(Json(new UpdateServer(), OperationId.New()), CancellationToken.None);
+
+        await Assert.That(reply!.Payload.Outcome).IsEqualTo(OperationOutcome.Failed);
+        await Assert.That(updates.RunCount).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task A_redelivered_update_runs_once()
+    {
+        var updates = new FakeServerUpdateRunner();
+        AgentCommandProcessor sut = Processor(updates: updates);
+        string json = Json(new UpdateServer(), OperationId.New(), ServerId.New());
+
+        await sut.ProcessAsync(json, CancellationToken.None);
+        Envelope<OperationCompleted>? second = await sut.ProcessAsync(json, CancellationToken.None);
+
+        await Assert.That(second).IsNull();
+        await Assert.That(updates.RunCount).IsEqualTo(1);
     }
 }

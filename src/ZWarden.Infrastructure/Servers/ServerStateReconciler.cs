@@ -127,4 +127,21 @@ public sealed class ServerStateReconciler : IServerStateReconciler
         server.RecordContainer(containerId, gamePort, queryPort);
         await _context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }
+
+    /// <inheritdoc />
+    public async Task RecordInstalledBuildAsync(
+        ServerId serverId,
+        string? buildId,
+        CancellationToken cancellationToken = default)
+    {
+        Server? server = await _servers.FindByIdAsync(serverId, cancellationToken).ConfigureAwait(false);
+        if (server is null)
+        {
+            // A report for a Server this tenant does not own (or that has been removed): no-op.
+            return;
+        }
+
+        server.RecordObservedBuild(buildId, _clock.GetUtcNow());
+        await _context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+    }
 }

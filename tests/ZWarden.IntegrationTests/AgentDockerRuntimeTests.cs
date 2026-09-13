@@ -191,6 +191,7 @@ public sealed class AgentDockerRuntimeTests : IAsyncDisposable
         TestImage,
         network,
         "/tmp",
+        "/tmp",
         PortStrideAllocator.ForStride(0),
         64L * 1024 * 1024);
 

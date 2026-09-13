@@ -23,16 +23,19 @@ RUN dpkg --add-architecture i386 \
 # Non-root runtime (PRD 24): a dedicated user owns the whole /pz tree.
 RUN groupadd -g "${PZ_GID}" pzserver \
  && useradd -u "${PZ_UID}" -g "${PZ_GID}" -m -d /home/pzserver -s /usr/sbin/nologin pzserver \
- && mkdir -p /pz/server /pz/runtime /pz/data \
- && chown -R pzserver:pzserver /pz
+ && mkdir -p /pz/server /pz/runtime /pz/data /opt/steamcmd \
+ && chown -R pzserver:pzserver /pz /opt/steamcmd
 
 COPY --chown=pzserver:pzserver scripts/ /pz/scripts/
 RUN chmod +x /pz/scripts/*.sh
 
 USER pzserver
-WORKDIR /pz/runtime
+WORKDIR /opt/steamcmd
 
-# SteamCMD from Valve's own CDN tarball - self-owned, not apt, not a third-party image (Q1).
+# SteamCMD from Valve's own CDN tarball - self-owned, not apt, not a third-party image (Q1). Baked
+# at /opt/steamcmd, OUTSIDE any /pz mount: under an Agent-created container /pz/runtime is an
+# ephemeral tmpfs (F17), so a binary baked there would be shadowed. The entrypoint copies it into
+# the writable runtime on boot, where SteamCMD self-updates (research §4).
 RUN curl -fsSL https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz | tar -xz
 
 ENV PZ_ROOT=/pz \
@@ -50,7 +53,10 @@ LABEL io.zwarden.managed="true" \
 # The two UDP ports (research §3). RCON 27015/tcp is deliberately NOT exposed - it is private
 # and Agent-owned (F18, PRD 29).
 EXPOSE 16261/udp 16262/udp
-VOLUME /pz/data
+# /pz/data holds the world; /pz/server holds the SteamCMD install (F17: persisted so updates are
+# incremental and the build id survives a recreate). /pz/runtime is deliberately NOT a volume - it
+# is an ephemeral tmpfs the Agent supplies (F17), re-bootstrapped each boot.
+VOLUME /pz/data /pz/server
 
 # Base health check (Q5): the GameServer JVM is alive. Generous start-period for the first-run
 # SteamCMD install + world generation. Feature 16 layers the real hierarchical model.

@@ -41,4 +41,12 @@ public enum OperationKind
     /// Operation (per-server lock, ADR 0022). The Agent issues a Docker restart carrying the same safe stop
     /// timeout as <see cref="StopServer"/>.</summary>
     RestartServer = 5,
+
+    /// <summary>Update (install/validate) a Server's Project Zomboid install via anonymous SteamCMD (F17). A
+    /// <b>mutating, server-scoped</b> Operation, so it holds the per-server lock (ADR 0022) for the whole
+    /// SteamCMD run — a multi-minute operation kept alive under the reaper by its <c>OperationProgress</c>
+    /// reports. Install/update/validate are one SteamCMD verb, so a repair is this same kind run again. The
+    /// Agent drives it through the container entrypoint (no <c>exec</c>, ADR 0008) and decides the outcome by
+    /// parsing stdout (ADR 0009).</summary>
+    UpdateServer = 6,
 }

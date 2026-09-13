@@ -84,6 +84,28 @@ public class ServerTests
     }
 
     [Test]
+    public async Task RecordObservedBuild_records_the_build_id_and_stamps_the_time()
+    {
+        Server server = Import();
+
+        server.RecordObservedBuild("24909836", Now.AddMinutes(5));
+
+        await Assert.That(server.InstalledBuildId).IsEqualTo("24909836");
+        await Assert.That(server.InstalledBuildReportedAt).IsEqualTo(Now.AddMinutes(5));
+    }
+
+    [Test]
+    public async Task RecordObservedBuild_stamps_the_time_even_when_the_build_id_is_unknown()
+    {
+        Server server = Import();
+
+        server.RecordObservedBuild(null, Now.AddMinutes(5));
+
+        await Assert.That(server.InstalledBuildId).IsNull();
+        await Assert.That(server.InstalledBuildReportedAt).IsEqualTo(Now.AddMinutes(5));
+    }
+
+    [Test]
     public async Task Import_rejects_a_blank_name()
     {
         await Assert.That(() => Server.Import(AgentId.New(), ServerId.New(), " ", Now))

@@ -52,4 +52,14 @@ public interface IServerStateReconciler
         int queryPort,
         string containerId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Records the installed Steam build id a successful SteamCMD update Operation reported (F17), against the
+    /// Server the completion named. Observed, tenant-scoped — a report for a Server not in the current tenant is
+    /// a no-op (trust-boundaries.md §3/§8). A <c>null</c> build id still stamps the reported time.
+    /// </summary>
+    Task RecordInstalledBuildAsync(
+        ServerId serverId,
+        string? buildId,
+        CancellationToken cancellationToken = default);
 }
