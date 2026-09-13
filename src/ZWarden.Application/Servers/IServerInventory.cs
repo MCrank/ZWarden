@@ -23,6 +23,11 @@ public interface IServerInventory
         AgentId agentId,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Every discovered-but-unregistered container across all Agents that have reported a snapshot —
+    /// the inventory dashboard's import picker.</summary>
+    Task<IReadOnlyList<DiscoveredServerOnAgent>> ListAllDiscoveredUnregisteredAsync(
+        CancellationToken cancellationToken = default);
+
     /// <summary>Adopts a discovered container as a Server (fail-closed: re-checks <c>Server.Register</c>, the
     /// Agent's existence, and that the id was actually discovered). Idempotent on an already-imported id.</summary>
     Task<ServerImportResult> ImportAsync(

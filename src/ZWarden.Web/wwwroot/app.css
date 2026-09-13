@@ -787,6 +787,40 @@ html {
   top: 0.5rem;
 }
 
+.container {
+  width: 100%;
+}
+
+@media (min-width: 640px) {
+  .container {
+    max-width: 640px;
+  }
+}
+
+@media (min-width: 768px) {
+  .container {
+    max-width: 768px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .container {
+    max-width: 1024px;
+  }
+}
+
+@media (min-width: 1280px) {
+  .container {
+    max-width: 1280px;
+  }
+}
+
+@media (min-width: 1536px) {
+  .container {
+    max-width: 1536px;
+  }
+}
+
 .pointer-events-none {
   pointer-events: none;
 }
@@ -830,6 +864,10 @@ html {
 
 .mt-1 {
   margin-top: 0.25rem;
+}
+
+.mt-10 {
+  margin-top: 2.5rem;
 }
 
 .mt-2 {
@@ -916,6 +954,10 @@ html {
   width: 2.25rem;
 }
 
+.w-\[108px\] {
+  width: 108px;
+}
+
 .w-full {
   width: 100%;
 }
@@ -990,6 +1032,10 @@ html {
 
 .gap-3 {
   gap: 0.75rem;
+}
+
+.gap-6 {
+  gap: 1.5rem;
 }
 
 .gap-x-4 {
@@ -1070,32 +1116,32 @@ html {
   border-left-width: 2px;
 }
 
-.border-amber-300 {
-  --tw-border-opacity: 1;
-  border-color: rgb(252 211 77 / var(--tw-border-opacity, 1));
-}
-
 .border-border {
   border-color: var(--border);
-}
-
-.border-emerald-300 {
-  --tw-border-opacity: 1;
-  border-color: rgb(110 231 183 / var(--tw-border-opacity, 1));
 }
 
 .border-input {
   border-color: var(--input);
 }
 
-.border-red-300 {
-  --tw-border-opacity: 1;
-  border-color: rgb(252 165 165 / var(--tw-border-opacity, 1));
+.border-status-busy {
+  border-color: var(--status-busy);
 }
 
-.border-slate-300 {
-  --tw-border-opacity: 1;
-  border-color: rgb(203 213 225 / var(--tw-border-opacity, 1));
+.border-status-running {
+  border-color: var(--status-running);
+}
+
+.border-status-stopped {
+  border-color: var(--status-stopped);
+}
+
+.border-status-unhealthy {
+  border-color: var(--status-unhealthy);
+}
+
+.border-status-unknown {
+  border-color: var(--status-unknown);
 }
 
 .border-l-destructive {
@@ -1114,11 +1160,6 @@ html {
   border-left-color: var(--status-running);
 }
 
-.bg-amber-500 {
-  --tw-bg-opacity: 1;
-  background-color: rgb(245 158 11 / var(--tw-bg-opacity, 1));
-}
-
 .bg-background {
   background-color: var(--background);
 }
@@ -1131,27 +1172,28 @@ html {
   background-color: var(--destructive);
 }
 
-.bg-emerald-500 {
-  --tw-bg-opacity: 1;
-  background-color: rgb(16 185 129 / var(--tw-bg-opacity, 1));
-}
-
 .bg-primary {
   background-color: var(--primary);
 }
 
-.bg-red-500 {
-  --tw-bg-opacity: 1;
-  background-color: rgb(239 68 68 / var(--tw-bg-opacity, 1));
-}
-
-.bg-slate-400 {
-  --tw-bg-opacity: 1;
-  background-color: rgb(148 163 184 / var(--tw-bg-opacity, 1));
+.bg-status-busy {
+  background-color: var(--status-busy);
 }
 
 .bg-status-running {
   background-color: var(--status-running);
+}
+
+.bg-status-stopped {
+  background-color: var(--status-stopped);
+}
+
+.bg-status-unhealthy {
+  background-color: var(--status-unhealthy);
+}
+
+.bg-status-unknown {
+  background-color: var(--status-unknown);
 }
 
 .p-3 {
@@ -1217,10 +1259,6 @@ html {
 
 .pr-4 {
   padding-right: 1rem;
-}
-
-.pt-6 {
-  padding-top: 1.5rem;
 }
 
 .text-left {
@@ -1305,18 +1343,12 @@ html {
   letter-spacing: -0.025em;
 }
 
-.text-amber-800 {
-  --tw-text-opacity: 1;
-  color: rgb(146 64 14 / var(--tw-text-opacity, 1));
+.tracking-wide {
+  letter-spacing: 0.025em;
 }
 
 .text-destructive {
   color: var(--destructive);
-}
-
-.text-emerald-800 {
-  --tw-text-opacity: 1;
-  color: rgb(6 95 70 / var(--tw-text-opacity, 1));
 }
 
 .text-foreground {
@@ -1335,22 +1367,16 @@ html {
   color: var(--primary-foreground);
 }
 
-.text-red-800 {
-  --tw-text-opacity: 1;
-  color: rgb(153 27 27 / var(--tw-text-opacity, 1));
-}
-
-.text-slate-700 {
-  --tw-text-opacity: 1;
-  color: rgb(51 65 85 / var(--tw-text-opacity, 1));
-}
-
 .text-status-busy {
   color: var(--status-busy);
 }
 
 .text-status-running {
   color: var(--status-running);
+}
+
+.text-status-unhealthy {
+  color: var(--status-unhealthy);
 }
 
 .outline-none {
@@ -1410,5 +1436,9 @@ html {
 @media (min-width: 640px) {
   .sm\:grid-cols-3 {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .sm\:grid-cols-4 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }

@@ -16,4 +16,7 @@ public interface IServerDiscoveryCache
 
     /// <summary>The Agent's last-reported discovered containers, or empty if it has reported none.</summary>
     IReadOnlyList<DiscoveredServer> GetDiscovered(AgentId agentId);
+
+    /// <summary>Every Agent that has reported at least one discovery snapshot this process.</summary>
+    IReadOnlyCollection<AgentId> KnownAgents();
 }

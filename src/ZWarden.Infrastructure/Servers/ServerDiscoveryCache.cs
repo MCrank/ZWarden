@@ -24,4 +24,7 @@ public sealed class ServerDiscoveryCache : IServerDiscoveryCache
     /// <inheritdoc />
     public IReadOnlyList<DiscoveredServer> GetDiscovered(AgentId agentId)
         => _byAgent.TryGetValue(agentId, out IReadOnlyList<DiscoveredServer>? servers) ? servers : [];
+
+    /// <inheritdoc />
+    public IReadOnlyCollection<AgentId> KnownAgents() => [.. _byAgent.Keys];
 }

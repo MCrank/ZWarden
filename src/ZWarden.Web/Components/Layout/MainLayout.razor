@@ -1,11 +1,22 @@
 @inherits LayoutComponentBase
 
 <div class="min-h-screen">
-    <AuthorizeView Policy="Audit.View">
-        @* Visibility convenience only — the /audit endpoint re-authorizes server-side (PRD 12). *@
-        <nav class="mx-auto max-w-5xl px-6 pt-6">
-            <a href="/audit" class="text-sm font-medium text-muted-foreground hover:text-foreground">Audit</a>
-        </nav>
+    @* The app shell (F14, the first UI feature). Nav links are visibility convenience only — every
+       endpoint and page re-authorizes server-side (PRD 12). Servers is shown to any authenticated
+       operator: the inventory self-filters to the Servers the caller may view (a server-scoped
+       Server.View policy checked with no resource would deny outright, ADR 0018), so gating the link
+       on it would wrongly hide the page from server-scoped operators. Audit is tenant-wide, so it
+       gates cleanly. *@
+    <AuthorizeView>
+        <header class="border-b border-border">
+            <nav class="mx-auto flex max-w-5xl items-center gap-6 px-6 py-4">
+                <a href="/" class="text-sm font-semibold tracking-tight text-primary">ZWarden</a>
+                <a href="/servers" class="text-sm font-medium text-muted-foreground hover:text-foreground">Servers</a>
+                <AuthorizeView Policy="Audit.View" Context="audit">
+                    <a href="/audit" class="text-sm font-medium text-muted-foreground hover:text-foreground">Audit</a>
+                </AuthorizeView>
+            </nav>
+        </header>
     </AuthorizeView>
     <main class="mx-auto max-w-5xl p-6">
         @Body

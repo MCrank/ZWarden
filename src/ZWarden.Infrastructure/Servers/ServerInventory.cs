@@ -118,6 +118,19 @@ public sealed class ServerInventory : IServerInventory
     }
 
     /// <inheritdoc />
+    public async Task<IReadOnlyList<DiscoveredServerOnAgent>> ListAllDiscoveredUnregisteredAsync(
+        CancellationToken cancellationToken = default)
+    {
+        HashSet<ServerId> registeredIds = [.. (await _servers.ListAsync(cancellationToken).ConfigureAwait(false))
+            .Select(s => s.Id)];
+        return _discovery.KnownAgents()
+            .SelectMany(agentId => _discovery.GetDiscovered(agentId)
+                .Where(d => !registeredIds.Contains(d.ServerId))
+                .Select(d => new DiscoveredServerOnAgent(agentId, d.ServerId, d.RunState)))
+            .ToList();
+    }
+
+    /// <inheritdoc />
     public async Task<ServerImportResult> ImportAsync(
         UserId user,
         AgentId agentId,
