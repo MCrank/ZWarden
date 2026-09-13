@@ -5,6 +5,7 @@
 @using ZWarden.Domain.Authorization
 @using ZWarden.Domain.Ids
 @inject IServerInventory Inventory
+@inject IServerLifecycle Lifecycle
 @inject IServerDiscoveryCache Discovery
 @inject IPermissionChecker PermissionChecker
 @inject UserManager<ApplicationUser> Users
@@ -46,7 +47,17 @@
     </div>
 </div>
 
-<div class="mt-6 overflow-x-auto">
+@if (_lifecycleMessage is not null)
+{
+    <p class="mt-4 rounded border border-border bg-card px-3 py-2 text-sm" data-lifecycle-message>@_lifecycleMessage</p>
+}
+
+@* One EditForm wraps the fleet table so each row's Start/Stop/Restart is a static-SSR submit (no circuit,
+   D6). A submit button carries "{serverId}|{verb}" as the bound Target — a button submits a single
+   name/value pair, so both the target and the verb ride one value. The action is authorized server-by-server
+   in the service (fail-closed, ADR 0018); the per-row buttons only show for permissions the caller actually
+   holds, and disabling by last-reported state is a hint, never the gate (trust-boundaries §3). *@
+<EditForm Model="_lifecycleForm" FormName="server-lifecycle" OnValidSubmit="LifecycleAsync" class="mt-6 block overflow-x-auto">
     <table class="w-full border-collapse text-left text-sm">
         <thead>
             <tr class="border-b border-border text-muted-foreground">
@@ -55,13 +66,14 @@
                 <th class="py-2 pr-4 font-medium">Host</th>
                 <th class="py-2 pr-4 font-medium">Ports</th>
                 <th class="py-2 pr-4 font-medium">Last reported (UTC)</th>
+                <th class="py-2 pr-4 font-medium">Actions</th>
             </tr>
         </thead>
         <tbody>
             @if (_servers.Count == 0)
             {
                 <tr>
-                    <td colspan="5" class="py-4 text-muted-foreground" data-servers-empty>
+                    <td colspan="6" class="py-4 text-muted-foreground" data-servers-empty>
                         No servers yet. Import a discovered container below to bring one under management.
                     </td>
                 </tr>
@@ -80,11 +92,40 @@
                     <td class="py-2 pr-4 font-mono text-xs text-muted-foreground">@server.AgentId</td>
                     <td class="py-2 pr-4 font-mono tabular-nums text-xs">@Ports(server)</td>
                     <td class="py-2 pr-4 tabular-nums text-muted-foreground">@Reported(server)</td>
+                    <td class="py-2 pr-4" data-lifecycle-actions>
+                        @{ LifecyclePermissions perm = PermissionsFor(server.Id); }
+                        <div class="flex flex-wrap gap-2">
+                            @if (perm.CanStart)
+                            {
+                                <button type="submit" name="_lifecycleForm.Target" value="@($"{server.Id}|start")"
+                                        data-action="start"
+                                        disabled="@(server.LastRunState == ServerRunState.Running)"
+                                        class="rounded border border-border px-2 py-1 text-xs font-medium hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40">Start</button>
+                            }
+                            @if (perm.CanStop)
+                            {
+                                <button type="submit" name="_lifecycleForm.Target" value="@($"{server.Id}|stop")"
+                                        data-action="stop"
+                                        disabled="@(server.LastRunState == ServerRunState.Stopped)"
+                                        class="rounded border border-border px-2 py-1 text-xs font-medium hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40">Stop</button>
+                            }
+                            @if (perm.CanRestart)
+                            {
+                                <button type="submit" name="_lifecycleForm.Target" value="@($"{server.Id}|restart")"
+                                        data-action="restart"
+                                        class="rounded border border-border px-2 py-1 text-xs font-medium hover:bg-accent">Restart</button>
+                            }
+                            @if (!perm.CanStart && !perm.CanStop && !perm.CanRestart)
+                            {
+                                <span class="text-xs text-muted-foreground">—</span>
+                            }
+                        </div>
+                    </td>
                 </tr>
             }
         </tbody>
     </table>
-</div>
+</EditForm>
 
 @if (_canRegister)
 {
@@ -184,20 +225,26 @@
     [SupplyParameterFromForm(FormName = "register-server")]
     private RegisterModel? _registerForm { get; set; }
 
+    [SupplyParameterFromForm(FormName = "server-lifecycle")]
+    private LifecycleModel? _lifecycleForm { get; set; }
+
     private IReadOnlyList<ServerSummary> _servers = [];
     private IReadOnlyList<DiscoveredServerOnAgent> _discovered = [];
     private IReadOnlyList<AgentId> _knownAgents = [];
+    private readonly Dictionary<ServerId, LifecyclePermissions> _permissions = [];
     private bool _canRegister;
     private int _running;
     private int _needsAttention;
     private int _hosts;
     private string? _importMessage;
     private string? _registerMessage;
+    private string? _lifecycleMessage;
 
     protected override async Task OnInitializedAsync()
     {
         _form ??= new ImportModel();
         _registerForm ??= new RegisterModel();
+        _lifecycleForm ??= new LifecycleModel();
         UserId user = await CurrentUserAsync();
 
         _servers = await Inventory.ListVisibleAsync(user);
@@ -205,12 +252,67 @@
         _needsAttention = _servers.Count(s => s.LastRunState == ServerRunState.Failed);
         _hosts = _servers.Select(s => s.AgentId).Distinct().Count();
 
+        // Per-server lifecycle permissions (fail-closed): a button shows only where the caller holds the
+        // matching server-scoped permission on that Server. The service re-checks server-side on submit.
+        _permissions.Clear();
+        foreach (ServerSummary server in _servers)
+        {
+            _permissions[server.Id] = new LifecyclePermissions(
+                CanStart: (await PermissionChecker.EvaluateAsync(user, Permissions.ServerStart, server.Id)).IsAllowed,
+                CanStop: (await PermissionChecker.EvaluateAsync(user, Permissions.ServerStop, server.Id)).IsAllowed,
+                CanRestart: (await PermissionChecker.EvaluateAsync(user, Permissions.ServerRestart, server.Id)).IsAllowed);
+        }
+
         _canRegister = (await PermissionChecker.EvaluateAsync(user, Permissions.ServerRegister)).IsAllowed;
         if (_canRegister)
         {
             _discovered = await Inventory.ListAllDiscoveredUnregisteredAsync();
             _knownAgents = [.. Discovery.KnownAgents()];
         }
+    }
+
+    private LifecyclePermissions PermissionsFor(ServerId server)
+        => _permissions.TryGetValue(server, out LifecyclePermissions perm) ? perm : default;
+
+    private async Task LifecycleAsync()
+    {
+        LifecycleModel form = _lifecycleForm ?? new LifecycleModel();
+        if (string.IsNullOrWhiteSpace(form.Target))
+        {
+            _lifecycleMessage = "Choose an action.";
+            return;
+        }
+
+        string[] parts = form.Target.Split('|');
+        if (parts.Length != 2 || !ServerId.TryParse(parts[0], out ServerId serverId))
+        {
+            _lifecycleMessage = "That action is no longer valid.";
+            return;
+        }
+
+        UserId user = await CurrentUserAsync();
+        ServerLifecycleResult result = parts[1] switch
+        {
+            "start" => await Lifecycle.StartAsync(user, serverId),
+            "stop" => await Lifecycle.StopAsync(user, serverId),
+            "restart" => await Lifecycle.RestartAsync(user, serverId),
+            _ => ServerLifecycleResult.Denied(ServerLifecycleFailure.NotAuthorized),
+        };
+
+        if (result.Succeeded)
+        {
+            // Redirect after post so a refresh does not re-submit; the enqueued operation runs asynchronously.
+            Nav.NavigateTo("/servers");
+            return;
+        }
+
+        _lifecycleMessage = result.Failure switch
+        {
+            ServerLifecycleFailure.NotAuthorized => "You are not permitted to perform that action on this server.",
+            ServerLifecycleFailure.ServerNotFound => "That server is no longer available.",
+            ServerLifecycleFailure.ServerBusy => "That server is busy with another operation. Try again once it finishes.",
+            _ => "The action could not be completed.",
+        };
     }
 
     private async Task ImportAsync()
@@ -309,4 +411,12 @@
 
         public string? Name { get; set; }
     }
+
+    private sealed class LifecycleModel
+    {
+        // "{serverId}|{verb}" — a single value carrying both, since a submit button posts one name/value pair.
+        public string? Target { get; set; }
+    }
+
+    private readonly record struct LifecyclePermissions(bool CanStart, bool CanStop, bool CanRestart);
 }

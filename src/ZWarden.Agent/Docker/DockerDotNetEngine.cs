@@ -85,10 +85,16 @@ public sealed class DockerDotNetEngine : IDockerEngine
         _client.Containers.StartContainerAsync(containerId, new ContainerStartParameters(), cancellationToken);
 
     /// <inheritdoc />
-    public Task StopAsync(string containerId, CancellationToken cancellationToken) =>
-        _client.Containers.StopContainerAsync(containerId, new ContainerStopParameters(), cancellationToken);
+    public Task StopAsync(string containerId, int waitBeforeKillSeconds, CancellationToken cancellationToken) =>
+        _client.Containers.StopContainerAsync(
+            containerId,
+            new ContainerStopParameters { WaitBeforeKillSeconds = (uint)waitBeforeKillSeconds },
+            cancellationToken);
 
     /// <inheritdoc />
-    public Task RestartAsync(string containerId, CancellationToken cancellationToken) =>
-        _client.Containers.RestartContainerAsync(containerId, new ContainerRestartParameters(), cancellationToken);
+    public Task RestartAsync(string containerId, int waitBeforeKillSeconds, CancellationToken cancellationToken) =>
+        _client.Containers.RestartContainerAsync(
+            containerId,
+            new ContainerRestartParameters { WaitBeforeKillSeconds = (uint)waitBeforeKillSeconds },
+            cancellationToken);
 }

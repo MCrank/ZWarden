@@ -74,6 +74,15 @@ public sealed class AgentOptions
     /// Must be positive; defaults to 4 GiB.</summary>
     public long DefaultMemoryLimitBytes { get; set; } = 4L * 1024 * 1024 * 1024;
 
+    /// <summary>
+    /// How long (seconds) a Docker <c>stop</c>/<c>restart</c> waits for the container to exit before Docker
+    /// SIGKILLs it (F15). This must exceed the image's in-container save grace (<c>ZW_PZ_STOP_GRACE</c>,
+    /// default 30s) plus the time to save the world, so the entrypoint's SIGTERM handler completes the console
+    /// <c>save</c>→<c>quit</c> over the stdin FIFO before any SIGKILL — a shorter timeout truncates the save and
+    /// corrupts the world. Must be positive; defaults to 120. Operators with very large worlds may raise it.
+    /// </summary>
+    public int StopTimeoutSeconds { get; set; } = 120;
+
     /// <summary>How often the Agent will emit a heartbeat once transport lands (F10). Must be positive.</summary>
     public TimeSpan HeartbeatInterval { get; set; } = TimeSpan.FromSeconds(30);
 

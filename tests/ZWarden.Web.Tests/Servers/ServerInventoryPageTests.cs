@@ -110,6 +110,52 @@ public sealed class ServerInventoryPageTests
     }
 
     [Test]
+    public async Task The_dashboard_shows_lifecycle_actions_for_a_permitted_operator()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        await SeedServerAsync(factory, "controllable");
+
+        string html = await (await client.GetAsync(new Uri("/servers", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        await Assert.That(html).Contains("controllable");
+        await Assert.That(html).Contains("data-lifecycle-actions");
+        await Assert.That(html).Contains("data-action=\"start\"");
+        await Assert.That(html).Contains("data-action=\"stop\"");
+        await Assert.That(html).Contains("data-action=\"restart\"");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task The_lifecycle_form_posts_and_enqueues_an_operation()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "startable");
+
+        string page = await (await client.GetAsync(new Uri("/servers", UriKind.Relative))).Content.ReadAsStringAsync();
+        string token = ParseHiddenInputs(page)["__RequestVerificationToken"];
+
+        // A submit button carries "{serverId}|{verb}" as the single bound Target — post it as the browser would.
+        Dictionary<string, string> form = new(StringComparer.Ordinal)
+        {
+            ["__RequestVerificationToken"] = token,
+            ["_handler"] = "server-lifecycle",
+            ["_lifecycleForm.Target"] = $"{serverId}|start",
+        };
+        HttpResponseMessage post = await client.PostAsync(new Uri("/servers", UriKind.Relative), new FormUrlEncodedContent(form));
+
+        // The static POST bound end to end: a StartServer operation was enqueued for this Server.
+        await Assert.That((int)post.StatusCode).IsLessThan(400);
+        using IServiceScope scope = factory.Services.CreateScope();
+        ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
+        bool enqueued = db.Set<Domain.Operations.Operation>()
+            .Any(o => o.ServerId == serverId && o.Kind == Domain.Operations.OperationKind.StartServer);
+        await Assert.That(enqueued).IsTrue();
+        client.Dispose();
+    }
+
+    [Test]
     public async Task An_operator_sees_the_register_section()
     {
         await using ZWardenWebAppFactory factory = new();
@@ -128,6 +174,16 @@ public sealed class ServerInventoryPageTests
         HttpClient client = factory.CreateWebClient();
         await LoginAsync(client, "op@zwarden.test", StrongPassword);
         return client;
+    }
+
+    private static async Task<ServerId> SeedServerAsync(ZWardenWebAppFactory factory, string name)
+    {
+        using IServiceScope scope = factory.Services.CreateScope();
+        ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
+        Server server = Server.Import(AgentId.New(), ServerId.New(), name, DateTimeOffset.UtcNow);
+        db.Set<Server>().Add(server);
+        await db.SaveChangesAsync();
+        return server.Id;
     }
 
     private static async Task<AgentId> SeedAgentAsync(ZWardenWebAppFactory factory)

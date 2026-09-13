@@ -1,5 +1,7 @@
 using System.Net;
 using Docker.DotNet;
+using Microsoft.Extensions.Options;
+using ZWarden.Agent.Configuration;
 using ZWarden.Agent.Docker;
 using ZWarden.Domain.Ids;
 
@@ -14,13 +16,16 @@ public class ContainerRuntimeTests
 {
     private static readonly AgentId Self = AgentId.New();
 
-    private static ContainerRuntime Runtime(FakeDockerEngine engine)
+    private const int StopTimeout = 120;
+
+    private static ContainerRuntime Runtime(FakeDockerEngine engine, int stopTimeoutSeconds = StopTimeout)
     {
         var identity = new FixedAgentIdentity(Self);
         return new ContainerRuntime(
             engine,
             new ContainerOwnershipGuard(identity),
             new PzContainerFactory(identity),
+            Options.Create(new AgentOptions { StopTimeoutSeconds = stopTimeoutSeconds }),
             new RecordingLogger<ContainerRuntime>());
     }
 
@@ -145,5 +150,51 @@ public class ContainerRuntimeTests
         await Assert.That(engine.Started).Contains("mine");
         await Assert.That(engine.Stopped).Contains("mine");
         await Assert.That(engine.Restarted).Contains("mine");
+    }
+
+    [Test]
+    public async Task Stop_and_restart_carry_the_configured_safe_timeout()
+    {
+        var engine = new FakeDockerEngine { InspectResult = Container("mine", Self, ServerId.New()) };
+        ContainerRuntime runtime = Runtime(engine, stopTimeoutSeconds: 90);
+
+        await runtime.StopAsync("mine", CancellationToken.None);
+        await Assert.That(engine.LastWaitBeforeKillSeconds).IsEqualTo(90);
+
+        await runtime.RestartAsync("mine", CancellationToken.None);
+        await Assert.That(engine.LastWaitBeforeKillSeconds).IsEqualTo(90);
+    }
+
+    [Test]
+    public async Task Lifecycle_by_server_id_resolves_the_owned_container_and_acts()
+    {
+        ServerId mine = ServerId.New();
+        var engine = new FakeDockerEngine { InspectResult = Container("mine", Self, mine) };
+        engine.Listed.Add(Container("mine", Self, mine));
+        engine.Listed.Add(Container("foreign", AgentId.New(), ServerId.New()));
+        ContainerRuntime runtime = Runtime(engine);
+
+        await runtime.StartAsync(mine, CancellationToken.None);
+        await runtime.StopAsync(mine, CancellationToken.None);
+        await runtime.RestartAsync(mine, CancellationToken.None);
+
+        await Assert.That(engine.Started).Contains("mine");
+        await Assert.That(engine.Stopped).Contains("mine");
+        await Assert.That(engine.Restarted).Contains("mine");
+        await Assert.That(engine.LastWaitBeforeKillSeconds).IsEqualTo(StopTimeout);
+    }
+
+    [Test]
+    public async Task Lifecycle_by_server_id_throws_when_no_owned_container_matches()
+    {
+        var engine = new FakeDockerEngine();
+        // Only a foreign container exists — nothing this Agent owns for the target server.
+        engine.Listed.Add(Container("foreign", AgentId.New(), ServerId.New()));
+        ContainerRuntime runtime = Runtime(engine);
+
+        await Assert.ThrowsAsync<ContainerNotFoundException>(() =>
+            runtime.StopAsync(ServerId.New(), CancellationToken.None));
+
+        await Assert.That(engine.Stopped).IsEmpty();
     }
 }

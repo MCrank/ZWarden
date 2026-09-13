@@ -49,6 +49,11 @@ public sealed class AgentOptionsValidator : IValidateOptions<AgentOptions>
             failures.Add($"{AgentOptions.SectionName}:{nameof(AgentOptions.DefaultMemoryLimitBytes)} must be positive.");
         }
 
+        if (options.StopTimeoutSeconds <= 0)
+        {
+            failures.Add($"{AgentOptions.SectionName}:{nameof(AgentOptions.StopTimeoutSeconds)} must be a positive number of seconds.");
+        }
+
         if (options.HeartbeatInterval <= TimeSpan.Zero)
         {
             failures.Add($"{AgentOptions.SectionName}:{nameof(AgentOptions.HeartbeatInterval)} must be positive.");

@@ -30,6 +30,7 @@ public sealed class AgentDockerRuntimeTests : IAsyncDisposable
 
     private ContainerRuntime RuntimeOver(IDockerEngine engine) =>
         new(engine, new ContainerOwnershipGuard(new FixedIdentity(_self)), new PzContainerFactory(new FixedIdentity(_self)),
+            Microsoft.Extensions.Options.Options.Create(new Agent.Configuration.AgentOptions()),
             NullLogger<ContainerRuntime>.Instance);
 
     private ContainerRuntime DirectRuntime() => RuntimeOver(new DockerDotNetEngine(_direct));

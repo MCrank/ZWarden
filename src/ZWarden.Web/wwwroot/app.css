@@ -1225,6 +1225,11 @@ html {
   padding-bottom: 0.125rem;
 }
 
+.py-1 {
+  padding-top: 0.25rem;
+  padding-bottom: 0.25rem;
+}
+
 .py-10 {
   padding-top: 2.5rem;
   padding-bottom: 2.5rem;
@@ -1378,6 +1383,10 @@ html {
   transition-duration: 150ms;
 }
 
+.hover\:bg-accent:hover {
+  background-color: var(--accent);
+}
+
 .hover\:bg-muted:hover {
   background-color: var(--muted);
 }
@@ -1392,6 +1401,14 @@ html {
 
 .hover\:opacity-90:hover {
   opacity: 0.9;
+}
+
+.disabled\:cursor-not-allowed:disabled {
+  cursor: not-allowed;
+}
+
+.disabled\:opacity-40:disabled {
+  opacity: 0.4;
 }
 
 @media (min-width: 640px) {

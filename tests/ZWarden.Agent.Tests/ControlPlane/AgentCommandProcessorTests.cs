@@ -181,4 +181,89 @@ public class AgentCommandProcessorTests
         await Assert.That(second).IsNull();
         await Assert.That(runtime.CreateCount).IsEqualTo(1);
     }
+
+    [Test]
+    public async Task Start_server_resolves_the_target_and_completes_successfully()
+    {
+        var runtime = new FakeContainerRuntime();
+        OperationId operationId = OperationId.New();
+        ServerId serverId = ServerId.New();
+
+        Envelope<OperationCompleted>? reply = await Processor(runtime)
+            .ProcessAsync(Json(new StartServer(), operationId, serverId), CancellationToken.None);
+
+        await Assert.That(reply!.OperationId).IsEqualTo(operationId);
+        await Assert.That(reply.ServerId).IsEqualTo(serverId);
+        await Assert.That(reply.Payload.Outcome).IsEqualTo(OperationOutcome.Succeeded);
+        await Assert.That(runtime.StartedServerId).IsEqualTo(serverId);
+    }
+
+    [Test]
+    public async Task Stop_and_restart_server_call_their_own_verbs()
+    {
+        var runtime = new FakeContainerRuntime();
+        ServerId serverId = ServerId.New();
+
+        Envelope<OperationCompleted>? stop = await Processor(runtime)
+            .ProcessAsync(Json(new StopServer(), OperationId.New(), serverId), CancellationToken.None);
+        await Assert.That(stop!.Payload.Outcome).IsEqualTo(OperationOutcome.Succeeded);
+        await Assert.That(runtime.StoppedServerId).IsEqualTo(serverId);
+
+        var restartRuntime = new FakeContainerRuntime();
+        Envelope<OperationCompleted>? restart = await Processor(restartRuntime)
+            .ProcessAsync(Json(new RestartServer(), OperationId.New(), serverId), CancellationToken.None);
+        await Assert.That(restart!.Payload.Outcome).IsEqualTo(OperationOutcome.Succeeded);
+        await Assert.That(restartRuntime.RestartedServerId).IsEqualTo(serverId);
+    }
+
+    [Test]
+    public async Task A_lifecycle_command_without_a_target_server_fails()
+    {
+        Envelope<OperationCompleted>? reply = await Processor()
+            .ProcessAsync(Json(new StartServer(), OperationId.New()), CancellationToken.None);
+
+        await Assert.That(reply!.Payload.Outcome).IsEqualTo(OperationOutcome.Failed);
+    }
+
+    [Test]
+    public async Task A_lifecycle_command_fails_with_an_actionable_reason_when_no_container_exists()
+    {
+        ServerId serverId = ServerId.New();
+        var runtime = new FakeContainerRuntime { LifecycleException = new ContainerNotFoundException(serverId) };
+
+        Envelope<OperationCompleted>? reply = await Processor(runtime)
+            .ProcessAsync(Json(new StartServer(), OperationId.New(), serverId), CancellationToken.None);
+
+        await Assert.That(reply!.Payload.Outcome).IsEqualTo(OperationOutcome.Failed);
+        await Assert.That(reply.Payload.FailureReason).Contains("Provision");
+    }
+
+    [Test]
+    public async Task A_lifecycle_command_fails_when_the_container_is_foreign()
+    {
+        ServerId serverId = ServerId.New();
+        var runtime = new FakeContainerRuntime
+        {
+            LifecycleException = new ForeignContainerException("c-9", "assigned to a different agent"),
+        };
+
+        Envelope<OperationCompleted>? reply = await Processor(runtime)
+            .ProcessAsync(Json(new StopServer(), OperationId.New(), serverId), CancellationToken.None);
+
+        await Assert.That(reply!.Payload.Outcome).IsEqualTo(OperationOutcome.Failed);
+    }
+
+    [Test]
+    public async Task A_redelivered_lifecycle_command_runs_once()
+    {
+        var runtime = new FakeContainerRuntime();
+        AgentCommandProcessor sut = Processor(runtime);
+        string json = Json(new StartServer(), OperationId.New(), ServerId.New());
+
+        await sut.ProcessAsync(json, CancellationToken.None);
+        Envelope<OperationCompleted>? second = await sut.ProcessAsync(json, CancellationToken.None);
+
+        await Assert.That(second).IsNull();
+        await Assert.That(runtime.StartServerCount).IsEqualTo(1);
+    }
 }

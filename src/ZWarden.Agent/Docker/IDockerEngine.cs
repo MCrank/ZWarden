@@ -28,9 +28,13 @@ public interface IDockerEngine
     /// <summary>Starts a container by id.</summary>
     Task StartAsync(string containerId, CancellationToken cancellationToken);
 
-    /// <summary>Stops a container by id.</summary>
-    Task StopAsync(string containerId, CancellationToken cancellationToken);
+    /// <summary>Stops a container by id, waiting <paramref name="waitBeforeKillSeconds"/> for a graceful exit
+    /// before Docker SIGKILLs it (the <c>t</c> parameter of <c>POST /containers/{id}/stop</c>). The Agent sizes
+    /// this above the image's save grace so the entrypoint's SIGTERM→FIFO <c>save</c>→<c>quit</c> completes
+    /// (F15).</summary>
+    Task StopAsync(string containerId, int waitBeforeKillSeconds, CancellationToken cancellationToken);
 
-    /// <summary>Restarts a container by id.</summary>
-    Task RestartAsync(string containerId, CancellationToken cancellationToken);
+    /// <summary>Restarts a container by id, giving its stop half <paramref name="waitBeforeKillSeconds"/> for a
+    /// graceful exit — the same safe stop timeout as <see cref="StopAsync"/> (F15).</summary>
+    Task RestartAsync(string containerId, int waitBeforeKillSeconds, CancellationToken cancellationToken);
 }

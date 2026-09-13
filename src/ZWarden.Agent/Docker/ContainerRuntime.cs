@@ -3,6 +3,8 @@ using System.Net.Http;
 using Docker.DotNet;
 using Docker.DotNet.Models;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using ZWarden.Agent.Configuration;
 using ZWarden.Domain.Ids;
 
 namespace ZWarden.Agent.Docker;
@@ -18,22 +20,27 @@ public sealed partial class ContainerRuntime : IContainerRuntime
     private readonly IDockerEngine _engine;
     private readonly ContainerOwnershipGuard _guard;
     private readonly PzContainerFactory _factory;
+    private readonly int _stopTimeoutSeconds;
     private readonly ILogger<ContainerRuntime> _logger;
 
-    /// <summary>Creates the runtime over an engine, the ownership guard and the create-template factory.</summary>
+    /// <summary>Creates the runtime over an engine, the ownership guard, the create-template factory and the
+    /// Agent options (for the safe stop timeout, F15).</summary>
     public ContainerRuntime(
         IDockerEngine engine,
         ContainerOwnershipGuard guard,
         PzContainerFactory factory,
+        IOptions<AgentOptions> options,
         ILogger<ContainerRuntime> logger)
     {
         ArgumentNullException.ThrowIfNull(engine);
         ArgumentNullException.ThrowIfNull(guard);
         ArgumentNullException.ThrowIfNull(factory);
+        ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(logger);
         _engine = engine;
         _guard = guard;
         _factory = factory;
+        _stopTimeoutSeconds = options.Value.StopTimeoutSeconds;
         _logger = logger;
     }
 
@@ -122,14 +129,56 @@ public sealed partial class ContainerRuntime : IContainerRuntime
     public async Task StopAsync(string containerId, CancellationToken cancellationToken)
     {
         await EnsureOwnedAsync(containerId, cancellationToken).ConfigureAwait(false);
-        await RunVerbAsync("stop", containerId, () => _engine.StopAsync(containerId, cancellationToken)).ConfigureAwait(false);
+        // A stop timeout above the image's save grace, so the entrypoint's SIGTERM handler completes the FIFO
+        // save→quit before Docker SIGKILLs the container (F15) — never a bare SIGTERM to the JVM.
+        await RunVerbAsync("stop", containerId, () => _engine.StopAsync(containerId, _stopTimeoutSeconds, cancellationToken)).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
     public async Task RestartAsync(string containerId, CancellationToken cancellationToken)
     {
         await EnsureOwnedAsync(containerId, cancellationToken).ConfigureAwait(false);
-        await RunVerbAsync("restart", containerId, () => _engine.RestartAsync(containerId, cancellationToken)).ConfigureAwait(false);
+        await RunVerbAsync("restart", containerId, () => _engine.RestartAsync(containerId, _stopTimeoutSeconds, cancellationToken)).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public Task StartAsync(ServerId serverId, CancellationToken cancellationToken)
+        => ResolveThenAsync(serverId, StartAsync, cancellationToken);
+
+    /// <inheritdoc />
+    public Task StopAsync(ServerId serverId, CancellationToken cancellationToken)
+        => ResolveThenAsync(serverId, StopAsync, cancellationToken);
+
+    /// <inheritdoc />
+    public Task RestartAsync(ServerId serverId, CancellationToken cancellationToken)
+        => ResolveThenAsync(serverId, RestartAsync, cancellationToken);
+
+    // Resolve the canonical container this Agent owns for the Server, then run the container-id verb (which
+    // re-asserts ownership before acting). Discovery already scopes to owned containers, so an unmatched
+    // ServerId means there is nothing owned to act on — a ContainerNotFoundException, not a foreign refusal.
+    private async Task ResolveThenAsync(
+        ServerId serverId,
+        Func<string, CancellationToken, Task> verb,
+        CancellationToken cancellationToken)
+    {
+        IReadOnlyList<ManagedContainer> managed = await ListManagedAsync(cancellationToken).ConfigureAwait(false);
+        ManagedContainer? match = null;
+        foreach (ManagedContainer container in managed)
+        {
+            if (container.ServerId == serverId)
+            {
+                match = container;
+                break;
+            }
+        }
+
+        if (match is null)
+        {
+            LogNoContainerForServer(serverId);
+            throw new ContainerNotFoundException(serverId);
+        }
+
+        await verb(match.DockerId, cancellationToken).ConfigureAwait(false);
     }
 
     // Resolve the container, then run it past the ownership guard before any verb is issued. A refusal is
@@ -176,6 +225,9 @@ public sealed partial class ContainerRuntime : IContainerRuntime
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Refused to operate on container {ContainerId}: {Reason}.")]
     private partial void LogForeignRefused(string containerId, string reason);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "No canonical container owned by this Agent for server {ServerId}.")]
+    private partial void LogNoContainerForServer(ServerId serverId);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "The Docker verb '{Verb}' on {ContainerId} was denied (HTTP {Status}).")]
     private partial void LogVerbDenied(string verb, string containerId, int status);

@@ -31,6 +31,9 @@ internal sealed class FakeDockerEngine : IDockerEngine
 
     public List<string> Restarted { get; } = [];
 
+    /// <summary>The <c>WaitBeforeKillSeconds</c> the last stop/restart was issued with (F15 safe-stop timeout).</summary>
+    public int? LastWaitBeforeKillSeconds { get; private set; }
+
     public Task<string> PingApiVersionAsync(CancellationToken cancellationToken) =>
         PingException is not null ? throw PingException : Task.FromResult(ApiVersion);
 
@@ -57,14 +60,26 @@ internal sealed class FakeDockerEngine : IDockerEngine
         return Task.CompletedTask;
     }
 
-    public Task StopAsync(string containerId, CancellationToken cancellationToken)
+    public Task StopAsync(string containerId, int waitBeforeKillSeconds, CancellationToken cancellationToken)
     {
+        if (VerbException is not null)
+        {
+            throw VerbException;
+        }
+
+        LastWaitBeforeKillSeconds = waitBeforeKillSeconds;
         Stopped.Add(containerId);
         return Task.CompletedTask;
     }
 
-    public Task RestartAsync(string containerId, CancellationToken cancellationToken)
+    public Task RestartAsync(string containerId, int waitBeforeKillSeconds, CancellationToken cancellationToken)
     {
+        if (VerbException is not null)
+        {
+            throw VerbException;
+        }
+
+        LastWaitBeforeKillSeconds = waitBeforeKillSeconds;
         Restarted.Add(containerId);
         return Task.CompletedTask;
     }

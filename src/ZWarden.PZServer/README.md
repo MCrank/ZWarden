@@ -54,6 +54,12 @@ traps it and performs PZ's blessed sequence — `save`, wait `ZW_PZ_STOP_GRACE`,
 stdin FIFO. The base `HEALTHCHECK` is shallow (the `GameServer` JVM is alive); Feature 16 layers the
 hierarchical health model on top.
 
+When ZWarden drives this (Feature 15), the Agent issues that `docker stop`/`docker restart` with
+`WaitBeforeKillSeconds = Agent:StopTimeoutSeconds` (default **120**), sized above `ZW_PZ_STOP_GRACE`
+so the FIFO `save`→`quit` finishes before Docker's SIGKILL — the socket allowlist (ADR 0008) permits
+`stop`/`restart` but not `exec`/`attach`, so the trap, not a direct FIFO write, is how the blessed
+shutdown is reached. Operators with very large worlds should raise both grace and stop timeout together.
+
 ## Tests
 
 `tests/pzserver/*.bats` unit-test the entrypoint shell functions against synthetic fixtures with no
