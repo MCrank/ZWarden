@@ -73,6 +73,43 @@ public sealed class ServerInventoryPageTests
     }
 
     [Test]
+    public async Task The_import_form_posts_through_the_blueprint_components()
+    {
+        // The exemplar guarantee (issue #84): the Blueprint form primitives (BbNativeSelect/BbInput/BbButton)
+        // render real named controls that bind on a static-SSR EditForm POST — no circuit.
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        AgentId agent = await SeedAgentAsync(factory);
+        ServerId discovered = ServerId.New();
+        factory.Services.GetRequiredService<IServerDiscoveryCache>()
+            .Record(agent, [new DiscoveredServer(discovered, ServerRunState.Stopped)]);
+
+        string page = await (await client.GetAsync(new Uri("/servers", UriKind.Relative))).Content.ReadAsStringAsync();
+        string token = ParseHiddenInputs(page)["__RequestVerificationToken"];
+
+        // The Blueprint controls must render the full model-path field names for the static POST to bind.
+        // BbInput derives it; BbNativeSelect needs the explicit Name (its auto-derived name drops the prefix).
+        await Assert.That(page).Contains("name=\"_form.Target\"");
+        await Assert.That(page).Contains("name=\"_form.Name\"");
+
+        // Submit the import EditForm exactly as the browser would (its rendered field names).
+        Dictionary<string, string> form = new(StringComparer.Ordinal)
+        {
+            ["__RequestVerificationToken"] = token,
+            ["_handler"] = "import-server",
+            ["_form.Target"] = $"{agent}|{discovered}",
+            ["_form.Name"] = "via-form",
+        };
+        await client.PostAsync(new Uri("/servers", UriKind.Relative), new FormUrlEncodedContent(form));
+
+        // The adopted server (named from the form) now shows on the dashboard — the POST bound end to end.
+        string after = await (await client.GetAsync(new Uri("/servers", UriKind.Relative))).Content.ReadAsStringAsync();
+        await Assert.That(after).Contains("via-form");
+        await Assert.That(after).Contains("data-server-row");
+        client.Dispose();
+    }
+
+    [Test]
     public async Task An_operator_sees_the_register_section()
     {
         await using ZWardenWebAppFactory factory = new();

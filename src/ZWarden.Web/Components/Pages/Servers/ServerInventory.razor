@@ -110,23 +110,21 @@
         {
             <EditForm Model="_registerForm" FormName="register-server" OnValidSubmit="RegisterAsync" class="mt-4 flex flex-wrap items-end gap-3">
                 <DataAnnotationsValidator />
-                <label class="flex flex-col text-sm">
-                    <span class="mb-1 text-muted-foreground">Host</span>
-                    <InputSelect @bind-Value="_registerForm!.AgentId" class="rounded border border-input bg-background px-2 py-1">
-                        <option value="">Select…</option>
+                <div class="flex flex-col text-sm">
+                    <BbLabel For="register-host" Class="mb-1 text-muted-foreground">Host</BbLabel>
+                    @* Explicit Name for static-SSR binding — see the import form above (issue #84). *@
+                    <BbNativeSelect TValue="string" Id="register-host" Name="_registerForm.AgentId" @bind-Value="_registerForm!.AgentId" Placeholder="Select…">
                         @foreach (AgentId agent in _knownAgents)
                         {
                             <option value="@agent">@agent</option>
                         }
-                    </InputSelect>
-                </label>
-                <label class="flex flex-col text-sm">
-                    <span class="mb-1 text-muted-foreground">Name</span>
-                    <InputText @bind-Value="_registerForm!.Name" class="rounded border border-input bg-background px-2 py-1" />
-                </label>
-                <button type="submit" class="rounded border border-input bg-primary px-3 py-1 text-sm font-medium text-primary-foreground">
-                    Register
-                </button>
+                    </BbNativeSelect>
+                </div>
+                <div class="flex flex-col text-sm">
+                    <BbLabel For="register-name" Class="mb-1 text-muted-foreground">Name</BbLabel>
+                    <BbInput Id="register-name" @bind-Value="_registerForm!.Name" />
+                </div>
+                <BbButton Type="ButtonType.Submit">Register</BbButton>
             </EditForm>
         }
     </section>
@@ -151,25 +149,26 @@
         }
         else
         {
+            @* Blueprint form primitives over the seam (ADR 0003) — the SSR-safe subset (BbNativeSelect/BbInput/
+               BbButton render real named form controls that participate in the static POST; see issue #84). *@
             <EditForm Model="_form" FormName="import-server" OnValidSubmit="ImportAsync" class="mt-4 flex flex-wrap items-end gap-3">
                 <DataAnnotationsValidator />
-                <label class="flex flex-col text-sm">
-                    <span class="mb-1 text-muted-foreground">Discovered container</span>
-                    <InputSelect @bind-Value="_form!.Target" class="rounded border border-input bg-background px-2 py-1">
-                        <option value="">Select…</option>
+                <div class="flex flex-col text-sm">
+                    <BbLabel For="import-target" Class="mb-1 text-muted-foreground">Discovered container</BbLabel>
+                    @* BbNativeSelect auto-derives only the leaf field name ("Target"); under static SSR the POST
+                       binds by the full model path, so Name is set explicitly (issue #84 exemplar note). *@
+                    <BbNativeSelect TValue="string" Id="import-target" Name="_form.Target" @bind-Value="_form!.Target" Placeholder="Select…">
                         @foreach (DiscoveredServerOnAgent d in _discovered)
                         {
                             <option value="@($"{d.AgentId}|{d.ServerId}")">@d.ServerId (@d.RunState on @d.AgentId)</option>
                         }
-                    </InputSelect>
-                </label>
-                <label class="flex flex-col text-sm">
-                    <span class="mb-1 text-muted-foreground">Name</span>
-                    <InputText @bind-Value="_form!.Name" class="rounded border border-input bg-background px-2 py-1" />
-                </label>
-                <button type="submit" class="rounded border border-input bg-primary px-3 py-1 text-sm font-medium text-primary-foreground">
-                    Import
-                </button>
+                    </BbNativeSelect>
+                </div>
+                <div class="flex flex-col text-sm">
+                    <BbLabel For="import-name" Class="mb-1 text-muted-foreground">Name</BbLabel>
+                    <BbInput Id="import-name" @bind-Value="_form!.Name" />
+                </div>
+                <BbButton Type="ButtonType.Submit">Import</BbButton>
             </EditForm>
         }
     </section>
