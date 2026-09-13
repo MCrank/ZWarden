@@ -436,6 +436,13 @@ namespace ZWarden.Migrations.Postgres.Migrations
                     b.Property<int?>("GamePort")
                         .HasColumnType("integer");
 
+                    b.Property<string>("LastHealth")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTimeOffset?>("LastHealthReportedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("LastRunState")
                         .IsRequired()
                         .HasMaxLength(32)

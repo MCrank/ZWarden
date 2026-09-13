@@ -32,7 +32,9 @@ Rollup precedence (worst-wins among running): `Failed > Degraded > Starting > He
 
 - `AgentStateSnapshot.ServerState` gains an **optional** `ServerHealth? Health` (nullable ⇒ additive, no protocol bump per ADR 0020; `null` = an older Agent / not yet computed).
 - Two reserved events are realised: **`ServerStateChanged`** `(ServerId, ServerRunState)` and **`HealthChanged`** `(ServerId, ServerHealth, string Reason, HealthBreakdown Breakdown)` — emitted by an Agent **`ServerHealthMonitor`** loop only on a *transition*, so quiescent fleets are quiet.
-- Web ingests both via new `AgentHub` receivers → `IServerStateReconciler` (tenant-scoped; a report for a foreign/absent Server is a no-op, trust §8). `Server` gains `LastHealth` (`ServerHealth?`) + `LastHealthReportedAt` and `RecordObservedHealth(...)`; a health transition writes an **audit event** (`Server.HealthChanged`, ADR 0019 append-only).
+- Web ingests both via new `AgentHub` receivers → `IServerStateReconciler` (tenant-scoped, and guarded so an Agent may only move the state of a Server it owns — a report for a foreign/absent Server is a no-op, trust §8). `Server` gains `LastHealth` (`ServerHealth?`) + `LastHealthReportedAt` and `RecordObservedHealth(...)`.
+
+**Health transitions are NOT audited (decision, revised from the first draft).** Audit events are actor-attributed administration/security occurrences (CONTEXT.md); a health rollup flapping healthy↔degraded is high-churn *observed telemetry* with no operator actor, and writing each one to the append-only audit store would flood it. Health is persisted on the `Server` and pushed to the live UI; the operator *actions* around it (start/stop) are already audited by F15. If an alerting/notification feature later wants a durable transition trail, that is its own store, not the audit log.
 
 ## Runtime metrics (PR-B)
 

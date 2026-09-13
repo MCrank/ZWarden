@@ -23,6 +23,9 @@ public sealed class ServerConfiguration : IEntityTypeConfiguration<Server>
         builder.Property(s => s.Description).HasMaxLength(2000);
         builder.Property(s => s.DockerContainerId).HasMaxLength(64);
         builder.Property(s => s.LastRunState).HasConversion<string>().HasMaxLength(32).IsRequired();
+        // F16: the last-reported hierarchical health rollup, stored by name and nullable — null means "never
+        // reported" (the age of LastHealthReportedAt is the staleness signal), not a default state.
+        builder.Property(s => s.LastHealth).HasConversion<string>().HasMaxLength(32);
 
         builder.HasIndex(s => s.AgentId);
     }

@@ -56,6 +56,11 @@ public sealed class ServerStateReconciler : IServerStateReconciler
             if (observedById.TryGetValue(server.Id, out DiscoveredServer? report))
             {
                 server.RecordObservedState(report.RunState, now);
+                if (report.Health is { } health)
+                {
+                    server.RecordObservedHealth(health, now);
+                }
+
                 changed = true;
             }
         }
@@ -66,6 +71,42 @@ public sealed class ServerStateReconciler : IServerStateReconciler
         }
 
         _discovery.Record(agentId, observed);
+    }
+
+    /// <inheritdoc />
+    public Task RecordObservedStateAsync(
+        AgentId agentId,
+        ServerId serverId,
+        ServerRunState runState,
+        CancellationToken cancellationToken = default)
+        => RecordOwnedAsync(
+            agentId, serverId, (server, now) => server.RecordObservedState(runState, now), cancellationToken);
+
+    /// <inheritdoc />
+    public Task RecordObservedHealthAsync(
+        AgentId agentId,
+        ServerId serverId,
+        ServerHealth health,
+        CancellationToken cancellationToken = default)
+        => RecordOwnedAsync(
+            agentId, serverId, (server, now) => server.RecordObservedHealth(health, now), cancellationToken);
+
+    // Applies an observed single-Server transition, but only to a Server this tenant owns AND the reporting
+    // Agent owns — an Agent may not move the state of another Agent's Server (trust-boundaries.md §3/§8).
+    private async Task RecordOwnedAsync(
+        AgentId agentId,
+        ServerId serverId,
+        Action<Server, DateTimeOffset> apply,
+        CancellationToken cancellationToken)
+    {
+        Server? server = await _servers.FindByIdAsync(serverId, cancellationToken).ConfigureAwait(false);
+        if (server is null || server.AgentId != agentId)
+        {
+            return;
+        }
+
+        apply(server, _clock.GetUtcNow());
+        await _context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
