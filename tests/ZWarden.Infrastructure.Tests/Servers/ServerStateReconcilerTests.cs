@@ -100,6 +100,47 @@ public class ServerStateReconcilerTests
         });
     }
 
+    [Test]
+    public async Task RecordProvisioned_records_the_ports_and_container_on_a_matching_server()
+    {
+        await WithSqlite(async options =>
+        {
+            AgentId agent = AgentId.New();
+            ServerId id = ServerId.New();
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            ServerRepository repo = new(db);
+            // Register mints its own id; use it as the provisioning target.
+            Server registered = Server.Register(agent, "alpha", Now);
+            ServerId registeredId = registered.Id;
+            repo.Add(registered);
+            await db.SaveChangesAsync();
+
+            ServerStateReconciler reconciler = new(db, repo, new ServerDiscoveryCache(), new StubClock(Now));
+            await reconciler.RecordProvisionedAsync(registeredId, 16265, 16266, "c0ffee");
+
+            Server reloaded = (await repo.FindByIdAsync(registeredId))!;
+            await Assert.That(reloaded.GamePort).IsEqualTo(16265);
+            await Assert.That(reloaded.QueryPort).IsEqualTo(16266);
+            await Assert.That(reloaded.DockerContainerId).IsEqualTo("c0ffee");
+        });
+    }
+
+    [Test]
+    public async Task RecordProvisioned_is_a_no_op_for_an_unknown_server()
+    {
+        await WithSqlite(async options =>
+        {
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            ServerRepository repo = new(db);
+            ServerStateReconciler reconciler = new(db, repo, new ServerDiscoveryCache(), new StubClock(Now));
+
+            // No throw, nothing created.
+            await reconciler.RecordProvisionedAsync(ServerId.New(), 16261, 16262, "ghost");
+
+            await Assert.That(await repo.CountAsync()).IsEqualTo(0);
+        });
+    }
+
     private static async Task WithSqlite(Func<DbContextOptions, Task> body)
     {
         string file = Path.Combine(Path.GetTempPath(), $"zw-{Guid.NewGuid():N}.db");

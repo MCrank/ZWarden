@@ -67,4 +67,23 @@ public sealed class ServerStateReconciler : IServerStateReconciler
 
         _discovery.Record(agentId, observed);
     }
+
+    /// <inheritdoc />
+    public async Task RecordProvisionedAsync(
+        ServerId serverId,
+        int gamePort,
+        int queryPort,
+        string containerId,
+        CancellationToken cancellationToken = default)
+    {
+        Server? server = await _servers.FindByIdAsync(serverId, cancellationToken).ConfigureAwait(false);
+        if (server is null)
+        {
+            // A report for a Server this tenant does not own (or that has been removed): no-op.
+            return;
+        }
+
+        server.RecordContainer(containerId, gamePort, queryPort);
+        await _context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+    }
 }

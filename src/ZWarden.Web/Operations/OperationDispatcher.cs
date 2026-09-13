@@ -81,6 +81,7 @@ public sealed class OperationDispatcher : IOperationDispatcher
         {
             OperationKind.DiagnosticsPing => new PingAgent(),
             OperationKind.DiagnosticsDockerHealth => new ProbeDockerHealth(),
+            OperationKind.ProvisionServer => new CreateServer(),
             _ => throw new NotSupportedException($"No command mapping for operation kind '{operation.Kind}'."),
         };
         Envelope<AgentCommand> envelope = Envelope.Create<AgentCommand>(

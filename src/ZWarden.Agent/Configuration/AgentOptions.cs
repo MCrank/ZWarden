@@ -51,6 +51,29 @@ public sealed class AgentOptions
     /// </summary>
     public string? DockerEndpoint { get; set; }
 
+    /// <summary>
+    /// The pinned canonical PZ image reference used when provisioning a Server's container (F14): a
+    /// <c>repo@sha256:…</c> digest in production (ADR 0008 D5), a local tag in dev. Supplied from
+    /// configuration, never from the wire. Optional at startup — an Agent that never provisions may leave it
+    /// unset — but provisioning fails with an actionable message until it is a real, non-floating reference
+    /// (the create-template rejects a floating <c>latest</c>).
+    /// </summary>
+    public string? PzImageReference { get; set; }
+
+    /// <summary>The named ZWarden Docker network a provisioned container attaches to (F14/PRD 26); never
+    /// <c>host</c>/<c>none</c>. Must be non-empty.</summary>
+    [Required]
+    public string NetworkName { get; set; } = "zwarden";
+
+    /// <summary>The absolute host directory under which each provisioned Server's data directory is created and
+    /// bind-mounted at <c>/pz/data</c> (F14/PRD 23). Must be an absolute path.</summary>
+    [Required]
+    public string DataMountRoot { get; set; } = DefaultDataMountRoot();
+
+    /// <summary>The memory limit, in bytes, applied to a provisioned container (F14/PRD 24 resource limits).
+    /// Must be positive; defaults to 4 GiB.</summary>
+    public long DefaultMemoryLimitBytes { get; set; } = 4L * 1024 * 1024 * 1024;
+
     /// <summary>How often the Agent will emit a heartbeat once transport lands (F10). Must be positive.</summary>
     public TimeSpan HeartbeatInterval { get; set; } = TimeSpan.FromSeconds(30);
 
@@ -65,6 +88,9 @@ public sealed class AgentOptions
 
     /// <summary>The default trust-file location: <c>%LOCALAPPDATA%/ZWarden/Agent/agent-trust.json</c>.</summary>
     public static string DefaultTrustFilePath() => DefaultAgentFile("agent-trust.json");
+
+    /// <summary>The default per-Server data root: <c>%LOCALAPPDATA%/ZWarden/Agent/servers</c>.</summary>
+    public static string DefaultDataMountRoot() => DefaultAgentFile("servers");
 
     private static string DefaultAgentFile(string fileName) =>
         Path.Combine(

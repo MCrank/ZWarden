@@ -1,9 +1,11 @@
 using Microsoft.EntityFrameworkCore;
+using ZWarden.Application.Operations;
 using ZWarden.Application.Servers;
 using ZWarden.Domain.Agents;
 using ZWarden.Domain.Authorization;
 using ZWarden.Domain.Enrollments;
 using ZWarden.Domain.Ids;
+using ZWarden.Domain.Operations;
 using ZWarden.Domain.Servers;
 using ZWarden.Infrastructure.Agents;
 using ZWarden.Infrastructure.Authorization;
@@ -108,6 +110,73 @@ public class ServerInventoryTests
     }
 
     [Test]
+    public async Task Register_creates_the_server_and_enqueues_a_provision_operation()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            await SeedAssignmentAsync(options, user, server: null, Permissions.ServerRegister);
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            AgentId agent = await PersistAgentAsync(db);
+            StubOperationCoordinator coordinator = new();
+            CapturingAuditWriter audit = new();
+            ServerInventory inventory = Inventory(db, new ServerDiscoveryCache(), audit, coordinator);
+
+            ServerRegisterResult result = await inventory.RegisterAsync(user, agent, "survivors-new");
+
+            await Assert.That(result.Succeeded).IsTrue();
+            await Assert.That(result.Server).IsNotNull();
+            await Assert.That(result.Operation).IsNotNull();
+            await Assert.That(audit.Actions).Contains(ServerAuditActions.Registered);
+
+            // The record exists in Unknown state, on the chosen host.
+            Server stored = (await new ServerRepository(db).FindByIdAsync(result.Server!.Value))!;
+            await Assert.That(stored.Name).IsEqualTo("survivors-new");
+            await Assert.That(stored.AgentId).IsEqualTo(agent);
+            await Assert.That(stored.LastRunState).IsEqualTo(ServerRunState.Unknown);
+
+            // A mutating, server-scoped provisioning Operation was enqueued for it.
+            await Assert.That(coordinator.LastRequest!.Kind).IsEqualTo(OperationKind.ProvisionServer);
+            await Assert.That(coordinator.LastRequest!.IsMutating).IsTrue();
+            await Assert.That(coordinator.LastRequest!.ServerId).IsEqualTo(result.Server);
+        });
+    }
+
+    [Test]
+    public async Task Register_denies_without_server_register()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            AgentId agent = await PersistAgentAsync(db);
+            ServerInventory inventory = Inventory(db, new ServerDiscoveryCache(), new CapturingAuditWriter());
+
+            ServerRegisterResult result = await inventory.RegisterAsync(user, agent, "nope");
+
+            await Assert.That(result.Failure).IsEqualTo(ServerRegisterFailure.NotAuthorized);
+        });
+    }
+
+    [Test]
+    public async Task Register_rejects_an_unknown_agent()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            await SeedAssignmentAsync(options, user, server: null, Permissions.ServerRegister);
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            ServerInventory inventory = Inventory(db, new ServerDiscoveryCache(), new CapturingAuditWriter());
+
+            ServerRegisterResult result = await inventory.RegisterAsync(user, AgentId.New(), "nope");
+
+            await Assert.That(result.Failure).IsEqualTo(ServerRegisterFailure.AgentNotFound);
+        });
+    }
+
+    [Test]
     public async Task ListVisible_with_a_tenant_wide_view_grant_sees_all_servers()
     {
         await WithSqlite(async options =>
@@ -175,15 +244,37 @@ public class ServerInventoryTests
     private static ServerInventory Inventory(
         ZWardenDbContext db,
         ServerDiscoveryCache cache,
-        CapturingAuditWriter audit)
+        CapturingAuditWriter audit,
+        IOperationCoordinator? coordinator = null)
         => new(
             db,
             new ServerRepository(db),
             new AgentRepository(db),
             cache,
             new PermissionChecker(db, new TestTenantContext(Tenant)),
+            coordinator ?? new StubOperationCoordinator(),
             audit,
             new StubClock(Now));
+
+    private sealed class StubOperationCoordinator : IOperationCoordinator
+    {
+        public EnqueueOperationRequest? LastRequest { get; private set; }
+
+        public Task<Operation> EnqueueAsync(
+            EnqueueOperationRequest request,
+            UserId? actor = null,
+            CancellationToken cancellationToken = default)
+        {
+            LastRequest = request;
+            return Task.FromResult(Operation.Enqueue(
+                request.AgentId, request.Kind, request.IsMutating, request.IdempotencyKey, Now, request.ServerId));
+        }
+
+        public Task<Operation> RequestCancellationAsync(
+            OperationId operationId,
+            UserId? actor = null,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    }
 
     private static async Task<AgentId> PersistAgentAsync(ZWardenDbContext db)
     {

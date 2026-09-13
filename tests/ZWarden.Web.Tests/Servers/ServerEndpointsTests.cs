@@ -96,6 +96,56 @@ public sealed class ServerEndpointsTests
     }
 
     [Test]
+    public async Task Anonymous_cannot_register_a_server()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        using HttpClient client = factory.CreateWebClient();
+
+        HttpResponseMessage response = await client.PostAsJsonAsync(
+            new Uri("/api/servers", UriKind.Relative),
+            new RegisterServerRequest(AgentId.New().ToString(), "nope"));
+
+        await Assert.That(response.StatusCode).IsNotEqualTo(HttpStatusCode.Accepted);
+        await Assert.That(response.StatusCode).IsNotEqualTo(HttpStatusCode.OK);
+    }
+
+    [Test]
+    public async Task An_operator_registers_a_server_and_it_appears_in_the_inventory()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        AgentId agent = await SeedAgentAsync(factory);
+
+        HttpResponseMessage register = await client.PostAsJsonAsync(
+            new Uri("/api/servers", UriKind.Relative),
+            new RegisterServerRequest(agent.ToString(), "provisioned-1"));
+
+        await Assert.That(register.StatusCode).IsEqualTo(HttpStatusCode.Accepted);
+        using JsonDocument body = JsonDocument.Parse(await register.Content.ReadAsStringAsync());
+        await Assert.That(body.RootElement.GetProperty("serverId").GetString()).StartsWith("srv-");
+        await Assert.That(body.RootElement.GetProperty("operationId").GetString()).StartsWith("op-");
+
+        string list = await (await client.GetAsync(new Uri("/api/servers", UriKind.Relative))).Content.ReadAsStringAsync();
+        await Assert.That(list).Contains("provisioned-1");
+        await Assert.That(list).Contains("Unknown");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task Registering_on_an_unknown_agent_is_not_found()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+
+        HttpResponseMessage register = await client.PostAsJsonAsync(
+            new Uri("/api/servers", UriKind.Relative),
+            new RegisterServerRequest(AgentId.New().ToString(), "orphaned"));
+
+        await Assert.That(register.StatusCode).IsEqualTo(HttpStatusCode.NotFound);
+        client.Dispose();
+    }
+
+    [Test]
     public async Task Importing_an_undiscovered_id_is_not_found()
     {
         await using ZWardenWebAppFactory factory = new();

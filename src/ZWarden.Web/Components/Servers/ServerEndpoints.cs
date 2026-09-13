@@ -58,6 +58,44 @@ public static class ServerEndpoints
             }));
         });
 
+        register.MapPost("/servers", async (
+            RegisterServerRequest? request,
+            ClaimsPrincipal principal,
+            UserManager<ApplicationUser> users,
+            IServerInventory inventory,
+            CancellationToken cancellationToken) =>
+        {
+            if (request is null
+                || !AgentId.TryParse(request.AgentId, out AgentId agentId)
+                || string.IsNullOrWhiteSpace(request.Name))
+            {
+                return Results.BadRequest(new { error = "invalid_request" });
+            }
+
+            ServerRegisterResult result = await inventory
+                .RegisterAsync(Actor(principal, users), agentId, request.Name.Trim(), cancellationToken)
+                .ConfigureAwait(false);
+
+            if (result.Succeeded)
+            {
+                // Accepted: the record exists; provisioning runs asynchronously as the returned Operation.
+                return Results.Accepted(value: new
+                {
+                    serverId = result.Server!.Value.ToString(),
+                    operationId = result.Operation!.Value.ToString(),
+                });
+            }
+
+            return result.Failure switch
+            {
+                ServerRegisterFailure.NotAuthorized =>
+                    Results.Json(new { error = "not_authorized" }, statusCode: StatusCodes.Status403Forbidden),
+                ServerRegisterFailure.AgentNotFound =>
+                    Results.Json(new { error = "agent_not_found" }, statusCode: StatusCodes.Status404NotFound),
+                _ => Results.BadRequest(new { error = "register_failed" }),
+            };
+        });
+
         register.MapPost("/servers/import", async (
             ImportServerRequest? request,
             ClaimsPrincipal principal,
@@ -117,3 +155,6 @@ public static class ServerEndpoints
 
 /// <summary>The body of an import request: which host, which discovered Server id, and an operator name.</summary>
 public sealed record ImportServerRequest(string AgentId, string ServerId, string Name);
+
+/// <summary>The body of a register request: which host to provision the new Server on, and its name.</summary>
+public sealed record RegisterServerRequest(string AgentId, string Name);

@@ -36,4 +36,13 @@ public interface IServerInventory
         ServerId serverId,
         string name,
         CancellationToken cancellationToken = default);
+
+    /// <summary>Registers a new Server on an Agent and enqueues the provisioning Operation that creates its
+    /// canonical container (F14 PR-B; fail-closed: re-checks <c>Server.Register</c> and the Agent's existence).
+    /// The Server starts in <c>Unknown</c> state; the Agent reports its ports and container id on completion.</summary>
+    Task<ServerRegisterResult> RegisterAsync(
+        UserId user,
+        AgentId agentId,
+        string name,
+        CancellationToken cancellationToken = default);
 }

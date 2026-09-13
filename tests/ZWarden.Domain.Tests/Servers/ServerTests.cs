@@ -84,6 +84,29 @@ public class ServerTests
     }
 
     [Test]
+    public async Task Register_mints_a_new_id_and_binds_the_agent_in_unknown_state()
+    {
+        AgentId agent = AgentId.New();
+
+        Server server = Server.Register(agent, "survivors-new", Now, "fresh");
+
+        await Assert.That(server.Id.IsEmpty).IsFalse();
+        await Assert.That(server.AgentId).IsEqualTo(agent);
+        await Assert.That(server.Name).IsEqualTo("survivors-new");
+        await Assert.That(server.Description).IsEqualTo("fresh");
+        await Assert.That(server.LastRunState).IsEqualTo(ServerRunState.Unknown);
+        await Assert.That(server.TenantId.IsEmpty).IsTrue();
+        await Assert.That(server.CreatedAt).IsEqualTo(Now);
+    }
+
+    [Test]
+    public async Task Register_rejects_a_blank_name_and_an_empty_agent()
+    {
+        await Assert.That(() => Server.Register(AgentId.New(), " ", Now)).Throws<ArgumentException>();
+        await Assert.That(() => Server.Register(default, "alpha", Now)).Throws<ArgumentException>();
+    }
+
+    [Test]
     public async Task RecordObservedState_updates_the_state_and_stamps_the_time()
     {
         Server server = Import();
