@@ -8,6 +8,7 @@ using ZWarden.Infrastructure.Persistence;
 using ZWarden.Infrastructure.Security;
 using ZWarden.Infrastructure.Tenancy;
 using ZWarden.Web.Agents;
+using ZWarden.Web.Operations;
 using ZWarden.Web.Components;
 using ZWarden.Web.Components.Account;
 using ZWarden.Web.Components.Agents;
@@ -46,6 +47,7 @@ builder.Services.AddZWardenAudit();                 // F6: writer, query, correl
 builder.Services.AddZWardenEnrollment();            // F9: enrollment issuance/exchange, trust management, verifier
 builder.Services.AddZWardenOperations();            // F11: operations engine — coordinator, store, per-server lock (PR-B adds dispatch)
 builder.Services.AddAgentControlPlane();            // F10: Agent hub, handshake auth scheme, connection registry + monitor
+builder.Services.AddOperationDispatch();            // F11 PR-B: real operation dispatcher over the SignalR connection
 
 WebApplication app = builder.Build();
 

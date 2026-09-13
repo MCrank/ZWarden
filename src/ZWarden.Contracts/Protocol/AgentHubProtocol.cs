@@ -27,4 +27,21 @@ public static class AgentHubProtocol
 
     /// <summary>The Agent's post-(re)connect state report, carrying an <c>Envelope&lt;AgentStateSnapshot&gt;</c>.</summary>
     public const string StateSnapshot = "StateSnapshot";
+
+    /// <summary>
+    /// The client method ZWarden.Web invokes on the Agent to dispatch an operation's command (F11). Its one
+    /// argument is the <b>canonical wire JSON string</b> of an <c>Envelope&lt;AgentCommand&gt;</c> (produced by
+    /// <see cref="ProtocolJson.Serialize{TPayload}"/>), so the single channel carries every command in the
+    /// closed vocabulary and the Agent dispatches on the envelope's <c>messageType</c> discriminator — no
+    /// per-command hub method, and no polymorphic-payload configuration on SignalR's own JSON protocol.
+    /// </summary>
+    public const string ReceiveCommand = "ReceiveCommand";
+
+    /// <summary>The Agent's progress report for an in-flight operation, carrying an
+    /// <c>Envelope&lt;OperationProgress&gt;</c> (F11); the operation is the envelope's <c>OperationId</c>.</summary>
+    public const string OperationProgress = "OperationProgress";
+
+    /// <summary>The Agent's terminal report for an operation, carrying an
+    /// <c>Envelope&lt;OperationCompleted&gt;</c> (F11); the operation is the envelope's <c>OperationId</c>.</summary>
+    public const string OperationCompleted = "OperationCompleted";
 }
