@@ -44,7 +44,7 @@ public class ContainerRuntimeTests
             ports);
 
     private static PzContainerSpec Spec() => new(
-        ServerId.New(), "zwarden-srv", "img@sha256:abc", "zwarden-pz", "/srv/zwarden/data",
+        ServerId.New(), "zwarden-srv", "img@sha256:abc", "zwarden-pz", "/srv/zwarden/data", "/srv/zwarden/server",
         PortStrideAllocator.ForStride(0), 6L * 1024 * 1024 * 1024);
 
     [Test]

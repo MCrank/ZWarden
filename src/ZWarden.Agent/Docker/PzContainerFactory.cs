@@ -15,6 +15,10 @@ namespace ZWarden.Agent.Docker;
 public sealed class PzContainerFactory
 {
     private const string DataMountTarget = "/pz/data";
+    private const string ServerMountTarget = "/pz/server";
+    private const string RuntimeTmpfsTarget = "/pz/runtime";
+    // exec so SteamCMD can run from the copied-in client; mode 1777 so the non-root user can write it.
+    private const string RuntimeTmpfsOptions = "exec,mode=1777";
     private const string GamePortKey = "16261/udp";
     private const string DirectPortKey = "16262/udp";
     private const string BindAddress = "0.0.0.0";
@@ -74,7 +78,8 @@ public sealed class PzContainerFactory
                 NetworkMode = spec.NetworkName,
                 // Invariant 6: no devices of any kind.
                 Devices = [],
-                // Invariant 7: the only mount is the writable data directory at /pz/data; no legacy binds.
+                // Invariant 7: the only writable storage is the three intended mounts — the /pz/data world
+                // bind, the /pz/server install bind (F17), and the /pz/runtime tmpfs (below); no legacy binds.
                 Binds = [],
                 Mounts =
                 [
@@ -85,8 +90,22 @@ public sealed class PzContainerFactory
                         Target = DataMountTarget,
                         ReadOnly = false,
                     },
+                    new Mount
+                    {
+                        Type = "bind",
+                        Source = spec.ServerMountSource,
+                        Target = ServerMountTarget,
+                        ReadOnly = false,
+                    },
                 ],
-                // Invariant 8: read-only root filesystem; only the data mount is writable.
+                // Invariant 7 (cont.): /pz/runtime is an ephemeral tmpfs, not a persistent bind — SteamCMD's
+                // self-updating client and the stdin FIFO live here and need writable, exec-capable storage
+                // (F17), but nothing under it must survive a recreate (Workshop content is F21).
+                Tmpfs = new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    [RuntimeTmpfsTarget] = RuntimeTmpfsOptions,
+                },
+                // Invariant 8: read-only root filesystem; only the two binds and the runtime tmpfs are writable.
                 ReadonlyRootfs = true,
                 // Invariant 11: a resource limit.
                 Memory = spec.MemoryLimitBytes,
@@ -107,6 +126,7 @@ public sealed class PzContainerFactory
         ArgumentException.ThrowIfNullOrWhiteSpace(spec.ImageReference);
         ArgumentException.ThrowIfNullOrWhiteSpace(spec.NetworkName);
         ArgumentException.ThrowIfNullOrWhiteSpace(spec.DataMountSource);
+        ArgumentException.ThrowIfNullOrWhiteSpace(spec.ServerMountSource);
 
         // Invariant 9: a floating tag is never acceptable — production pins a digest.
         if (spec.ImageReference.Equals("latest", StringComparison.Ordinal)
@@ -122,10 +142,15 @@ public sealed class PzContainerFactory
             throw new ArgumentException($"'{spec.NetworkName}' is not a permitted container network.", nameof(spec));
         }
 
-        // Invariant 7: the data mount source must be an absolute (Linux) host path.
+        // Invariant 7: the bind mount sources must be absolute (Linux) host paths.
         if (!spec.DataMountSource.StartsWith('/'))
         {
             throw new ArgumentException("The data mount source must be an absolute host path.", nameof(spec));
+        }
+
+        if (!spec.ServerMountSource.StartsWith('/'))
+        {
+            throw new ArgumentException("The server mount source must be an absolute host path.", nameof(spec));
         }
 
         if (spec.MemoryLimitBytes <= 0)

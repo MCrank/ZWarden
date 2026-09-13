@@ -19,6 +19,11 @@ namespace ZWarden.Agent.Docker;
 /// </param>
 /// <param name="NetworkName">The named ZWarden network to attach (PRD 26); never <c>host</c>/<c>none</c>.</param>
 /// <param name="DataMountSource">The absolute host path bind-mounted read-write at <c>/pz/data</c> (PRD 23).</param>
+/// <param name="ServerMountSource">
+/// The absolute host path bind-mounted read-write at <c>/pz/server</c> (F17): the SteamCMD install and its Steam
+/// app manifest, persisted so an update is incremental and the installed build id survives a container recreate.
+/// A host sibling of the data directory, so it is not counted by the data-volume disk meter (F16).
+/// </param>
 /// <param name="Ports">The two-port-stride host allocation (PRD 28).</param>
 /// <param name="MemoryLimitBytes">The container memory limit in bytes (PRD 24 resource limits); must be positive.</param>
 public sealed record PzContainerSpec(
@@ -27,5 +32,6 @@ public sealed record PzContainerSpec(
     string ImageReference,
     string NetworkName,
     string DataMountSource,
+    string ServerMountSource,
     PortAllocation Ports,
     long MemoryLimitBytes);

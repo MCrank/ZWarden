@@ -11,6 +11,7 @@ PZ_STEAM_APPID_TXT="${PZ_STEAM_APPID_TXT:-108600}" # steam_appid.txt must contai
 PZ_INSTALL_MARKER=".zwarden-installed"           # written after a verified install
 PZ_LINUX_LAUNCHER="start-server.sh"              # ships in the install dir
 PZ_UPDATE_REQUEST=".zwarden-update-requested"    # F17: Agent-dropped control-file in /pz/data holding the OperationId
+PZ_STEAMCMD_BAKED="${PZ_STEAMCMD_BAKED:-/opt/steamcmd}" # F17: SteamCMD is baked here, outside any /pz mount
 
 # --- Operator-tunable defaults (mini-plan Q3/Q4/Q6) ------------------------------
 : "${ZW_PZ_BETA:=}"                # empty => public (42.20.x); e.g. legacy41, 42.19
@@ -101,6 +102,20 @@ pz_install_with_retry() {
 pz_write_appid() {
   local server_dir="$1"
   printf '%s\n' "${PZ_STEAM_APPID_TXT}" > "${server_dir}/steam_appid.txt"
+}
+
+# pz_bootstrap_steamcmd <baked_dir> <runtime_dir>
+# SteamCMD is baked at /opt/steamcmd (outside any /pz mount) and copied into the runtime dir on
+# boot, because under an Agent-created container /pz/runtime is an ephemeral tmpfs (ReadonlyRootfs,
+# ADR 0008) and SteamCMD self-updates into its own directory - so it must live on writable storage,
+# and a mount at /pz/runtime would shadow a binary baked there. Idempotent: skips the copy when a
+# steamcmd.sh already exists (a by-hand run with a persistent runtime keeps its self-updated client).
+pz_bootstrap_steamcmd() {
+  local baked="$1" runtime_dir="$2"
+  if [ ! -x "${runtime_dir}/steamcmd.sh" ]; then
+    mkdir -p "${runtime_dir}"
+    cp -a "${baked}/." "${runtime_dir}/"
+  fi
 }
 
 # --- Update path (F17) -----------------------------------------------------------

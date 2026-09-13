@@ -128,6 +128,9 @@ public sealed class AgentCommandProcessor
                 ImageReference: _options.PzImageReference ?? string.Empty,
                 NetworkName: _options.NetworkName,
                 DataMountSource: Path.Combine(_options.DataMountRoot, serverId.ToString()),
+                // The SteamCMD install lives in a host sibling of the data dir (F17): persistent, but outside the
+                // world-data path the disk meter reads (F16), so the ~6.72 GiB install is not counted as world use.
+                ServerMountSource: Path.Combine(_options.DataMountRoot, $"{serverId}.server"),
                 Ports: ports,
                 MemoryLimitBytes: _options.DefaultMemoryLimitBytes);
 

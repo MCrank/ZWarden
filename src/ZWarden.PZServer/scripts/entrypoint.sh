@@ -19,6 +19,9 @@ STEAMCMD="${PZ_ROOT}/runtime/steamcmd.sh"
 log() { echo "[zwarden] $*"; }
 
 pz_create_layout "${PZ_ROOT}"
+# /pz/runtime is an ephemeral tmpfs under an Agent-created container (F17), so stage the baked
+# SteamCMD into it before first use; SteamCMD self-updates into its own dir, hence writable storage.
+pz_bootstrap_steamcmd "${PZ_STEAMCMD_BAKED}" "${PZ_ROOT}/runtime"
 
 if pz_needs_install "${SERVER_DIR}"; then
   log "installing Project Zomboid dedicated server (app ${PZ_STEAM_APP_ID}) via anonymous SteamCMD..."
