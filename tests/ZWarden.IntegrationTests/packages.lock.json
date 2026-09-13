@@ -726,7 +726,10 @@
         }
       },
       "zwarden.rcon": {
-        "type": "Project"
+        "type": "Project",
+        "dependencies": {
+          "ZWarden.Domain": "[1.0.0, )"
+        }
       },
       "zwarden.testsupport": {
         "type": "Project",

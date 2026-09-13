@@ -522,7 +522,10 @@
         "type": "Project"
       },
       "zwarden.rcon": {
-        "type": "Project"
+        "type": "Project",
+        "dependencies": {
+          "ZWarden.Domain": "[1.0.0, )"
+        }
       },
       "Docker.DotNet.Enhanced": {
         "type": "CentralTransitive",
