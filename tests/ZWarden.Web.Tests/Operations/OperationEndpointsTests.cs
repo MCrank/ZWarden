@@ -56,6 +56,41 @@ public sealed class OperationEndpointsTests
     }
 
     [Test]
+    public async Task An_operator_enqueues_a_docker_health_probe_and_reads_its_state()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        await factory.CreateConfirmedUserAsync("op@zwarden.test", StrongPassword);
+        await AuthorizationBootstrapper.EnsureSeededAsync(factory.Services, "op@zwarden.test");
+        using HttpClient client = factory.CreateWebClient();
+        await LoginAsync(client, "op@zwarden.test", StrongPassword);
+
+        HttpResponseMessage probe = await client.PostAsync(
+            new Uri($"/api/agents/{AgentId.New()}/docker-health", UriKind.Relative), content: null);
+
+        await Assert.That(probe.StatusCode).IsEqualTo(HttpStatusCode.Accepted);
+        using JsonDocument body = JsonDocument.Parse(await probe.Content.ReadAsStringAsync());
+        string operationId = body.RootElement.GetProperty("operationId").GetString()!;
+
+        HttpResponseMessage read = await client.GetAsync(new Uri($"/api/operations/{operationId}", UriKind.Relative));
+        string readBody = await read.Content.ReadAsStringAsync();
+        // No connected Agent, so the operation waits Pending.
+        await Assert.That(readBody).Contains("Pending");
+        await Assert.That(readBody).Contains("DiagnosticsDockerHealth");
+    }
+
+    [Test]
+    public async Task Anonymous_cannot_reach_the_docker_health_endpoint()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        using HttpClient client = factory.CreateWebClient();
+
+        HttpResponseMessage response = await client.PostAsync(
+            new Uri($"/api/agents/{AgentId.New()}/docker-health", UriKind.Relative), content: null);
+
+        await Assert.That(response.StatusCode).IsNotEqualTo(HttpStatusCode.Accepted);
+    }
+
+    [Test]
     public async Task Reading_an_unknown_operation_is_not_found()
     {
         await using ZWardenWebAppFactory factory = new();

@@ -109,7 +109,7 @@ public sealed partial class SignalRControlPlaneConnection : IAgentControlPlaneCo
         {
             try
             {
-                Envelope<OperationCompleted>? reply = _commands.Process(commandJson);
+                Envelope<OperationCompleted>? reply = await _commands.ProcessAsync(commandJson, CancellationToken.None).ConfigureAwait(false);
                 if (reply is not null)
                 {
                     await connection.SendAsync(AgentHubProtocol.OperationCompleted, reply).ConfigureAwait(false);

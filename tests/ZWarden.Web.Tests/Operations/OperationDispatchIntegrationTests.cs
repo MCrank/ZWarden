@@ -66,6 +66,46 @@ public class OperationDispatchIntegrationTests
     }
 
     [Test]
+    public async Task A_docker_health_probe_runs_end_to_end_to_succeeded()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        (AgentId agentId, string credential) = await SeedTrustedAgentAsync(factory);
+        await using HubConnection connection = BuildConnection(factory, credential);
+
+        // The dispatcher must map DiagnosticsDockerHealth to the ProbeDockerHealth command (F13). The stand-in
+        // Agent verifies it received exactly that, then reports success. (The real probe is unit-tested.)
+        bool receivedDockerHealthCommand = false;
+        connection.On<string>(AgentHubProtocol.ReceiveCommand, async json =>
+        {
+            Envelope<IProtocolMessage> command = ProtocolJson.Deserialize(json);
+            if (command.Payload is ProbeDockerHealth && command.OperationId is { } operationId)
+            {
+                receivedDockerHealthCommand = true;
+                Envelope<OperationCompleted> reply = Envelope.Create(
+                    new OperationCompleted(OperationOutcome.Succeeded), Now, operationId: operationId);
+                await connection.SendAsync(AgentHubProtocol.OperationCompleted, reply);
+            }
+        });
+
+        await connection.StartAsync();
+        await connection.InvokeAsync<ProtocolNegotiationResult>(AgentHubProtocol.Hello, Hello(agentId));
+
+        OperationId operationId;
+        using (IServiceScope scope = factory.Services.CreateScope())
+        {
+            IOperationCoordinator coordinator = scope.ServiceProvider.GetRequiredService<IOperationCoordinator>();
+            Operation op = await coordinator.EnqueueAsync(
+                new EnqueueOperationRequest(agentId, OperationKind.DiagnosticsDockerHealth, IsMutating: false, "e2e-docker-health"));
+            operationId = op.Id;
+        }
+
+        Operation? final = await WaitForStateAsync(factory, operationId, OperationState.Succeeded);
+        await Assert.That(receivedDockerHealthCommand).IsTrue();
+        await Assert.That(final).IsNotNull();
+        await Assert.That(final!.State).IsEqualTo(OperationState.Succeeded);
+    }
+
+    [Test]
     public async Task An_operation_for_a_disconnected_agent_stays_pending()
     {
         await using ZWardenWebAppFactory factory = new();

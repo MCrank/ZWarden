@@ -6,6 +6,7 @@ using ZWarden.Domain.Ids;
 using ZWarden.Infrastructure.Agents;
 using ZWarden.Infrastructure.Persistence;
 using ZWarden.TestSupport;
+using DomainAgent = ZWarden.Domain.Agents.Agent;
 
 namespace ZWarden.IntegrationTests;
 
@@ -42,9 +43,9 @@ public class PostgresAgentConnectionStateTests
             await using (ZWardenDbContext db = new(options, new TestTenantContext(tenant)))
             {
                 await db.Database.MigrateAsync(cancellationToken); // includes AgentConnectionState.
-                Agent agent = Agent.Enroll(agentHash, EnrollmentId.New(), ConnectedAt);
+                DomainAgent agent = DomainAgent.Enroll(agentHash, EnrollmentId.New(), ConnectedAt);
                 id = agent.Id;
-                db.Set<Agent>().Add(agent);
+                db.Set<DomainAgent>().Add(agent);
                 await db.SaveChangesAsync(cancellationToken);
             }
 
@@ -83,7 +84,7 @@ public class PostgresAgentConnectionStateTests
         CancellationToken cancellationToken)
     {
         await using ZWardenDbContext db = new(options, new TestTenantContext(tenant));
-        Agent stored = (await new AgentRepository(db).FindByIdAsync(id, cancellationToken))!;
+        DomainAgent stored = (await new AgentRepository(db).FindByIdAsync(id, cancellationToken))!;
         await Assert.That(stored.ConnectionState).IsEqualTo(state);
         await Assert.That(stored.LastSeenAt).IsEqualTo(lastSeen);
         await Assert.That(stored.LastProtocolVersion).IsEqualTo(protocolVersion);

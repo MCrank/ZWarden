@@ -9,8 +9,9 @@ using ZWarden.Infrastructure.Identity;
 namespace ZWarden.Web.Components.Operations;
 
 /// <summary>
-/// The minimal operator-facing operations surface (F11): enqueue a <c>Diagnostics.Ping</c> against an Agent
-/// and read an Operation's state. JSON endpoints under <c>/api</c>, gated by the existing
+/// The minimal operator-facing operations surface (F11, extended by F13): enqueue a <c>Diagnostics.Ping</c> or
+/// a host-level <c>Diagnostics.DockerHealth</c> against an Agent and read an Operation's state. JSON endpoints
+/// under <c>/api</c>, gated by the existing
 /// <c>Agent.Manage</c> permission (F5) and protected from CSRF by the SameSite=Lax auth cookie. The rich
 /// operations UI and history viewer are F14/F16; this is the smallest surface that makes the engine
 /// operator-runnable now. Agent-reported <c>statusLine</c>/<c>failureReason</c> are untrusted display text
@@ -45,6 +46,31 @@ public static class OperationEndpoints
             Operation operation = await coordinator.EnqueueAsync(
                 new EnqueueOperationRequest(
                     agentId, OperationKind.DiagnosticsPing, IsMutating: false, Guid.NewGuid().ToString("N")),
+                Actor(principal, users),
+                cancellationToken).ConfigureAwait(false);
+
+            return Results.Accepted(
+                $"/api/operations/{operation.Id}",
+                new { operationId = operation.Id.ToString(), state = operation.State.ToString() });
+        });
+
+        // Enqueue a host-level Docker health probe (F13). Non-mutating and host-level, so it takes no
+        // per-server lock and carries no ServerId; the Agent runs its Docker probe and reports the outcome.
+        api.MapPost("/agents/{id}/docker-health", async (
+            string id,
+            ClaimsPrincipal principal,
+            UserManager<ApplicationUser> users,
+            IOperationCoordinator coordinator,
+            CancellationToken cancellationToken) =>
+        {
+            if (!AgentId.TryParse(id, out AgentId agentId))
+            {
+                return Results.BadRequest();
+            }
+
+            Operation operation = await coordinator.EnqueueAsync(
+                new EnqueueOperationRequest(
+                    agentId, OperationKind.DiagnosticsDockerHealth, IsMutating: false, Guid.NewGuid().ToString("N")),
                 Actor(principal, users),
                 cancellationToken).ConfigureAwait(false);
 

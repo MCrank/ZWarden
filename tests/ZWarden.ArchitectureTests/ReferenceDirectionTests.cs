@@ -35,16 +35,17 @@ public class ReferenceDirectionTests
         await Assert.That(agent.PackageReferences.Any(IsPersistence)).IsFalse();
     }
 
-    // F10 relaxes the F8 boundary: the Agent now carries the SignalR *client* for its outbound control-plane
-    // connection, but still no Docker client (F13) — that dependency must not be pulled forward until its
-    // feature lands. The persistence guard above still holds: SignalR is transport, not persistence.
+    // F10 gave the Agent the SignalR *client* for its outbound control-plane connection. F13 now adds the
+    // Docker client too: the Agent owns the host's Docker boundary (§9 rule 5), so this is the one project
+    // permitted to reference it. The persistence guard above still holds — SignalR and Docker are transport,
+    // not persistence — and Web still must not reference a Docker client (asserted below).
     [Test]
-    public async Task Agent_references_the_signalr_client_but_not_a_docker_client()
+    public async Task Agent_references_the_signalr_and_docker_clients()
     {
         var agent = ProjectGraph.ForSourceProject("ZWarden.Agent");
 
         await Assert.That(agent.PackageReferences.Any(IsSignalRClient)).IsTrue();
-        await Assert.That(agent.PackageReferences.Any(IsDockerClient)).IsFalse();
+        await Assert.That(agent.PackageReferences.Any(IsDockerClient)).IsTrue();
     }
 
     // §9 rule 2: the domain model depends on no infrastructure framework - the cleanest

@@ -80,6 +80,7 @@ public sealed class OperationDispatcher : IOperationDispatcher
         AgentCommand command = operation.Kind switch
         {
             OperationKind.DiagnosticsPing => new PingAgent(),
+            OperationKind.DiagnosticsDockerHealth => new ProbeDockerHealth(),
             _ => throw new NotSupportedException($"No command mapping for operation kind '{operation.Kind}'."),
         };
         Envelope<AgentCommand> envelope = Envelope.Create<AgentCommand>(

@@ -11,12 +11,13 @@
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
     <LangVersion>14.0</LangVersion>
-    <TestingPlatformCommandLineArguments>--minimum-expected-tests 11</TestingPlatformCommandLineArguments>
+    <TestingPlatformCommandLineArguments>--minimum-expected-tests 17</TestingPlatformCommandLineArguments>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="TUnit" />
     <PackageReference Include="Testcontainers.PostgreSql" />
+    <PackageReference Include="Testcontainers" />
     <PackageReference Include="Npgsql" />
   </ItemGroup>
 
@@ -24,6 +25,8 @@
     <ProjectReference Include="..\ZWarden.TestSupport\ZWarden.TestSupport.csproj" />
     <!-- The Postgres migration history, so MigrateAsync finds the networked provider's migrations. -->
     <ProjectReference Include="..\..\src\ZWarden.Migrations.Postgres\ZWarden.Migrations.Postgres.csproj" />
+    <!-- The Agent's Docker runtime under test (F13). -->
+    <ProjectReference Include="..\..\src\ZWarden.Agent\ZWarden.Agent.csproj" />
   </ItemGroup>
 
 </Project>
