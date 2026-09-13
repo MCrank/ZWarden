@@ -74,6 +74,8 @@ public static class HostingExtensions
         // observer that inspects owned containers and evaluates their hierarchical health.
         services.AddSingleton<INetworkReachabilityProbe, UdpNetworkReachabilityProbe>();
         services.AddSingleton<IServerHealthObserver, ServerHealthObserver>();
+        services.AddSingleton<IServerDiskUsageReader, ServerDiskUsageReader>();
+        services.AddSingleton<IServerMetricsSampler, ServerMetricsSampler>();
 
         // Control plane (F10): the outbound SignalR connection the Agent opens once enrolled.
         services.AddSingleton<AgentCommandProcessor>();
@@ -87,6 +89,7 @@ public static class HostingExtensions
         // F16: reports server-health transitions between snapshots. Runs after the connection is opened; its sends
         // no-op while disconnected, so ordering is a convenience, not a correctness requirement.
         services.AddHostedService<ServerHealthMonitor>();
+        services.AddHostedService<ServerMetricsMonitor>();
         services.AddHostedService<AgentWorker>();
 
         return services;

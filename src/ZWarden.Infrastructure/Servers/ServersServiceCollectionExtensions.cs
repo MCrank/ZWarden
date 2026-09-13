@@ -34,6 +34,10 @@ public static class ServersServiceCollectionExtensions
         // registry it sits beside.
         services.AddSingleton<IServerDiscoveryCache, ServerDiscoveryCache>();
 
+        // The latest-sample-per-Server metrics cache (F16): transient, in-process, a singleton beside the
+        // discovery cache. Never persisted — metrics are display data, not durable state.
+        services.AddSingleton<IServerMetricsCache, ServerMetricsCache>();
+
         return services;
     }
 }

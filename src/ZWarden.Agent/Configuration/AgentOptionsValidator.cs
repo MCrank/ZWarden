@@ -64,6 +64,11 @@ public sealed class AgentOptionsValidator : IValidateOptions<AgentOptions>
             failures.Add($"{AgentOptions.SectionName}:{nameof(AgentOptions.HealthReportInterval)} must be positive.");
         }
 
+        if (options.MetricsReportInterval <= TimeSpan.Zero)
+        {
+            failures.Add($"{AgentOptions.SectionName}:{nameof(AgentOptions.MetricsReportInterval)} must be positive.");
+        }
+
         if (options.ShutdownTimeout <= TimeSpan.Zero)
         {
             failures.Add($"{AgentOptions.SectionName}:{nameof(AgentOptions.ShutdownTimeout)} must be positive.");

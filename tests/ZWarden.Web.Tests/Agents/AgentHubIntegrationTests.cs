@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using ZWarden.Application.Agents;
+using ZWarden.Application.Servers;
 using ZWarden.Contracts.Protocol;
 using ZWarden.Contracts.Protocol.Messages;
 using ZWarden.Domain.Agents;
@@ -139,6 +140,37 @@ public class AgentHubIntegrationTests
         await Assert.That(server.LastHealth).IsEqualTo(Domain.Servers.ServerHealth.Degraded);
         await Assert.That(server.LastRunState).IsEqualTo(Domain.Servers.ServerRunState.Stopping);
         await Assert.That(server.LastHealthReportedAt).IsNotNull();
+
+        await connection.StopAsync();
+    }
+
+    [Test]
+    public async Task An_agent_metrics_report_lands_in_the_cache_under_ownership()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        (AgentId agentId, string credential) = await SeedTrustedAgentAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, agentId);
+        await using HubConnection connection = BuildConnection(factory, credential);
+
+        await connection.StartAsync();
+        await connection.InvokeAsync<ProtocolNegotiationResult>(
+            AgentHubProtocol.Hello, Hello(agentId, ProtocolVersion.Current));
+
+        await connection.InvokeAsync(
+            AgentHubProtocol.MetricsReport,
+            Envelope.Create(
+                new ServerMetricsReport(
+                    [new ServerMetricsSample(serverId, 37.5, 2_000_000_000, 4_000_000_000, 10L, 100L, null, Now)]),
+                Now, agentId));
+
+        IServerMetricsCache cache = factory.Services.GetRequiredService<IServerMetricsCache>();
+        await WaitUntilAsync(() => Task.FromResult(cache.GetLatest(serverId, agentId) is not null));
+
+        Application.Servers.ServerMetrics? latest = cache.GetLatest(serverId, agentId);
+        await Assert.That(latest).IsNotNull();
+        await Assert.That(latest!.CpuPercent).IsEqualTo(37.5);
+        // Ownership guard: another Agent cannot read this Server's sample.
+        await Assert.That(cache.GetLatest(serverId, AgentId.New())).IsNull();
 
         await connection.StopAsync();
     }

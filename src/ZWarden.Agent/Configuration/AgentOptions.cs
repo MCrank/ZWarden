@@ -89,6 +89,11 @@ public sealed class AgentOptions
     /// <summary>How often the runtime re-evaluates and logs its liveness tick. Must be positive.</summary>
     public TimeSpan HealthReportInterval { get; set; } = TimeSpan.FromSeconds(15);
 
+    /// <summary>How often the Agent samples and reports per-Server runtime metrics — CPU, memory, disk (F16).
+    /// Metrics are transient (latest-sample-only on the server), so this is a push cadence, not a retention
+    /// window. Must be positive; defaults to 15s.</summary>
+    public TimeSpan MetricsReportInterval { get; set; } = TimeSpan.FromSeconds(15);
+
     /// <summary>How long graceful shutdown may take before the host stops forcibly. Must be positive.</summary>
     public TimeSpan ShutdownTimeout { get; set; } = TimeSpan.FromSeconds(10);
 

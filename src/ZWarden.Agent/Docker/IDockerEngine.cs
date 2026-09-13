@@ -22,6 +22,13 @@ public interface IDockerEngine
     /// <summary>Inspects one container by id, undecorated. Throws if it does not exist.</summary>
     Task<EngineContainer> InspectAsync(string containerId, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Reads a single, <b>non-streaming</b> resource-stats snapshot for a container (F16). Maps to the eleventh
+    /// allowlist entry <c>GET /containers/{id}/stats?stream=false</c> (ADR 0008, amended by F16) — a read verb,
+    /// no mutation. The raw counters feed <see cref="ContainerStatsCalculator"/>.
+    /// </summary>
+    Task<ContainerStatsSnapshot> StatsAsync(string containerId, CancellationToken cancellationToken);
+
     /// <summary>Creates a container from fully-formed parameters and returns its id.</summary>
     Task<string> CreateAsync(CreateContainerParameters parameters, CancellationToken cancellationToken);
 
