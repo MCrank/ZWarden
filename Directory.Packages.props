@@ -18,6 +18,9 @@
     <PackageVersion Include="TUnit.Mocks" Version="1.66.27" />
     <PackageVersion Include="bunit" Version="2.10.3" />
     <PackageVersion Include="Testcontainers.PostgreSql" Version="4.15.0" />
+    <!-- Core Testcontainers, for the F13 Docker-runtime integration tier: seed labelled containers and run the
+         wollomatic socket-proxy allowlist drift test (ADR 0008). Same band as Testcontainers.PostgreSql. -->
+    <PackageVersion Include="Testcontainers" Version="4.15.0" />
     <PackageVersion Include="Npgsql" Version="10.0.3" />
     <!-- WebApplicationFactory<Program> for the F4 UI cookie-flow endpoint tests (offline tier). -->
     <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.12" />
@@ -54,6 +57,14 @@
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.12" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.12" />
     <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The Agent's Docker runtime (F13, ADR 0008): the maintained Testcontainers fork of Docker.DotNet.
+         It negotiates the Engine API version via GET/HEAD /_ping rather than pinning a /v1.xx prefix,
+         which ADR 0008 requires (daemons in the field span API 1.48-1.56). Agent-only; the architecture
+         guard forbids it in Web. Exact pin (ADR 0002). -->
+    <PackageVersion Include="Docker.DotNet.Enhanced" Version="4.3.3" />
   </ItemGroup>
 
   <ItemGroup>

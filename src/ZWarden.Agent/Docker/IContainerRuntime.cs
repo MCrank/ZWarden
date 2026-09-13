@@ -1,0 +1,37 @@
+namespace ZWarden.Agent.Docker;
+
+/// <summary>
+/// The Agent's domain-facing Docker runtime (F13): discovery, health, creation and lifecycle for canonical
+/// ZWarden.PZServer containers this Agent owns — and refusal for everything else. Every target-container
+/// operation passes the allowed-container enforcement of <see cref="ContainerOwnershipGuard"/> before any verb
+/// is issued (trust-boundaries.md §4), and creation is built from the closed <see cref="PzContainerFactory"/>
+/// template (ADR 0008 §5.3). F13 provides these capabilities and proves them with tests; the operator-facing
+/// commands that call the mutating ones arrive with F14 (registration) and F15 (lifecycle Operations).
+/// </summary>
+public interface IContainerRuntime
+{
+    /// <summary>Probes Docker connectivity: daemon reachability and the negotiated API version.</summary>
+    Task<DockerHealth> ProbeHealthAsync(CancellationToken cancellationToken);
+
+    /// <summary>Lists the canonical containers this Agent owns; foreign and non-canonical ones are excluded.</summary>
+    Task<IReadOnlyList<ManagedContainer>> ListManagedAsync(CancellationToken cancellationToken);
+
+    /// <summary>Allocates the next free two-port-stride pair given the strides already occupied on the host.</summary>
+    Task<PortAllocation> AllocateNextPortsAsync(CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Creates a canonical container from a closed spec and returns its Docker id. Throws
+    /// <see cref="ContainerCreateException"/> with an actionable failure — notably
+    /// <see cref="ContainerCreateFailure.ImageNotProvisioned"/> when the pinned image is not pre-provisioned.
+    /// </summary>
+    Task<string> CreateAsync(PzContainerSpec spec, CancellationToken cancellationToken);
+
+    /// <summary>Starts a container the Agent owns. Refuses a foreign container with <see cref="ForeignContainerException"/>.</summary>
+    Task StartAsync(string containerId, CancellationToken cancellationToken);
+
+    /// <summary>Stops a container the Agent owns. Refuses a foreign container with <see cref="ForeignContainerException"/>.</summary>
+    Task StopAsync(string containerId, CancellationToken cancellationToken);
+
+    /// <summary>Restarts a container the Agent owns. Refuses a foreign container with <see cref="ForeignContainerException"/>.</summary>
+    Task RestartAsync(string containerId, CancellationToken cancellationToken);
+}

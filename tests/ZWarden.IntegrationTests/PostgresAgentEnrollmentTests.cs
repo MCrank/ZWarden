@@ -7,12 +7,13 @@ using ZWarden.Domain.Ids;
 using ZWarden.Infrastructure.Agents;
 using ZWarden.Infrastructure.Persistence;
 using ZWarden.TestSupport;
+using DomainAgent = ZWarden.Domain.Agents.Agent;
 
 namespace ZWarden.IntegrationTests;
 
 /// <summary>
 /// F9 on the networked tier (ADR 0007; ADR 0016): the <c>AgentEnrollment</c> migration applies on a real
-/// PostgreSQL 18, and the <see cref="Enrollment"/>/<see cref="Agent"/> records persist and stay
+/// PostgreSQL 18, and the <see cref="Enrollment"/>/<see cref="DomainAgent"/> records persist and stay
 /// tenant-scoped there too — the same behaviour proven on SQLite offline, no provider branch (ADR 0005).
 /// Each test uses its own database on the shared container. Tier-2 / networked.
 /// </summary>
@@ -42,14 +43,14 @@ public class PostgresAgentEnrollmentTests
             {
                 await db.Database.MigrateAsync(cancellationToken); // includes AgentEnrollment.
                 db.Set<Enrollment>().Add(Enrollment.Issue(enrollmentHash, UserId.New(), Now, Now.AddMinutes(15)));
-                db.Set<Agent>().Add(Agent.Enroll(agentHash, EnrollmentId.New(), Now, "host-alpha"));
+                db.Set<DomainAgent>().Add(DomainAgent.Enroll(agentHash, EnrollmentId.New(), Now, "host-alpha"));
                 await db.SaveChangesAsync(cancellationToken);
             }
 
             await using (ZWardenDbContext db = new(options, new TestTenantContext(tenantA)))
             {
                 Enrollment enrollment = (await new EnrollmentRepository(db).FindBySecretHashAsync(enrollmentHash, cancellationToken))!;
-                Agent agent = (await new AgentRepository(db).FindByCredentialHashAsync(agentHash, cancellationToken))!;
+                DomainAgent agent = (await new AgentRepository(db).FindByCredentialHashAsync(agentHash, cancellationToken))!;
                 await Assert.That(enrollment.TenantId).IsEqualTo(tenantA);
                 await Assert.That(enrollment.Status).IsEqualTo(EnrollmentStatus.Pending);
                 await Assert.That(agent.TenantId).IsEqualTo(tenantA);
@@ -79,7 +80,7 @@ public class PostgresAgentEnrollmentTests
             await using (ZWardenDbContext asA = new(options, new TestTenantContext(tenantA)))
             {
                 await asA.Database.MigrateAsync(cancellationToken);
-                asA.Set<Agent>().Add(Agent.Enroll(agentHash, EnrollmentId.New(), Now));
+                asA.Set<DomainAgent>().Add(DomainAgent.Enroll(agentHash, EnrollmentId.New(), Now));
                 await asA.SaveChangesAsync(cancellationToken);
             }
 

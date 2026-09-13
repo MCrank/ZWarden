@@ -28,6 +28,12 @@ public sealed class AgentOptionsValidator : IValidateOptions<AgentOptions>
             failures.Add($"{AgentOptions.SectionName}:{nameof(AgentOptions.ControlPlaneUri)} must be an absolute https or wss URI.");
         }
 
+        if (!string.IsNullOrWhiteSpace(options.DockerEndpoint)
+            && !Uri.TryCreate(options.DockerEndpoint, UriKind.Absolute, out _))
+        {
+            failures.Add($"{AgentOptions.SectionName}:{nameof(AgentOptions.DockerEndpoint)} must be an absolute URI when set (e.g. unix:///var/run/docker.sock).");
+        }
+
         if (options.HeartbeatInterval <= TimeSpan.Zero)
         {
             failures.Add($"{AgentOptions.SectionName}:{nameof(AgentOptions.HeartbeatInterval)} must be positive.");

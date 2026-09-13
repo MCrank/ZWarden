@@ -14,4 +14,9 @@ public enum OperationKind
     /// reply. The first diagnostic tool for "is this Agent actually round-tripping commands right now?".
     /// Being non-mutating, it never claims the per-server lock.</summary>
     DiagnosticsPing = 0,
+
+    /// <summary>A non-mutating, host-level probe of the Agent's Docker connectivity (F13): daemon reachability
+    /// and the negotiated API version. It acts on the host Agent, not a Server, so it never claims a per-server
+    /// lock (ADR 0022: host-level Operations never contend).</summary>
+    DiagnosticsDockerHealth = 1,
 }

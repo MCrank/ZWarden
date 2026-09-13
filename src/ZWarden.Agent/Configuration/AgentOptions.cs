@@ -43,6 +43,14 @@ public sealed class AgentOptions
     /// </summary>
     public string? EnrollmentSecret { get; set; }
 
+    /// <summary>
+    /// The Docker Engine endpoint the Agent's Docker runtime connects to (F13). Optional: when unset, the
+    /// OS default local endpoint is used (the unix socket on Linux, the named pipe on Windows). Set it to the
+    /// socket-proxy address in the reference deployment (ADR 0008). When set, it must be an absolute URI. The
+    /// client negotiates the API version over <c>/_ping</c> and never pins a <c>/v1.xx</c> prefix.
+    /// </summary>
+    public string? DockerEndpoint { get; set; }
+
     /// <summary>How often the Agent will emit a heartbeat once transport lands (F10). Must be positive.</summary>
     public TimeSpan HeartbeatInterval { get; set; } = TimeSpan.FromSeconds(30);
 

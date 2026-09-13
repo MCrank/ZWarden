@@ -1,3 +1,4 @@
+using Docker.DotNet;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -5,6 +6,7 @@ using Microsoft.Extensions.Options;
 using ZWarden.Agent.Configuration;
 using ZWarden.Agent.ControlPlane;
 using ZWarden.Agent.Diagnostics;
+using ZWarden.Agent.Docker;
 using ZWarden.Agent.Health;
 using ZWarden.Agent.Identity;
 using ZWarden.Agent.Trust;
@@ -47,6 +49,26 @@ public static class HostingExtensions
         services.AddSingleton<IEnrollmentClient>(sp => new HttpEnrollmentClient(
             new HttpClient { BaseAddress = ToHttpBase(sp.GetRequiredService<IOptions<AgentOptions>>().Value.ControlPlaneUri) },
             sp.GetRequiredService<ILogger<HttpEnrollmentClient>>()));
+
+        // Docker runtime (F13): the client (constructed without an API-version override so it negotiates over
+        // /_ping — ADR 0008), the mechanical engine over it, and the policy layer (ownership enforcement, the
+        // closed create template, discovery, health). Correct with the socket unproxied.
+        services.AddSingleton<IDockerClient>(sp =>
+        {
+            string? endpoint = sp.GetRequiredService<IOptions<AgentOptions>>().Value.DockerEndpoint;
+            DockerClientBuilder builder = new();
+            if (!string.IsNullOrWhiteSpace(endpoint))
+            {
+                builder = builder.WithEndpoint(new Uri(endpoint));
+            }
+
+            // No WithApiVersion(...): the client negotiates via /_ping and never pins a /v1.xx prefix (ADR 0008).
+            return builder.Build();
+        });
+        services.AddSingleton<IDockerEngine, DockerDotNetEngine>();
+        services.AddSingleton<ContainerOwnershipGuard>();
+        services.AddSingleton<PzContainerFactory>();
+        services.AddSingleton<IContainerRuntime, ContainerRuntime>();
 
         // Control plane (F10): the outbound SignalR connection the Agent opens once enrolled.
         services.AddSingleton<AgentCommandProcessor>();

@@ -45,7 +45,9 @@ The split is **by assembly**, never by category filter (ADR 0002).
 | Tier | Assemblies | Network | When |
 | --- | --- | --- | --- |
 | **1 — offline** | `ZWarden.Domain.Tests`, `ZWarden.Web.Tests`, `ZWarden.ArchitectureTests` | none (runs inside a network namespace) | every push / PR |
-| **2 — networked** | `ZWarden.IntegrationTests` (Testcontainers → PostgreSQL) | Docker + egress | scheduled / `workflow_dispatch` |
+| **2 — networked** | `ZWarden.IntegrationTests` (Testcontainers → PostgreSQL, and the F13 Agent Docker runtime against a disposable daemon) | Docker + egress | scheduled / `workflow_dispatch` |
+
+The F13 Docker-runtime tests (`AgentDockerRuntimeTests`) exercise the real Agent Docker abstraction against the local daemon, including one that drives it **through a `wollomatic/socket-proxy` container carrying the ADR 0008 ten-entry allowlist**, so any drift between what the Agent calls and what the deployment permits fails the build. The daemon Testcontainers uses to start that proxy stays unrestricted (ADR 0008 §7 — the test harness is a different trust context and must never be a reason to widen the production allowlist).
 
 Run the offline tier the way CI does (Linux):
 

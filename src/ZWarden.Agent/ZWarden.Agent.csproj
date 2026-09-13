@@ -9,8 +9,11 @@
     <PackageReference Include="Microsoft.Extensions.Hosting" />
     <PackageReference Include="Microsoft.Extensions.Options.DataAnnotations" />
     <!-- The outbound control-plane transport (F10). The Agent's first transport dependency; the architecture
-         guard is relaxed to allow it, still forbidding Infrastructure/EF and the Docker client (F13). -->
+         guard is relaxed to allow it, still forbidding Infrastructure/EF. -->
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" />
+    <!-- The host Docker boundary (F13, ADR 0008): the Agent is the one project permitted a Docker client.
+         Still forbidden in Web (architecture guard). -->
+    <PackageReference Include="Docker.DotNet.Enhanced" />
     <!-- Logging stack (ADR 0021). -->
     <PackageReference Include="Serilog.Extensions.Hosting" />
     <PackageReference Include="Serilog.Settings.Configuration" />
