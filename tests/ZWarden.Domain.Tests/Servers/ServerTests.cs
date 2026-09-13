@@ -63,6 +63,27 @@ public class ServerTests
     }
 
     [Test]
+    public async Task An_imported_server_has_no_health_until_one_is_reported()
+    {
+        // F16: health is null (never reported), not a "Stopped" default — the age of the report is the signal.
+        Server server = Import();
+
+        await Assert.That(server.LastHealth).IsNull();
+        await Assert.That(server.LastHealthReportedAt).IsNull();
+    }
+
+    [Test]
+    public async Task RecordObservedHealth_updates_the_health_and_stamps_the_time()
+    {
+        Server server = Import();
+
+        server.RecordObservedHealth(ServerHealth.Degraded, Now.AddMinutes(3));
+
+        await Assert.That(server.LastHealth).IsEqualTo(ServerHealth.Degraded);
+        await Assert.That(server.LastHealthReportedAt).IsEqualTo(Now.AddMinutes(3));
+    }
+
+    [Test]
     public async Task Import_rejects_a_blank_name()
     {
         await Assert.That(() => Server.Import(AgentId.New(), ServerId.New(), " ", Now))

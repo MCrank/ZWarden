@@ -60,6 +60,15 @@ public sealed class Server : IVersioned, ITenantOwned
     /// first-class health signal in F16.</summary>
     public DateTimeOffset? LastStateReportedAt { get; private set; }
 
+    /// <summary>The last-reported hierarchical <b>health</b> rollup (F16), as ZWarden.Web last recorded it from
+    /// an Agent report. <c>null</c> until the first health report — "not heard from" is the age of
+    /// <see cref="LastHealthReportedAt"/>, not an enum value. Observed, never inferred — changes only via
+    /// <see cref="RecordObservedHealth"/>.</summary>
+    public ServerHealth? LastHealth { get; private set; }
+
+    /// <summary>When <see cref="LastHealth"/> was last reported (UTC); <c>null</c> until the first health report.</summary>
+    public DateTimeOffset? LastHealthReportedAt { get; private set; }
+
     /// <summary>When the Server was brought under management (UTC).</summary>
     public DateTimeOffset CreatedAt { get; init; }
 
@@ -131,6 +140,14 @@ public sealed class Server : IVersioned, ITenantOwned
     {
         LastRunState = state;
         LastStateReportedAt = reportedAt;
+    }
+
+    /// <summary>Records a freshly observed health rollup and the time it was reported (F16; trust-boundaries.md
+    /// §3 — observed, never inferred).</summary>
+    public void RecordObservedHealth(ServerHealth health, DateTimeOffset reportedAt)
+    {
+        LastHealth = health;
+        LastHealthReportedAt = reportedAt;
     }
 
     /// <summary>Records the observed container linkage: its Docker id and the two allocated UDP ports. RCON
