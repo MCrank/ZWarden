@@ -9,6 +9,7 @@ using ZWarden.Contracts.Protocol.Messages;
 using ZWarden.Domain.Audit;
 using ZWarden.Domain.Ids;
 using ZWarden.Infrastructure.Agents;
+using ZWarden.Web.Observability;
 using ZWarden.Web.Servers;
 
 namespace ZWarden.Web.Agents;
@@ -30,6 +31,7 @@ public sealed partial class AgentHub : Hub
     private readonly IOperationStore _operations;
     private readonly IServerStateReconciler _servers;
     private readonly IServerMetricsCache _metrics;
+    private readonly ControlPlaneMetrics _telemetry;
     private readonly IAuditWriter _audit;
     private readonly ILogger<AgentHub> _logger;
 
@@ -39,6 +41,7 @@ public sealed partial class AgentHub : Hub
         IOperationStore operations,
         IServerStateReconciler servers,
         IServerMetricsCache metrics,
+        ControlPlaneMetrics telemetry,
         IAuditWriter audit,
         ILogger<AgentHub> logger)
     {
@@ -47,6 +50,7 @@ public sealed partial class AgentHub : Hub
         ArgumentNullException.ThrowIfNull(operations);
         ArgumentNullException.ThrowIfNull(servers);
         ArgumentNullException.ThrowIfNull(metrics);
+        ArgumentNullException.ThrowIfNull(telemetry);
         ArgumentNullException.ThrowIfNull(audit);
         ArgumentNullException.ThrowIfNull(logger);
         _registry = registry;
@@ -54,6 +58,7 @@ public sealed partial class AgentHub : Hub
         _operations = operations;
         _servers = servers;
         _metrics = metrics;
+        _telemetry = telemetry;
         _audit = audit;
         _logger = logger;
     }
@@ -196,6 +201,7 @@ public sealed partial class AgentHub : Hub
                 change.Payload.ServerId,
                 WireServerHealth.ToDomain(change.Payload.Health),
                 Context.ConnectionAborted).ConfigureAwait(false);
+            _telemetry.RecordHealthTransition(change.Payload.Health);
         }
     }
 

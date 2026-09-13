@@ -7,6 +7,13 @@
     <PackageReference Include="BlazorBlueprint.Components" />
     <!-- Server-side authenticator QR rendering for the static MFA enrolment page (F4 UI). -->
     <PackageReference Include="QRCoder" />
+    <!-- Observability baseline (ADR 0024, F16): OTel SDK + ASP.NET Core/HttpClient instrumentation and the
+         OTLP (opt-in) + Console (dev) exporters. -->
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" />
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" />
+    <PackageReference Include="OpenTelemetry.Exporter.Console" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Http" />
   </ItemGroup>
 
   <ItemGroup>

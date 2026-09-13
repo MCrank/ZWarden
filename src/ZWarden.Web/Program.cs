@@ -9,6 +9,7 @@ using ZWarden.Infrastructure.Security;
 using ZWarden.Infrastructure.Servers;
 using ZWarden.Infrastructure.Tenancy;
 using ZWarden.Web.Agents;
+using ZWarden.Web.Observability;
 using ZWarden.Web.Operations;
 using ZWarden.Web.Components;
 using ZWarden.Web.Components.Account;
@@ -52,6 +53,7 @@ builder.Services.AddZWardenOperations();            // F11: operations engine â€
 builder.Services.AddZWardenServers();               // F14: Server inventory + import, snapshot reconciler, discovery cache
 builder.Services.AddAgentControlPlane();            // F10: Agent hub, handshake auth scheme, connection registry + monitor
 builder.Services.AddOperationDispatch();            // F11 PR-B: real operation dispatcher over the SignalR connection
+builder.Services.AddZWardenTelemetry(builder.Configuration, builder.Environment); // F16: OpenTelemetry baseline (opt-in OTLP)
 
 WebApplication app = builder.Build();
 

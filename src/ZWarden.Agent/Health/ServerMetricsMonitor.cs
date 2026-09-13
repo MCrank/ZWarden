@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using ZWarden.Agent.Configuration;
 using ZWarden.Agent.ControlPlane;
+using ZWarden.Agent.Observability;
 using ZWarden.Agent.Trust;
 using ZWarden.Contracts.Protocol.Messages;
 
@@ -23,6 +24,7 @@ public sealed partial class ServerMetricsMonitor : BackgroundService
     private readonly IAgentTrustStore _trustStore;
     private readonly IServerMetricsSampler _sampler;
     private readonly IAgentControlPlaneConnection _connection;
+    private readonly AgentMetrics _telemetry;
     private readonly AgentOptions _options;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<ServerMetricsMonitor> _logger;
@@ -31,6 +33,7 @@ public sealed partial class ServerMetricsMonitor : BackgroundService
         IAgentTrustStore trustStore,
         IServerMetricsSampler sampler,
         IAgentControlPlaneConnection connection,
+        AgentMetrics telemetry,
         IOptions<AgentOptions> options,
         TimeProvider timeProvider,
         ILogger<ServerMetricsMonitor> logger)
@@ -38,12 +41,14 @@ public sealed partial class ServerMetricsMonitor : BackgroundService
         ArgumentNullException.ThrowIfNull(trustStore);
         ArgumentNullException.ThrowIfNull(sampler);
         ArgumentNullException.ThrowIfNull(connection);
+        ArgumentNullException.ThrowIfNull(telemetry);
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(timeProvider);
         ArgumentNullException.ThrowIfNull(logger);
         _trustStore = trustStore;
         _sampler = sampler;
         _connection = connection;
+        _telemetry = telemetry;
         _options = options.Value;
         _timeProvider = timeProvider;
         _logger = logger;
@@ -90,6 +95,8 @@ public sealed partial class ServerMetricsMonitor : BackgroundService
         {
             await _connection.SendMetricsReportAsync(samples, cancellationToken).ConfigureAwait(false);
         }
+
+        _telemetry.RecordMetricsSweep(samples.Count);
     }
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Agent is un-enrolled; not sampling server metrics.")]

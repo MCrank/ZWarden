@@ -25,7 +25,7 @@ try
         .ReadFrom.Services(services)
         .Enrich.FromLogContext());
 
-    builder.Services.AddAgentRuntime(builder.Configuration);
+    builder.Services.AddAgentRuntime(builder.Configuration, builder.Environment);
 
     IHost host = builder.Build();
     host.Run();
