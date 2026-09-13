@@ -34,7 +34,7 @@ public static class BuiltInRoles
         new(BuiltInRoleKind.Operator, "Operator",
         [
             Permissions.ServerView, Permissions.ServerStart, Permissions.ServerStop, Permissions.ServerRestart,
-            Permissions.ServerUpdate,
+            Permissions.ServerUpdate, Permissions.ServerDiagnostics,
             Permissions.ServerConfigurationView, Permissions.ServerConfigurationEdit,
             Permissions.ModView, Permissions.ModUpdate, Permissions.ModApplyApprovedProfile,
             Permissions.PlayerView, Permissions.PlayerKick, Permissions.PlayerBan, Permissions.PlayerUnban,
@@ -63,7 +63,7 @@ public static class BuiltInRoles
         new(BuiltInRoleKind.SupportDiagnostics, "Support/Diagnostics",
         [
             Permissions.DiagnosticsView, Permissions.DiagnosticsExport, Permissions.AuditView,
-            Permissions.ServerView, Permissions.ServerConfigurationView,
+            Permissions.ServerView, Permissions.ServerConfigurationView, Permissions.ServerDiagnostics,
             Permissions.ConsoleView, Permissions.BackupView, Permissions.AgentView,
         ]);
 

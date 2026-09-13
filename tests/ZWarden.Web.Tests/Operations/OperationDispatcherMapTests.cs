@@ -35,6 +35,12 @@ public class OperationDispatcherMapTests
     }
 
     [Test]
+    public async Task The_rcon_health_kind_maps_to_the_rcon_probe_command()
+    {
+        await Assert.That(OperationDispatcher.CommandFor(OperationKind.RconHealthProbe)).IsTypeOf<ProbeRconHealth>();
+    }
+
+    [Test]
     public async Task An_unmapped_kind_throws()
     {
         await Assert.That(() => OperationDispatcher.CommandFor((OperationKind)999)).Throws<NotSupportedException>();

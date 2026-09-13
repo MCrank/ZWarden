@@ -49,4 +49,11 @@ public enum OperationKind
     /// Agent drives it through the container entrypoint (no <c>exec</c>, ADR 0008) and decides the outcome by
     /// parsing stdout (ADR 0009).</summary>
     UpdateServer = 6,
+
+    /// <summary>Probe a Server's RCON reachability (F18): connect to the private, never-host-published RCON
+    /// listener over the ZWarden network and authenticate with the Agent-owned credential. A
+    /// <b>non-mutating, server-scoped</b> Operation, so — like the diagnostics pings — it never claims the
+    /// per-server lock (ADR 0022) and does not contend with an in-flight lifecycle Operation. The Agent reports
+    /// an <c>RconHealthResult</c> (reachable / authenticated / detail) on completion.</summary>
+    RconHealthProbe = 7,
 }

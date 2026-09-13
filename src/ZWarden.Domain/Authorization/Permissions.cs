@@ -29,6 +29,12 @@ public static class Permissions
     public static readonly PermissionDefinition ServerConfigurationView = Server("Server.Configuration.View");
     public static readonly PermissionDefinition ServerConfigurationEdit = Server("Server.Configuration.Edit");
 
+    // A per-server, non-mutating diagnostic probe — F18 (#39) adds RCON reachability. Server-scopable and
+    // distinct from Server.View: it actively opens an Agent-run connection to the server, so it is authorized as
+    // its own capability rather than folded into passive viewing (ADR 0026). Added after the original PRD 12A
+    // list as a deliberate catalogue change.
+    public static readonly PermissionDefinition ServerDiagnostics = Server("Server.Diagnostics");
+
     // Bringing a Server under management — importing a discovered container or registering (and provisioning)
     // a new one (F14). Tenant-wide, not server-scopable: the Server does not exist yet at registration time,
     // so there is no ServerId to scope to (a server-scoped permission checked with no Server is denied). This
@@ -79,7 +85,7 @@ public static class Permissions
     public static IReadOnlyList<PermissionDefinition> All { get; } =
     [
         ServerView, ServerStart, ServerStop, ServerRestart, ServerUpdate,
-        ServerConfigurationView, ServerConfigurationEdit, ServerRegister,
+        ServerConfigurationView, ServerConfigurationEdit, ServerDiagnostics, ServerRegister,
         ModView, ModInstall, ModRemove, ModUpdate, ModApplyApprovedProfile,
         PlayerView, PlayerKick, PlayerBan, PlayerUnban,
         ConsoleView, ConsoleExecute,

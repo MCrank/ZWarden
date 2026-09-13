@@ -6,6 +6,7 @@
 @using ZWarden.Domain.Ids
 @inject IServerInventory Inventory
 @inject IServerLifecycle Lifecycle
+@inject IServerDiagnostics Diagnostics
 @inject IServerDiscoveryCache Discovery
 @inject IPermissionChecker PermissionChecker
 @inject UserManager<ApplicationUser> Users
@@ -131,7 +132,12 @@
                                 <BbButton Type="ButtonType.Submit" Variant="ButtonVariant.Outline" Size="ButtonSize.Small"
                                           name="_lifecycleForm.Target" value="@($"{server.Id}|update")" data-action="update">Update</BbButton>
                             }
-                            @if (!perm.CanStart && !perm.CanStop && !perm.CanRestart && !perm.CanUpdate)
+                            @if (perm.CanDiagnostics)
+                            {
+                                <BbButton Type="ButtonType.Submit" Variant="ButtonVariant.Outline" Size="ButtonSize.Small"
+                                          name="_lifecycleForm.Target" value="@($"{server.Id}|rcon-health")" data-action="rcon-health">Check RCON</BbButton>
+                            }
+                            @if (!perm.CanStart && !perm.CanStop && !perm.CanRestart && !perm.CanUpdate && !perm.CanDiagnostics)
                             {
                                 <span class="text-xs text-muted-foreground">—</span>
                             }
@@ -285,7 +291,8 @@
                 CanStart: (await PermissionChecker.EvaluateAsync(user, Permissions.ServerStart, server.Id)).IsAllowed,
                 CanStop: (await PermissionChecker.EvaluateAsync(user, Permissions.ServerStop, server.Id)).IsAllowed,
                 CanRestart: (await PermissionChecker.EvaluateAsync(user, Permissions.ServerRestart, server.Id)).IsAllowed,
-                CanUpdate: (await PermissionChecker.EvaluateAsync(user, Permissions.ServerUpdate, server.Id)).IsAllowed);
+                CanUpdate: (await PermissionChecker.EvaluateAsync(user, Permissions.ServerUpdate, server.Id)).IsAllowed,
+                CanDiagnostics: (await PermissionChecker.EvaluateAsync(user, Permissions.ServerDiagnostics, server.Id)).IsAllowed);
         }
 
         _canRegister = (await PermissionChecker.EvaluateAsync(user, Permissions.ServerRegister)).IsAllowed;
@@ -316,17 +323,28 @@
         }
 
         UserId user = await CurrentUserAsync();
-        ServerLifecycleResult result = parts[1] switch
+        string verb = parts[1];
+        ServerLifecycleResult result = verb switch
         {
             "start" => await Lifecycle.StartAsync(user, serverId),
             "stop" => await Lifecycle.StopAsync(user, serverId),
             "restart" => await Lifecycle.RestartAsync(user, serverId),
             "update" => await Lifecycle.UpdateAsync(user, serverId),
+            "rcon-health" => await Diagnostics.CheckRconHealthAsync(user, serverId),
             _ => ServerLifecycleResult.Denied(ServerLifecycleFailure.NotAuthorized),
         };
 
         if (result.Succeeded)
         {
+            if (verb == "rcon-health")
+            {
+                // A read-only probe with no persisted server-state change: report that it started and where the
+                // result lands, rather than redirecting (the reachable/authenticated outcome arrives on the
+                // operation asynchronously — read it at /api/operations/{id}; the rich console view is F28).
+                _lifecycleMessage = $"RCON health check started (operation {result.Operation}). The result appears on that operation shortly.";
+                return;
+            }
+
             // Redirect after post so a refresh does not re-submit; the enqueued operation runs asynchronously.
             Nav.NavigateTo("/servers");
             return;
@@ -444,5 +462,5 @@
         public string? Target { get; set; }
     }
 
-    private readonly record struct LifecyclePermissions(bool CanStart, bool CanStop, bool CanRestart, bool CanUpdate);
+    private readonly record struct LifecyclePermissions(bool CanStart, bool CanStop, bool CanRestart, bool CanUpdate, bool CanDiagnostics);
 }
