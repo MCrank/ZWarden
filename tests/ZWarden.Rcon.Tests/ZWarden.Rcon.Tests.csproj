@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Tier-1 offline unit tests (ADR 0002) for the F18 Source RCON client. The suite drives the wire
+    codec and the connection against a loopback FakeRconServer that reproduces PZ's four measured
+    traps (research §7): no end-of-response terminator, an empty result that sends no packet, the
+    five-connection cap, and tick-serialized execution. Loopback works inside the offline sandbox
+    (ci/offline-run.sh brings `lo` up). MTP test app; LangVersion pinned (ADR 0002 item 6).
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <LangVersion>14.0</LangVersion>
+    <!-- Silent-drop floor (ADR 0002). Update when tests are added or removed. -->
+    <TestingPlatformCommandLineArguments>--minimum-expected-tests 20</TestingPlatformCommandLineArguments>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="TUnit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\ZWarden.Rcon\ZWarden.Rcon.csproj" />
+  </ItemGroup>
+
+</Project>

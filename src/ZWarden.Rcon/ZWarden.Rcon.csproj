@@ -1,9 +1,28 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
+
+  <!--
+    F18: the Source RCON client the Agent uses to speak to a running Project Zomboid server over
+    the private container network (never host-published - trust-boundaries §5, PRD 29). An
+    Agent-only leaf: referenced by ZWarden.Agent alone, never by ZWarden.Web - the RCON password
+    type must be unreachable from the web tier (trust-boundaries §9 test 7), enforced by an
+    architecture test. Depends only on ZWarden.Domain for SecretString (infrastructure-free,
+    arch rule 2), so the credential never stringifies through logs. Transport-only: it sends raw
+    command text; command construction and quoting belong to F19/F28.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\ZWarden.Domain\ZWarden.Domain.csproj" />
+  </ItemGroup>
+
+  <!-- The wire codec (RconPacket) and constants are internal implementation detail; the test
+       assembly exercises them directly as the executable spec of research §7's framing. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="ZWarden.Rcon.Tests" />
+  </ItemGroup>
 
 </Project>
