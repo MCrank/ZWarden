@@ -16,3 +16,10 @@ The five canonical triage labels, used verbatim: `needs-triage`, `needs-info`, `
 ### Domain docs
 
 Single-context: one `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+
+### UI components
+
+ZWarden.Web UI uses **BlazorBlueprint** components (`Bb*`) by default (ADR 0003) — prefer a component
+over raw HTML controls unless there's a security reason or no SSR-safe fit. Check the current API via
+the `blazorblueprint` MCP and <https://blazorblueprintui.com/llms/index.txt> before using one. See
+`docs/agents/ui-components.md`.
