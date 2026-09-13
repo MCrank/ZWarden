@@ -22,4 +22,9 @@ public interface IServerLifecycle
 
     /// <summary>Restarts the Server safely, authorized by the server-scoped <c>Server.Restart</c>.</summary>
     Task<ServerLifecycleResult> RestartAsync(UserId user, ServerId server, CancellationToken cancellationToken = default);
+
+    /// <summary>Updates (install/validate) the Server's Project Zomboid install via anonymous SteamCMD (F17),
+    /// authorized by the server-scoped <c>Server.Update</c>. Install/update/validate are one SteamCMD verb, so a
+    /// repair is this same operation run again.</summary>
+    Task<ServerLifecycleResult> UpdateAsync(UserId user, ServerId server, CancellationToken cancellationToken = default);
 }

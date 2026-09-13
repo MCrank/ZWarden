@@ -25,6 +25,7 @@ public static class Permissions
     public static readonly PermissionDefinition ServerStart = Server("Server.Start");
     public static readonly PermissionDefinition ServerStop = Server("Server.Stop");
     public static readonly PermissionDefinition ServerRestart = Server("Server.Restart");
+    public static readonly PermissionDefinition ServerUpdate = Server("Server.Update");
     public static readonly PermissionDefinition ServerConfigurationView = Server("Server.Configuration.View");
     public static readonly PermissionDefinition ServerConfigurationEdit = Server("Server.Configuration.Edit");
 
@@ -77,7 +78,7 @@ public static class Permissions
     /// <summary>Every permission in the catalogue, in declaration order — the closed set.</summary>
     public static IReadOnlyList<PermissionDefinition> All { get; } =
     [
-        ServerView, ServerStart, ServerStop, ServerRestart,
+        ServerView, ServerStart, ServerStop, ServerRestart, ServerUpdate,
         ServerConfigurationView, ServerConfigurationEdit, ServerRegister,
         ModView, ModInstall, ModRemove, ModUpdate, ModApplyApprovedProfile,
         PlayerView, PlayerKick, PlayerBan, PlayerUnban,

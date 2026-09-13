@@ -34,6 +34,7 @@ public static class BuiltInRoles
         new(BuiltInRoleKind.Operator, "Operator",
         [
             Permissions.ServerView, Permissions.ServerStart, Permissions.ServerStop, Permissions.ServerRestart,
+            Permissions.ServerUpdate,
             Permissions.ServerConfigurationView, Permissions.ServerConfigurationEdit,
             Permissions.ModView, Permissions.ModUpdate, Permissions.ModApplyApprovedProfile,
             Permissions.PlayerView, Permissions.PlayerKick, Permissions.PlayerBan, Permissions.PlayerUnban,
