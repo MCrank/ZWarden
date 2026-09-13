@@ -28,11 +28,22 @@ control.
 
 What remained was which proxy, and what it may pass through.
 
-## The allowlist — ten entries
+## The allowlist — eleven entries (ten original + one added by F16)
 
 `GET|HEAD /_ping` · `GET /version` · `GET /info` · `GET /containers/json` ·
-`GET /containers/{id}/json` · `GET /containers/{id}/logs` · `POST /containers/create` ·
-`POST /containers/{id}/start` · `POST /containers/{id}/stop` · `POST /containers/{id}/restart`
+`GET /containers/{id}/json` · `GET /containers/{id}/logs` · `GET /containers/{id}/stats?stream=false` ·
+`POST /containers/create` · `POST /containers/{id}/start` · `POST /containers/{id}/stop` ·
+`POST /containers/{id}/restart`
+
+> **Amendment (F16, [#37](https://github.com/MCrank/ZWarden/issues/37)):** a single **read-only** eleventh
+> entry, `GET /containers/{id}/stats` (used non-streaming, `?stream=false`), was added so the Agent's
+> runtime-metrics sampler can read a container's CPU and memory (F16 PR-B). It is a `GET`, sits beside the
+> existing `json`/`logs` reads, and carries **no mutation and no exec** — it does not widen the compromise
+> surface the way a write verb would, so it does not disturb this ADR's bug-containment-not-compromise-
+> containment classification. Disk usage is read from the host bind-mount directly, not through the socket, and
+> **no streaming stats** are used (a long-lived stats stream through wollomatic is untested — the same caveat
+> that stands for log streaming below). The integration drift test carries the amended allowlist so any
+> divergence between what the Agent calls and what the deployment permits still fails the build.
 
 Denied explicitly, among others: `DELETE /containers/{id}`, `POST /containers/prune`,
 `/containers/{id}/kill`, `/containers/{id}/exec` **and** `/exec/{id}/start`,

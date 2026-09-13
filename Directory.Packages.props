@@ -52,6 +52,19 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Observability baseline (ADR 0024, F16): OpenTelemetry SDK + hosting, auto-instrumentation for
+         ASP.NET Core and HttpClient, and the OTLP + Console exporters. OTLP is opt-in via configuration
+         (no endpoint => off); no Prometheus exporter ships (it never stabilised — F16 non-goal). Co-versioned
+         at 1.18.0 — the version the F16 scope calls "OTel core is stable"; past the NU1902 advisories on the
+         1.9.x line. Exact pins (ADR 0002 discipline). -->
+    <PackageVersion Include="OpenTelemetry.Extensions.Hosting" Version="1.18.0" />
+    <PackageVersion Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.18.0" />
+    <PackageVersion Include="OpenTelemetry.Exporter.Console" Version="1.18.0" />
+    <PackageVersion Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.18.0" />
+    <PackageVersion Include="OpenTelemetry.Instrumentation.Http" Version="1.18.0" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Data layer (ADR 0004/0005), exact pins as exercised in the dual-provider spike. -->
     <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.12" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.12" />

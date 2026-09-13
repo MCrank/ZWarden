@@ -43,6 +43,11 @@ internal sealed class FakeDockerEngine : IDockerEngine
     public Task<EngineContainer> InspectAsync(string containerId, CancellationToken cancellationToken) =>
         Task.FromResult(InspectResult ?? throw new InvalidOperationException("No inspect result arranged."));
 
+    public ContainerStatsSnapshot StatsResult { get; set; }
+
+    public Task<ContainerStatsSnapshot> StatsAsync(string containerId, CancellationToken cancellationToken) =>
+        Task.FromResult(StatsResult);
+
     public Task<string> CreateAsync(CreateContainerParameters parameters, CancellationToken cancellationToken)
     {
         CreatedWith = parameters;

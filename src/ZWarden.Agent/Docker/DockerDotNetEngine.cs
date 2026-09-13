@@ -73,8 +73,63 @@ public sealed class DockerDotNetEngine : IDockerEngine
         return new EngineContainer(r.ID, labels, state, MapPorts(r.NetworkSettings?.Ports), health, exitCode, oomKilled);
     }
 
+    /// <inheritdoc />
+    public async Task<ContainerStatsSnapshot> StatsAsync(string containerId, CancellationToken cancellationToken)
+    {
+        // Stream=false yields exactly one stats frame. A custom IProgress captures it synchronously (unlike
+        // System.Progress<T>, which would marshal the callback and could race the await's completion).
+        SingleStats sink = new();
+        await _client.Containers
+            .GetContainerStatsAsync(containerId, new ContainerStatsParameters { Stream = false }, sink, cancellationToken)
+            .ConfigureAwait(false);
+
+        ContainerStatsResponse r = sink.Value
+            ?? throw new InvalidOperationException("The Docker daemon returned no stats frame.");
+
+        uint onlineCpus = r.CPUStats?.OnlineCPUs ?? 0;
+        if (onlineCpus == 0 && r.CPUStats?.CPUUsage?.PercpuUsage is { Count: > 0 } perCpu)
+        {
+            onlineCpus = (uint)perCpu.Count;
+        }
+
+        return new ContainerStatsSnapshot(
+            CpuTotalUsage: r.CPUStats?.CPUUsage?.TotalUsage ?? 0,
+            PreCpuTotalUsage: r.PreCPUStats?.CPUUsage?.TotalUsage ?? 0,
+            SystemCpuUsage: r.CPUStats?.SystemUsage ?? 0,
+            PreSystemCpuUsage: r.PreCPUStats?.SystemUsage ?? 0,
+            OnlineCpus: onlineCpus,
+            MemoryUsage: r.MemoryStats?.Usage ?? 0,
+            MemoryCache: ReclaimableCache(r.MemoryStats?.Stats),
+            MemoryLimit: r.MemoryStats?.Limit ?? 0);
+    }
+
+    // The docker CLI subtracts reclaimable page cache from memory usage: cgroup v1 exposes it as "cache",
+    // cgroup v2 as "inactive_file". Prefer whichever the daemon reported; 0 if neither.
+    private static ulong ReclaimableCache(IDictionary<string, ulong>? stats)
+    {
+        if (stats is null)
+        {
+            return 0;
+        }
+
+        if (stats.TryGetValue("cache", out ulong cache))
+        {
+            return cache;
+        }
+
+        return stats.TryGetValue("inactive_file", out ulong inactiveFile) ? inactiveFile : 0;
+    }
+
     private static IReadOnlyDictionary<string, string> ToReadOnly(IDictionary<string, string>? labels) =>
         labels is null ? NoLabels : new Dictionary<string, string>(labels, StringComparer.Ordinal);
+
+    // Captures the single stats frame Stream=false delivers, synchronously as the client reports it.
+    private sealed class SingleStats : IProgress<ContainerStatsResponse>
+    {
+        public ContainerStatsResponse? Value { get; private set; }
+
+        public void Report(ContainerStatsResponse value) => Value = value;
+    }
 
     // Projects inspect's port map ("16261/udp" -> host bindings) into undecorated PublishedPorts. F16's network
     // probe needs the host-side port of a container's published game/query ports.

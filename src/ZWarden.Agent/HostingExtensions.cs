@@ -1,6 +1,7 @@
 using Docker.DotNet;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using ZWarden.Agent.Configuration;
@@ -9,6 +10,7 @@ using ZWarden.Agent.Diagnostics;
 using ZWarden.Agent.Docker;
 using ZWarden.Agent.Health;
 using ZWarden.Agent.Identity;
+using ZWarden.Agent.Observability;
 using ZWarden.Agent.Trust;
 
 namespace ZWarden.Agent;
@@ -21,10 +23,12 @@ namespace ZWarden.Agent;
 public static class HostingExtensions
 {
     /// <summary>Registers the Agent runtime services and hosted lifecycle.</summary>
-    public static IServiceCollection AddAgentRuntime(this IServiceCollection services, IConfiguration configuration)
+    public static IServiceCollection AddAgentRuntime(
+        this IServiceCollection services, IConfiguration configuration, IHostEnvironment environment)
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configuration);
+        ArgumentNullException.ThrowIfNull(environment);
 
         services.AddOptionsWithValidateOnStart<AgentOptions>()
             .Bind(configuration.GetSection(AgentOptions.SectionName))
@@ -74,6 +78,11 @@ public static class HostingExtensions
         // observer that inspects owned containers and evaluates their hierarchical health.
         services.AddSingleton<INetworkReachabilityProbe, UdpNetworkReachabilityProbe>();
         services.AddSingleton<IServerHealthObserver, ServerHealthObserver>();
+        services.AddSingleton<IServerDiskUsageReader, ServerDiskUsageReader>();
+        services.AddSingleton<IServerMetricsSampler, ServerMetricsSampler>();
+
+        // Observability baseline (F16, ADR 0024): OpenTelemetry SDK + HttpClient instrumentation + opt-in OTLP.
+        services.AddAgentTelemetry(configuration, environment);
 
         // Control plane (F10): the outbound SignalR connection the Agent opens once enrolled.
         services.AddSingleton<AgentCommandProcessor>();
@@ -87,6 +96,7 @@ public static class HostingExtensions
         // F16: reports server-health transitions between snapshots. Runs after the connection is opened; its sends
         // no-op while disconnected, so ordering is a convenience, not a correctness requirement.
         services.AddHostedService<ServerHealthMonitor>();
+        services.AddHostedService<ServerMetricsMonitor>();
         services.AddHostedService<AgentWorker>();
 
         return services;

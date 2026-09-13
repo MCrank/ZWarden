@@ -108,6 +108,21 @@ public sealed partial class SignalRControlPlaneConnection : IAgentControlPlaneCo
     }
 
     /// <inheritdoc />
+    public async Task SendMetricsReportAsync(
+        IReadOnlyList<ServerMetricsSample> samples, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(samples);
+        if (_connection is not { State: HubConnectionState.Connected } connection)
+        {
+            return;
+        }
+
+        Envelope<ServerMetricsReport> envelope = Envelope.Create(
+            new ServerMetricsReport(samples), _timeProvider.GetUtcNow());
+        await connection.SendAsync(AgentHubProtocol.MetricsReport, envelope, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
     public async Task StopAsync(CancellationToken cancellationToken = default)
     {
         if (_connection is not null)

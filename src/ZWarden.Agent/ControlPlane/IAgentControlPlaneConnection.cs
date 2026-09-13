@@ -35,6 +35,11 @@ public interface IAgentControlPlaneConnection : IAsyncDisposable
         HealthBreakdown breakdown,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Reports the latest runtime-metrics sample for each managed Server (F16); a no-op while
+    /// disconnected/reconnecting.</summary>
+    Task SendMetricsReportAsync(
+        IReadOnlyList<ServerMetricsSample> samples, CancellationToken cancellationToken = default);
+
     /// <summary>Stops the connection.</summary>
     Task StopAsync(CancellationToken cancellationToken = default);
 }

@@ -102,6 +102,10 @@ public class AgentConnectionInitializerTests
             CancellationToken cancellationToken = default)
             => Task.CompletedTask;
 
+        public Task SendMetricsReportAsync(
+            IReadOnlyList<ServerMetricsSample> samples, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
         public Task StopAsync(CancellationToken cancellationToken = default)
         {
             Stopped = true;

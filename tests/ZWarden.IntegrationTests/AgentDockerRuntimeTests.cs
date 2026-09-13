@@ -131,7 +131,9 @@ public sealed class AgentDockerRuntimeTests : IAsyncDisposable
                 "-loglevel=INFO",
                 "-listenip=0.0.0.0",
                 "-allowfrom=0.0.0.0/0",
-                "-allowGET=(/v1\\.[0-9]+)?/(_ping|version|info|containers/json|containers/[a-zA-Z0-9_.-]+/(json|logs))",
+                // The eleventh allowlist entry (ADR 0008 as amended by F16): read-only container stats for the
+                // runtime-metrics sampler. It is a GET, alongside json/logs — no mutation, no exec.
+                "-allowGET=(/v1\\.[0-9]+)?/(_ping|version|info|containers/json|containers/[a-zA-Z0-9_.-]+/(json|logs|stats))",
                 "-allowHEAD=(/v1\\.[0-9]+)?/_ping",
                 "-allowPOST=(/v1\\.[0-9]+)?/(containers/create|containers/[a-zA-Z0-9_.-]+/(start|stop|restart))",
                 "-allowbindmountfrom=/tmp",
@@ -154,6 +156,12 @@ public sealed class AgentDockerRuntimeTests : IAsyncDisposable
         string id = await runtime.CreateAsync(SpecFor(ServerId.New(), network), ct);
         _containers.Add(id);
         await runtime.StartAsync(id, ct);
+
+        // The F16 metrics read (GET /containers/{id}/stats?stream=false) round-trips through the amended
+        // allowlist while the container is running.
+        ContainerStatsSnapshot stats = await new DockerDotNetEngine(proxied).StatsAsync(id, ct);
+        await Assert.That(stats.MemoryLimit).IsGreaterThan(0UL);
+
         await runtime.StopAsync(id, ct);
 
         // A denied verb (DELETE) is refused by the allowlist — proving the proxy really constrains the surface.

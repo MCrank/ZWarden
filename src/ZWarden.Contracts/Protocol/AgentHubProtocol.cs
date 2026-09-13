@@ -36,6 +36,10 @@ public static class AgentHubProtocol
     /// <c>Envelope&lt;HealthChanged&gt;</c> (F16); the Server is the envelope's <c>ServerId</c>.</summary>
     public const string HealthChanged = "HealthChanged";
 
+    /// <summary>The Agent's periodic runtime-metrics report, carrying an <c>Envelope&lt;ServerMetricsReport&gt;</c>
+    /// (F16); ZWarden.Web keeps only the latest per Server and pushes it to the live UI.</summary>
+    public const string MetricsReport = "MetricsReport";
+
     /// <summary>
     /// The client method ZWarden.Web invokes on the Agent to dispatch an operation's command (F11). Its one
     /// argument is the <b>canonical wire JSON string</b> of an <c>Envelope&lt;AgentCommand&gt;</c> (produced by

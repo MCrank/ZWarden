@@ -38,5 +38,6 @@ instead. New ADRs take the next number and follow [`TEMPLATE.md`](./TEMPLATE.md)
 | [0021](./0021-serilog-is-the-logging-stack.md) | Serilog is ZWarden's logging stack, introduced by the Agent runtime (F8) | #30 |
 | [0022](./0022-operation-lifecycle-and-per-server-locking.md) | The Operation lifecycle, its failure/timeout semantics, and the realized per-server lock | #33 |
 | [0023](./0023-server-health-model-and-observed-delivery.md) | The hierarchical server-health model (five states, four probes) and its observed delivery | #37 |
+| [0024](./0024-opentelemetry-observability-baseline.md) | The OpenTelemetry observability baseline: SDK, opt-in OTLP, no Prometheus | #37 |
 
 When you add an ADR, add its row here in the same commit.

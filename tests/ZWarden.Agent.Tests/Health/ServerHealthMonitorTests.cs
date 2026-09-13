@@ -173,6 +173,10 @@ public class ServerHealthMonitorTests
             return Task.CompletedTask;
         }
 
+        public Task SendMetricsReportAsync(
+            IReadOnlyList<ServerMetricsSample> samples, CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+
         public Task<ProtocolNegotiationResult> StartAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(ProtocolCompatibility.Negotiate(ProtocolVersion.Current, ProtocolVersionRange.Supported));
 

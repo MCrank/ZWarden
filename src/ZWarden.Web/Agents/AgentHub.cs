@@ -9,6 +9,7 @@ using ZWarden.Contracts.Protocol.Messages;
 using ZWarden.Domain.Audit;
 using ZWarden.Domain.Ids;
 using ZWarden.Infrastructure.Agents;
+using ZWarden.Web.Observability;
 using ZWarden.Web.Servers;
 
 namespace ZWarden.Web.Agents;
@@ -29,6 +30,8 @@ public sealed partial class AgentHub : Hub
     private readonly IAgentConnectionStateWriter _state;
     private readonly IOperationStore _operations;
     private readonly IServerStateReconciler _servers;
+    private readonly IServerMetricsCache _metrics;
+    private readonly ControlPlaneMetrics _telemetry;
     private readonly IAuditWriter _audit;
     private readonly ILogger<AgentHub> _logger;
 
@@ -37,6 +40,8 @@ public sealed partial class AgentHub : Hub
         IAgentConnectionStateWriter state,
         IOperationStore operations,
         IServerStateReconciler servers,
+        IServerMetricsCache metrics,
+        ControlPlaneMetrics telemetry,
         IAuditWriter audit,
         ILogger<AgentHub> logger)
     {
@@ -44,12 +49,16 @@ public sealed partial class AgentHub : Hub
         ArgumentNullException.ThrowIfNull(state);
         ArgumentNullException.ThrowIfNull(operations);
         ArgumentNullException.ThrowIfNull(servers);
+        ArgumentNullException.ThrowIfNull(metrics);
+        ArgumentNullException.ThrowIfNull(telemetry);
         ArgumentNullException.ThrowIfNull(audit);
         ArgumentNullException.ThrowIfNull(logger);
         _registry = registry;
         _state = state;
         _operations = operations;
         _servers = servers;
+        _metrics = metrics;
+        _telemetry = telemetry;
         _audit = audit;
         _logger = logger;
     }
@@ -192,7 +201,37 @@ public sealed partial class AgentHub : Hub
                 change.Payload.ServerId,
                 WireServerHealth.ToDomain(change.Payload.Health),
                 Context.ConnectionAborted).ConfigureAwait(false);
+            _telemetry.RecordHealthTransition(change.Payload.Health);
         }
+    }
+
+    /// <summary>
+    /// The Agent's periodic runtime-metrics report (F16): the latest CPU/memory/disk sample per Server. Metrics
+    /// are transient — recorded in the in-memory <see cref="IServerMetricsCache"/> (latest-sample-only) and pushed
+    /// to the live UI, never persisted or audited. Each sample is stamped with the reporting Agent so the cache
+    /// can refuse a sample forged for a Server this Agent does not own (trust-boundaries.md §8).
+    /// </summary>
+    public Task MetricsReport(Envelope<ServerMetricsReport> report)
+    {
+        ArgumentNullException.ThrowIfNull(report);
+        if (AgentClaims.TryGetAgentId(Context.User, out AgentId agentId))
+        {
+            List<Application.Servers.ServerMetrics> mapped = report.Payload.Samples
+                .Select(s => new Application.Servers.ServerMetrics(
+                    agentId,
+                    s.ServerId,
+                    s.CpuPercent,
+                    s.MemoryUsedBytes,
+                    s.MemoryLimitBytes,
+                    s.DiskUsedBytes,
+                    s.DiskCapacityBytes,
+                    s.PlayerCount,
+                    s.SampledAt))
+                .ToList();
+            _metrics.Record(mapped);
+        }
+
+        return Task.CompletedTask;
     }
 
     /// <summary>
