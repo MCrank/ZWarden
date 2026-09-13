@@ -17,7 +17,10 @@ public sealed record AgentStateSnapshot(IReadOnlyList<ServerState> Servers) : Ag
     public static AgentStateSnapshot Empty { get; } = new(ReadOnlyCollection<ServerState>.Empty);
 }
 
-/// <summary>One Server's observed run-state within an <see cref="AgentStateSnapshot"/>.</summary>
+/// <summary>One Server's observed state within an <see cref="AgentStateSnapshot"/>.</summary>
 /// <param name="ServerId">The Server.</param>
 /// <param name="RunState">Its observed run-state.</param>
-public sealed record ServerState(ServerId ServerId, ServerRunState RunState);
+/// <param name="Health">Its observed hierarchical health rollup (F16). Additive and optional (ADR 0020):
+/// <c>null</c> from an Agent that predates F16 or has not yet computed a rollup — the reconciler leaves the
+/// persisted health untouched in that case.</param>
+public sealed record ServerState(ServerId ServerId, ServerRunState RunState, ServerHealth? Health = null);

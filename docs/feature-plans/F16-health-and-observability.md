@@ -19,7 +19,7 @@ Turn "last-reported run-state" into a real, **hierarchical health model** with *
 
 Health is a **rollup**, not a synonym for run-state. `ServerRunState` (lifecycle: Unknown/Stopped/Starting/Running/Stopping/Failed) stays exactly as F14 defined it. A new **`ServerHealth`** (Contracts) carries the operator taxonomy — **`Stopped, Starting, Healthy, Degraded, Failed`** — the issue's five, and only those. "Not heard from" is **not** an enum member: it is the **staleness** of `LastHealthReportedAt` (the `Server` doc already frames the timestamp's age as the first-class signal) combined with run-state `Unknown`, rendered by the UI.
 
-The rollup is a **pure domain function** (`ServerHealthEvaluator`) over four probe inputs the Agent gathers, so it is unit-tested exhaustively with no Docker:
+The rollup is a **pure function** (`ServerHealthEvaluator`, Agent-side — it produces the *wire* `ServerHealth` from probe inputs the Agent gathers, and `ServerHealth` mirrors the wire↔domain split of `ServerRunState`: a Contracts enum, a Domain enum, and a `WireServerHealth` map in Web), so it is unit-tested exhaustively with no Docker:
 
 1. **Container probe** — is the container running? From `docker inspect` `State.Status` (already an allowlisted verb; we project the field). Not running ⇒ `Stopped` (or `Failed` if it exited non-zero / `OOMKilled`).
 2. **Process probe** — is the GameServer JVM alive and past its own HEALTHCHECK? From inspect `State.Health.Status` — the PZServer image's `HEALTHCHECK` already `pgrep`s the JVM, so **the Agent needs no `exec`** (which the allowlist denies). `starting` ⇒ `Starting`; `unhealthy` ⇒ `Degraded`/`Failed`.
@@ -42,7 +42,7 @@ Metrics are **high-churn and transient** — they are **not** persisted per samp
 
 ### PR-A — Health model + probes + delivery (branch `feat/f16-health-model-and-probes`)
 1. **Contracts:** `ServerHealth` enum; `HealthBreakdown` + component verdict types; enrich `ServerState` with `ServerHealth? Health = null` (additive); new events `ServerStateChanged`, `HealthChanged` (`AgentEvent`, `[ProtocolMessage("server.state-changed" | "server.health-changed")]`); update `ClosedCommandVocabularyTests`/`EnvelopeSerializationTests`/`ProtocolCompatibilityTests` (additive ⇒ no version bump — assert it).
-2. **Domain:** pure `ServerHealthEvaluator` (rollup + breakdown, exhaustively tested); `Server.LastHealth`/`LastHealthReportedAt` + `RecordObservedHealth`.
+2. **Domain:** `ServerHealth` enum mirror; `Server.LastHealth`/`LastHealthReportedAt` + `RecordObservedHealth`. (The pure `ServerHealthEvaluator` rollup lives Agent-side, step 4 — it produces the wire enum.)
 3. **Infrastructure:** EF mapping + `AddServerHealth` migration (both providers); `IServerStateReconciler` persists health from snapshot + `HealthChanged`; `ServerAuditActions.HealthChanged`.
 4. **Agent:** project `State.Health`/`RestartCount`/`OOMKilled` on `EngineContainer` (inspect mapping only — no new verb); container/process/startup/network probe gatherers; `ServerHealthMonitor` hosted loop → evaluate → emit `ServerStateChanged`/`HealthChanged` on transition; network probe is a host-side UDP reachability check.
 5. **Web:** `AgentHub` receivers for the two events → reconciler; ADR **0023** (health model + delivery).
