@@ -1,0 +1,222 @@
+@page "/servers"
+@attribute [Authorize]
+@using System.Security.Claims
+@using ZWarden.Application.Authorization
+@using ZWarden.Domain.Authorization
+@using ZWarden.Domain.Ids
+@inject IServerInventory Inventory
+@inject IPermissionChecker PermissionChecker
+@inject UserManager<ApplicationUser> Users
+@inject NavigationManager Nav
+
+@* Static server render (no @rendermode), like /audit: the page runs per request with a live HttpContext so
+   the session-derived tenant resolves and the read is tenant-filtered. It is gated by [Authorize]
+   (authenticated) rather than a Server.View policy, because Server.View is server-scoped and a policy check
+   with no resource denies outright (ADR 0018) — instead the inventory self-filters to the Servers the caller
+   may view, fail-closed. Import is shown only to holders of the tenant-wide Server.Register. The live,
+   virtualized BbDataGrid fleet view (ADR 0003) arrives with F16 telemetry / F36, when the view goes
+   interactive; F14 shows last-reported state over a plain server-rendered table. All Agent-reported text is
+   untrusted and rendered as data (trust-boundaries.md §3). *@
+
+<PageTitle>Servers — ZWarden</PageTitle>
+
+<h1 class="text-2xl font-semibold tracking-tight">Servers</h1>
+<p class="mt-1 text-sm text-muted-foreground">
+    Your fleet of managed Project Zomboid servers, filtered to those you may view. State is the last the
+    managing Agent reported.
+</p>
+
+<div class="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+    <div class="rounded border border-border bg-card p-4">
+        <div class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Running</div>
+        <div class="mt-1 font-mono text-2xl tabular-nums text-status-running">@_running</div>
+    </div>
+    <div class="rounded border border-border bg-card p-4">
+        <div class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Needs attention</div>
+        <div class="mt-1 font-mono text-2xl tabular-nums text-status-unhealthy">@_needsAttention</div>
+    </div>
+    <div class="rounded border border-border bg-card p-4">
+        <div class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Total</div>
+        <div class="mt-1 font-mono text-2xl tabular-nums text-foreground">@_servers.Count</div>
+    </div>
+    <div class="rounded border border-border bg-card p-4">
+        <div class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Hosts</div>
+        <div class="mt-1 font-mono text-2xl tabular-nums text-foreground">@_hosts</div>
+    </div>
+</div>
+
+<div class="mt-6 overflow-x-auto">
+    <table class="w-full border-collapse text-left text-sm">
+        <thead>
+            <tr class="border-b border-border text-muted-foreground">
+                <th class="py-2 pr-4 font-medium">Name</th>
+                <th class="py-2 pr-4 font-medium">Status</th>
+                <th class="py-2 pr-4 font-medium">Host</th>
+                <th class="py-2 pr-4 font-medium">Ports</th>
+                <th class="py-2 pr-4 font-medium">Last reported (UTC)</th>
+            </tr>
+        </thead>
+        <tbody>
+            @if (_servers.Count == 0)
+            {
+                <tr>
+                    <td colspan="5" class="py-4 text-muted-foreground" data-servers-empty>
+                        No servers yet. Import a discovered container below to bring one under management.
+                    </td>
+                </tr>
+            }
+            @foreach (ServerSummary server in _servers)
+            {
+                <tr class="border-b border-border" data-server-row>
+                    <td class="py-2 pr-4 font-medium">
+                        @server.Name
+                        @if (!string.IsNullOrWhiteSpace(server.Description))
+                        {
+                            <span class="block text-xs text-muted-foreground">@server.Description</span>
+                        }
+                    </td>
+                    <td class="py-2 pr-4"><StatusBadge State="server.LastRunState" /></td>
+                    <td class="py-2 pr-4 font-mono text-xs text-muted-foreground">@server.AgentId</td>
+                    <td class="py-2 pr-4 font-mono tabular-nums text-xs">@Ports(server)</td>
+                    <td class="py-2 pr-4 tabular-nums text-muted-foreground">@Reported(server)</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</div>
+
+@if (_canRegister)
+{
+    <section class="mt-10">
+        <h2 class="text-lg font-semibold tracking-tight">Import a discovered container</h2>
+        <p class="mt-1 text-sm text-muted-foreground">
+            Canonical containers an Agent has reported that are not yet registered. Adopting one brings it
+            under management as a Server.
+        </p>
+
+        @if (_importMessage is not null)
+        {
+            <p class="mt-3 rounded border border-border bg-card px-3 py-2 text-sm" data-import-message>@_importMessage</p>
+        }
+
+        @if (_discovered.Count == 0)
+        {
+            <p class="mt-3 text-sm text-muted-foreground" data-discovered-empty>
+                No unregistered containers discovered. They appear here once a connected Agent reports them.
+            </p>
+        }
+        else
+        {
+            <EditForm Model="_form" FormName="import-server" OnValidSubmit="ImportAsync" class="mt-4 flex flex-wrap items-end gap-3">
+                <DataAnnotationsValidator />
+                <label class="flex flex-col text-sm">
+                    <span class="mb-1 text-muted-foreground">Discovered container</span>
+                    <InputSelect @bind-Value="_form!.Target" class="rounded border border-input bg-background px-2 py-1">
+                        <option value="">Select…</option>
+                        @foreach (DiscoveredServerOnAgent d in _discovered)
+                        {
+                            <option value="@($"{d.AgentId}|{d.ServerId}")">@d.ServerId (@d.RunState on @d.AgentId)</option>
+                        }
+                    </InputSelect>
+                </label>
+                <label class="flex flex-col text-sm">
+                    <span class="mb-1 text-muted-foreground">Name</span>
+                    <InputText @bind-Value="_form!.Name" class="rounded border border-input bg-background px-2 py-1" />
+                </label>
+                <button type="submit" class="rounded border border-input bg-primary px-3 py-1 text-sm font-medium text-primary-foreground">
+                    Import
+                </button>
+            </EditForm>
+        }
+    </section>
+}
+
+@code {
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthState { get; set; }
+
+    [SupplyParameterFromForm(FormName = "import-server")]
+    private ImportModel? _form { get; set; }
+
+    private IReadOnlyList<ServerSummary> _servers = [];
+    private IReadOnlyList<DiscoveredServerOnAgent> _discovered = [];
+    private bool _canRegister;
+    private int _running;
+    private int _needsAttention;
+    private int _hosts;
+    private string? _importMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _form ??= new ImportModel();
+        UserId user = await CurrentUserAsync();
+
+        _servers = await Inventory.ListVisibleAsync(user);
+        _running = _servers.Count(s => s.LastRunState == ServerRunState.Running);
+        _needsAttention = _servers.Count(s => s.LastRunState == ServerRunState.Failed);
+        _hosts = _servers.Select(s => s.AgentId).Distinct().Count();
+
+        _canRegister = (await PermissionChecker.EvaluateAsync(user, Permissions.ServerRegister)).IsAllowed;
+        if (_canRegister)
+        {
+            _discovered = await Inventory.ListAllDiscoveredUnregisteredAsync();
+        }
+    }
+
+    private async Task ImportAsync()
+    {
+        UserId user = await CurrentUserAsync();
+        ImportModel form = _form ?? new ImportModel();
+        if (string.IsNullOrWhiteSpace(form.Target) || string.IsNullOrWhiteSpace(form.Name))
+        {
+            _importMessage = "Choose a discovered container and a name.";
+            return;
+        }
+
+        string[] parts = form.Target.Split('|');
+        if (parts.Length != 2
+            || !AgentId.TryParse(parts[0], out AgentId agentId)
+            || !ServerId.TryParse(parts[1], out ServerId serverId))
+        {
+            _importMessage = "That selection is no longer valid.";
+            return;
+        }
+
+        ServerImportResult result = await Inventory.ImportAsync(user, agentId, serverId, form.Name.Trim());
+        if (result.Succeeded)
+        {
+            // Redirect after post so a refresh does not re-submit and the new Server shows in the table.
+            Nav.NavigateTo("/servers");
+            return;
+        }
+
+        _importMessage = result.Failure switch
+        {
+            ServerImportFailure.NotAuthorized => "You are not permitted to register servers.",
+            ServerImportFailure.AgentNotFound => "That host is no longer known.",
+            ServerImportFailure.NotDiscovered => "That container is no longer discovered.",
+            _ => "The import could not be completed.",
+        };
+    }
+
+    private async Task<UserId> CurrentUserAsync()
+    {
+        ClaimsPrincipal principal = (await AuthState!).User;
+        return Guid.TryParse(Users.GetUserId(principal), out Guid id)
+            ? UserId.FromGuid(id)
+            : throw new InvalidOperationException("Authenticated request carries no user id claim.");
+    }
+
+    private static string Ports(ServerSummary s)
+        => s.GamePort is int game && s.QueryPort is int query ? $"{game} / {query}" : "—";
+
+    private static string Reported(ServerSummary s)
+        => s.LastStateReportedAt?.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss") ?? "—";
+
+    private sealed class ImportModel
+    {
+        public string? Target { get; set; }
+
+        public string? Name { get; set; }
+    }
+}

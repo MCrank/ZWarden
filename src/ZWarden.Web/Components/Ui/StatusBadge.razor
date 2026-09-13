@@ -1,34 +1,45 @@
+@using ZWarden.Domain.Servers
 @* ZWarden owns the status badge outright (ADR 0003): Blueprint's BbBadge hard-codes
    `rounded-full` with no semantic status variant, and on an ops console the status
-   colour IS the signal. Squared, fixed-width, dot + label - the Signal identity.
-   Feature 0 establishes the wrapper-seam RULE with this one owned component; the full
-   dot-hue / label-ink 4.5:1 contrast contract is finished by the UI features. *@
+   colour IS the signal. Squared, fixed-width, dot + uppercase label - the Signal
+   identity. F14 finishes the F0 placeholder against the --status-* token ramp
+   (style-guide.md): the dot carries the pure status hue, the border tints to it, and
+   the label ink stays --foreground so it clears 4.5:1 in both themes. Driven by the
+   Domain's last-reported ServerRunState. The class strings are full literals so the
+   Tailwind content scan emits them (ADR 0003 condition 2). *@
 
-<span class="inline-flex items-center gap-1.5 rounded-sm border px-2 py-0.5 text-xs font-medium @LabelClass">
+<span class="inline-flex w-[108px] items-center gap-1.5 rounded-sm border px-2 py-0.5 text-xs font-medium text-foreground @BorderClass">
     <span class="inline-block h-2 w-2 rounded-full @DotClass"></span>
     @Label
 </span>
 
 @code {
+    /// <summary>The Server's last-reported run-state (F14). The hierarchical health model is F16's.</summary>
     [Parameter]
     [EditorRequired]
-    public ServerStatus Status { get; set; }
+    public ServerRunState State { get; set; }
 
-    private string Label => Status.ToString().ToUpperInvariant();
+    private string Label => State.ToString().ToUpperInvariant();
 
-    private string LabelClass => Status switch
+    // running -> green, stopped -> grey, starting/stopping -> amber ("busy"), failed -> red,
+    // unknown -> violet ("agent unreachable, not down"). The ramp is tuned per theme in zwarden.css.
+    private string BorderClass => State switch
     {
-        ServerStatus.Healthy => "border-emerald-300 text-emerald-800",
-        ServerStatus.Degraded => "border-amber-300 text-amber-800",
-        ServerStatus.Unhealthy => "border-red-300 text-red-800",
-        _ => "border-slate-300 text-slate-700",
+        ServerRunState.Running => "border-status-running",
+        ServerRunState.Stopped => "border-status-stopped",
+        ServerRunState.Starting => "border-status-busy",
+        ServerRunState.Stopping => "border-status-busy",
+        ServerRunState.Failed => "border-status-unhealthy",
+        _ => "border-status-unknown",
     };
 
-    private string DotClass => Status switch
+    private string DotClass => State switch
     {
-        ServerStatus.Healthy => "bg-emerald-500",
-        ServerStatus.Degraded => "bg-amber-500",
-        ServerStatus.Unhealthy => "bg-red-500",
-        _ => "bg-slate-400",
+        ServerRunState.Running => "bg-status-running",
+        ServerRunState.Stopped => "bg-status-stopped",
+        ServerRunState.Starting => "bg-status-busy",
+        ServerRunState.Stopping => "bg-status-busy",
+        ServerRunState.Failed => "bg-status-unhealthy",
+        _ => "bg-status-unknown",
     };
 }

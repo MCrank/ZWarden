@@ -3,11 +3,13 @@ using Microsoft.AspNetCore.SignalR;
 using ZWarden.Application.Agents;
 using ZWarden.Application.Audit;
 using ZWarden.Application.Operations;
+using ZWarden.Application.Servers;
 using ZWarden.Contracts.Protocol;
 using ZWarden.Contracts.Protocol.Messages;
 using ZWarden.Domain.Audit;
 using ZWarden.Domain.Ids;
 using ZWarden.Infrastructure.Agents;
+using ZWarden.Web.Servers;
 
 namespace ZWarden.Web.Agents;
 
@@ -26,6 +28,7 @@ public sealed partial class AgentHub : Hub
     private readonly IAgentConnectionRegistry _registry;
     private readonly IAgentConnectionStateWriter _state;
     private readonly IOperationStore _operations;
+    private readonly IServerStateReconciler _servers;
     private readonly IAuditWriter _audit;
     private readonly ILogger<AgentHub> _logger;
 
@@ -33,17 +36,20 @@ public sealed partial class AgentHub : Hub
         IAgentConnectionRegistry registry,
         IAgentConnectionStateWriter state,
         IOperationStore operations,
+        IServerStateReconciler servers,
         IAuditWriter audit,
         ILogger<AgentHub> logger)
     {
         ArgumentNullException.ThrowIfNull(registry);
         ArgumentNullException.ThrowIfNull(state);
         ArgumentNullException.ThrowIfNull(operations);
+        ArgumentNullException.ThrowIfNull(servers);
         ArgumentNullException.ThrowIfNull(audit);
         ArgumentNullException.ThrowIfNull(logger);
         _registry = registry;
         _state = state;
         _operations = operations;
+        _servers = servers;
         _audit = audit;
         _logger = logger;
     }
@@ -127,9 +133,11 @@ public sealed partial class AgentHub : Hub
     }
 
     /// <summary>
-    /// The Agent's post-(re)connect state report. F10 wires the channel end to end; the payload is host-level
-    /// (empty server set) until F13/F14 give the Agent a Docker runtime and Server inventory. Advances the
-    /// persisted last-seen.
+    /// The Agent's post-(re)connect state report (F14). Advances the persisted last-seen and reconciles the
+    /// observed run-state onto the persisted Servers — observed, never inferred (trust-boundaries.md §3). The
+    /// wire run-state is mapped onto the Domain's own (D4); the observed set also refreshes the discovery
+    /// cache so unregistered containers can be offered for import. The payload is untrusted: it updates only
+    /// Servers this tenant owns and creates none.
     /// </summary>
     public async Task StateSnapshot(Envelope<AgentStateSnapshot> snapshot)
     {
@@ -137,6 +145,11 @@ public sealed partial class AgentHub : Hub
         if (AgentClaims.TryGetAgentId(Context.User, out AgentId agentId))
         {
             await _state.MarkHeartbeatAsync(agentId, Context.ConnectionAborted).ConfigureAwait(false);
+
+            List<DiscoveredServer> observed = snapshot.Payload.Servers
+                .Select(s => new DiscoveredServer(s.ServerId, WireServerRunState.ToDomain(s.RunState)))
+                .ToList();
+            await _servers.ReconcileAsync(agentId, observed, Context.ConnectionAborted).ConfigureAwait(false);
             LogSnapshot(agentId, snapshot.Payload.Servers.Count);
         }
     }

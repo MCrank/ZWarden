@@ -15,9 +15,9 @@
    the Tailwind build over this markup - the exact classes the stale-app.css guard exists
    to protect. *@
 <div class="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
-    <StatusBadge Status="ServerStatus.Healthy" />
-    <StatusBadge Status="ServerStatus.Degraded" />
-    <StatusBadge Status="ServerStatus.Unhealthy" />
+    <StatusBadge State="ZWarden.Domain.Servers.ServerRunState.Running" />
+    <StatusBadge State="ZWarden.Domain.Servers.ServerRunState.Starting" />
+    <StatusBadge State="ZWarden.Domain.Servers.ServerRunState.Failed" />
 </div>
 
 <div class="mt-6">

@@ -6,6 +6,7 @@ using ZWarden.Infrastructure.Identity;
 using ZWarden.Infrastructure.Operations;
 using ZWarden.Infrastructure.Persistence;
 using ZWarden.Infrastructure.Security;
+using ZWarden.Infrastructure.Servers;
 using ZWarden.Infrastructure.Tenancy;
 using ZWarden.Web.Agents;
 using ZWarden.Web.Operations;
@@ -13,6 +14,7 @@ using ZWarden.Web.Components;
 using ZWarden.Web.Components.Account;
 using ZWarden.Web.Components.Agents;
 using ZWarden.Web.Components.Operations;
+using ZWarden.Web.Components.Servers;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
@@ -47,6 +49,7 @@ builder.Services.AddZWardenAuthorization();        // F5: decision service, poli
 builder.Services.AddZWardenAudit();                 // F6: writer, query, correlation, durable auth sink
 builder.Services.AddZWardenEnrollment();            // F9: enrollment issuance/exchange, trust management, verifier
 builder.Services.AddZWardenOperations();            // F11: operations engine — coordinator, store, per-server lock (PR-B adds dispatch)
+builder.Services.AddZWardenServers();               // F14: Server inventory + import, snapshot reconciler, discovery cache
 builder.Services.AddAgentControlPlane();            // F10: Agent hub, handshake auth scheme, connection registry + monitor
 builder.Services.AddOperationDispatch();            // F11 PR-B: real operation dispatcher over the SignalR connection
 
@@ -76,6 +79,10 @@ app.MapEnrollmentEndpoints();
 
 // The operator operations API (enqueue a diagnostic ping, read operation state), gated by Agent.Manage (F11).
 app.MapOperationEndpoints();
+
+// The operator Server inventory + import API (F14): list is authenticated + self-filtering, import/discovery
+// gated by Server.Register.
+app.MapServerEndpoints();
 
 // The SignalR Agent hub (F10) — Agents connect outbound here over WSS, authenticated by the "Agent" scheme.
 app.MapAgentHub();
