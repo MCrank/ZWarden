@@ -28,28 +28,34 @@
     managing Agent reported.
 </p>
 
+@* KPI tiles on the Blueprint BbCard surface (ADR 0003 seam) — the card chrome (border, radius, shadow,
+   bg-card) comes from the component; only the compact stat layout is ZWarden's. *@
 <div class="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-    <div class="rounded border border-border bg-card p-4">
+    <BbCard Class="p-4">
         <div class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Running</div>
         <div class="mt-1 font-mono text-2xl tabular-nums text-status-running">@_running</div>
-    </div>
-    <div class="rounded border border-border bg-card p-4">
+    </BbCard>
+    <BbCard Class="p-4">
         <div class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Needs attention</div>
         <div class="mt-1 font-mono text-2xl tabular-nums text-status-unhealthy">@_needsAttention</div>
-    </div>
-    <div class="rounded border border-border bg-card p-4">
+    </BbCard>
+    <BbCard Class="p-4">
         <div class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Total</div>
         <div class="mt-1 font-mono text-2xl tabular-nums text-foreground">@_servers.Count</div>
-    </div>
-    <div class="rounded border border-border bg-card p-4">
+    </BbCard>
+    <BbCard Class="p-4">
         <div class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Hosts</div>
         <div class="mt-1 font-mono text-2xl tabular-nums text-foreground">@_hosts</div>
-    </div>
+    </BbCard>
 </div>
 
 @if (_lifecycleMessage is not null)
 {
-    <p class="mt-4 rounded border border-border bg-card px-3 py-2 text-sm" data-lifecycle-message>@_lifecycleMessage</p>
+    <div class="mt-4" data-lifecycle-message>
+        <BbAlert Variant="AlertVariant.Warning" AccentBorder>
+            <BbAlertDescription>@_lifecycleMessage</BbAlertDescription>
+        </BbAlert>
+    </div>
 }
 
 @* One EditForm wraps the fleet table so each row's Start/Stop/Restart is a static-SSR submit (no circuit,
@@ -95,25 +101,26 @@
                     <td class="py-2 pr-4" data-lifecycle-actions>
                         @{ LifecyclePermissions perm = PermissionsFor(server.Id); }
                         <div class="flex flex-wrap gap-2">
+                            @* Blueprint form primitives over the seam (ADR 0003): BbButton splats name/value/
+                               data-* to the underlying <button>, so the "{serverId}|{verb}" static-SSR submit
+                               works while keeping the app's cohesive button styling. Disabled is a hint from the
+                               last-reported state, never the gate (the service re-checks server-side). *@
                             @if (perm.CanStart)
                             {
-                                <button type="submit" name="_lifecycleForm.Target" value="@($"{server.Id}|start")"
-                                        data-action="start"
-                                        disabled="@(server.LastRunState == ServerRunState.Running)"
-                                        class="rounded border border-border px-2 py-1 text-xs font-medium hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40">Start</button>
+                                <BbButton Type="ButtonType.Submit" Variant="ButtonVariant.Outline" Size="ButtonSize.Small"
+                                          Disabled="@(server.LastRunState == ServerRunState.Running)"
+                                          name="_lifecycleForm.Target" value="@($"{server.Id}|start")" data-action="start">Start</BbButton>
                             }
                             @if (perm.CanStop)
                             {
-                                <button type="submit" name="_lifecycleForm.Target" value="@($"{server.Id}|stop")"
-                                        data-action="stop"
-                                        disabled="@(server.LastRunState == ServerRunState.Stopped)"
-                                        class="rounded border border-border px-2 py-1 text-xs font-medium hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40">Stop</button>
+                                <BbButton Type="ButtonType.Submit" Variant="ButtonVariant.Outline" Size="ButtonSize.Small"
+                                          Disabled="@(server.LastRunState == ServerRunState.Stopped)"
+                                          name="_lifecycleForm.Target" value="@($"{server.Id}|stop")" data-action="stop">Stop</BbButton>
                             }
                             @if (perm.CanRestart)
                             {
-                                <button type="submit" name="_lifecycleForm.Target" value="@($"{server.Id}|restart")"
-                                        data-action="restart"
-                                        class="rounded border border-border px-2 py-1 text-xs font-medium hover:bg-accent">Restart</button>
+                                <BbButton Type="ButtonType.Submit" Variant="ButtonVariant.Outline" Size="ButtonSize.Small"
+                                          name="_lifecycleForm.Target" value="@($"{server.Id}|restart")" data-action="restart">Restart</BbButton>
                             }
                             @if (!perm.CanStart && !perm.CanStop && !perm.CanRestart)
                             {
@@ -138,7 +145,11 @@
 
         @if (_registerMessage is not null)
         {
-            <p class="mt-3 rounded border border-border bg-card px-3 py-2 text-sm" data-register-message>@_registerMessage</p>
+            <div class="mt-3" data-register-message>
+                <BbAlert Variant="AlertVariant.Warning" AccentBorder>
+                    <BbAlertDescription>@_registerMessage</BbAlertDescription>
+                </BbAlert>
+            </div>
         }
 
         @if (_knownAgents.Count == 0)
@@ -179,7 +190,11 @@
 
         @if (_importMessage is not null)
         {
-            <p class="mt-3 rounded border border-border bg-card px-3 py-2 text-sm" data-import-message>@_importMessage</p>
+            <div class="mt-3" data-import-message>
+                <BbAlert Variant="AlertVariant.Warning" AccentBorder>
+                    <BbAlertDescription>@_importMessage</BbAlertDescription>
+                </BbAlert>
+            </div>
         }
 
         @if (_discovered.Count == 0)
