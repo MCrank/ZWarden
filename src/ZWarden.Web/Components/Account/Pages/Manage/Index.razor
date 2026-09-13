@@ -43,10 +43,12 @@
         }
     </div>
 
+    @* Plain POST to the /logout endpoint (not an EditForm); the submit is a Blueprint primitive over the
+       seam (ADR 0003; issue #84), Link variant for the inline sign-out affordance. *@
     <form method="post" action="/logout" class="mt-8">
         <AntiforgeryToken />
         <input type="hidden" name="returnUrl" value="login" />
-        <button type="submit" class="text-sm text-primary hover:underline">Sign out</button>
+        <BbButton Type="ButtonType.Submit" Variant="ButtonVariant.Link" Class="text-sm text-primary hover:underline">Sign out</BbButton>
     </form>
 }
 

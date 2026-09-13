@@ -32,17 +32,15 @@ else if (_user is not null)
                 <StatusAlert Message="@_error" Kind="StatusAlert.AlertKind.Error" />
             }
 
+            @* Blueprint form primitives over the seam (ADR 0003; issue #84) — SSR-safe subset, static POST. *@
             <div class="space-y-1">
-                <label for="code" class="block text-xs font-medium uppercase tracking-[0.1em] text-muted-foreground">Verification code</label>
-                <InputText id="code" @bind-Value="Input.Code" autocomplete="one-time-code" inputmode="numeric"
-                           class="w-full rounded border border-input bg-background px-3 py-2 text-center font-mono text-lg tracking-[0.3em] text-foreground outline-none focus:border-ring focus:ring-1 focus:ring-ring" />
+                <BbLabel For="code" Class="block text-xs font-medium uppercase tracking-[0.1em] text-muted-foreground">Verification code</BbLabel>
+                <BbInput Id="code" @bind-Value="Input.Code" autocomplete="one-time-code" inputmode="numeric"
+                         Class="w-full text-center font-mono text-lg tracking-[0.3em]" />
                 <ValidationMessage For="() => Input.Code" class="text-xs text-destructive" />
             </div>
 
-            <button type="submit"
-                    class="rounded bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground transition hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-ring">
-                Verify &amp; enable
-            </button>
+            <BbButton Type="ButtonType.Submit">Verify &amp; enable</BbButton>
         </EditForm>
     </div>
 }
