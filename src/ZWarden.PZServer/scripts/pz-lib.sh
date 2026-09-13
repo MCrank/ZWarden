@@ -10,6 +10,7 @@ PZ_STEAM_APP_ID="${PZ_STEAM_APP_ID:-380870}"     # the dedicated server (Tool, f
 PZ_STEAM_APPID_TXT="${PZ_STEAM_APPID_TXT:-108600}" # steam_appid.txt must contain ONLY this
 PZ_INSTALL_MARKER=".zwarden-installed"           # written after a verified install
 PZ_LINUX_LAUNCHER="start-server.sh"              # ships in the install dir
+PZ_UPDATE_REQUEST=".zwarden-update-requested"    # F17: Agent-dropped control-file in /pz/data holding the OperationId
 
 # --- Operator-tunable defaults (mini-plan Q3/Q4/Q6) ------------------------------
 : "${ZW_PZ_BETA:=}"                # empty => public (42.20.x); e.g. legacy41, 42.19
@@ -100,6 +101,77 @@ pz_install_with_retry() {
 pz_write_appid() {
   local server_dir="$1"
   printf '%s\n' "${PZ_STEAM_APPID_TXT}" > "${server_dir}/steam_appid.txt"
+}
+
+# --- Update path (F17) -----------------------------------------------------------
+# The Agent cannot exec into the container (ADR 0008 denies exec/attach), so it requests
+# an update by dropping a control-file into the writable /pz/data volume - holding the
+# OperationId - and restarting. The entrypoint then runs `app_update ... validate` PAST the
+# install marker, brackets the run so the Agent can bound its `docker logs` parse, and - unlike
+# a first-run install - treats a failed update as non-fatal (the existing install still boots).
+
+# pz_update_requested <data_dir>
+# Exit 0 when an update control-file is present in the data volume, non-zero otherwise.
+pz_update_requested() {
+  local data_dir="$1"
+  [ -f "${data_dir}/${PZ_UPDATE_REQUEST}" ]
+}
+
+# pz_read_update_session <data_dir>
+# Echoes the OperationId the Agent wrote into the control-file (first line, whitespace trimmed),
+# or empty if absent. This id brackets the SteamCMD output in the log so the Agent parses only
+# the lines of this update session.
+pz_read_update_session() {
+  local data_dir="$1" session=""
+  read -r session < "${data_dir}/${PZ_UPDATE_REQUEST}" 2>/dev/null || true
+  printf '%s' "${session}"
+}
+
+# pz_clear_update_request <data_dir>
+# Removes the control-file. Called after every update attempt - success OR failure - so a
+# persisted request can never drive a restart loop of repeated updates.
+pz_clear_update_request() {
+  local data_dir="$1"
+  rm -f "${data_dir}/${PZ_UPDATE_REQUEST}"
+}
+
+# pz_run_update <steamcmd> <runscript> <session>
+# Runs the same anonymous `app_update ... validate` as an install (via pz_install_with_retry,
+# so the "Missing configuration" retry still applies), bracketed by a begin/end banner carrying
+# the session id. The Agent keys its log-parse window on these banners; the end banner also
+# states the stdout-decided outcome authoritatively. Returns the run's success/failure.
+pz_run_update() {
+  local steamcmd="$1" runscript="$2" session="$3"
+  echo "[zwarden] steamcmd update session ${session} begin"
+  if pz_install_with_retry "${steamcmd}" "${runscript}"; then
+    echo "[zwarden] steamcmd update session ${session} end (success)"
+    return 0
+  fi
+  echo "[zwarden] steamcmd update session ${session} end (failure)"
+  return 1
+}
+
+# pz_apply_update <steamcmd> <server_dir> <data_dir>
+# The whole update disposition: read the session, build the standard validated runscript, run it
+# bracketed, and on success (re)write steam_appid.txt and the install marker. The control-file is
+# cleared unconditionally at the end. Returns 0 on a verified update, non-zero on failure - the
+# caller logs and lets the server boot on the existing install; it must NOT fail-close on this.
+pz_apply_update() {
+  local steamcmd="$1" server_dir="$2" data_dir="$3"
+  local session runscript rc
+  session="$(pz_read_update_session "${data_dir}")"
+  runscript="$(mktemp)"
+  pz_build_steamcmd_runscript "${server_dir}" > "${runscript}"
+  if pz_run_update "${steamcmd}" "${runscript}" "${session}"; then
+    pz_write_appid "${server_dir}"
+    touch "${server_dir}/${PZ_INSTALL_MARKER}"
+    rc=0
+  else
+    rc=1
+  fi
+  rm -f "${runscript}"
+  pz_clear_update_request "${data_dir}"
+  return "${rc}"
 }
 
 # pz_create_layout <root>

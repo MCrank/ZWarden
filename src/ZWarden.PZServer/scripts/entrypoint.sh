@@ -36,6 +36,17 @@ if pz_needs_install "${SERVER_DIR}"; then
     log "SteamCMD failed to install after ${ZW_PZ_INSTALL_ATTEMPTS} attempts; refusing to launch (fail-closed)." >&2
     exit 1
   fi
+elif pz_update_requested "${DATA_DIR}"; then
+  # F17: the Agent requested an update by dropping a control-file (with the OperationId) into
+  # /pz/data and restarting us. Run app_update...validate past the marker; a FAILED update is
+  # non-fatal - the existing install is intact, so we log and boot it (the Operation reports the
+  # failure via the log the Agent parses). The request is always cleared inside pz_apply_update.
+  log "update requested (session $(pz_read_update_session "${DATA_DIR}")); running SteamCMD app_update validate..."
+  if pz_apply_update "${STEAMCMD}" "${SERVER_DIR}" "${DATA_DIR}"; then
+    log "update complete."
+  else
+    log "update FAILED; launching the server on the existing install (the Operation reports the failure)." >&2
+  fi
 else
   log "existing install detected; skipping SteamCMD."
 fi
