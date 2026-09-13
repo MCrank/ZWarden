@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Docker.DotNet;
 using Microsoft.Extensions.Options;
 using ZWarden.Agent.Configuration;
 using ZWarden.Agent.Docker;
@@ -88,6 +89,18 @@ public sealed class AgentCommandProcessor
 
                 return await ProvisionAsync(serverId, operationId, cancellationToken).ConfigureAwait(false);
 
+            case StartServer:
+                return await LifecycleAsync(
+                    envelope, operationId, "start", _containerRuntime.StartAsync, cancellationToken).ConfigureAwait(false);
+
+            case StopServer:
+                return await LifecycleAsync(
+                    envelope, operationId, "stop", _containerRuntime.StopAsync, cancellationToken).ConfigureAwait(false);
+
+            case RestartServer:
+                return await LifecycleAsync(
+                    envelope, operationId, "restart", _containerRuntime.RestartAsync, cancellationToken).ConfigureAwait(false);
+
             default:
                 // A command this Agent version does not understand: leave it unhandled (not marked handled) so
                 // a future version can process a redelivery. The operation's lease reaps it if never handled.
@@ -132,6 +145,58 @@ public sealed class AgentCommandProcessor
         {
             // Actionable, Agent-authored reason (e.g. the pinned image is not pre-provisioned, ADR 0008 D5).
             return Completed(OperationOutcome.Failed, ex.Message, operationId, serverId);
+        }
+    }
+
+    /// <summary>
+    /// Runs a lifecycle verb (start/stop/restart, F15) against the target Server on the envelope. The Agent
+    /// resolves the container it owns for the Server and issues the guarded Docker verb; a Server with no owned
+    /// container, a foreign container, or a Docker refusal becomes a failed completion with an actionable,
+    /// Agent-authored reason (escaped downstream) — never a crash. Deduped by <c>OperationId</c> (PRD 20).
+    /// </summary>
+    private async Task<Envelope<OperationCompleted>?> LifecycleAsync(
+        Envelope<IProtocolMessage> envelope,
+        OperationId operationId,
+        string verb,
+        Func<ServerId, CancellationToken, Task> action,
+        CancellationToken cancellationToken)
+    {
+        if (envelope.ServerId is not { } serverId)
+        {
+            // A lifecycle command with no target Server is malformed — fail it explicitly.
+            return Completed(OperationOutcome.Failed, $"No target Server on the {verb} command.", operationId);
+        }
+
+        if (!_handled.TryAdd(operationId, 0))
+        {
+            return null; // Already handled this operation — a redelivered command (PRD 20).
+        }
+
+        try
+        {
+            await action(serverId, cancellationToken).ConfigureAwait(false);
+            return Completed(OperationOutcome.Succeeded, failureReason: null, operationId, serverId);
+        }
+        catch (ContainerNotFoundException)
+        {
+            return Completed(
+                OperationOutcome.Failed,
+                $"This server has no container on its host to {verb}. Provision (register) the server first.",
+                operationId,
+                serverId);
+        }
+        catch (ForeignContainerException ex)
+        {
+            return Completed(OperationOutcome.Failed, ex.Reason, operationId, serverId);
+        }
+        catch (DockerApiException ex)
+        {
+            // A denied verb (socket proxy, ADR 0008) or any daemon-side error — report, do not crash.
+            return Completed(
+                OperationOutcome.Failed,
+                $"The Docker daemon refused to {verb} the container (HTTP {(int)ex.StatusCode}).",
+                operationId,
+                serverId);
         }
     }
 

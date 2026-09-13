@@ -1,3 +1,5 @@
+using ZWarden.Domain.Ids;
+
 namespace ZWarden.Agent.Docker;
 
 /// <summary>
@@ -34,4 +36,18 @@ public interface IContainerRuntime
 
     /// <summary>Restarts a container the Agent owns. Refuses a foreign container with <see cref="ForeignContainerException"/>.</summary>
     Task RestartAsync(string containerId, CancellationToken cancellationToken);
+
+    /// <summary>Starts the canonical container this Agent owns for <paramref name="serverId"/> (F15). Throws
+    /// <see cref="ContainerNotFoundException"/> when no owned container carries that ServerId.</summary>
+    Task StartAsync(ServerId serverId, CancellationToken cancellationToken);
+
+    /// <summary>Stops the canonical container this Agent owns for <paramref name="serverId"/> safely (F15): a
+    /// Docker stop whose timeout lets the image's entrypoint run the console <c>save</c>→<c>quit</c> over the
+    /// FIFO. Throws <see cref="ContainerNotFoundException"/> when no owned container carries that ServerId.</summary>
+    Task StopAsync(ServerId serverId, CancellationToken cancellationToken);
+
+    /// <summary>Restarts the canonical container this Agent owns for <paramref name="serverId"/> safely (F15),
+    /// carrying the same safe stop timeout as <see cref="StopAsync(ServerId, CancellationToken)"/>. Throws
+    /// <see cref="ContainerNotFoundException"/> when no owned container carries that ServerId.</summary>
+    Task RestartAsync(ServerId serverId, CancellationToken cancellationToken);
 }

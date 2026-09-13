@@ -77,13 +77,7 @@ public sealed class OperationDispatcher : IOperationDispatcher
                 Detail: $"{operation.Kind} {operation.Id}"),
             cancellationToken).ConfigureAwait(false);
 
-        AgentCommand command = operation.Kind switch
-        {
-            OperationKind.DiagnosticsPing => new PingAgent(),
-            OperationKind.DiagnosticsDockerHealth => new ProbeDockerHealth(),
-            OperationKind.ProvisionServer => new CreateServer(),
-            _ => throw new NotSupportedException($"No command mapping for operation kind '{operation.Kind}'."),
-        };
+        AgentCommand command = CommandFor(operation.Kind);
         Envelope<AgentCommand> envelope = Envelope.Create<AgentCommand>(
             command, now, agentId: operation.AgentId, serverId: operation.ServerId, operationId: operation.Id);
 
@@ -92,4 +86,21 @@ public sealed class OperationDispatcher : IOperationDispatcher
             .ConfigureAwait(false);
         return true;
     }
+
+    /// <summary>
+    /// Maps an <see cref="OperationKind"/> to the payload-free <see cref="AgentCommand"/> that carries it down
+    /// the connection. The whole mutating and diagnostic vocabulary is here in one place; a new kind without a
+    /// mapping throws rather than dispatching a wrong command. Pure and static so the map is unit-testable
+    /// without the hub/registry/persistence dependencies.
+    /// </summary>
+    public static AgentCommand CommandFor(OperationKind kind) => kind switch
+    {
+        OperationKind.DiagnosticsPing => new PingAgent(),
+        OperationKind.DiagnosticsDockerHealth => new ProbeDockerHealth(),
+        OperationKind.ProvisionServer => new CreateServer(),
+        OperationKind.StartServer => new StartServer(),
+        OperationKind.StopServer => new StopServer(),
+        OperationKind.RestartServer => new RestartServer(),
+        _ => throw new NotSupportedException($"No command mapping for operation kind '{kind}'."),
+    };
 }

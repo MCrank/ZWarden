@@ -1,14 +1,27 @@
 using ZWarden.Agent.Docker;
+using ZWarden.Domain.Ids;
 
 namespace ZWarden.Agent.Tests.Docker;
 
 /// <summary>
 /// A configurable <see cref="IContainerRuntime"/> test double for the command-processor tests: it records the
-/// provisioning calls (allocate → create → start) and can be primed to fail the create. The list/stop/restart
-/// verbs the processor never calls still throw, so an unexpected call is loud rather than silent.
+/// provisioning calls (allocate → create → start) and the ServerId-addressed lifecycle verbs (F15), and can be
+/// primed to fail the create or a lifecycle verb. The container-id list/inspect verbs the processor never
+/// calls still throw, so an unexpected call is loud rather than silent.
 /// </summary>
 internal sealed class FakeContainerRuntime : IContainerRuntime
 {
+    /// <summary>When set, the ServerId-addressed lifecycle verbs throw it (e.g. <see cref="ContainerNotFoundException"/>).</summary>
+    public Exception? LifecycleException { get; set; }
+
+    public ServerId? StartedServerId { get; private set; }
+
+    public ServerId? StoppedServerId { get; private set; }
+
+    public ServerId? RestartedServerId { get; private set; }
+
+    public int StartServerCount { get; private set; }
+
     public DockerHealth Health { get; set; } = new(DaemonReachable: true, ApiVersion: "1.53", Detail: null);
 
     public int ProbeCount { get; private set; }
@@ -63,4 +76,38 @@ internal sealed class FakeContainerRuntime : IContainerRuntime
 
     public Task RestartAsync(string containerId, CancellationToken cancellationToken) =>
         throw new NotSupportedException();
+
+    public Task StartAsync(ServerId serverId, CancellationToken cancellationToken)
+    {
+        if (LifecycleException is not null)
+        {
+            throw LifecycleException;
+        }
+
+        StartServerCount++;
+        StartedServerId = serverId;
+        return Task.CompletedTask;
+    }
+
+    public Task StopAsync(ServerId serverId, CancellationToken cancellationToken)
+    {
+        if (LifecycleException is not null)
+        {
+            throw LifecycleException;
+        }
+
+        StoppedServerId = serverId;
+        return Task.CompletedTask;
+    }
+
+    public Task RestartAsync(ServerId serverId, CancellationToken cancellationToken)
+    {
+        if (LifecycleException is not null)
+        {
+            throw LifecycleException;
+        }
+
+        RestartedServerId = serverId;
+        return Task.CompletedTask;
+    }
 }

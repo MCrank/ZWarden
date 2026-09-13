@@ -96,6 +96,24 @@ public static class ServerEndpoints
             };
         });
 
+        // Lifecycle (F15): start / stop / restart. Authenticated at the edge; the service is the fail-closed
+        // server-scoped gate (Server.Start/Stop/Restart against the specific Server) — a server-scoped policy
+        // checked at the endpoint with no resource would deny outright (ADR 0018, the F14 D3 pattern). Each is a
+        // fresh intent enqueued as a mutating, server-scoped Operation; the caller polls /api/operations/{id}.
+        RouteGroupBuilder lifecycle = endpoints.MapGroup("/api/servers").RequireAuthorization();
+
+        lifecycle.MapPost("/{id}/start", (string id, ClaimsPrincipal principal, UserManager<ApplicationUser> users,
+            IServerLifecycle svc, CancellationToken ct) =>
+            RunLifecycleAsync(id, principal, users, (u, s) => svc.StartAsync(u, s, ct)));
+
+        lifecycle.MapPost("/{id}/stop", (string id, ClaimsPrincipal principal, UserManager<ApplicationUser> users,
+            IServerLifecycle svc, CancellationToken ct) =>
+            RunLifecycleAsync(id, principal, users, (u, s) => svc.StopAsync(u, s, ct)));
+
+        lifecycle.MapPost("/{id}/restart", (string id, ClaimsPrincipal principal, UserManager<ApplicationUser> users,
+            IServerLifecycle svc, CancellationToken ct) =>
+            RunLifecycleAsync(id, principal, users, (u, s) => svc.RestartAsync(u, s, ct)));
+
         register.MapPost("/servers/import", async (
             ImportServerRequest? request,
             ClaimsPrincipal principal,
@@ -133,6 +151,38 @@ public static class ServerEndpoints
         });
 
         return endpoints;
+    }
+
+    private static async Task<IResult> RunLifecycleAsync(
+        string id,
+        ClaimsPrincipal principal,
+        UserManager<ApplicationUser> users,
+        Func<UserId, ServerId, Task<ServerLifecycleResult>> action)
+    {
+        if (!ServerId.TryParse(id, out ServerId serverId))
+        {
+            return Results.BadRequest(new { error = "invalid_request" });
+        }
+
+        ServerLifecycleResult result = await action(Actor(principal, users), serverId).ConfigureAwait(false);
+        if (result.Succeeded)
+        {
+            // Accepted: the Operation is enqueued and runs asynchronously; poll its state.
+            return Results.Accepted(
+                $"/api/operations/{result.Operation!.Value}",
+                new { operationId = result.Operation!.Value.ToString() });
+        }
+
+        return result.Failure switch
+        {
+            ServerLifecycleFailure.NotAuthorized =>
+                Results.Json(new { error = "not_authorized" }, statusCode: StatusCodes.Status403Forbidden),
+            ServerLifecycleFailure.ServerNotFound =>
+                Results.Json(new { error = "server_not_found" }, statusCode: StatusCodes.Status404NotFound),
+            ServerLifecycleFailure.ServerBusy =>
+                Results.Json(new { error = "server_busy" }, statusCode: StatusCodes.Status409Conflict),
+            _ => Results.BadRequest(new { error = "lifecycle_failed" }),
+        };
     }
 
     private static object ToDto(ServerSummary s) => new

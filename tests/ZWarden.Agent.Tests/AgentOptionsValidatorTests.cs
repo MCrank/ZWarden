@@ -26,6 +26,27 @@ public class AgentOptionsValidatorTests
     }
 
     [Test]
+    public async Task Default_stop_timeout_is_a_safe_120_seconds()
+    {
+        // Well above the image's 30s in-container save grace, so a save is never truncated (F15).
+        await Assert.That(new AgentOptions().StopTimeoutSeconds).IsEqualTo(120);
+    }
+
+    [Test]
+    [Arguments(0)]
+    [Arguments(-5)]
+    public async Task A_non_positive_stop_timeout_fails(int seconds)
+    {
+        var options = Valid();
+        options.StopTimeoutSeconds = seconds;
+
+        var result = new AgentOptionsValidator().Validate(name: null, options);
+
+        await Assert.That(result.Failed).IsTrue();
+        await Assert.That(result.FailureMessage!).Contains(nameof(AgentOptions.StopTimeoutSeconds));
+    }
+
+    [Test]
     [Arguments("")]
     [Arguments("   ")]
     public async Task Empty_identity_path_fails(string path)

@@ -25,4 +25,20 @@ public enum OperationKind
     /// the container from F13's closed create-template and allocates the port stride itself, then reports the
     /// allocated ports and container id on completion.</summary>
     ProvisionServer = 2,
+
+    /// <summary>Start a registered Server's canonical container (F15). A <b>mutating, server-scoped</b>
+    /// Operation, so it claims the per-server lock (ADR 0022). The Agent resolves the container it owns for the
+    /// Server and issues the Docker start verb.</summary>
+    StartServer = 3,
+
+    /// <summary>Stop a registered Server's canonical container safely (F15). A <b>mutating, server-scoped</b>
+    /// Operation (per-server lock, ADR 0022). The Agent issues a Docker stop with a timeout above the image's
+    /// save grace, so the entrypoint's SIGTERM handler runs the console <c>save</c>→<c>quit</c> over the stdin
+    /// FIFO — never a bare SIGTERM to the JVM.</summary>
+    StopServer = 4,
+
+    /// <summary>Restart a registered Server's canonical container safely (F15). A <b>mutating, server-scoped</b>
+    /// Operation (per-server lock, ADR 0022). The Agent issues a Docker restart carrying the same safe stop
+    /// timeout as <see cref="StopServer"/>.</summary>
+    RestartServer = 5,
 }
