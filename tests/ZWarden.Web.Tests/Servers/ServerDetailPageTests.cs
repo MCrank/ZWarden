@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.DependencyInjection;
 using ZWarden.Application.Mods;
+using ZWarden.Domain.Backups;
 using ZWarden.Domain.Configuration;
 using ZWarden.Domain.Ids;
 using ZWarden.Domain.Operations;
@@ -407,6 +408,82 @@ public sealed class ServerDetailPageTests
         await Assert.That((int)post.StatusCode).IsLessThan(400);
         await Assert.That(EnqueuedKind(factory, serverId, OperationKind.RestartServer)).IsTrue();
         client.Dispose();
+    }
+
+    [Test]
+    public async Task The_backups_card_shows_for_a_permitted_operator()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "backup-viewable");
+
+        string html = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        await Assert.That(html).Contains("data-backups-card");
+        await Assert.That(html).Contains("data-action=\"backup-create\"");
+        await Assert.That(html).Contains("data-backups-empty");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task The_take_backup_form_posts_and_enqueues_a_mutating_backup_operation()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "backup-takeable");
+
+        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+        Dictionary<string, string> form = new(StringComparer.Ordinal)
+        {
+            ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
+            ["_handler"] = "backup-manage",
+            ["_backupForm.Command"] = "create",
+        };
+        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}", UriKind.Relative), new FormUrlEncodedContent(form));
+
+        await Assert.That((int)post.StatusCode).IsLessThan(400);
+        Operation? op = FirstOperation(factory, serverId, OperationKind.Backup);
+        await Assert.That(op).IsNotNull();
+        await Assert.That(op!.IsMutating).IsTrue();
+        await Assert.That(op.CommandPayload).Contains("Manual");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task The_delete_button_posts_and_enqueues_a_non_mutating_delete_backup_operation()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        (ServerId serverId, AgentId agent) = await SeedServerAndAgentAsync(factory, "backup-deletable");
+        BackupId backupId = await SeedBackupAsync(factory, serverId, agent, "world-1.tar.gz");
+
+        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+        await Assert.That(page).Contains("data-backup-row");
+        Dictionary<string, string> form = new(StringComparer.Ordinal)
+        {
+            ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
+            ["_handler"] = "backup-manage",
+            ["_backupForm.Command"] = $"delete|{backupId}",
+        };
+        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}", UriKind.Relative), new FormUrlEncodedContent(form));
+
+        await Assert.That((int)post.StatusCode).IsLessThan(400);
+        Operation? op = FirstOperation(factory, serverId, OperationKind.DeleteBackup);
+        await Assert.That(op).IsNotNull();
+        await Assert.That(op!.IsMutating).IsFalse();
+        await Assert.That(op.CommandPayload).Contains("world-1.tar.gz");
+        client.Dispose();
+    }
+
+    private static async Task<BackupId> SeedBackupAsync(
+        ZWardenWebAppFactory factory, ServerId server, AgentId agent, string archiveName)
+    {
+        using IServiceScope scope = factory.Services.CreateScope();
+        ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
+        Backup backup = Backup.Record(server, agent, archiveName, 2048, "abc123", BackupReason.Manual, DateTimeOffset.UtcNow);
+        db.Set<Backup>().Add(backup);
+        await db.SaveChangesAsync();
+        return backup.Id;
     }
 
     private static bool EnqueuedKind(ZWardenWebAppFactory factory, ServerId serverId, OperationKind kind)

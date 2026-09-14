@@ -124,4 +124,27 @@ public class AgentOptionsValidatorTests
         await Assert.That(result.Failed).IsTrue();
         await Assert.That(result.FailureMessage!).Contains(nameof(AgentOptions.ShutdownTimeout));
     }
+
+    [Test]
+    [Arguments("")]
+    [Arguments("   ")]
+    [Arguments("relative/backups")]
+    public async Task A_non_absolute_backup_root_fails(string path)
+    {
+        var options = Valid();
+        options.BackupRoot = path;
+
+        var result = new AgentOptionsValidator().Validate(name: null, options);
+
+        await Assert.That(result.Failed).IsTrue();
+        await Assert.That(result.FailureMessage!).Contains(nameof(AgentOptions.BackupRoot));
+    }
+
+    [Test]
+    public async Task Default_backup_root_is_an_agent_owned_sibling_of_the_data_root()
+    {
+        // Backups default beside the data root, not under it, so they don't share the world-data disk (F24).
+        await Assert.That(AgentOptions.DefaultBackupRoot()).IsNotEqualTo(AgentOptions.DefaultDataMountRoot());
+        await Assert.That(Path.IsPathFullyQualified(AgentOptions.DefaultBackupRoot())).IsTrue();
+    }
 }

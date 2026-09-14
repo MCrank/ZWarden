@@ -44,6 +44,11 @@ public sealed class AgentOptionsValidator : IValidateOptions<AgentOptions>
             failures.Add($"{AgentOptions.SectionName}:{nameof(AgentOptions.DataMountRoot)} must be an absolute host path.");
         }
 
+        if (string.IsNullOrWhiteSpace(options.BackupRoot) || !Path.IsPathFullyQualified(options.BackupRoot))
+        {
+            failures.Add($"{AgentOptions.SectionName}:{nameof(AgentOptions.BackupRoot)} must be an absolute host path.");
+        }
+
         if (options.DefaultMemoryLimitBytes <= 0)
         {
             failures.Add($"{AgentOptions.SectionName}:{nameof(AgentOptions.DefaultMemoryLimitBytes)} must be positive.");

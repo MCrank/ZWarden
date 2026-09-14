@@ -2,14 +2,18 @@
 @attribute [Authorize]
 @using System.Security.Claims
 @using ZWarden.Application.Authorization
+@using ZWarden.Application.Backups
 @using ZWarden.Application.Configuration
 @using ZWarden.Application.Mods
 @using ZWarden.Application.Players
 @using ZWarden.Application.Servers
 @using ZWarden.Domain.Authorization
+@using ZWarden.Domain.Backups
 @using ZWarden.Domain.Configuration
 @using ZWarden.Domain.Ids
 @inject IServerInventory Inventory
+@inject IServerBackup ServerBackups
+@inject IBackupQuery BackupQuery
 @inject IPlayerManagement Players
 @inject IBanQuery Bans
 @inject IServerConfigurationEditor ConfigEditor
@@ -542,6 +546,74 @@ else
             </div>
         </BbCard>
     }
+
+    @if (_backupPerm.CanView)
+    {
+        <BbCard Class="mt-6 p-5" data-backups-card>
+            <h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Backups</h2>
+            <p class="mt-1 text-xs text-muted-foreground">
+                A backup is a verifiable <span class="font-mono">.tar.gz</span> copy of this server's world data,
+                taken on the host and checksummed (SHA-256). Taking one is a durable operation that briefly locks
+                the server against other changes; deleting one removes the archive from the host.
+            </p>
+
+            @if (_backupMessage is not null)
+            {
+                <div class="mt-3" data-backup-message>
+                    <BbAlert Variant="_backupAlert" AccentBorder>
+                        <BbAlertDescription>@_backupMessage</BbAlertDescription>
+                    </BbAlert>
+                </div>
+            }
+
+            <EditForm Model="_backupForm" FormName="backup-manage" OnValidSubmit="BackupManageAsync" class="mt-4">
+                @if (_backupPerm.CanCreate)
+                {
+                    <BbButton Type="ButtonType.Submit" Size="ButtonSize.Small"
+                              name="_backupForm.Command" value="create" data-action="backup-create">Take backup</BbButton>
+                }
+
+                @if (_backups.Count == 0)
+                {
+                    <p class="mt-3 text-sm text-muted-foreground" data-backups-empty>No backups yet.</p>
+                }
+                else
+                {
+                    <div class="mt-4 block overflow-x-auto">
+                        <table class="w-full border-collapse text-left text-sm" data-backups-table>
+                            <thead>
+                                <tr class="border-b border-border text-muted-foreground">
+                                    <th class="py-2 pr-4 font-medium">Created (UTC)</th>
+                                    <th class="py-2 pr-4 font-medium">Reason</th>
+                                    <th class="py-2 pr-4 font-medium">Size</th>
+                                    <th class="py-2 pr-4 font-medium">Checksum</th>
+                                    <th class="py-2 font-medium"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (BackupSummary backup in _backups)
+                                {
+                                    <tr class="border-b border-border/60" data-backup-row>
+                                        <td class="py-2 pr-4 tabular-nums">@BackupCreated(backup.CreatedAt)</td>
+                                        <td class="py-2 pr-4">@(backup.Reason == BackupReason.PreOperation ? "Pre-operation" : "Manual")</td>
+                                        <td class="py-2 pr-4 tabular-nums">@FormatSize(backup.SizeBytes)</td>
+                                        <td class="py-2 pr-4 font-mono text-xs">@ShortChecksum(backup.Sha256)</td>
+                                        <td class="py-2">
+                                            @if (_backupPerm.CanDelete)
+                                            {
+                                                <BbButton Variant="ButtonVariant.Destructive" Type="ButtonType.Submit" Size="ButtonSize.Small"
+                                                          name="_backupForm.Command" value="@($"delete|{backup.Id}")" data-action="backup-delete">Delete</BbButton>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </EditForm>
+        </BbCard>
+    }
 }
 
 @code {
@@ -569,6 +641,9 @@ else
     [SupplyParameterFromForm(FormName = "mod-manage")]
     private ModManageModel _modManageForm { get; set; } = default!;
 
+    [SupplyParameterFromForm(FormName = "backup-manage")]
+    private BackupManageModel _backupForm { get; set; } = default!;
+
     private ServerSummary? _server;
     private PlayerPermissions _perm;
     private bool _canViewMods;
@@ -588,6 +663,11 @@ else
     private string? _configMessage;
     private AlertVariant _configAlert = AlertVariant.Warning;
 
+    private BackupPermissions _backupPerm;
+    private IReadOnlyList<BackupSummary> _backups = [];
+    private string? _backupMessage;
+    private AlertVariant _backupAlert = AlertVariant.Warning;
+
     protected override async Task OnInitializedAsync()
     {
         _actionForm ??= new PlayerActionModel();
@@ -596,6 +676,7 @@ else
         _restoreForm ??= new ConfigRestoreModel();
         _modForm ??= new ModDiscoveryModel();
         _modManageForm ??= new ModManageModel();
+        _backupForm ??= new BackupManageModel();
         _configForm.File ??= nameof(PzConfigFile.Ini);
         _configForm.Kind ??= nameof(ConfigEditKind.Bool);
         _selectedFile = ParseFile(_configForm.File);
@@ -616,6 +697,8 @@ else
             {
                 await LoadHistoryAsync(user, serverId);
             }
+
+            await LoadBackupsAsync(user, serverId);
         }
     }
 
@@ -1003,6 +1086,100 @@ else
     private static string BanIssued(DateTimeOffset at) =>
         at.UtcDateTime.ToString("yyyy-MM-dd HH:mm", System.Globalization.CultureInfo.InvariantCulture);
 
+    private async Task LoadBackupsAsync(UserId user, ServerId serverId)
+    {
+        // Per-server permissions (fail-closed): the panel shows only where the caller holds Backup.View; the take
+        // and delete controls show only with their own permission; the service re-checks server-side on submit.
+        _backupPerm = new BackupPermissions(
+            CanView: (await PermissionChecker.EvaluateAsync(user, Permissions.BackupView, serverId)).IsAllowed,
+            CanCreate: (await PermissionChecker.EvaluateAsync(user, Permissions.BackupCreate, serverId)).IsAllowed,
+            CanDelete: (await PermissionChecker.EvaluateAsync(user, Permissions.BackupDelete, serverId)).IsAllowed);
+
+        _backups = _backupPerm.CanView
+            ? await BackupQuery.ListForServerAsync(serverId)
+            : [];
+    }
+
+    private async Task BackupManageAsync()
+    {
+        if (_server is null || !ServerId.TryParse(Id, out ServerId serverId))
+        {
+            return;
+        }
+
+        UserId user = await CurrentUserAsync();
+        string command = _backupForm?.Command ?? string.Empty;
+
+        if (command == "create")
+        {
+            SetBackupCreateResult(await ServerBackups.CreateAsync(user, serverId, BackupReason.Manual));
+        }
+        else if (command.StartsWith("delete|", StringComparison.Ordinal)
+                 && BackupId.TryParse(command["delete|".Length..], out BackupId backupId))
+        {
+            SetBackupDeleteResult(await ServerBackups.DeleteAsync(user, backupId));
+        }
+
+        await LoadBackupsAsync(user, serverId);
+    }
+
+    private void SetBackupCreateResult(BackupRequestResult result)
+    {
+        if (result.Succeeded)
+        {
+            SetBackupMessage($"Backup enqueued (operation {result.Operation}). It appears in the list once the archive is written.", ok: true);
+            return;
+        }
+
+        SetBackupMessage(result.Failure switch
+        {
+            BackupRequestFailure.NotAuthorized => "You are not permitted to back up this server.",
+            BackupRequestFailure.ServerNotFound => "That server is no longer available.",
+            BackupRequestFailure.ServerBusy => "The server is busy with another operation; try again once it finishes.",
+            _ => "The backup could not be started.",
+        }, ok: false);
+    }
+
+    private void SetBackupDeleteResult(BackupDeletionOutcome result)
+    {
+        if (result.Succeeded)
+        {
+            SetBackupMessage($"Deletion enqueued (operation {result.Operation}). The backup is removed once it completes.", ok: true);
+            return;
+        }
+
+        SetBackupMessage(result.Failure switch
+        {
+            BackupDeletionFailure.NotAuthorized => "You are not permitted to delete this server's backups.",
+            BackupDeletionFailure.BackupNotFound => "That backup is no longer available.",
+            _ => "The backup could not be deleted.",
+        }, ok: false);
+    }
+
+    private void SetBackupMessage(string message, bool ok)
+    {
+        _backupMessage = message;
+        _backupAlert = ok ? AlertVariant.Success : AlertVariant.Warning;
+    }
+
+    private static string BackupCreated(DateTimeOffset at) => at.UtcDateTime.ToString("yyyy-MM-dd HH:mm");
+
+    private static string ShortChecksum(string sha256) => sha256.Length <= 12 ? sha256 : sha256[..12];
+
+    private static string FormatSize(long bytes)
+    {
+        string[] units = ["B", "KiB", "MiB", "GiB", "TiB"];
+        double size = bytes;
+        int unit = 0;
+        while (size >= 1024 && unit < units.Length - 1)
+        {
+            size /= 1024;
+            unit++;
+        }
+
+        return unit == 0 ? $"{bytes} {units[unit]}" : $"{size:0.0} {units[unit]}";
+    }
+
     private async Task<UserId> CurrentUserAsync()
     {
         ClaimsPrincipal principal = (await AuthState!).User;
@@ -1078,4 +1255,12 @@ else
     {
         public bool CanAny => CanInstall || CanRemove || CanUpdate || CanRestart;
     }
+
+    private sealed class BackupManageModel
+    {
+        // The submit button's command token: "create", or "delete|{backupId}" for a per-row delete.
+        public string? Command { get; set; }
+    }
+
+    private readonly record struct BackupPermissions(bool CanView, bool CanCreate, bool CanDelete);
 }

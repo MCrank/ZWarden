@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using ZWarden.Agent.Backups;
 using ZWarden.Agent.Configuration;
 using ZWarden.Agent.ControlPlane;
 using ZWarden.Agent.Diagnostics;
@@ -92,6 +93,10 @@ public static class HostingExtensions
         // the control-file + restart + log-parse loop (no exec — ADR 0008) and reads back the installed build id.
         services.AddSingleton<IServerInstallPaths, ServerInstallPaths>();
         services.AddSingleton<IServerUpdateRunner, ServerUpdateRunner>();
+
+        // Backups (F24): the host-side tar.gz archiver and the runner that resolves paths and names the archive.
+        services.AddSingleton<IBackupArchiver, TarGzBackupArchiver>();
+        services.AddSingleton<IServerBackupRunner, ServerBackupRunner>();
 
         // RCON foundation (F18): the Agent owns the RCON credential (seeded host-side into servertest.ini at
         // provision), resolves the container's private-network endpoint, and runs the on-demand health probe over
