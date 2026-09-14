@@ -120,6 +120,8 @@ public class ServerUpdateRunnerTests
         public void WriteUpdateRequest(ServerId serverId, OperationId operationId) => WroteRequestFor = serverId;
 
         public string? ReadInstalledBuildId(ServerId serverId) => BuildId;
+
+        public string GetWorkshopContentRoot(ServerId serverId) => throw new NotSupportedException();
     }
 
     // A minimal IContainerRuntime: only restart + read-logs are exercised; the rest is loud if the runner drifts.

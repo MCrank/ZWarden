@@ -18,6 +18,12 @@ public interface IServerInstallPaths
     /// <summary>Reads the installed Steam build id from the Server's install volume manifest, or <c>null</c> when
     /// the manifest is absent or unreadable.</summary>
     string? ReadInstalledBuildId(ServerId serverId);
+
+    /// <summary>The host path of the Server's Steam Workshop content root —
+    /// <c>&lt;installVolume&gt;/steamapps/workshop/content/108600</c> — under which each downloaded Workshop item
+    /// lives as <c>&lt;workshopId&gt;/</c> (F21). The directory may not exist (nothing downloaded yet); callers
+    /// treat its absence as "no Workshop content".</summary>
+    string GetWorkshopContentRoot(ServerId serverId);
 }
 
 /// <summary>The default <see cref="IServerInstallPaths"/> over the Agent's <c>DataMountRoot</c>. The paths mirror
@@ -28,6 +34,11 @@ public sealed class ServerInstallPaths : IServerInstallPaths
 {
     private const string UpdateRequestFile = ".zwarden-update-requested";
     private const string AppManifestFile = "appmanifest_380870.acf";
+
+    // PZ Workshop content is published under the client app id 108600, not the dedicated-server app 380870
+    // (research: project-zomboid-runtime.md §4). SteamCMD/the server download items to
+    // steamapps/workshop/content/108600/<workshopId>/.
+    private const string WorkshopAppId = "108600";
 
     private readonly AgentOptions _options;
 
@@ -62,4 +73,8 @@ public sealed class ServerInstallPaths : IServerInstallPaths
             return null;
         }
     }
+
+    /// <inheritdoc />
+    public string GetWorkshopContentRoot(ServerId serverId) =>
+        Path.Combine(_options.DataMountRoot, $"{serverId}.server", "steamapps", "workshop", "content", WorkshopAppId);
 }
