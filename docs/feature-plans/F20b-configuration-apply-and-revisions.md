@@ -1,9 +1,14 @@
 # Feature 20b Mini-Plan — Configuration Apply and Revisions
 
-**Status:** in progress. Track D. Delivered across **~4 PRs** on branch
-`feat/f20b-config-apply-revisions`; **PR 1 = the library write-half** ([PR #105](https://github.com/MCrank/ZWarden/pull/105),
-in review — part of [#42](https://github.com/MCrank/ZWarden/issues/42)), PRs 2–4 wire it. One commit per
-TDD slice.
+**Status:** in progress. Track D. Delivered across **~4 PRs** — part of [#42](https://github.com/MCrank/ZWarden/issues/42),
+one commit per TDD slice. **PR 1 = the library write-half** ([PR #105](https://github.com/MCrank/ZWarden/pull/105),
+**merged**). **PR 2 = persistence + drift-comparison** ([PR #106](https://github.com/MCrank/ZWarden/pull/106),
+in review): the `ConfigurationRevision` `cfg-` aggregate + its own
+`PzConfigFile` domain identity (Domain references nothing, so it cannot store PzConfig's `PzConfigKind`;
+the two are mapped in PR 3's apply path), the EF mapping + tenant-scoped repository + dual-provider
+`AddConfigurationRevisions` migration, and `PzDriftCheck` — the pure, fail-closed value-level drift check
+the Agent runs before every write. Repository DI registration is deferred to PR 3 with its consumer. PRs
+3–4 wire the agent apply path and the UI.
 
 **Format:** PRD 60. **Written against:** PRD 32 (structured configuration editing — the *apply* half),
 PRD 33 (every meaningful mutation records a revision with a previous/resulting state), PRD 2.2 (TDD
