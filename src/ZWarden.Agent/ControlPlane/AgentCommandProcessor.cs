@@ -5,6 +5,7 @@ using ZWarden.Agent.Configuration;
 using ZWarden.Agent.Docker;
 using ZWarden.Agent.Players;
 using ZWarden.Agent.Rcon;
+using ZWarden.Agent.ServerConfig;
 using ZWarden.Agent.SteamCmd;
 using ZWarden.Contracts.Protocol;
 using ZWarden.Contracts.Protocol.Messages;
@@ -29,6 +30,7 @@ public sealed class AgentCommandProcessor
     private readonly IRconHealthProbe _rconProbe;
     private readonly IRconServerConfig _rconConfig;
     private readonly IPlayerAdministration _players;
+    private readonly IServerConfigWriter _configWriter;
     private readonly AgentOptions _options;
     private readonly ConcurrentDictionary<OperationId, byte> _handled = new();
 
@@ -39,6 +41,7 @@ public sealed class AgentCommandProcessor
         IRconHealthProbe rconProbe,
         IRconServerConfig rconConfig,
         IPlayerAdministration players,
+        IServerConfigWriter configWriter,
         IOptions<AgentOptions> options)
     {
         ArgumentNullException.ThrowIfNull(timeProvider);
@@ -47,6 +50,7 @@ public sealed class AgentCommandProcessor
         ArgumentNullException.ThrowIfNull(rconProbe);
         ArgumentNullException.ThrowIfNull(rconConfig);
         ArgumentNullException.ThrowIfNull(players);
+        ArgumentNullException.ThrowIfNull(configWriter);
         ArgumentNullException.ThrowIfNull(options);
         _timeProvider = timeProvider;
         _containerRuntime = containerRuntime;
@@ -54,6 +58,7 @@ public sealed class AgentCommandProcessor
         _rconProbe = rconProbe;
         _rconConfig = rconConfig;
         _players = players;
+        _configWriter = configWriter;
         _options = options.Value;
     }
 
@@ -206,6 +211,29 @@ public sealed class AgentCommandProcessor
                 return await PlayerActionAsync(
                     envelope, operationId, "set-whitelist-mode",
                     (server, ct) => _players.SetWhitelistModeAsync(server, mode.Open, ct), cancellationToken).ConfigureAwait(false);
+
+            case ConfigApply apply:
+                if (envelope.ServerId is not { } configServerId)
+                {
+                    // A config apply with no target Server is malformed — fail it explicitly.
+                    return Completed(OperationOutcome.Failed, "No target Server on the configuration apply command.", operationId);
+                }
+
+                if (!_handled.TryAdd(operationId, 0))
+                {
+                    return null; // Already handled this operation — a redelivered command (PRD 20).
+                }
+
+                ConfigApplyOutcome config = await _configWriter
+                    .ApplyAsync(configServerId, apply.File, apply.BaselineHash, apply.Edits, cancellationToken)
+                    .ConfigureAwait(false);
+                // A drift refusal (ADR 0011) and any other failure are both a failed Operation whose non-secret
+                // reason the operator reads; only a write that applied carries the recorded revision.
+                return config.Succeeded
+                    ? Completed(
+                        OperationOutcome.Succeeded, failureReason: null, operationId, configServerId,
+                        config: new ConfigApplyResult(apply.File, config.SnapshotHash!, config.CanonicalSnapshot!, config.ChangedCount))
+                    : Completed(OperationOutcome.Failed, config.FailureReason, operationId, configServerId);
 
             default:
                 // A command this Agent version does not understand: leave it unhandled (not marked handled) so
@@ -378,9 +406,10 @@ public sealed class AgentCommandProcessor
         UpdateResult? update = null,
         RconHealthResult? rcon = null,
         PlayerRosterResult? roster = null,
-        PlayerActionResult? playerAction = null) =>
+        PlayerActionResult? playerAction = null,
+        ConfigApplyResult? config = null) =>
         Envelope.Create(
-            new OperationCompleted(outcome, failureReason, provision, update, rcon, roster, playerAction),
+            new OperationCompleted(outcome, failureReason, provision, update, rcon, roster, playerAction, config),
             _timeProvider.GetUtcNow(),
             serverId: serverId,
             operationId: operationId);

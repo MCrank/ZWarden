@@ -13,8 +13,10 @@ using ZWarden.Agent.Identity;
 using ZWarden.Agent.Observability;
 using ZWarden.Agent.Players;
 using ZWarden.Agent.Rcon;
+using ZWarden.Agent.ServerConfig;
 using ZWarden.Agent.SteamCmd;
 using ZWarden.Agent.Trust;
+using ZWarden.PzConfig;
 using ZWarden.Rcon;
 
 namespace ZWarden.Agent;
@@ -102,6 +104,12 @@ public static class HostingExtensions
         // the Agent-owned RCON connection, building and quoting the admin commands (ADR 0026 deferred quoting to
         // F19) and parsing PZ's untrusted replies into typed results.
         services.AddSingleton<IPlayerAdministration, PlayerAdministration>();
+
+        // Configuration apply (F20b): the parse-only PZ config seam and the host-side surgical writer that
+        // re-parses the live /pz/ file, fails closed on a drift from the recorded baseline (ADR 0011), and writes
+        // BOM-less and atomically. The parser is stateless and thread-safe.
+        services.AddSingleton<IPzConfigParser, PzConfigParser>();
+        services.AddSingleton<IServerConfigWriter, ServerConfigWriter>();
 
         // Observability baseline (F16, ADR 0024): OpenTelemetry SDK + HttpClient instrumentation + opt-in OTLP.
         services.AddAgentTelemetry(configuration, environment);
