@@ -15,6 +15,8 @@ public static class ModsServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
 
+        services.AddScoped<IModDiscoveryService, ModDiscoveryService>();
+
         // The latest-inventory-per-Server cache (F21), beside the F16 metrics/health and F19 roster caches: an
         // in-process singleton that feeds the live UI. Never persisted — an inventory is display data.
         services.AddSingleton<IModInventoryCache, ModInventoryCache>();
