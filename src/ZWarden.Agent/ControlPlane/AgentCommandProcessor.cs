@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using Docker.DotNet;
 using Microsoft.Extensions.Options;
+using ZWarden.Agent.Backups;
 using ZWarden.Agent.Configuration;
 using ZWarden.Agent.Docker;
 using ZWarden.Agent.Mods;
@@ -28,6 +29,7 @@ public sealed class AgentCommandProcessor
     private readonly TimeProvider _timeProvider;
     private readonly IContainerRuntime _containerRuntime;
     private readonly IServerUpdateRunner _updates;
+    private readonly IServerBackupRunner _backups;
     private readonly IRconHealthProbe _rconProbe;
     private readonly IRconServerConfig _rconConfig;
     private readonly IPlayerAdministration _players;
@@ -40,6 +42,7 @@ public sealed class AgentCommandProcessor
         TimeProvider timeProvider,
         IContainerRuntime containerRuntime,
         IServerUpdateRunner updates,
+        IServerBackupRunner backups,
         IRconHealthProbe rconProbe,
         IRconServerConfig rconConfig,
         IPlayerAdministration players,
@@ -50,6 +53,7 @@ public sealed class AgentCommandProcessor
         ArgumentNullException.ThrowIfNull(timeProvider);
         ArgumentNullException.ThrowIfNull(containerRuntime);
         ArgumentNullException.ThrowIfNull(updates);
+        ArgumentNullException.ThrowIfNull(backups);
         ArgumentNullException.ThrowIfNull(rconProbe);
         ArgumentNullException.ThrowIfNull(rconConfig);
         ArgumentNullException.ThrowIfNull(players);
@@ -59,6 +63,7 @@ public sealed class AgentCommandProcessor
         _timeProvider = timeProvider;
         _containerRuntime = containerRuntime;
         _updates = updates;
+        _backups = backups;
         _rconProbe = rconProbe;
         _rconConfig = rconConfig;
         _players = players;
@@ -170,6 +175,48 @@ public sealed class AgentCommandProcessor
                 return update.Succeeded
                     ? Completed(OperationOutcome.Succeeded, failureReason: null, operationId, updateServerId, update: new UpdateResult(update.InstalledBuildId))
                     : Completed(OperationOutcome.Failed, update.FailureReason, operationId, updateServerId);
+
+            case BackupServer:
+                if (envelope.ServerId is not { } backupServerId)
+                {
+                    // A backup command with no target Server is malformed — fail it explicitly.
+                    return Completed(OperationOutcome.Failed, "No target Server on the backup command.", operationId);
+                }
+
+                if (!_handled.TryAdd(operationId, 0))
+                {
+                    return null; // Already handling this backup — a redelivered command (PRD 20).
+                }
+
+                ServerBackupOutcome backup = await _backups
+                    .RunAsync(backupServerId, operationId, cancellationToken)
+                    .ConfigureAwait(false);
+                return backup.Succeeded
+                    ? Completed(
+                        OperationOutcome.Succeeded, failureReason: null, operationId, backupServerId,
+                        backup: new BackupResult(backup.ArchiveName!, backup.SizeBytes, backup.Sha256!, backup.CreatedAt!.Value))
+                    : Completed(OperationOutcome.Failed, backup.FailureReason, operationId, backupServerId);
+
+            case DeleteBackup deleteBackup:
+                if (envelope.ServerId is not { } deleteServerId)
+                {
+                    // A delete-backup command with no target Server is malformed — fail it explicitly.
+                    return Completed(OperationOutcome.Failed, "No target Server on the delete-backup command.", operationId);
+                }
+
+                if (!_handled.TryAdd(operationId, 0))
+                {
+                    return null; // Already handling this deletion — a redelivered command (PRD 20).
+                }
+
+                ServerBackupDeletionOutcome deletion = await _backups
+                    .DeleteAsync(deleteServerId, deleteBackup.ArchiveName, cancellationToken)
+                    .ConfigureAwait(false);
+                return deletion.Succeeded
+                    ? Completed(
+                        OperationOutcome.Succeeded, failureReason: null, operationId, deleteServerId,
+                        backupDeletion: new BackupDeletionResult(deleteBackup.ArchiveName))
+                    : Completed(OperationOutcome.Failed, deletion.FailureReason, operationId, deleteServerId);
 
             case ListPlayers:
                 if (envelope.ServerId is not { } listServerId)
@@ -429,9 +476,12 @@ public sealed class AgentCommandProcessor
         PlayerRosterResult? roster = null,
         PlayerActionResult? playerAction = null,
         ConfigApplyResult? config = null,
-        ModDiscoveryResult? mods = null) =>
+        ModDiscoveryResult? mods = null,
+        BackupResult? backup = null,
+        BackupDeletionResult? backupDeletion = null) =>
         Envelope.Create(
-            new OperationCompleted(outcome, failureReason, provision, update, rcon, roster, playerAction, config, mods),
+            new OperationCompleted(
+                outcome, failureReason, provision, update, rcon, roster, playerAction, config, mods, backup, backupDeletion),
             _timeProvider.GetUtcNow(),
             serverId: serverId,
             operationId: operationId);

@@ -70,6 +70,13 @@ public sealed class AgentOptions
     [Required]
     public string DataMountRoot { get; set; } = DefaultDataMountRoot();
 
+    /// <summary>The absolute host directory under which each Server's backup archives are written, one subdirectory
+    /// per Server (<c>&lt;BackupRoot&gt;/&lt;serverId&gt;/</c>, F24/ADR 0028). Kept separate from
+    /// <see cref="DataMountRoot"/> so an operator can point backups at a different disk than the live world data;
+    /// defaults to an Agent-owned sibling of the data root. Must be an absolute path.</summary>
+    [Required]
+    public string BackupRoot { get; set; } = DefaultBackupRoot();
+
     /// <summary>The memory limit, in bytes, applied to a provisioned container (F14/PRD 24 resource limits).
     /// Must be positive; defaults to 4 GiB.</summary>
     public long DefaultMemoryLimitBytes { get; set; } = 4L * 1024 * 1024 * 1024;
@@ -113,6 +120,10 @@ public sealed class AgentOptions
 
     /// <summary>The default per-Server data root: <c>%LOCALAPPDATA%/ZWarden/Agent/servers</c>.</summary>
     public static string DefaultDataMountRoot() => DefaultAgentFile("servers");
+
+    /// <summary>The default per-Server backup root: <c>%LOCALAPPDATA%/ZWarden/Agent/backups</c> — an Agent-owned
+    /// sibling of the data root, so backups do not share the world-data directory (F24).</summary>
+    public static string DefaultBackupRoot() => DefaultAgentFile("backups");
 
     private static string DefaultAgentFile(string fileName) =>
         Path.Combine(

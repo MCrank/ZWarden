@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Options;
+using ZWarden.Agent.Backups;
 using ZWarden.Agent.Configuration;
 using ZWarden.Agent.ControlPlane;
 using ZWarden.Agent.Docker;
@@ -31,6 +32,7 @@ public class AgentCommandProcessorTests
     private static AgentCommandProcessor Processor(
         IContainerRuntime? runtime = null,
         IServerUpdateRunner? updates = null,
+        IServerBackupRunner? backups = null,
         IRconHealthProbe? rconProbe = null,
         IRconServerConfig? rconConfig = null,
         IPlayerAdministration? players = null,
@@ -40,6 +42,7 @@ public class AgentCommandProcessorTests
             TimeProvider.System,
             runtime ?? new FakeContainerRuntime(),
             updates ?? new FakeServerUpdateRunner(),
+            backups ?? new FakeServerBackupRunner(),
             rconProbe ?? new FakeRconHealthProbe(),
             rconConfig ?? new FakeRconServerConfig(),
             players ?? new FakePlayerAdministration(),
@@ -464,6 +467,108 @@ public class AgentCommandProcessorTests
 
         await Assert.That(second).IsNull();
         await Assert.That(updates.RunCount).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task Backup_server_reports_the_archive_facts_on_success()
+    {
+        var backups = new FakeServerBackupRunner
+        {
+            Outcome = new(true, "world-20260912-100000-op-x.tar.gz", 4096, "abc123", Now, null),
+        };
+        OperationId operationId = OperationId.New();
+        ServerId serverId = ServerId.New();
+
+        Envelope<OperationCompleted>? reply = await Processor(backups: backups)
+            .ProcessAsync(Json(new BackupServer(), operationId, serverId), CancellationToken.None);
+
+        await Assert.That(reply!.OperationId).IsEqualTo(operationId);
+        await Assert.That(reply.ServerId).IsEqualTo(serverId);
+        await Assert.That(reply.Payload.Outcome).IsEqualTo(OperationOutcome.Succeeded);
+        await Assert.That(reply.Payload.Backup!.ArchiveName).IsEqualTo("world-20260912-100000-op-x.tar.gz");
+        await Assert.That(reply.Payload.Backup!.SizeBytes).IsEqualTo(4096L);
+        await Assert.That(reply.Payload.Backup!.Sha256).IsEqualTo("abc123");
+        await Assert.That(backups.LastServerId).IsEqualTo(serverId);
+    }
+
+    [Test]
+    public async Task Backup_server_fails_with_the_runners_reason()
+    {
+        var backups = new FakeServerBackupRunner { Outcome = new(false, null, 0, null, null, "The backup could not be written: disk full.") };
+
+        Envelope<OperationCompleted>? reply = await Processor(backups: backups)
+            .ProcessAsync(Json(new BackupServer(), OperationId.New(), ServerId.New()), CancellationToken.None);
+
+        await Assert.That(reply!.Payload.Outcome).IsEqualTo(OperationOutcome.Failed);
+        await Assert.That(reply.Payload.FailureReason).IsEqualTo("The backup could not be written: disk full.");
+        await Assert.That(reply.Payload.Backup).IsNull();
+    }
+
+    [Test]
+    public async Task Backup_server_without_a_target_server_fails_and_does_not_run()
+    {
+        var backups = new FakeServerBackupRunner();
+
+        Envelope<OperationCompleted>? reply = await Processor(backups: backups)
+            .ProcessAsync(Json(new BackupServer(), OperationId.New()), CancellationToken.None);
+
+        await Assert.That(reply!.Payload.Outcome).IsEqualTo(OperationOutcome.Failed);
+        await Assert.That(backups.RunCount).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task A_redelivered_backup_runs_once()
+    {
+        var backups = new FakeServerBackupRunner();
+        AgentCommandProcessor sut = Processor(backups: backups);
+        string json = Json(new BackupServer(), OperationId.New(), ServerId.New());
+
+        await sut.ProcessAsync(json, CancellationToken.None);
+        Envelope<OperationCompleted>? second = await sut.ProcessAsync(json, CancellationToken.None);
+
+        await Assert.That(second).IsNull();
+        await Assert.That(backups.RunCount).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task Delete_backup_signals_success_and_passes_the_archive_name()
+    {
+        var backups = new FakeServerBackupRunner { DeletionOutcome = new(true, null) };
+        OperationId operationId = OperationId.New();
+        ServerId serverId = ServerId.New();
+
+        Envelope<OperationCompleted>? reply = await Processor(backups: backups)
+            .ProcessAsync(Json(new DeleteBackup("world-1.tar.gz"), operationId, serverId), CancellationToken.None);
+
+        await Assert.That(reply!.Payload.Outcome).IsEqualTo(OperationOutcome.Succeeded);
+        await Assert.That(reply.Payload.BackupDeletion!.ArchiveName).IsEqualTo("world-1.tar.gz");
+        await Assert.That(backups.LastArchiveName).IsEqualTo("world-1.tar.gz");
+        await Assert.That(backups.LastServerId).IsEqualTo(serverId);
+    }
+
+    [Test]
+    public async Task Delete_backup_fails_with_the_runners_reason()
+    {
+        var backups = new FakeServerBackupRunner { DeletionOutcome = new(false, "The backup archive name is not a bare file name.") };
+
+        Envelope<OperationCompleted>? reply = await Processor(backups: backups)
+            .ProcessAsync(Json(new DeleteBackup("../escape"), OperationId.New(), ServerId.New()), CancellationToken.None);
+
+        await Assert.That(reply!.Payload.Outcome).IsEqualTo(OperationOutcome.Failed);
+        await Assert.That(reply.Payload.FailureReason).IsEqualTo("The backup archive name is not a bare file name.");
+        await Assert.That(reply.Payload.BackupDeletion).IsNull();
+    }
+
+    [Test]
+    public async Task Delete_backup_without_a_target_server_fails_and_does_not_run()
+    {
+        var backups = new FakeServerBackupRunner();
+
+        Envelope<OperationCompleted>? reply = await Processor(backups: backups)
+            .ProcessAsync(Json(new DeleteBackup("world-1.tar.gz"), OperationId.New()), CancellationToken.None);
+
+        await Assert.That(reply!.Payload.Outcome).IsEqualTo(OperationOutcome.Failed);
+        await Assert.That(backups.DeleteCount).IsEqualTo(0);
     }
 
     [Test]

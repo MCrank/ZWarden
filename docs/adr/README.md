@@ -40,5 +40,8 @@ instead. New ADRs take the next number and follow [`TEMPLATE.md`](./TEMPLATE.md)
 | [0023](./0023-server-health-model-and-observed-delivery.md) | The hierarchical server-health model (five states, four probes) and its observed delivery | #37 |
 | [0024](./0024-opentelemetry-observability-baseline.md) | The OpenTelemetry observability baseline: SDK, opt-in OTLP, no Prometheus | #37 |
 | [0025](./0025-steamcmd-update-orchestration.md) | SteamCMD updates driven through the container (no exec): control-file + restart + log-parse, persistent install bind + tmpfs runtime | #38 |
+| [0026](./0026-rcon-foundation-private-transport-and-agent-owned-credential.md) | RCON foundation: private transport, never host-published, Agent-owned credential | #39 |
+| [0027](./0027-ban-registry-records-zwarden-issued-bans-not-a-mirror.md) | The ban registry records ZWarden-issued bans (advisory intent), not a mirror of PZ's user store | #41 |
+| [0028](./0028-backup-archive-contract-and-local-destination.md) | A backup is a checksummed tar.gz of the world tree, written host-side to a configurable local BackupRoot | #45 |
 
 When you add an ADR, add its row here in the same commit.

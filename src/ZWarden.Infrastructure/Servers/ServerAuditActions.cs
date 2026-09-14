@@ -26,4 +26,10 @@ public static class ServerAuditActions
 
     /// <summary>An operator ran an RCON health check (a diagnostics probe Operation was enqueued — F18).</summary>
     public const string RconChecked = "Server.RconChecked";
+
+    /// <summary>A backup of a Server was requested (a backup Operation was enqueued — F24).</summary>
+    public const string BackedUp = "Server.BackedUp";
+
+    /// <summary>Deletion of a Server's backup was requested (a deletion Operation was enqueued — F24).</summary>
+    public const string BackupDeleted = "Server.BackupDeleted";
 }

@@ -1,6 +1,7 @@
 using BlazorBlueprint.Components;
 using ZWarden.Infrastructure.Agents;
 using ZWarden.Infrastructure.Audit;
+using ZWarden.Infrastructure.Backups;
 using ZWarden.Infrastructure.Authorization;
 using ZWarden.Infrastructure.Configuration;
 using ZWarden.Infrastructure.Identity;
@@ -58,6 +59,7 @@ builder.Services.AddZWardenServers();               // F14: Server inventory + i
 builder.Services.AddZWardenPlayers();               // F19: player management (kick/ban/unban/whitelist) — non-mutating RCON operations
 builder.Services.AddZWardenConfiguration();         // F20b: configuration revisions — repository + completion-time revision recorder
 builder.Services.AddZWardenMods();                  // F21: Workshop/mod discovery — inventory cache + discovery service (read-only)
+builder.Services.AddZWardenBackups();               // F24: backups — take/delete Operations, pre-op API seam, completion ingest, read surface
 builder.Services.AddAgentControlPlane();            // F10: Agent hub, handshake auth scheme, connection registry + monitor
 builder.Services.AddOperationDispatch();            // F11 PR-B: real operation dispatcher over the SignalR connection
 builder.Services.AddZWardenTelemetry(builder.Configuration, builder.Environment); // F16: OpenTelemetry baseline (opt-in OTLP)

@@ -55,6 +55,18 @@ namespace ZWarden.Contracts.Protocol.Messages;
 /// carried verbatim for escaping at render. Observed data, recorded only against the Server the envelope's
 /// <c>ServerId</c> names.
 /// </param>
+/// <param name="Backup">
+/// For a successful backup Operation (<see cref="BackupServer"/>), the archive the Agent wrote host-side — its
+/// relative locator, byte size, and lowercase-hex SHA-256 (F24). <c>null</c> for every other Operation, and for a
+/// failed backup. Additive and optional (ADR 0020); observed data, recorded only against the Server the envelope's
+/// <c>ServerId</c> names, in the current tenant. Carries no host path and no secret.
+/// </param>
+/// <param name="BackupDeletion">
+/// For a successful backup-deletion Operation (<see cref="DeleteBackup"/>), the signal that the Agent removed the
+/// archive (F24), echoing the deleted archive name for the audit trail. <c>null</c> for every other Operation, and
+/// for a failed deletion. Additive and optional (ADR 0020); the control plane removes the backup record on seeing
+/// it. Carries no host path and no secret.
+/// </param>
 [ProtocolMessage("operation.completed")]
 public sealed record OperationCompleted(
     OperationOutcome Outcome,
@@ -65,7 +77,29 @@ public sealed record OperationCompleted(
     PlayerRosterResult? Roster = null,
     PlayerActionResult? PlayerAction = null,
     ConfigApplyResult? Config = null,
-    ModDiscoveryResult? Mods = null) : AgentEvent;
+    ModDiscoveryResult? Mods = null,
+    BackupResult? Backup = null,
+    BackupDeletionResult? BackupDeletion = null) : AgentEvent;
+
+/// <summary>The archive a successful <see cref="BackupServer"/> Operation wrote (F24): the compressed
+/// <c>.tar.gz</c> of the Server's world tree the Agent produced host-side under its <c>BackupRoot</c>. Carries the
+/// <b>relative</b> locator (the archive file name, resolved against the Agent's <c>BackupRoot</c> + <c>ServerId</c>
+/// — never an absolute host path), the produced size, and the lowercase-hex SHA-256 over the archive bytes — the
+/// integrity value F25 re-verifies before restoring. Non-secret; the Server it belongs to is the completion
+/// envelope's <c>ServerId</c>.</summary>
+/// <param name="ArchiveName">The archive's file name under <c>&lt;BackupRoot&gt;/&lt;ServerId&gt;/</c> (relative
+/// locator; Agent-authored, stored length-bounded).</param>
+/// <param name="SizeBytes">The produced archive's size in bytes.</param>
+/// <param name="Sha256">The lowercase-hex SHA-256 over the produced archive bytes.</param>
+/// <param name="CreatedAt">When the Agent finished writing the archive (UTC).</param>
+public sealed record BackupResult(string ArchiveName, long SizeBytes, string Sha256, DateTimeOffset CreatedAt);
+
+/// <summary>The signal a successful <see cref="DeleteBackup"/> Operation sends (F24): the Agent removed the archive
+/// from its <c>BackupRoot</c>. Carries the deleted archive name (a bare file name, non-secret) for the audit trail;
+/// the backup record is removed by the control plane on seeing this. The Server it belongs to is the completion
+/// envelope's <c>ServerId</c>.</summary>
+/// <param name="ArchiveName">The archive file name the Agent deleted.</param>
+public sealed record BackupDeletionResult(string ArchiveName);
 
 /// <summary>The container facts a successful <see cref="CreateServer"/> Operation observed (F14 PR-B): the two
 /// allocated host UDP ports and the created Docker container id. Non-secret; the Server it belongs to is the

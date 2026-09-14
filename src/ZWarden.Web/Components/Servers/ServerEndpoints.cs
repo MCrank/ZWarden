@@ -1,7 +1,9 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Identity;
+using ZWarden.Application.Backups;
 using ZWarden.Application.Servers;
 using ZWarden.Domain.Authorization;
+using ZWarden.Domain.Backups;
 using ZWarden.Domain.Ids;
 using ZWarden.Infrastructure.Identity;
 
@@ -119,6 +121,65 @@ public static class ServerEndpoints
         lifecycle.MapPost("/{id}/update", (string id, ClaimsPrincipal principal, UserManager<ApplicationUser> users,
             IServerLifecycle svc, CancellationToken ct) =>
             RunLifecycleAsync(id, principal, users, (u, s) => svc.UpdateAsync(u, s, ct)));
+
+        // Backup (F24): take a backup of the Server's world data — a mutating, server-scoped Operation. Fail-closed
+        // server-scoped gate (Backup.Create) in the service; poll /api/operations/{id} for the archive result.
+        lifecycle.MapPost("/{id}/backup", async (string id, ClaimsPrincipal principal, UserManager<ApplicationUser> users,
+            IServerBackup svc, CancellationToken ct) =>
+        {
+            if (!ServerId.TryParse(id, out ServerId serverId))
+            {
+                return Results.BadRequest(new { error = "invalid_request" });
+            }
+
+            BackupRequestResult result = await svc
+                .CreateAsync(Actor(principal, users), serverId, BackupReason.Manual, ct).ConfigureAwait(false);
+            if (result.Succeeded)
+            {
+                return Results.Accepted(
+                    $"/api/operations/{result.Operation!.Value}", new { operationId = result.Operation!.Value.ToString() });
+            }
+
+            return result.Failure switch
+            {
+                BackupRequestFailure.NotAuthorized =>
+                    Results.Json(new { error = "not_authorized" }, statusCode: StatusCodes.Status403Forbidden),
+                BackupRequestFailure.ServerNotFound =>
+                    Results.Json(new { error = "server_not_found" }, statusCode: StatusCodes.Status404NotFound),
+                BackupRequestFailure.ServerBusy =>
+                    Results.Json(new { error = "server_busy" }, statusCode: StatusCodes.Status409Conflict),
+                _ => Results.BadRequest(new { error = "backup_failed" }),
+            };
+        });
+
+        // Delete a backup (F24): remove the archive from the Agent host — a non-mutating, server-scoped Operation.
+        // Fail-closed server-scoped gate (Backup.Delete) in the service; the record is removed on confirmed
+        // completion. Backup-scoped route (the backup id resolves its Server and Agent).
+        RouteGroupBuilder backups = endpoints.MapGroup("/api/backups").RequireAuthorization();
+        backups.MapDelete("/{id}", async (string id, ClaimsPrincipal principal, UserManager<ApplicationUser> users,
+            IServerBackup svc, CancellationToken ct) =>
+        {
+            if (!BackupId.TryParse(id, out BackupId backupId))
+            {
+                return Results.BadRequest(new { error = "invalid_request" });
+            }
+
+            BackupDeletionOutcome result = await svc.DeleteAsync(Actor(principal, users), backupId, ct).ConfigureAwait(false);
+            if (result.Succeeded)
+            {
+                return Results.Accepted(
+                    $"/api/operations/{result.Operation!.Value}", new { operationId = result.Operation!.Value.ToString() });
+            }
+
+            return result.Failure switch
+            {
+                BackupDeletionFailure.NotAuthorized =>
+                    Results.Json(new { error = "not_authorized" }, statusCode: StatusCodes.Status403Forbidden),
+                BackupDeletionFailure.BackupNotFound =>
+                    Results.Json(new { error = "backup_not_found" }, statusCode: StatusCodes.Status404NotFound),
+                _ => Results.BadRequest(new { error = "backup_delete_failed" }),
+            };
+        });
 
         register.MapPost("/servers/import", async (
             ImportServerRequest? request,

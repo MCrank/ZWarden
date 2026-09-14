@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Options;
 using ZWarden.Application.Agents;
 using ZWarden.Application.Audit;
+using ZWarden.Application.Backups;
 using ZWarden.Application.Configuration;
 using ZWarden.Application.Operations;
 using ZWarden.Application.Players;
@@ -115,8 +116,13 @@ public sealed class OperationDispatcher : IOperationDispatcher
         OperationKind.RemoveFromWhitelist => new RemoveFromWhitelist(Payload(commandPayload).Username!),
         OperationKind.SetWhitelistMode => new SetWhitelistMode(Payload(commandPayload).Open ?? false),
         OperationKind.ConfigApply => ConfigApplyCommand(commandPayload),
+        OperationKind.Backup => new BackupServer(),
+        OperationKind.DeleteBackup => new DeleteBackup(BackupPayload(commandPayload).ArchiveName!),
         _ => throw new NotSupportedException($"No command mapping for operation kind '{kind}'."),
     };
+
+    private static BackupCommandPayload BackupPayload(string? commandPayload) => BackupCommandPayload.FromJson(
+        commandPayload ?? throw new InvalidOperationException("A backup-deletion Operation was dispatched with no command payload."));
 
     private static PlayerCommandPayload Payload(string? commandPayload) => PlayerCommandPayload.FromJson(
         commandPayload ?? throw new InvalidOperationException("A player Operation was dispatched with no command payload."));

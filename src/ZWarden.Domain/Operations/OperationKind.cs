@@ -100,4 +100,20 @@ public enum OperationKind
     /// never claims the per-server lock (ADR 0022) and does not contend with an in-flight lifecycle Operation. The
     /// Agent reports a <c>ModDiscoveryResult</c> on completion; there is no command payload.</summary>
     ModDiscovery = 15,
+
+    /// <summary>Back up a Server's world data (F24). A <b>mutating, server-scoped</b> Operation, so it claims the
+    /// per-server lock (ADR 0022) — a backup never races a lifecycle Operation. The Agent reads the Server's
+    /// <c>/pz/data</c> world tree <b>host-side</b> (it owns the bind mount — no <c>exec</c>, no <c>docker cp</c>;
+    /// ADR 0008), writes a compressed <c>.tar.gz</c> to its configured <c>BackupRoot</c> excluding the SteamCMD
+    /// install and not following the Workshop symlink (ADR 0028), and reports a <c>BackupResult</c> — the archive
+    /// locator, byte size, and lowercase-hex SHA-256 — on completion. The <see cref="BackupReason"/> rides the
+    /// command payload.</summary>
+    Backup = 16,
+
+    /// <summary>Delete a Server's backup archive from the Agent host (F24). A <b>non-mutating, server-scoped</b>
+    /// Operation — it removes a backup file under the Agent's <c>BackupRoot</c>, never touching the running Server
+    /// or its world — so it never claims the per-server lock (ADR 0022) and does not contend with an in-flight
+    /// lifecycle Operation. The target archive name rides the command payload (path-traversal-guarded on the Agent);
+    /// the backup record is removed on the Operation's confirmed completion.</summary>
+    DeleteBackup = 17,
 }

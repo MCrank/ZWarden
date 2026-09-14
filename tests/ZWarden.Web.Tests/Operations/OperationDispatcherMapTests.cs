@@ -1,3 +1,4 @@
+using ZWarden.Application.Backups;
 using ZWarden.Application.Configuration;
 using ZWarden.Application.Players;
 using ZWarden.Contracts.Protocol.Messages;
@@ -103,6 +104,29 @@ public class OperationDispatcherMapTests
     public async Task The_config_apply_kind_without_a_payload_throws()
     {
         await Assert.That(() => OperationDispatcher.CommandFor(OperationKind.ConfigApply)).Throws<InvalidOperationException>();
+    }
+
+    [Test]
+    public async Task The_backup_kind_maps_to_the_backup_command()
+    {
+        // The reason rides the payload for the ingest, not the Agent command — a backup takes no parameters.
+        string json = new BackupCommandPayload(Reason: "Manual").ToJson();
+        await Assert.That(OperationDispatcher.CommandFor(OperationKind.Backup, json)).IsTypeOf<BackupServer>();
+        await Assert.That(OperationDispatcher.CommandFor(OperationKind.Backup)).IsTypeOf<BackupServer>();
+    }
+
+    [Test]
+    public async Task The_delete_backup_kind_reads_its_archive_name_from_the_payload()
+    {
+        string json = new BackupCommandPayload(BackupId: "bkp-x", ArchiveName: "world-1.tar.gz").ToJson();
+        var delete = (DeleteBackup)OperationDispatcher.CommandFor(OperationKind.DeleteBackup, json);
+        await Assert.That(delete.ArchiveName).IsEqualTo("world-1.tar.gz");
+    }
+
+    [Test]
+    public async Task A_delete_backup_kind_without_a_payload_throws()
+    {
+        await Assert.That(() => OperationDispatcher.CommandFor(OperationKind.DeleteBackup)).Throws<InvalidOperationException>();
     }
 
     [Test]

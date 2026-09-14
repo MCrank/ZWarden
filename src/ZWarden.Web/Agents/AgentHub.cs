@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using ZWarden.Application.Agents;
 using ZWarden.Application.Audit;
+using ZWarden.Application.Backups;
 using ZWarden.Application.Configuration;
 using ZWarden.Application.Mods;
 using ZWarden.Application.Operations;
@@ -38,6 +39,7 @@ public sealed partial class AgentHub : Hub
     private readonly IPlayerRosterCache _rosters;
     private readonly IConfigurationRevisionRecorder _configRevisions;
     private readonly IModInventoryCache _mods;
+    private readonly IBackupRecorder _backups;
     private readonly ControlPlaneMetrics _telemetry;
     private readonly IAuditWriter _audit;
     private readonly ILogger<AgentHub> _logger;
@@ -52,6 +54,7 @@ public sealed partial class AgentHub : Hub
         IPlayerRosterCache rosters,
         IConfigurationRevisionRecorder configRevisions,
         IModInventoryCache mods,
+        IBackupRecorder backups,
         ControlPlaneMetrics telemetry,
         IAuditWriter audit,
         ILogger<AgentHub> logger)
@@ -65,6 +68,7 @@ public sealed partial class AgentHub : Hub
         ArgumentNullException.ThrowIfNull(rosters);
         ArgumentNullException.ThrowIfNull(configRevisions);
         ArgumentNullException.ThrowIfNull(mods);
+        ArgumentNullException.ThrowIfNull(backups);
         ArgumentNullException.ThrowIfNull(telemetry);
         ArgumentNullException.ThrowIfNull(audit);
         ArgumentNullException.ThrowIfNull(logger);
@@ -77,6 +81,7 @@ public sealed partial class AgentHub : Hub
         _rosters = rosters;
         _configRevisions = configRevisions;
         _mods = mods;
+        _backups = backups;
         _telemetry = telemetry;
         _audit = audit;
         _logger = logger;
@@ -334,6 +339,25 @@ public sealed partial class AgentHub : Hub
                 && AgentClaims.TryGetAgentId(Context.User, out AgentId modsAgent))
             {
                 _mods.Record(ToInventory(modsServerId, modsAgent, mods, completed.Timestamp));
+            }
+
+            // A successful backup carries the archive facts the Agent wrote host-side (F24); persist a tenant-owned
+            // Backup, scoped to the reporting Agent's own Server (the ownership guard, §3), before marking the
+            // operation done. The retention reason is read from the Operation's command payload.
+            if (completed.Payload.Backup is { } backupResult && completed.ServerId is { } backupServerId
+                && AgentClaims.TryGetAgentId(Context.User, out AgentId backupAgent))
+            {
+                await _backups.RecordCreatedAsync(
+                    backupServerId, backupAgent, operationId,
+                    backupResult.ArchiveName, backupResult.SizeBytes, backupResult.Sha256, backupResult.CreatedAt,
+                    Context.ConnectionAborted).ConfigureAwait(false);
+            }
+
+            // A successful backup deletion signals the Agent removed the archive (F24); remove the backup record,
+            // resolving its id from the Operation's command payload.
+            if (completed.Payload.BackupDeletion is not null)
+            {
+                await _backups.RecordDeletedAsync(operationId, Context.ConnectionAborted).ConfigureAwait(false);
             }
 
             await _operations.CompleteSucceededAsync(operationId, Context.ConnectionAborted).ConfigureAwait(false);
