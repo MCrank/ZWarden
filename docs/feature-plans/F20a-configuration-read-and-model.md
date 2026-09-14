@@ -1,7 +1,8 @@
 # Feature 20a Mini-Plan — Configuration Read and Model
 
-**Status:** in progress. Roadmap issue: [F20a (#40)](https://github.com/MCrank/ZWarden/issues/40).
-Track D. Branch `feat/f20a-config-read-model`.
+**Status:** in review. Delivered as [PR #104](https://github.com/MCrank/ZWarden/pull/104) (closes
+[#40](https://github.com/MCrank/ZWarden/issues/40)), one commit per slice on branch
+`feat/f20a-config-read-model`. Track D.
 
 **Format:** PRD 60. **Written against:** PRD 32 (structured configuration editing — the *read and
 model* half), PRD 2.2 (TDD mandatory), PRD 2.3 (supportability — "the file did not parse" is an
