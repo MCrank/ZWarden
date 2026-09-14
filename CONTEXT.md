@@ -140,6 +140,18 @@ The single integer both components stamp on every Protocol message and check for
 an Agent connects. It is not an API or database-schema version.
 _Avoid_: API version, schema version, protocol revision
 
+**Configuration Document**:
+The parsed, structured, in-memory view of one of a Server's config files, read behind the
+`IPzConfigDocument` seam. The file is **parsed, never evaluated** (ADR 0010); the document keeps the
+file's values and keys — including keys ZWarden has no schema for — but is not the file's bytes.
+_Avoid_: config file (the bytes), parse tree, AST
+
+**Parse Failure**:
+The first-class result state when a config file does not parse — a syntax error, or a ZWarden
+size/nesting-depth pre-check violation — carried with a line and column rather than thrown as an
+exception. An operator-facing state, because PZ itself refuses to start on such a file.
+_Avoid_: parse exception, error (unqualified)
+
 **Configuration Revision**:
 A recorded before-and-after state of a Server's configuration, captured as parsed values rather
 than file bytes.
