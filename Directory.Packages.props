@@ -92,4 +92,13 @@
     <PackageVersion Include="QRCoder" Version="1.6.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- PZ Lua config parsing (F20a, ADR 0010). Parse-only: no VM, no eval - a file containing
+         os.execute(...) parses to inert nodes and runs nothing. MIT, no native binaries, resolves on
+         net10.0 via its net8.0 asset. Single-maintainer, so it is pinned exactly (ADR 0002/0010) and
+         confined to ZWarden.PzConfig behind IPzConfigDocument, never surfaced across the seam (an
+         architecture test enforces this). Vendoring is the documented fallback. -->
+    <PackageVersion Include="Loretta.CodeAnalysis.Lua" Version="0.2.13" />
+  </ItemGroup>
+
 </Project>

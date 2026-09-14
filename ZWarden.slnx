@@ -8,6 +8,7 @@
     <Project Path="src/ZWarden.Infrastructure/ZWarden.Infrastructure.csproj" />
     <Project Path="src/ZWarden.Migrations.Postgres/ZWarden.Migrations.Postgres.csproj" />
     <Project Path="src/ZWarden.Migrations.Sqlite/ZWarden.Migrations.Sqlite.csproj" />
+    <Project Path="src/ZWarden.PzConfig/ZWarden.PzConfig.csproj" />
     <Project Path="src/ZWarden.Rcon/ZWarden.Rcon.csproj" />
     <Project Path="src/ZWarden.Web/ZWarden.Web.csproj" />
   </Folder>
@@ -18,6 +19,7 @@
     <Project Path="tests/ZWarden.Domain.Tests/ZWarden.Domain.Tests.csproj" />
     <Project Path="tests/ZWarden.Infrastructure.Tests/ZWarden.Infrastructure.Tests.csproj" />
     <Project Path="tests/ZWarden.IntegrationTests/ZWarden.IntegrationTests.csproj" />
+    <Project Path="tests/ZWarden.PzConfig.Tests/ZWarden.PzConfig.Tests.csproj" />
     <Project Path="tests/ZWarden.Rcon.Tests/ZWarden.Rcon.Tests.csproj" />
     <Project Path="tests/ZWarden.TestSupport/ZWarden.TestSupport.csproj" />
     <Project Path="tests/ZWarden.Web.Tests/ZWarden.Web.Tests.csproj" />
