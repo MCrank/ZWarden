@@ -93,19 +93,11 @@ public static class PzValueDiff
         }
 
         // One side is a table and the other a scalar, or two unequal scalars.
-        if (before is PzTable || after is PzTable || !ScalarEquals(before, after))
+        if (before is PzTable || after is PzTable || !PzScalar.AreEqual(before, after))
         {
             changes.Add(new PzConfigChange(path, PzConfigChangeKind.Changed, before, after));
         }
     }
-
-    private static bool ScalarEquals(PzValue a, PzValue b) => (a, b) switch
-    {
-        (PzBoolean ba, PzBoolean bb) => ba.Value == bb.Value,
-        (PzString sa, PzString sb) => string.Equals(sa.Value, sb.Value, StringComparison.Ordinal),
-        (PzNumber na, PzNumber nb) => na.Value.Equals(nb.Value) && na.IsInteger == nb.IsInteger,
-        _ => false,
-    };
 
     // First occurrence wins, matching PzTable.TryGet ("PZ never repeats a key").
     private static Dictionary<string, PzValue> NamedMap(PzTable table)
