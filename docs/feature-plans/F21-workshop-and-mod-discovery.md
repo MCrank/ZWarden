@@ -4,9 +4,9 @@
 [#43](https://github.com/MCrank/ZWarden/issues/43)), one commit per slice across **~2 PRs**
 (PR-A contracts + Agent discovery core; PR-B the operator surface). Track D. **PR-A** ([#111](https://github.com/MCrank/ZWarden/pull/111), merged)
 (contracts · mod.info reader + workshop path · discovery engine + compat analyzer · Agent dispatch).
-**PR-B** (operator surface: ModDiscovery kind + dispatcher map · observed inventory model +
-ownership-guarded cache · Mod.View enqueue service · AgentHub cache-record · ServerDetail Mods card +
-live inventory island) implemented.
+**PR-B** ([#112](https://github.com/MCrank/ZWarden/pull/112), open) — operator surface: ModDiscovery
+kind + dispatcher map · observed inventory model + ownership-guarded cache · Mod.View enqueue service ·
+AgentHub cache-record · ServerDetail Mods card + live inventory island. Closes #43.
 
 **One deviation from the scope below, recorded:** the "Refresh" trigger is a **static-SSR EditForm +
 page handler** calling the discovery service — the same mechanism the F19 Players card uses — rather
