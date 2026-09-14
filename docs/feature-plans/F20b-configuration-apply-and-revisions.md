@@ -3,12 +3,26 @@
 **Status:** in progress. Track D. Delivered across **~4 PRs** — part of [#42](https://github.com/MCrank/ZWarden/issues/42),
 one commit per TDD slice. **PR 1 = the library write-half** ([PR #105](https://github.com/MCrank/ZWarden/pull/105),
 **merged**). **PR 2 = persistence + drift-comparison** ([PR #106](https://github.com/MCrank/ZWarden/pull/106),
-in review): the `ConfigurationRevision` `cfg-` aggregate + its own
+**merged**): the `ConfigurationRevision` `cfg-` aggregate + its own
 `PzConfigFile` domain identity (Domain references nothing, so it cannot store PzConfig's `PzConfigKind`;
 the two are mapped in PR 3's apply path), the EF mapping + tenant-scoped repository + dual-provider
 `AddConfigurationRevisions` migration, and `PzDriftCheck` — the pure, fail-closed value-level drift check
-the Agent runs before every write. Repository DI registration is deferred to PR 3 with its consumer. PRs
-3–4 wire the agent apply path and the UI.
+the Agent runs before every write. Repository DI registration is deferred to PR 3 with its consumer.
+
+**PR 3 = agent apply + drift + enqueue (this branch, `feat/f20b-config-agent-apply`).** 7 TDD slices:
+(S1) the `ConfigApply` wire command carrying `PzConfigFile` + drift baseline + a **partial edit list**
+(`ConfigValueEdit` — path/kind/wire-value; the `Operation` command-payload bound rules out a full-snapshot
+payload) and the additive `ConfigApplyResult` on `OperationCompleted`; (S2) `OperationKind.ConfigApply`
+(mutating, per-server lock) + the Application-neutral `ConfigApplyPayload` + the dispatcher map (neutral edit
+kinds → wire twins); (S3) the Agent's `IServerConfigWriter` — resolve the per-file `/pz/` path, map
+`PzConfigFile`→`PzConfigKind`, re-parse the live file, **fail closed on drift** (`PzDriftCheck`), apply via
+`TrySetValue`, and BOM-less atomic temp+replace write; adds the Agent→`ZWarden.PzConfig` ref; (S4) the
+`AgentCommandProcessor` arm + DI; (S5) `IConfigurationRevisionRecorder` + `AgentHub` reconciliation
+(records the revision unattributed — the completion path has no acting user; the audit trail carries who) +
+the PR-2-deferred repo DI; (S6) `IServerConfigurationEditor.ApplyAsync` — the fail-closed enqueue half PR 4
+calls (authorize `ServerConfigurationEdit`, capture the last revision's hash as baseline, enqueue mutating
+with payload, `ServerBusy`/`InvalidInput`); (S7) an end-to-end dispatch→wire→completion→revision-recorded
+integration test. **PR 4** wires the UI.
 
 **Format:** PRD 60. **Written against:** PRD 32 (structured configuration editing — the *apply* half),
 PRD 33 (every meaningful mutation records a revision with a previous/resulting state), PRD 2.2 (TDD
