@@ -1034,6 +1034,10 @@ html {
   align-items: center;
 }
 
+.items-baseline {
+  align-items: baseline;
+}
+
 .justify-center {
   justify-content: center;
 }
@@ -1126,6 +1130,10 @@ html {
   border-radius: 9999px;
 }
 
+.rounded-md {
+  border-radius: var(--radius);
+}
+
 .rounded-sm {
   border-radius: calc(var(--radius) - 1px);
 }
@@ -1142,8 +1150,16 @@ html {
   border-left-width: 2px;
 }
 
+.border-t {
+  border-top-width: 1px;
+}
+
 .border-border {
   border-color: var(--border);
+}
+
+.border-input {
+  border-color: var(--input);
 }
 
 .border-status-busy {
@@ -1296,6 +1312,10 @@ html {
 
 .pr-4 {
   padding-right: 1rem;
+}
+
+.pt-4 {
+  padding-top: 1rem;
 }
 
 .text-left {

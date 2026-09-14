@@ -1,16 +1,23 @@
 @page "/servers/{Id}"
 @attribute [Authorize]
 @using System.Security.Claims
+@using ZWarden.Application.Authorization
+@using ZWarden.Application.Players
+@using ZWarden.Domain.Authorization
 @using ZWarden.Domain.Ids
 @inject IServerInventory Inventory
+@inject IPlayerManagement Players
+@inject IBanQuery Bans
+@inject IPermissionChecker PermissionChecker
 @inject UserManager<ApplicationUser> Users
 
-@* The server-detail page (F16). Static server render like /servers: it runs per request with a live HttpContext,
-   so the session-derived tenant resolves and the authorized load is tenant-filtered. Authorization is the
-   fail-closed per-Server Server.View inside Inventory.GetVisibleAsync — a caller who may not view this Server
-   (or a Server outside the tenant) gets nothing. The durable metadata + last-reported health render statically
-   here; the LIVE meters and health ride an interactive island (LiveServerPanel) that reads only the
-   ownership-guarded in-memory caches, so it needs no tenant context (which a circuit lacks). *@
+@* The server-detail page (F16/F19). Static server render like /servers: it runs per request with a live
+   HttpContext, so the session-derived tenant resolves and the authorized load is tenant-filtered. Authorization
+   is the fail-closed per-Server Server.View inside Inventory.GetVisibleAsync; the player controls gate on the
+   per-server Player.* / Server.Configuration.Edit, re-checked in the service on submit (ADR 0018). The durable
+   metadata + last-reported health render statically here; the LIVE meters/health and the LIVE roster ride
+   interactive islands that read only the ownership-guarded in-memory caches (no tenant context, which a circuit
+   lacks). All Agent-reported text (including usernames) is untrusted and rendered as data (§8). *@
 
 <PageTitle>@(_server?.Name ?? "Server") — ZWarden</PageTitle>
 
@@ -68,6 +75,148 @@ else
             </div>
         </BbCard>
     </div>
+
+    @if (_perm.CanAny)
+    {
+        <BbCard Class="mt-6 p-5" data-players-card>
+            <h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Players</h2>
+
+            @if (_playerMessage is not null)
+            {
+                <div class="mt-3" data-player-message>
+                    <BbAlert Variant="AlertVariant.Warning" AccentBorder>
+                        <BbAlertDescription>@_playerMessage</BbAlertDescription>
+                    </BbAlert>
+                </div>
+            }
+
+            <EditForm Model="_actionForm" FormName="player-action" OnValidSubmit="ActionAsync" class="mt-4">
+                <DataAnnotationsValidator />
+
+                @if (_perm.CanView)
+                {
+                    <div class="flex items-center justify-between gap-3">
+                        <h3 class="text-sm font-medium">Connected players</h3>
+                        <BbButton Variant="ButtonVariant.Outline" Type="ButtonType.Submit" Size="ButtonSize.Small"
+                                  name="_actionForm.Target" value="refresh" data-action="refresh">Refresh</BbButton>
+                    </div>
+                    <div class="mt-3">
+                        <LivePlayerRosterPanel @rendermode="InteractiveServer"
+                                               ServerId="@_server.Id.ToString()"
+                                               AgentId="@_server.AgentId.ToString()" />
+                    </div>
+                }
+
+                @if (_perm.CanKick || _perm.CanBan || _perm.CanUnban)
+                {
+                    <div class="mt-6 border-t border-border pt-4">
+                        <h3 class="text-sm font-medium">Act on a player</h3>
+                        <p class="mt-1 text-xs text-muted-foreground">Enter the player's account username exactly (case-sensitive).</p>
+                        <div class="mt-3 grid gap-3 sm:grid-cols-2">
+                            <label class="block text-sm">
+                                <span class="text-muted-foreground">Username</span>
+                                <InputText @bind-Value="_actionForm.Username" autocomplete="off"
+                                           class="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm" />
+                            </label>
+                            <label class="block text-sm">
+                                <span class="text-muted-foreground">Reason (optional, kick/ban)</span>
+                                <InputText @bind-Value="_actionForm.Reason" autocomplete="off"
+                                           class="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm" />
+                            </label>
+                        </div>
+                        <div class="mt-3 flex flex-wrap gap-2">
+                            @if (_perm.CanKick)
+                            {
+                                <BbButton Variant="ButtonVariant.Secondary" Type="ButtonType.Submit" Size="ButtonSize.Small"
+                                          name="_actionForm.Target" value="kick" data-action="kick">Kick</BbButton>
+                            }
+                            @if (_perm.CanBan)
+                            {
+                                <BbButton Variant="ButtonVariant.Destructive" Type="ButtonType.Submit" Size="ButtonSize.Small"
+                                          name="_actionForm.Target" value="ban" data-action="ban">Ban</BbButton>
+                            }
+                            @if (_perm.CanUnban)
+                            {
+                                <BbButton Variant="ButtonVariant.Outline" Type="ButtonType.Submit" Size="ButtonSize.Small"
+                                          name="_actionForm.Target" value="unban" data-action="unban">Unban</BbButton>
+                            }
+                            @if (_perm.CanBan)
+                            {
+                                <BbButton Variant="ButtonVariant.Outline" Type="ButtonType.Submit" Size="ButtonSize.Small"
+                                          name="_actionForm.Target" value="remove" data-action="remove-from-whitelist">Remove from whitelist</BbButton>
+                            }
+                        </div>
+                    </div>
+                }
+
+                @if (_perm.CanConfigEdit)
+                {
+                    <div class="mt-6 border-t border-border pt-4">
+                        <h3 class="text-sm font-medium">Whitelist mode</h3>
+                        <p class="mt-1 text-xs text-muted-foreground">
+                            Open lets clients join without a whitelist account; closing it admits only whitelisted
+                            players. Applied at runtime over RCON.
+                        </p>
+                        <div class="mt-3 flex flex-wrap gap-2">
+                            <BbButton Variant="ButtonVariant.Outline" Type="ButtonType.Submit" Size="ButtonSize.Small"
+                                      name="_actionForm.Target" value="whitelist-open" data-action="whitelist-open">Open to all</BbButton>
+                            <BbButton Variant="ButtonVariant.Outline" Type="ButtonType.Submit" Size="ButtonSize.Small"
+                                      name="_actionForm.Target" value="whitelist-close" data-action="whitelist-close">Whitelist only</BbButton>
+                        </div>
+                    </div>
+                }
+            </EditForm>
+
+            @if (_perm.CanView || _perm.CanUnban)
+            {
+                <div class="mt-6 border-t border-border pt-4">
+                    <h3 class="text-sm font-medium">Bans issued through ZWarden</h3>
+                    <p class="mt-1 text-xs text-muted-foreground">
+                        Bans this control plane issued — not a mirror of the server's full ban list (bans made
+                        in-game or from the console do not appear).
+                    </p>
+                    @if (_bans.Count == 0)
+                    {
+                        <p class="mt-3 text-sm text-muted-foreground" data-bans-empty>No bans on record.</p>
+                    }
+                    else
+                    {
+                        <EditForm Model="_unbanForm" FormName="ban-unban" OnValidSubmit="UnbanRowAsync" class="mt-3 block overflow-x-auto">
+                            <table class="w-full border-collapse text-left text-sm" data-bans-table>
+                                <thead>
+                                    <tr class="border-b border-border text-muted-foreground">
+                                        <th class="py-2 pr-4 font-medium">Username</th>
+                                        <th class="py-2 pr-4 font-medium">Reason</th>
+                                        <th class="py-2 pr-4 font-medium">Status</th>
+                                        <th class="py-2 pr-4 font-medium">Issued (UTC)</th>
+                                        <th class="py-2 font-medium"></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (BanView ban in _bans)
+                                    {
+                                        <tr class="border-b border-border/60" data-ban-row>
+                                            <td class="py-2 pr-4 font-mono">@ban.Username</td>
+                                            <td class="py-2 pr-4 text-muted-foreground">@(string.IsNullOrWhiteSpace(ban.Reason) ? "—" : ban.Reason)</td>
+                                            <td class="py-2 pr-4">@(ban.IsActive ? "Active" : "Lifted")</td>
+                                            <td class="py-2 pr-4 tabular-nums">@BanIssued(ban.IssuedAt)</td>
+                                            <td class="py-2">
+                                                @if (ban.IsActive && _perm.CanUnban)
+                                                {
+                                                    <BbButton Variant="ButtonVariant.Outline" Type="ButtonType.Submit" Size="ButtonSize.Small"
+                                                              name="_unbanForm.Target" value="@ban.Username" data-action="unban-row">Unban</BbButton>
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </EditForm>
+                    }
+                </div>
+            }
+        </BbCard>
+    }
 }
 
 @code {
@@ -77,16 +226,130 @@ else
     [CascadingParameter]
     private Task<AuthenticationState>? AuthState { get; set; }
 
+    [SupplyParameterFromForm(FormName = "player-action")]
+    private PlayerActionModel _actionForm { get; set; } = default!;
+
+    [SupplyParameterFromForm(FormName = "ban-unban")]
+    private UnbanModel _unbanForm { get; set; } = default!;
+
     private ServerSummary? _server;
+    private PlayerPermissions _perm;
+    private IReadOnlyList<BanView> _bans = [];
+    private string? _playerMessage;
 
     protected override async Task OnInitializedAsync()
     {
+        _actionForm ??= new PlayerActionModel();
+        _unbanForm ??= new UnbanModel();
+
         if (!ServerId.TryParse(Id, out ServerId serverId))
         {
             return;
         }
 
-        _server = await Inventory.GetVisibleAsync(await CurrentUserAsync(), serverId);
+        UserId user = await CurrentUserAsync();
+        _server = await Inventory.GetVisibleAsync(user, serverId);
+        if (_server is not null)
+        {
+            await LoadPlayersAsync(user, serverId);
+        }
+    }
+
+    private async Task LoadPlayersAsync(UserId user, ServerId serverId)
+    {
+        // Per-server permissions (fail-closed): a control shows only where the caller holds the matching
+        // server-scoped permission; the service re-checks server-side on submit.
+        _perm = new PlayerPermissions(
+            CanView: (await PermissionChecker.EvaluateAsync(user, Permissions.PlayerView, serverId)).IsAllowed,
+            CanKick: (await PermissionChecker.EvaluateAsync(user, Permissions.PlayerKick, serverId)).IsAllowed,
+            CanBan: (await PermissionChecker.EvaluateAsync(user, Permissions.PlayerBan, serverId)).IsAllowed,
+            CanUnban: (await PermissionChecker.EvaluateAsync(user, Permissions.PlayerUnban, serverId)).IsAllowed,
+            CanConfigEdit: (await PermissionChecker.EvaluateAsync(user, Permissions.ServerConfigurationEdit, serverId)).IsAllowed);
+
+        _bans = (_perm.CanView || _perm.CanUnban)
+            ? await Bans.ListForServerAsync(serverId)
+            : [];
+    }
+
+    private async Task ActionAsync()
+    {
+        if (_server is null || !ServerId.TryParse(Id, out ServerId serverId))
+        {
+            return;
+        }
+
+        UserId user = await CurrentUserAsync();
+        PlayerActionModel form = _actionForm ?? new PlayerActionModel();
+        string verb = form.Target ?? string.Empty;
+        string username = form.Username?.Trim() ?? string.Empty;
+
+        PlayerManagementResult? result = verb switch
+        {
+            "refresh" => await Players.ListPlayersAsync(user, serverId),
+            "kick" => await Players.KickAsync(user, serverId, username, NullIfBlank(form.Reason)),
+            "ban" => await Players.BanAsync(user, serverId, username, NullIfBlank(form.Reason)),
+            "unban" => await Players.UnbanAsync(user, serverId, username),
+            "remove" => await Players.RemoveFromWhitelistAsync(user, serverId, username),
+            "whitelist-open" => await Players.SetWhitelistModeAsync(user, serverId, open: true),
+            "whitelist-close" => await Players.SetWhitelistModeAsync(user, serverId, open: false),
+            _ => null,
+        };
+
+        _playerMessage = Describe(verb, result);
+        await LoadPlayersAsync(user, serverId); // reflect a just-lifted/issued ban in the list
+    }
+
+    private async Task UnbanRowAsync()
+    {
+        if (_server is null || !ServerId.TryParse(Id, out ServerId serverId))
+        {
+            return;
+        }
+
+        UserId user = await CurrentUserAsync();
+        string username = _unbanForm?.Target?.Trim() ?? string.Empty;
+        if (username.Length == 0)
+        {
+            return;
+        }
+
+        PlayerManagementResult result = await Players.UnbanAsync(user, serverId, username);
+        _playerMessage = Describe("unban", result);
+        await LoadPlayersAsync(user, serverId);
+    }
+
+    private static string? NullIfBlank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static string Describe(string verb, PlayerManagementResult? result)
+    {
+        if (result is null)
+        {
+            return "Choose an action.";
+        }
+
+        if (result.Succeeded)
+        {
+            string what = verb switch
+            {
+                "refresh" => "Roster refresh started",
+                "kick" => "Kick enqueued",
+                "ban" => "Ban enqueued",
+                "unban" => "Unban enqueued",
+                "remove" => "Whitelist removal enqueued",
+                "whitelist-open" => "Whitelist opened",
+                "whitelist-close" => "Whitelist closed",
+                _ => "Action enqueued",
+            };
+            return $"{what} (operation {result.Operation}). The outcome appears on that operation shortly.";
+        }
+
+        return result.Failure switch
+        {
+            PlayerManagementFailure.NotAuthorized => "You are not permitted to perform that action on this server.",
+            PlayerManagementFailure.ServerNotFound => "That server is no longer available.",
+            PlayerManagementFailure.InvalidInput => result.Detail ?? "That username or reason is not valid.",
+            _ => "The action could not be completed.",
+        };
     }
 
     private string Ports() => _server is { GamePort: { } game, QueryPort: { } query }
@@ -96,11 +359,35 @@ else
     private static string Reported(DateTimeOffset? at) =>
         at?.UtcDateTime.ToString("yyyy-MM-dd HH:mm", System.Globalization.CultureInfo.InvariantCulture) ?? "never";
 
+    private static string BanIssued(DateTimeOffset at) =>
+        at.UtcDateTime.ToString("yyyy-MM-dd HH:mm", System.Globalization.CultureInfo.InvariantCulture);
+
     private async Task<UserId> CurrentUserAsync()
     {
         ClaimsPrincipal principal = (await AuthState!).User;
         return Guid.TryParse(Users.GetUserId(principal), out Guid id)
             ? UserId.FromGuid(id)
             : throw new InvalidOperationException("Authenticated request carries no user id claim.");
+    }
+
+    private sealed class PlayerActionModel
+    {
+        public string? Username { get; set; }
+
+        public string? Reason { get; set; }
+
+        // The submit button's verb ("refresh"/"kick"/"ban"/"unban"/"remove"/"whitelist-open"/"whitelist-close").
+        public string? Target { get; set; }
+    }
+
+    private sealed class UnbanModel
+    {
+        // The username of the ban row whose Unban button was pressed.
+        public string? Target { get; set; }
+    }
+
+    private readonly record struct PlayerPermissions(bool CanView, bool CanKick, bool CanBan, bool CanUnban, bool CanConfigEdit)
+    {
+        public bool CanAny => CanView || CanKick || CanBan || CanUnban || CanConfigEdit;
     }
 }

@@ -1,6 +1,11 @@
 # Feature 19 Mini-Plan — Player Management
 
-**Status:** DRAFT — decisions locked as-recommended (2026-09-13). Roadmap issue:
+**Status:** COMPLETE (2026-09-14) — decisions locked as-recommended (2026-09-13). **PR-A DONE** (PR #101:
+contracts + Agent quoting/parsing/execution core). **PR-B DONE** (PR #102: `OperationKind`s +
+`Operation.CommandPayload` + `PlayerManagement` service + ban registry/ADR 0027 + audit + endpoints). **PR-C
+DONE** (enumeration via the ownership-guarded roster cache + `IBanQuery` + the server-detail Players UI). A
+real-PZ networked integration test for the live prose-parse is deferred to the opt-in tier (as in F18); the
+rich inline console render is F28. Roadmap issue:
 [F19 (#41)](https://github.com/MCrank/ZWarden/issues/41). Track D — the feature that lets an operator
 **see who is on a server and act on them** (enumerate, kick, ban, unban, remove from the whitelist, and
 close/open the server to non-whitelisted players) without SSH, through the RCON voice F18 gave the Agent.
@@ -182,23 +187,29 @@ persistence and its completion-reconciliation seam.
    `MapPlayerEndpoints()` registered in `Program.cs` and a `PlayersServiceCollectionExtensions`.
    Not-found/foreign → 404, unauthorized → 403, invalid input → 400.
 
-### PR-C — Blazor player-management surface (closes #41; branch `feat/f19-player-ui`)
+### PR-C — enumeration + Blazor player-management surface (closes #41; branch `feat/f19-player-ui`)
 
-Operator-facing UI on the server view, **Bb** components, SSR patterns per [[blueprint-seam-on-ssr-forms]].
+Operator-facing UI on the **server-detail** page (`/servers/{id}`), **Bb** components, SSR patterns per
+[[blueprint-seam-on-ssr-forms]]. **Enumeration is surfaced via an in-memory roster cache, not an operation
+result** — the roster is transient display data exactly like F16's metrics/health, so it rides the same
+pattern rather than a new `Operation.ResultPayload` column + store/hub/endpoint churn:
 
-1. A **roster panel** (poll `players`, render count + usernames, all render-escaped as untrusted §8), with
-   per-row **Kick** / **Ban** actions gated on `Player.Kick`/`Player.Ban`; a **reason** field on kick/ban.
-2. A **bans panel** listing `BanRecord`s (from `IBanQuery`) with **Unban** (gated `Player.Unban`) and a
-   **remove-from-whitelist** action (gated `Player.Ban`); an explicit note that the list is bans issued via
-   ZWarden (ADR 0027).
-3. A **whitelist-mode** toggle (`Open` on/off) gated `Server.Configuration.Edit`, surfacing the
-   `changeoption` confirmation.
-4. Results are read off the existing operation surface at `/api/operations/{id}` (no redirect); the rich
-   inline console render is **F28**, not here.
-5. Per-PR chore: if any Web.Tests count changes, **bump the floor in BOTH the Web.Tests csproj and
-   `ci.yml`'s `tier1-silent-drop-guard`** ([[web-tests-discovery-floor-bump]]); `npm run build:css` + commit
-   `wwwroot/app.css` if styles change. bUnit render tests with loose JSInterop, markup-only patterns per
-   the seam memo.
+1. **Enumeration:** `IPlayerManagement.ListPlayersAsync` (authorize `Player.View`, enqueue `ListPlayers`,
+   **not audited** — a read); `IPlayerRosterCache`/`PlayerRosterCache` (in-process, latest-per-Server,
+   **ownership-guarded** by the reporting Agent, §8), which `AgentHub.OperationCompleted` records from the
+   completion's `Roster`; a `POST /players/refresh` endpoint. A **`LivePlayerRosterPanel`** interactive island
+   (mirrors `LiveServerPanel`) reads the cache live and renders count + usernames (render-escaped, §8); a
+   **Refresh** SSR button enqueues an enumeration.
+2. **Player actions:** one SSR `EditForm` (username + optional reason) with **Kick** / **Ban** / **Unban** /
+   **Remove from whitelist** buttons, each gated on its permission; the service is the fail-closed re-check.
+3. **Bans panel:** `IBanQuery`/`BanView` lists the Server's `BanRecord`s with a per-row **Unban** (gated
+   `Player.Unban`) and an explicit note that the list is bans issued via ZWarden, not PZ's set (ADR 0027).
+4. **Whitelist-mode** toggle (`Open` on/off) gated `Server.Configuration.Edit`.
+5. Action outcomes surface as an operator message pointing at the enqueued operation (the rich inline console
+   render is **F28**); the bans list re-loads after each action so a just-issued/lifted ban shows immediately.
+6. Per-PR chore: bump the Web.Tests floor in **both** the csproj and `ci.yml`'s `tier1-silent-drop-guard`
+   ([[web-tests-discovery-floor-bump]]); `npm run build:css` + commit `wwwroot/app.css` (the new `border-input`
+   utility). bUnit island render tests + real-host page/POST integration tests.
 
 ## Non-scope
 

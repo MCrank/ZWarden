@@ -24,6 +24,19 @@ public static class PlayerEndpoints
 
         RouteGroupBuilder players = endpoints.MapGroup("/api/servers/{id}/players").RequireAuthorization();
 
+        // Enqueue a roster enumeration (Player.View, in the service). The observed roster lands in the in-memory
+        // roster cache the live UI reads; the caller polls the returned Operation for completion.
+        players.MapPost("/refresh", async (string id, ClaimsPrincipal principal,
+            UserManager<ApplicationUser> users, IPlayerManagement svc, CancellationToken ct) =>
+        {
+            if (!ServerId.TryParse(id, out ServerId serverId))
+            {
+                return Results.BadRequest(new { error = "invalid_request" });
+            }
+
+            return Map(await svc.ListPlayersAsync(Actor(principal, users), serverId, ct).ConfigureAwait(false));
+        });
+
         players.MapPost("/kick", (string id, PlayerActionRequest? body, ClaimsPrincipal principal,
             UserManager<ApplicationUser> users, IPlayerManagement svc, CancellationToken ct) =>
             RunAsync(id, body, principal, users, (u, s) => svc.KickAsync(u, s, body!.Username!, body.Reason, ct)));

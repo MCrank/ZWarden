@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.SignalR;
 using ZWarden.Application.Agents;
 using ZWarden.Application.Audit;
 using ZWarden.Application.Operations;
+using ZWarden.Application.Players;
 using ZWarden.Application.Servers;
 using ZWarden.Contracts.Protocol;
 using ZWarden.Contracts.Protocol.Messages;
@@ -32,6 +33,7 @@ public sealed partial class AgentHub : Hub
     private readonly IServerStateReconciler _servers;
     private readonly IServerMetricsCache _metrics;
     private readonly IServerHealthCache _healthCache;
+    private readonly IPlayerRosterCache _rosters;
     private readonly ControlPlaneMetrics _telemetry;
     private readonly IAuditWriter _audit;
     private readonly ILogger<AgentHub> _logger;
@@ -43,6 +45,7 @@ public sealed partial class AgentHub : Hub
         IServerStateReconciler servers,
         IServerMetricsCache metrics,
         IServerHealthCache healthCache,
+        IPlayerRosterCache rosters,
         ControlPlaneMetrics telemetry,
         IAuditWriter audit,
         ILogger<AgentHub> logger)
@@ -53,6 +56,7 @@ public sealed partial class AgentHub : Hub
         ArgumentNullException.ThrowIfNull(servers);
         ArgumentNullException.ThrowIfNull(metrics);
         ArgumentNullException.ThrowIfNull(healthCache);
+        ArgumentNullException.ThrowIfNull(rosters);
         ArgumentNullException.ThrowIfNull(telemetry);
         ArgumentNullException.ThrowIfNull(audit);
         ArgumentNullException.ThrowIfNull(logger);
@@ -62,6 +66,7 @@ public sealed partial class AgentHub : Hub
         _servers = servers;
         _metrics = metrics;
         _healthCache = healthCache;
+        _rosters = rosters;
         _telemetry = telemetry;
         _audit = audit;
         _logger = logger;
@@ -290,6 +295,16 @@ public sealed partial class AgentHub : Hub
             {
                 await _servers.RecordInstalledBuildAsync(updatedServerId, update.InstalledBuildId, Context.ConnectionAborted)
                     .ConfigureAwait(false);
+            }
+
+            // A successful enumeration carries the roster the Agent observed over RCON (F19); cache the newest
+            // per Server for the live UI island, keyed by the reporting Agent (the ownership guard, §8). Transient
+            // display data — never persisted. The usernames are untrusted and carried verbatim (escaped at render).
+            if (completed.Payload.Roster is { } roster && completed.ServerId is { } rosterServerId
+                && AgentClaims.TryGetAgentId(Context.User, out AgentId reportingAgent))
+            {
+                _rosters.Record(new PlayerRoster(
+                    rosterServerId, reportingAgent, roster.Count, roster.Players, completed.Timestamp));
             }
 
             await _operations.CompleteSucceededAsync(operationId, Context.ConnectionAborted).ConfigureAwait(false);

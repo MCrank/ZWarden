@@ -61,6 +61,34 @@ public sealed class PlayerManagement : IPlayerManagement
     }
 
     /// <inheritdoc />
+    public async Task<PlayerManagementResult> ListPlayersAsync(UserId user, ServerId server, CancellationToken cancellationToken = default)
+    {
+        Server? resolved = await _servers.FindByIdAsync(server, cancellationToken).ConfigureAwait(false);
+        if (resolved is null)
+        {
+            return PlayerManagementResult.Denied(PlayerManagementFailure.ServerNotFound);
+        }
+
+        AuthorizationDecision decision = await _permissions
+            .EvaluateAsync(user, Permissions.PlayerView, server: server, cancellationToken).ConfigureAwait(false);
+        if (!decision.IsAllowed)
+        {
+            return PlayerManagementResult.Denied(PlayerManagementFailure.NotAuthorized);
+        }
+
+        // A read: enqueue the non-mutating enumeration, but do not audit it (criterion 11 is administrative
+        // activity). The observed roster returns on the completion into the in-memory roster cache.
+        Operation operation = await _operations.EnqueueAsync(
+            new EnqueueOperationRequest(
+                resolved.AgentId, OperationKind.ListPlayers, IsMutating: false, Guid.NewGuid().ToString("N"),
+                ServerId: server),
+            user,
+            cancellationToken).ConfigureAwait(false);
+
+        return PlayerManagementResult.Success(operation.Id);
+    }
+
+    /// <inheritdoc />
     public Task<PlayerManagementResult> KickAsync(UserId user, ServerId server, string username, string? reason, CancellationToken cancellationToken = default)
         => ActAsync(user, server, Permissions.PlayerKick, OperationKind.KickPlayer, PlayerAuditActions.Kicked,
             new PlayerCommandPayload(Username: username, Reason: reason), username, reason, subject: username, onEnqueued: null, cancellationToken);

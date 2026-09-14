@@ -18,6 +18,11 @@ public static class PlayersServiceCollectionExtensions
 
         services.AddScoped<BanRecordRepository>();
         services.AddScoped<IPlayerManagement, PlayerManagement>();
+        services.AddScoped<IBanQuery, BanQuery>();
+
+        // The latest-roster-per-Server cache (F19), beside the F16 metrics/health caches: an in-process singleton
+        // that feeds the live roster island. Never persisted — a roster is display data, not durable state.
+        services.AddSingleton<IPlayerRosterCache, PlayerRosterCache>();
 
         return services;
     }
