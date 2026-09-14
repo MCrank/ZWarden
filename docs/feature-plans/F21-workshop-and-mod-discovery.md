@@ -2,9 +2,9 @@
 
 **Status:** in progress. Branch `feat/f21-workshop-mod-discovery` (closes
 [#43](https://github.com/MCrank/ZWarden/issues/43)), one commit per slice across **~2 PRs**
-(PR-A contracts + Agent discovery core; PR-B the operator surface). Track D. **PR-A implemented**
+(PR-A contracts + Agent discovery core; PR-B the operator surface). Track D. **PR-A** ([#111](https://github.com/MCrank/ZWarden/pull/111), open)
 (contracts · mod.info reader + workshop path · discovery engine + compat analyzer · Agent dispatch);
-PR-B next.
+PR-B (operator surface) next.
 
 **Format:** PRD 60. **Written against:** PRD 34 (mod management — the *discovery* half), PRD 2.2 (TDD
 mandatory), PRD 2.3 (supportability — a missing or broken mod is an operator-facing finding, not a
