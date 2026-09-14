@@ -21,6 +21,29 @@ internal static class LuaConfigReader
     {
         string text = PzText.DecodeUtf8(bytes);
 
+        if (!TryParse(kind, text, maxDepth, out LuaParse parse, out IReadOnlyList<PzConfigDiagnostic> failures))
+        {
+            return PzConfigReadResult.Failure(failures);
+        }
+
+        // The document retains the parse (an internal Loretta tree) so it can edit a value in place and
+        // re-emit the file byte-for-byte (F20b). No Loretta type crosses the public surface.
+        var backing = new LuaEditBacking(kind, text, parse, maxDepth);
+        return PzConfigReadResult.Success(new PzConfigDocument(kind, backing));
+    }
+
+    // Parses text into a tree + the kind's root table + the value model, or reports the fatal
+    // diagnostics. Shared by Read and by LuaEditBacking's re-parse after every edit, so both agree on
+    // the shape and the guards.
+    internal static bool TryParse(
+        PzConfigKind kind,
+        string text,
+        int maxDepth,
+        out LuaParse parse,
+        out IReadOnlyList<PzConfigDiagnostic> failures)
+    {
+        parse = default;
+
         var options = new LuaParseOptions(LuaSyntaxOptions.Lua51);
         SyntaxTree tree = LuaSyntaxTree.ParseText(text, options, path: string.Empty);
         var root = (CompilationUnitSyntax)tree.GetRoot();
@@ -31,20 +54,25 @@ internal static class LuaConfigReader
             .Select(ToDiagnostic)];
         if (errors.Count > 0)
         {
-            return PzConfigReadResult.Failure(errors);
+            failures = errors;
+            return false;
         }
 
         if (!TryFindRootTable(kind, root, out TableConstructorExpressionSyntax? rootTable, out PzConfigDiagnostic? rootError))
         {
-            return PzConfigReadResult.Failure(rootError!);
+            failures = [rootError!];
+            return false;
         }
 
         if (!TryBuildTable(rootTable!, maxDepth, out PzTable table, out PzConfigDiagnostic? walkError))
         {
-            return PzConfigReadResult.Failure(walkError!);
+            failures = [walkError!];
+            return false;
         }
 
-        return PzConfigReadResult.Success(new PzConfigDocument(kind, table));
+        parse = new LuaParse(tree, rootTable!, table);
+        failures = [];
+        return true;
     }
 
     // Locates the table the kind expects: the RHS of SandboxVars = { }, or the table the spawn
@@ -364,3 +392,13 @@ internal static class LuaConfigReader
         public int Cursor { get; set; }
     }
 }
+
+/// <summary>
+/// The retained result of one Lua parse: the Loretta tree, the kind's root table node, and ZWarden's
+/// value model built from it. Internal — the Loretta nodes never cross the seam. Held by
+/// <see cref="LuaEditBacking"/> to navigate to a value's source span for a surgical edit.
+/// </summary>
+internal readonly record struct LuaParse(
+    SyntaxTree Tree,
+    TableConstructorExpressionSyntax RootTable,
+    PzTable Model);

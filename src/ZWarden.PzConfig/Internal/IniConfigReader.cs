@@ -1,5 +1,3 @@
-using ZWarden.PzConfig.Model;
-
 namespace ZWarden.PzConfig.Internal;
 
 /// <summary>
@@ -14,53 +12,11 @@ internal static class IniConfigReader
     public static PzConfigReadResult Read(ReadOnlySpan<byte> bytes)
     {
         string text = PzText.DecodeUtf8(bytes);
-        string[] lines = text.Split('\n');
 
-        var entries = new List<PzTableEntry>();
-        var diagnostics = new List<PzConfigDiagnostic>();
-
-        for (int i = 0; i < lines.Length; i++)
-        {
-            string line = lines[i];
-            if (line.EndsWith('\r'))
-            {
-                line = line[..^1];
-            }
-
-            // A final "\n" makes Split produce a trailing empty element; skip blank lines generally.
-            string leading = line.TrimStart();
-            if (leading.Length == 0 || leading[0] == '#')
-            {
-                continue;
-            }
-
-            int equals = line.IndexOf('=', StringComparison.Ordinal);
-            if (equals < 0)
-            {
-                diagnostics.Add(new PzConfigDiagnostic(
-                    PzDiagnosticSeverity.Warning,
-                    PzConfigDiagnostic.Codes.ParseError,
-                    "Line is not a comment, a blank line, or a KEY=value pair; it was skipped.",
-                    new PzSourcePosition(i + 1, 1)));
-                continue;
-            }
-
-            string key = line[..equals].Trim();
-            if (key.Length == 0)
-            {
-                diagnostics.Add(new PzConfigDiagnostic(
-                    PzDiagnosticSeverity.Warning,
-                    PzConfigDiagnostic.Codes.ParseError,
-                    "Line has an empty key before '='; it was skipped.",
-                    new PzSourcePosition(i + 1, 1)));
-                continue;
-            }
-
-            string value = line[(equals + 1)..];
-            entries.Add(new PzTableEntry(PzKey.Identifier(key), new PzString(value)));
-        }
-
-        var document = new PzConfigDocument(PzConfigKind.Ini, new PzTable(entries));
-        return PzConfigReadResult.Success(document, diagnostics);
+        // The backing owns the one parse: it builds the value model, the value-span map used for
+        // surgical edits (F20b), and the recoverable-line diagnostics.
+        var backing = new IniEditBacking(text);
+        var document = new PzConfigDocument(PzConfigKind.Ini, backing);
+        return PzConfigReadResult.Success(document, backing.Diagnostics);
     }
 }
