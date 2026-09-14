@@ -63,7 +63,8 @@ public sealed class OperationCoordinator : IOperationCoordinator
 
         DateTimeOffset now = _clock.GetUtcNow();
         Operation op = Operation.Enqueue(
-            request.AgentId, request.Kind, request.IsMutating, request.IdempotencyKey, now, request.ServerId);
+            request.AgentId, request.Kind, request.IsMutating, request.IdempotencyKey, now, request.ServerId,
+            request.CommandPayload);
         _operations.Add(op);
 
         try

@@ -39,6 +39,7 @@ public sealed class OperationConfiguration : IEntityTypeConfiguration<Operation>
         builder.Property(o => o.Kind).HasConversion<string>().HasMaxLength(64).IsRequired();
         builder.Property(o => o.State).HasConversion<string>().HasMaxLength(32).IsRequired();
         builder.Property(o => o.IdempotencyKey).IsRequired().HasMaxLength(200);
+        builder.Property(o => o.CommandPayload).HasMaxLength(Operation.MaxCommandPayloadLength);
         builder.Property(o => o.StatusLine).HasMaxLength(Operation.MaxReportedTextLength);
         builder.Property(o => o.FailureReason).HasMaxLength(Operation.MaxReportedTextLength);
 

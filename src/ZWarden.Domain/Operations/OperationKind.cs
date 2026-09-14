@@ -56,4 +56,34 @@ public enum OperationKind
     /// per-server lock (ADR 0022) and does not contend with an in-flight lifecycle Operation. The Agent reports
     /// an <c>RconHealthResult</c> (reachable / authenticated / detail) on completion.</summary>
     RconHealthProbe = 7,
+
+    /// <summary>Enumerate a Server's connected players (F19): run PZ's <c>players</c> over RCON and report the
+    /// roster. A <b>non-mutating, server-scoped</b> Operation — an RCON passthrough already serialized by the
+    /// Agent's single-socket gate (ADR 0026) — so it never claims the per-server lock (ADR 0022).</summary>
+    ListPlayers = 8,
+
+    /// <summary>Kick a connected player by account username (F19). A <b>non-mutating, server-scoped</b> Operation
+    /// (an RCON passthrough — ADR 0026), so it never claims the per-server lock (ADR 0022) and never contends
+    /// with an in-flight lifecycle Operation. The target username rides the Operation's command payload.</summary>
+    KickPlayer = 9,
+
+    /// <summary>Ban a player by account username (F19; account-username bans only — ADR 0027). A
+    /// <b>non-mutating, server-scoped</b> Operation (ADR 0026), so it never claims the per-server lock (ADR
+    /// 0022). The target username rides the command payload.</summary>
+    BanPlayer = 10,
+
+    /// <summary>Lift a ban by account username (F19). A <b>non-mutating, server-scoped</b> Operation (ADR 0026),
+    /// so it never claims the per-server lock (ADR 0022). The target username rides the command payload.</summary>
+    UnbanPlayer = 11,
+
+    /// <summary>Remove a user from a Server's whitelist by account username (F19; removal only — ADR 0012). A
+    /// <b>non-mutating, server-scoped</b> Operation (ADR 0026), so it never claims the per-server lock (ADR
+    /// 0022). The target username rides the command payload.</summary>
+    RemoveFromWhitelist = 12,
+
+    /// <summary>Toggle a Server's whitelist mode — the <c>Open</c> server option (F19). A <b>non-mutating,
+    /// server-scoped</b> Operation in the F11 sense (an RCON passthrough — ADR 0026), so it never claims the
+    /// per-server lock (ADR 0022); reconciling the INI write against configuration revisions is F20b's concern.
+    /// The desired <c>Open</c> value rides the command payload.</summary>
+    SetWhitelistMode = 13,
 }

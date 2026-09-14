@@ -5,6 +5,7 @@ using ZWarden.Infrastructure.Authorization;
 using ZWarden.Infrastructure.Identity;
 using ZWarden.Infrastructure.Operations;
 using ZWarden.Infrastructure.Persistence;
+using ZWarden.Infrastructure.Players;
 using ZWarden.Infrastructure.Security;
 using ZWarden.Infrastructure.Servers;
 using ZWarden.Infrastructure.Tenancy;
@@ -15,6 +16,7 @@ using ZWarden.Web.Components;
 using ZWarden.Web.Components.Account;
 using ZWarden.Web.Components.Agents;
 using ZWarden.Web.Components.Operations;
+using ZWarden.Web.Components.Players;
 using ZWarden.Web.Components.Servers;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
@@ -51,6 +53,7 @@ builder.Services.AddZWardenAudit();                 // F6: writer, query, correl
 builder.Services.AddZWardenEnrollment();            // F9: enrollment issuance/exchange, trust management, verifier
 builder.Services.AddZWardenOperations();            // F11: operations engine — coordinator, store, per-server lock (PR-B adds dispatch)
 builder.Services.AddZWardenServers();               // F14: Server inventory + import, snapshot reconciler, discovery cache
+builder.Services.AddZWardenPlayers();               // F19: player management (kick/ban/unban/whitelist) — non-mutating RCON operations
 builder.Services.AddAgentControlPlane();            // F10: Agent hub, handshake auth scheme, connection registry + monitor
 builder.Services.AddOperationDispatch();            // F11 PR-B: real operation dispatcher over the SignalR connection
 builder.Services.AddZWardenTelemetry(builder.Configuration, builder.Environment); // F16: OpenTelemetry baseline (opt-in OTLP)
@@ -85,6 +88,7 @@ app.MapOperationEndpoints();
 // The operator Server inventory + import API (F14): list is authenticated + self-filtering, import/discovery
 // gated by Server.Register.
 app.MapServerEndpoints();
+app.MapPlayerEndpoints();
 
 // The SignalR Agent hub (F10) — Agents connect outbound here over WSS, authenticated by the "Agent" scheme.
 app.MapAgentHub();
