@@ -58,6 +58,15 @@ public class ModInfoReaderTests
     }
 
     [Test]
+    public async Task An_id_with_spaces_is_preserved()
+    {
+        // Real Mod ids contain spaces, e.g. "Authentic Z - Current" (research §6) — internal spaces must survive.
+        ModInfo? info = ModInfoReader.Read(Utf8("id=Authentic Z - Current\nname=Authentic Z\n"));
+
+        await Assert.That(info!.Id).IsEqualTo("Authentic Z - Current");
+    }
+
+    [Test]
     public async Task The_first_id_wins_when_the_file_repeats_it()
     {
         ModInfo? info = ModInfoReader.Read(Utf8("id=First\nid=Second\n"));

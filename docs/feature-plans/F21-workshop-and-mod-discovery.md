@@ -1,8 +1,10 @@
 # Feature 21 Mini-Plan — Workshop and Mod Discovery
 
-**Status:** planned. To be delivered on branch `feat/f21-workshop-mod-discovery` (closes
+**Status:** in progress. Branch `feat/f21-workshop-mod-discovery` (closes
 [#43](https://github.com/MCrank/ZWarden/issues/43)), one commit per slice across **~2 PRs**
-(PR-A contracts + Agent discovery core; PR-B the operator surface). Track D.
+(PR-A contracts + Agent discovery core; PR-B the operator surface). Track D. **PR-A implemented**
+(contracts · mod.info reader + workshop path · discovery engine + compat analyzer · Agent dispatch);
+PR-B next.
 
 **Format:** PRD 60. **Written against:** PRD 34 (mod management — the *discovery* half), PRD 2.2 (TDD
 mandatory), PRD 2.3 (supportability — a missing or broken mod is an operator-facing finding, not a
@@ -185,11 +187,16 @@ No `ZWarden.Domain` change, no entity, no migration, no new typed-ID prefix or p
 gains two observed-side terms if they prove load-bearing during the build — **Mod Inventory** (the
 observed, cached, latest-per-Server discovery snapshot behind `IModInventoryCache`) and **Workshop→Mod
 mapping** (the one-to-many relation) — kept distinct from the persisted `mod-`/`wsi-` aggregates F22
-will introduce. **PR-A adds a short `docs/research/project-zomboid-runtime.md` §5 addendum** documenting
-the `<workshopId>/mods/<modFolder>/mod.info` subtree and the `mod.info` `id=`/`name=` schema **with
-primary sources** (pzwiki *Mods* page); where a fact stays community-attested it is flagged with a
-confidence level, matching the doc's existing rigour, and the synthetic fixtures encode the documented
-shape. This mini-plan is the durable handoff.
+will introduce.
+
+**No research addendum is needed after all:** `docs/research/project-zomboid-runtime.md` **§6 already
+documents** — High confidence, verified by inspecting four real Workshop items — the `mod.info` schema
+(`id`/`name`/…), the one-to-many Workshop→Mod mapping, the `<workshopId>/mods/<modFolder>/mod.info`
+subtree (and the Build-42 `<modFolder>/42/mod.info` variant), the `WorkshopItems=`/`Mods=` keys, the
+semicolon separator, and that Mod ids are case-sensitive and may contain spaces. The implementation
+honours all of these: ordinal (case-sensitive) id comparison, whole-value trimming that preserves
+internal spaces, and a **B42 `42/mod.info` fallback** when a mod ships no legacy root file. Synthetic
+fixtures encode these shapes. This mini-plan is the durable handoff.
 
 ## Testing & verification
 

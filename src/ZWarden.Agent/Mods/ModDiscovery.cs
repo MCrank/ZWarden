@@ -32,6 +32,11 @@ public sealed partial class ModDiscovery : IModDiscovery
     private const string ConfigDirName = "Server";
     private const string ModsDirName = "mods";
     private const string ModInfoFileName = "mod.info";
+
+    // Build 42 mods add a version folder <modFolder>/42/ with its own mod.info alongside the legacy root one
+    // (research §6). The id is the same in both; we read the root when present and fall back to 42/ for a
+    // B42-only mod that ships no root mod.info.
+    private const string Build42FolderName = "42";
     private const string WorkshopItemsKey = "WorkshopItems";
     private const string ModsKey = "Mods";
 
@@ -126,7 +131,11 @@ public sealed partial class ModDiscovery : IModDiscovery
         foreach (string modDir in modDirs)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            ModInfo? info = await ReadModInfoAsync(Path.Combine(modDir, ModInfoFileName), cancellationToken).ConfigureAwait(false);
+
+            // Prefer the legacy root mod.info; fall back to the Build 42 version folder for a B42-only mod
+            // (research §6). The id is identical across both, so either yields the mapping.
+            ModInfo? info = await ReadModInfoAsync(Path.Combine(modDir, ModInfoFileName), cancellationToken).ConfigureAwait(false)
+                ?? await ReadModInfoAsync(Path.Combine(modDir, Build42FolderName, ModInfoFileName), cancellationToken).ConfigureAwait(false);
             if (info is not null)
             {
                 mods.Add(new DiscoveredMod(info.Id, info.Name));

@@ -144,6 +144,31 @@ public class ModDiscoveryTests
     }
 
     [Test]
+    public async Task A_build_42_only_mod_is_discovered_from_its_version_folder()
+    {
+        (ModDiscovery discovery, string root, ServerId serverId) = NewDiscovery();
+        try
+        {
+            // A B42-only mod ships no root mod.info, only <modFolder>/42/mod.info (research §6).
+            string b42Dir = Path.Combine(
+                root, $"{serverId}.server", "steamapps", "workshop", "content", "108600", "555", "mods", "NewMod", "42");
+            Directory.CreateDirectory(b42Dir);
+            File.WriteAllText(Path.Combine(b42Dir, "mod.info"), "name=New Mod\nid=NewMod42\n");
+            WriteIni(root, serverId, "WorkshopItems=555\nMods=NewMod42\n");
+
+            ModDiscoveryResult result = await discovery.DiscoverAsync(serverId, CancellationToken.None);
+
+            DiscoveredMod mod = result.InstalledItems.Single(i => i.WorkshopId == "555").Mods.Single();
+            await Assert.That(mod.ModId).IsEqualTo("NewMod42");
+            await Assert.That(result.Findings).IsEmpty();
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task An_item_directory_with_no_readable_mod_info_is_kept_with_no_mods()
     {
         (ModDiscovery discovery, string root, ServerId serverId) = NewDiscovery();
