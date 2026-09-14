@@ -2,11 +2,9 @@ using ZWarden.Application.Audit;
 using ZWarden.Application.Authorization;
 using ZWarden.Application.Configuration;
 using ZWarden.Application.Operations;
-using ZWarden.Domain.Audit;
 using ZWarden.Domain.Authorization;
 using ZWarden.Domain.Configuration;
 using ZWarden.Domain.Ids;
-using ZWarden.Domain.Operations;
 using ZWarden.Domain.Servers;
 using ZWarden.Infrastructure.Servers;
 using ZWarden.PzConfig.Model;
@@ -29,9 +27,8 @@ public sealed class ServerConfigurationEditor : IServerConfigurationEditor
 {
     private readonly ServerRepository _servers;
     private readonly IPermissionChecker _permissions;
-    private readonly IOperationCoordinator _operations;
     private readonly ConfigurationRevisionRepository _revisions;
-    private readonly IAuditWriter _audit;
+    private readonly ConfigApplyEnqueuer _enqueuer;
 
     public ServerConfigurationEditor(
         ServerRepository servers,
@@ -47,9 +44,8 @@ public sealed class ServerConfigurationEditor : IServerConfigurationEditor
         ArgumentNullException.ThrowIfNull(audit);
         _servers = servers;
         _permissions = permissions;
-        _operations = operations;
         _revisions = revisions;
-        _audit = audit;
+        _enqueuer = new ConfigApplyEnqueuer(operations, revisions, audit);
     }
 
     /// <inheritdoc />
@@ -147,52 +143,17 @@ public sealed class ServerConfigurationEditor : IServerConfigurationEditor
     }
 
     // The shared enqueue half of apply and restore: capture the drift baseline, size-check the payload, enqueue a
-    // mutating server-scoped Operation, and audit. The caller has already resolved and authorized the Server.
-    private async Task<ServerConfigurationResult> EnqueueAsync(
+    // mutating server-scoped Operation, and audit. Delegates to the enqueuer F22's mod manager also reuses; the
+    // audit subject preserves the "{file}, {n} edit(s)" detail. The caller has already resolved and authorized.
+    private Task<ServerConfigurationResult> EnqueueAsync(
         UserId user,
         Server resolved,
         PzConfigFile file,
         IReadOnlyList<ConfigApplyEdit> edits,
         string auditAction,
         CancellationToken cancellationToken)
-    {
-        // The drift baseline: the last recorded revision's hash for this file, or null when none exists (the
-        // Agent then treats it as the first write — no baseline to drift from, ADR 0011).
-        ConfigurationRevision? baseline = await _revisions.FindLatestAsync(resolved.Id, file, cancellationToken).ConfigureAwait(false);
-        string payload = new ConfigApplyPayload(file, baseline?.SnapshotHash, edits).ToJson();
-        if (payload.Length > Operation.MaxCommandPayloadLength)
-        {
-            return ServerConfigurationResult.Denied(
-                ServerConfigurationFailure.InvalidInput, "Too many edits to apply in one operation; apply fewer at a time.");
-        }
-
-        try
-        {
-            // A mutating, server-scoped Operation on the Server's Agent (ADR 0022). Each request is a fresh
-            // intent, so the idempotency key is fresh; the per-server lock refuses a second in-flight mutation.
-            Operation operation = await _operations.EnqueueAsync(
-                new EnqueueOperationRequest(
-                    resolved.AgentId, OperationKind.ConfigApply, IsMutating: true, Guid.NewGuid().ToString("N"),
-                    ServerId: resolved.Id, CommandPayload: payload),
-                user,
-                cancellationToken).ConfigureAwait(false);
-
-            await _audit.WriteAsync(
-                new AuditEntry(auditAction, AuditOutcome.Succeeded, user, resolved.Id,
-                    $"{file}, {edits.Count} edit(s) — operation {operation.Id}"),
-                cancellationToken).ConfigureAwait(false);
-
-            return ServerConfigurationResult.Success(operation.Id);
-        }
-        catch (ServerBusyException)
-        {
-            // The per-server lock (ADR 0022) refused: another mutating Operation is already in flight.
-            await _audit.WriteAsync(
-                new AuditEntry(auditAction, AuditOutcome.Failed, user, resolved.Id, "server busy"),
-                cancellationToken).ConfigureAwait(false);
-            return ServerConfigurationResult.Denied(ServerConfigurationFailure.ServerBusy);
-        }
-    }
+        => _enqueuer.EnqueueAsync(
+            user, resolved, file, edits, auditAction, $"{file}, {edits.Count} edit(s)", cancellationToken);
 
     private static ConfigEditKind KindOf(PzValue value) => value switch
     {
