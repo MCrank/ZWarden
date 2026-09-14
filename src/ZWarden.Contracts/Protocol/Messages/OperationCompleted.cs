@@ -132,6 +132,5 @@ public sealed record PlayerActionResult(PlayerActionOutcome Outcome, string? Det
 /// baseline the next write re-checks.</param>
 /// <param name="CanonicalSnapshot">The order-normalized serialization of the file's scalar values after the
 /// write (from <c>PzValueSnapshot</c>) — the "state" the recorded revision holds.</param>
-/// <param name="ChangedCount">How many of the requested edits changed a value (an edit that set a value to what
-/// it already held counts as no change).</param>
+/// <param name="ChangedCount">How many edits the Agent applied to the file.</param>
 public sealed record ConfigApplyResult(PzConfigFile File, string SnapshotHash, string CanonicalSnapshot, int ChangedCount);
