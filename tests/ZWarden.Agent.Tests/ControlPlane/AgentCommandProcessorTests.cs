@@ -2,9 +2,11 @@ using Microsoft.Extensions.Options;
 using ZWarden.Agent.Configuration;
 using ZWarden.Agent.ControlPlane;
 using ZWarden.Agent.Docker;
+using ZWarden.Agent.Players;
 using ZWarden.Agent.Rcon;
 using ZWarden.Agent.SteamCmd;
 using ZWarden.Agent.Tests.Docker;
+using ZWarden.Agent.Tests.Players;
 using ZWarden.Agent.Tests.Rcon;
 using ZWarden.Contracts.Protocol;
 using ZWarden.Contracts.Protocol.Messages;
@@ -26,13 +28,15 @@ public class AgentCommandProcessorTests
         IContainerRuntime? runtime = null,
         IServerUpdateRunner? updates = null,
         IRconHealthProbe? rconProbe = null,
-        IRconServerConfig? rconConfig = null) =>
+        IRconServerConfig? rconConfig = null,
+        IPlayerAdministration? players = null) =>
         new(
             TimeProvider.System,
             runtime ?? new FakeContainerRuntime(),
             updates ?? new FakeServerUpdateRunner(),
             rconProbe ?? new FakeRconHealthProbe(),
             rconConfig ?? new FakeRconServerConfig(),
+            players ?? new FakePlayerAdministration(),
             Options.Create(new AgentOptions
             {
                 PzImageReference = "zwarden/pzserver:pinned",
@@ -402,5 +406,134 @@ public class AgentCommandProcessorTests
 
         await Assert.That(second).IsNull();
         await Assert.That(updates.RunCount).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task List_players_succeeds_and_carries_the_roster()
+    {
+        var players = new FakePlayerAdministration { Roster = new PlayerRosterResult(2, ["Bob", "Alice"]) };
+        ServerId server = ServerId.New();
+        OperationId operationId = OperationId.New();
+
+        Envelope<OperationCompleted>? reply = await Processor(players: players)
+            .ProcessAsync(Json(new ListPlayers(), operationId, server), CancellationToken.None);
+
+        await Assert.That(reply!.OperationId).IsEqualTo(operationId);
+        await Assert.That(reply.ServerId).IsEqualTo(server);
+        await Assert.That(reply.Payload.Outcome).IsEqualTo(OperationOutcome.Succeeded);
+        await Assert.That(reply.Payload.Roster!.Count).IsEqualTo(2);
+        await Assert.That(players.LastServerId).IsEqualTo(server);
+    }
+
+    [Test]
+    public async Task List_players_without_a_target_server_fails()
+    {
+        Envelope<OperationCompleted>? reply = await Processor()
+            .ProcessAsync(Json(new ListPlayers(), OperationId.New()), CancellationToken.None);
+
+        await Assert.That(reply!.Payload.Outcome).IsEqualTo(OperationOutcome.Failed);
+    }
+
+    [Test]
+    public async Task List_players_fails_with_the_reason_when_rcon_is_unavailable()
+    {
+        var players = new FakePlayerAdministration { Throw = new PlayerCommandException("RCON is disabled: no password is set in the server configuration.") };
+
+        Envelope<OperationCompleted>? reply = await Processor(players: players)
+            .ProcessAsync(Json(new ListPlayers(), OperationId.New(), ServerId.New()), CancellationToken.None);
+
+        await Assert.That(reply!.Payload.Outcome).IsEqualTo(OperationOutcome.Failed);
+        await Assert.That(reply.Payload.FailureReason).Contains("RCON is disabled");
+        await Assert.That(reply.Payload.Roster).IsNull();
+    }
+
+    [Test]
+    public async Task Kick_applies_and_carries_the_action_result()
+    {
+        var players = new FakePlayerAdministration { ActionResult = new PlayerActionResult(PlayerActionOutcome.Applied, "User Bob kicked.") };
+        ServerId server = ServerId.New();
+
+        Envelope<OperationCompleted>? reply = await Processor(players: players)
+            .ProcessAsync(Json(new KickPlayer("Bob", "griefing"), OperationId.New(), server), CancellationToken.None);
+
+        await Assert.That(reply!.Payload.Outcome).IsEqualTo(OperationOutcome.Succeeded);
+        await Assert.That(reply.Payload.PlayerAction!.Outcome).IsEqualTo(PlayerActionOutcome.Applied);
+        await Assert.That(players.LastUsername).IsEqualTo("Bob");
+        await Assert.That(players.LastReason).IsEqualTo("griefing");
+    }
+
+    [Test]
+    public async Task Kick_of_a_missing_user_fails_but_still_carries_the_action_result()
+    {
+        var players = new FakePlayerAdministration { ActionResult = new PlayerActionResult(PlayerActionOutcome.NotFound, "User Bob doesn't exist.") };
+
+        Envelope<OperationCompleted>? reply = await Processor(players: players)
+            .ProcessAsync(Json(new KickPlayer("Bob"), OperationId.New(), ServerId.New()), CancellationToken.None);
+
+        await Assert.That(reply!.Payload.Outcome).IsEqualTo(OperationOutcome.Failed);
+        await Assert.That(reply.Payload.FailureReason).IsEqualTo("User Bob doesn't exist.");
+        await Assert.That(reply.Payload.PlayerAction!.Outcome).IsEqualTo(PlayerActionOutcome.NotFound);
+    }
+
+    [Test]
+    public async Task Ban_routes_to_the_ban_runner_and_carries_the_result()
+    {
+        var players = new FakePlayerAdministration();
+        ServerId server = ServerId.New();
+
+        Envelope<OperationCompleted>? reply = await Processor(players: players)
+            .ProcessAsync(Json(new BanPlayer("Mallory", "cheating"), OperationId.New(), server), CancellationToken.None);
+
+        await Assert.That(reply!.Payload.Outcome).IsEqualTo(OperationOutcome.Succeeded);
+        await Assert.That(reply.Payload.PlayerAction).IsNotNull();
+        await Assert.That(players.LastUsername).IsEqualTo("Mallory");
+        await Assert.That(players.LastReason).IsEqualTo("cheating");
+    }
+
+    [Test]
+    public async Task Set_whitelist_mode_routes_the_open_flag_to_the_runner()
+    {
+        var players = new FakePlayerAdministration();
+
+        Envelope<OperationCompleted>? reply = await Processor(players: players)
+            .ProcessAsync(Json(new SetWhitelistMode(false), OperationId.New(), ServerId.New()), CancellationToken.None);
+
+        await Assert.That(reply!.Payload.Outcome).IsEqualTo(OperationOutcome.Succeeded);
+        await Assert.That(players.LastOpen!.Value).IsFalse();
+    }
+
+    [Test]
+    public async Task A_player_action_without_a_target_server_fails()
+    {
+        Envelope<OperationCompleted>? reply = await Processor()
+            .ProcessAsync(Json(new UnbanPlayer("Bob"), OperationId.New()), CancellationToken.None);
+
+        await Assert.That(reply!.Payload.Outcome).IsEqualTo(OperationOutcome.Failed);
+    }
+
+    [Test]
+    public async Task A_player_action_that_cannot_run_fails_with_the_agent_reason()
+    {
+        var players = new FakePlayerAdministration { Throw = new PlayerCommandException("The server's RCON port could not be reached (refused, or the connection cap is full).") };
+
+        Envelope<OperationCompleted>? reply = await Processor(players: players)
+            .ProcessAsync(Json(new RemoveFromWhitelist("Bob"), OperationId.New(), ServerId.New()), CancellationToken.None);
+
+        await Assert.That(reply!.Payload.Outcome).IsEqualTo(OperationOutcome.Failed);
+        await Assert.That(reply.Payload.FailureReason).Contains("could not be reached");
+    }
+
+    [Test]
+    public async Task A_redelivered_player_action_runs_once()
+    {
+        var players = new FakePlayerAdministration();
+        AgentCommandProcessor sut = Processor(players: players);
+        string json = Json(new KickPlayer("Bob"), OperationId.New(), ServerId.New());
+
+        await sut.ProcessAsync(json, CancellationToken.None);
+        Envelope<OperationCompleted>? second = await sut.ProcessAsync(json, CancellationToken.None);
+
+        await Assert.That(second).IsNull();
+        await Assert.That(players.CallCount).IsEqualTo(1);
     }
 }

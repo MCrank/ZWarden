@@ -3,6 +3,7 @@ using Docker.DotNet;
 using Microsoft.Extensions.Options;
 using ZWarden.Agent.Configuration;
 using ZWarden.Agent.Docker;
+using ZWarden.Agent.Players;
 using ZWarden.Agent.Rcon;
 using ZWarden.Agent.SteamCmd;
 using ZWarden.Contracts.Protocol;
@@ -27,6 +28,7 @@ public sealed class AgentCommandProcessor
     private readonly IServerUpdateRunner _updates;
     private readonly IRconHealthProbe _rconProbe;
     private readonly IRconServerConfig _rconConfig;
+    private readonly IPlayerAdministration _players;
     private readonly AgentOptions _options;
     private readonly ConcurrentDictionary<OperationId, byte> _handled = new();
 
@@ -36,6 +38,7 @@ public sealed class AgentCommandProcessor
         IServerUpdateRunner updates,
         IRconHealthProbe rconProbe,
         IRconServerConfig rconConfig,
+        IPlayerAdministration players,
         IOptions<AgentOptions> options)
     {
         ArgumentNullException.ThrowIfNull(timeProvider);
@@ -43,12 +46,14 @@ public sealed class AgentCommandProcessor
         ArgumentNullException.ThrowIfNull(updates);
         ArgumentNullException.ThrowIfNull(rconProbe);
         ArgumentNullException.ThrowIfNull(rconConfig);
+        ArgumentNullException.ThrowIfNull(players);
         ArgumentNullException.ThrowIfNull(options);
         _timeProvider = timeProvider;
         _containerRuntime = containerRuntime;
         _updates = updates;
         _rconProbe = rconProbe;
         _rconConfig = rconConfig;
+        _players = players;
         _options = options.Value;
     }
 
@@ -155,6 +160,52 @@ public sealed class AgentCommandProcessor
                 return update.Succeeded
                     ? Completed(OperationOutcome.Succeeded, failureReason: null, operationId, updateServerId, update: new UpdateResult(update.InstalledBuildId))
                     : Completed(OperationOutcome.Failed, update.FailureReason, operationId, updateServerId);
+
+            case ListPlayers:
+                if (envelope.ServerId is not { } listServerId)
+                {
+                    return Completed(OperationOutcome.Failed, "No target Server on the player enumeration.", operationId);
+                }
+
+                if (!_handled.TryAdd(operationId, 0))
+                {
+                    return null; // Already handled this operation — a redelivered command (PRD 20).
+                }
+
+                try
+                {
+                    PlayerRosterResult roster = await _players.ListPlayersAsync(listServerId, cancellationToken).ConfigureAwait(false);
+                    return Completed(OperationOutcome.Succeeded, failureReason: null, operationId, listServerId, roster: roster);
+                }
+                catch (PlayerCommandException ex)
+                {
+                    return Completed(OperationOutcome.Failed, ex.Message, operationId, listServerId);
+                }
+
+            case KickPlayer kick:
+                return await PlayerActionAsync(
+                    envelope, operationId, "kick",
+                    (server, ct) => _players.KickAsync(server, kick.Username, kick.Reason, ct), cancellationToken).ConfigureAwait(false);
+
+            case BanPlayer ban:
+                return await PlayerActionAsync(
+                    envelope, operationId, "ban",
+                    (server, ct) => _players.BanAsync(server, ban.Username, ban.Reason, ct), cancellationToken).ConfigureAwait(false);
+
+            case UnbanPlayer unban:
+                return await PlayerActionAsync(
+                    envelope, operationId, "unban",
+                    (server, ct) => _players.UnbanAsync(server, unban.Username, ct), cancellationToken).ConfigureAwait(false);
+
+            case RemoveFromWhitelist remove:
+                return await PlayerActionAsync(
+                    envelope, operationId, "remove-from-whitelist",
+                    (server, ct) => _players.RemoveFromWhitelistAsync(server, remove.Username, ct), cancellationToken).ConfigureAwait(false);
+
+            case SetWhitelistMode mode:
+                return await PlayerActionAsync(
+                    envelope, operationId, "set-whitelist-mode",
+                    (server, ct) => _players.SetWhitelistModeAsync(server, mode.Open, ct), cancellationToken).ConfigureAwait(false);
 
             default:
                 // A command this Agent version does not understand: leave it unhandled (not marked handled) so
@@ -272,6 +323,52 @@ public sealed class AgentCommandProcessor
         }
     }
 
+    /// <summary>
+    /// Runs a player-management action (F19: kick/ban/unban/remove-from-whitelist/set-whitelist-mode) against the
+    /// target Server on the envelope, mirroring <see cref="LifecycleAsync"/>. Deduped by <c>OperationId</c> (PRD
+    /// 20). A <see cref="PlayerCommandException"/> (invalid arguments, RCON disabled/unreachable, auth or timeout)
+    /// becomes a failed completion with the Agent-authored reason. Otherwise the parsed
+    /// <see cref="PlayerActionResult"/> is carried on the completion: an <see cref="PlayerActionOutcome.Applied"/>
+    /// outcome is a succeeded Operation; a <see cref="PlayerActionOutcome.NotFound"/>,
+    /// <see cref="PlayerActionOutcome.Rejected"/> or <see cref="PlayerActionOutcome.Unknown"/> outcome is a failed
+    /// Operation whose (untrusted) reason is PZ's own reply — the command executed, but the target was not
+    /// actioned. The result rides the completion either way so the control plane can reconcile (e.g. the ban
+    /// registry, ADR 0027, records a ban only on <see cref="PlayerActionOutcome.Applied"/>).
+    /// </summary>
+    private async Task<Envelope<OperationCompleted>?> PlayerActionAsync(
+        Envelope<IProtocolMessage> envelope,
+        OperationId operationId,
+        string verb,
+        Func<ServerId, CancellationToken, Task<PlayerActionResult>> action,
+        CancellationToken cancellationToken)
+    {
+        if (envelope.ServerId is not { } serverId)
+        {
+            return Completed(OperationOutcome.Failed, $"No target Server on the {verb} command.", operationId);
+        }
+
+        if (!_handled.TryAdd(operationId, 0))
+        {
+            return null; // Already handled this operation — a redelivered command (PRD 20).
+        }
+
+        try
+        {
+            PlayerActionResult result = await action(serverId, cancellationToken).ConfigureAwait(false);
+            bool applied = result.Outcome == PlayerActionOutcome.Applied;
+            return Completed(
+                applied ? OperationOutcome.Succeeded : OperationOutcome.Failed,
+                applied ? null : result.Detail ?? $"The server did not apply the {verb}.",
+                operationId,
+                serverId,
+                playerAction: result);
+        }
+        catch (PlayerCommandException ex)
+        {
+            return Completed(OperationOutcome.Failed, ex.Message, operationId, serverId);
+        }
+    }
+
     private Envelope<OperationCompleted> Completed(
         OperationOutcome outcome,
         string? failureReason,
@@ -279,9 +376,11 @@ public sealed class AgentCommandProcessor
         ServerId? serverId = null,
         ProvisionResult? provision = null,
         UpdateResult? update = null,
-        RconHealthResult? rcon = null) =>
+        RconHealthResult? rcon = null,
+        PlayerRosterResult? roster = null,
+        PlayerActionResult? playerAction = null) =>
         Envelope.Create(
-            new OperationCompleted(outcome, failureReason, provision, update, rcon),
+            new OperationCompleted(outcome, failureReason, provision, update, rcon, roster, playerAction),
             _timeProvider.GetUtcNow(),
             serverId: serverId,
             operationId: operationId);
