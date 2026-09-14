@@ -48,6 +48,13 @@ namespace ZWarden.Contracts.Protocol.Messages;
 /// drift-refused apply. Additive and optional (ADR 0020); observed data, recorded only against the Server the
 /// envelope's <c>ServerId</c> names.
 /// </param>
+/// <param name="Mods">
+/// For a successful mod discovery (<see cref="DiscoverMods"/>), the Workshop content and mods the Agent observed
+/// on disk, mapped against the Server's config lists (F21). <c>null</c> for every other Operation. Additive and
+/// optional (ADR 0020); the ids and names are <b>untrusted</b> PZ/Workshop output (trust-boundaries.md §8),
+/// carried verbatim for escaping at render. Observed data, recorded only against the Server the envelope's
+/// <c>ServerId</c> names.
+/// </param>
 [ProtocolMessage("operation.completed")]
 public sealed record OperationCompleted(
     OperationOutcome Outcome,
@@ -57,7 +64,8 @@ public sealed record OperationCompleted(
     RconHealthResult? Rcon = null,
     PlayerRosterResult? Roster = null,
     PlayerActionResult? PlayerAction = null,
-    ConfigApplyResult? Config = null) : AgentEvent;
+    ConfigApplyResult? Config = null,
+    ModDiscoveryResult? Mods = null) : AgentEvent;
 
 /// <summary>The container facts a successful <see cref="CreateServer"/> Operation observed (F14 PR-B): the two
 /// allocated host UDP ports and the created Docker container id. Non-secret; the Server it belongs to is the
@@ -134,3 +142,64 @@ public sealed record PlayerActionResult(PlayerActionOutcome Outcome, string? Det
 /// write (from <c>PzValueSnapshot</c>) — the "state" the recorded revision holds.</param>
 /// <param name="ChangedCount">How many edits the Agent applied to the file.</param>
 public sealed record ConfigApplyResult(PzConfigFile File, string SnapshotHash, string CanonicalSnapshot, int ChangedCount);
+
+/// <summary>What a successful <see cref="DiscoverMods"/> Operation observed (F21): the Workshop items installed on
+/// disk and the mods each provides, the Server's own <c>WorkshopItems=</c>/<c>Mods=</c> lists as read through the
+/// F20a config seam, and the compatibility findings computed by reconciling the three. All ids and names are
+/// <b>untrusted</b> PZ/Workshop output (trust-boundaries.md §8) — carried verbatim, never interpreted, escaped only
+/// at render. The Server it belongs to is the completion envelope's <c>ServerId</c>. Carries no Steam credential and
+/// no external metadata (titles/previews are #110).</summary>
+/// <param name="InstalledItems">The Workshop items present under <c>content/108600/</c>, each with the mods its
+/// <c>mod.info</c> files declare (the Workshop→Mod mapping; a single item may provide several mods).</param>
+/// <param name="ConfiguredWorkshopIds">The Workshop ids the config's <c>WorkshopItems=</c> line references, in file
+/// order (may be empty).</param>
+/// <param name="EnabledModIds">The Mod ids the config's <c>Mods=</c> line enables, in file order (may be empty).</param>
+/// <param name="Findings">The compatibility findings (may be empty when everything reconciles).</param>
+public sealed record ModDiscoveryResult(
+    IReadOnlyList<DiscoveredWorkshopItem> InstalledItems,
+    IReadOnlyList<string> ConfiguredWorkshopIds,
+    IReadOnlyList<string> EnabledModIds,
+    IReadOnlyList<ModCompatFinding> Findings);
+
+/// <summary>A Workshop item found on disk under <c>content/108600/&lt;WorkshopId&gt;/</c> (F21) and the mods it
+/// provides, read from the <c>mod.info</c> under each of its <c>mods/&lt;folder&gt;/</c> subdirectories. The
+/// <see cref="WorkshopId"/> is the Steam numeric id as a string; both it and the mod ids/names are untrusted,
+/// bounded, and carried verbatim.</summary>
+/// <param name="WorkshopId">The Steam Workshop item id (numeric, carried as a string).</param>
+/// <param name="Mods">The mods this item provides (may be empty when the item has no readable <c>mod.info</c>).</param>
+public sealed record DiscoveredWorkshopItem(string WorkshopId, IReadOnlyList<DiscoveredMod> Mods);
+
+/// <summary>A mod declared by a <c>mod.info</c> (F21): its Mod id (the <c>id=</c> value, the token used in the
+/// config's <c>Mods=</c> line) and the display name (<c>name=</c>) when present. Both are untrusted, bounded, and
+/// carried verbatim for escaping at render.</summary>
+/// <param name="ModId">The PZ Mod id from <c>mod.info</c>'s <c>id=</c>.</param>
+/// <param name="Name">The mod's declared display name (<c>name=</c>), or <c>null</c> when it declares none.</param>
+public sealed record DiscoveredMod(string ModId, string? Name);
+
+/// <summary>A compatibility problem F21 found by reconciling the on-disk mods against the config lists. All four
+/// kinds are derived locally, with no Steam call.</summary>
+public enum ModCompatKind
+{
+    /// <summary>A <c>WorkshopItems=</c> id has no folder under <c>content/108600/</c> — referenced but not
+    /// installed (the most common real failure; the server will try to fetch it on next Steam-mode start).</summary>
+    ReferencedNotInstalled,
+
+    /// <summary>A <c>Mods=</c> id is provided by no installed <c>mod.info</c> — enabled but missing, so the server
+    /// will fail to load it.</summary>
+    EnabledButMissing,
+
+    /// <summary>A mod is present on disk but absent from <c>Mods=</c> — installed but inactive (informational:
+    /// downloaded, not enabled).</summary>
+    InstalledButInactive,
+
+    /// <summary>The same Mod id is provided by more than one installed Workshop item — a load conflict.</summary>
+    DuplicateModId,
+}
+
+/// <summary>One compatibility finding (F21): its <see cref="Kind"/>, the offending id (a Mod id or Workshop id,
+/// untrusted and bounded), and an optional short Agent-authored detail. The Server it belongs to is the completion
+/// envelope's <c>ServerId</c>.</summary>
+/// <param name="Kind">Which compatibility problem this is.</param>
+/// <param name="Subject">The offending id — a Mod id or a Workshop id depending on <paramref name="Kind"/>.</param>
+/// <param name="Detail">An optional short explanation authored by the Agent, or <c>null</c>.</param>
+public sealed record ModCompatFinding(ModCompatKind Kind, string Subject, string? Detail);
