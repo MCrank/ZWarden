@@ -2,21 +2,28 @@
 
   <!--
     Turns trust-boundaries.md §9 into a red build. Tier-1 (offline): it reads the
-    src/*.csproj files from disk, so it needs neither Docker nor project references
-    to the assemblies under test. The rules checkable now are the reference-direction
-    ones (§9 rules 1, 2, 5, 6); the type-level rules (3, 4, 7) arrive with the
-    features that introduce the types they constrain.
+    src/*.csproj files from disk, so most rules need neither Docker nor project references
+    to the assemblies under test. The reference-direction rules (§9 rules 1, 2, 5, 6) are
+    csproj-only; the type-level rules (3, 4, 7) arrive with the features that introduce the
+    types they constrain. F20a's seam rule (ADR 0010) is one such type-level rule: it
+    reflects over ZWarden.PzConfig's public surface to prove no Loretta type crosses the
+    seam, so it - and only it - needs a reference to that one assembly.
   -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
     <LangVersion>14.0</LangVersion>
-    <TestingPlatformCommandLineArguments>--minimum-expected-tests 15</TestingPlatformCommandLineArguments>
+    <TestingPlatformCommandLineArguments>--minimum-expected-tests 18</TestingPlatformCommandLineArguments>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="TUnit" />
+  </ItemGroup>
+
+  <!-- F20a seam rule only: reflect over the PzConfig public surface to prove Loretta never crosses it. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\ZWarden.PzConfig\ZWarden.PzConfig.csproj" />
   </ItemGroup>
 
 </Project>

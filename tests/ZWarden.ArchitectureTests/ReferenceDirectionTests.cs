@@ -100,6 +100,35 @@ public class ReferenceDirectionTests
         return visited;
     }
 
+    // F20a (ADR 0010): the Lua config parser lives behind IPzConfigDocument in ZWarden.PzConfig, which
+    // depends only on the domain - it is infrastructure-free (no persistence, no Docker, no transport), so
+    // the seam can be consumed by any tier and the hand-rolled fallback stays a real option.
+    [Test]
+    public async Task PzConfig_references_only_the_domain()
+    {
+        var pzConfig = ProjectGraph.ForSourceProject("ZWarden.PzConfig");
+
+        await Assert.That(pzConfig.ProjectReferences.Count).IsEqualTo(1);
+        await Assert.That(pzConfig.ProjectReferences).Contains("ZWarden.Domain");
+        await Assert.That(pzConfig.PackageReferences.Any(IsPersistence)).IsFalse();
+        await Assert.That(pzConfig.PackageReferences.Any(IsDockerClient)).IsFalse();
+        await Assert.That(pzConfig.PackageReferences.Any(IsSignalRClient)).IsFalse();
+    }
+
+    // F20a (ADR 0010): Loretta is a single-maintainer dependency, confined to ZWarden.PzConfig behind the
+    // seam so a fork or the hand-rolled fallback can replace it in one place. No other src project may take
+    // a direct dependency on it.
+    [Test]
+    public async Task Only_pzconfig_references_the_lua_parser()
+    {
+        string[] withLoretta = [.. ProjectGraph.SourceProjectNames()
+            .Where(name => ProjectGraph.ForSourceProject(name).PackageReferences
+                .Any(package => package.Contains("Loretta", StringComparison.OrdinalIgnoreCase)))];
+
+        await Assert.That(withLoretta.Length).IsEqualTo(1);
+        await Assert.That(withLoretta[0]).IsEqualTo("ZWarden.PzConfig");
+    }
+
     // §9 rule 6: Auth0/IdP specifics never leak into Domain or Application (PRD 11).
     [Test]
     [Arguments("ZWarden.Domain")]

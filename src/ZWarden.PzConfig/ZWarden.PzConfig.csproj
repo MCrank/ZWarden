@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    F20a (ADR 0010): the read-and-model half of Project Zomboid configuration handling, behind the
+    narrow IPzConfigDocument seam. It reads bytes + a file kind into a structured value tree, runs a
+    ZWarden-side size and nesting-depth pre-check BEFORE any parser sees the file, and validates the
+    model against a hand-maintained schema. The three Lua files are parsed - never evaluated - with
+    Loretta.CodeAnalysis.Lua in Lua51 mode; the .ini gets a small hand-written key=value reader.
+
+    Loretta is the only package reference and is an internal implementation detail: no Loretta type
+    crosses the public surface (an architecture test enforces the seam, so a fork or the hand-rolled
+    fallback can replace it behind the interface). Depends only on ZWarden.Domain. Not tier-restricted
+    - unlike ZWarden.Rcon, config modelling is legitimately needed by both Web and Agent, and a
+    parse-only, no-native-code library carries no credential-leak concern.
+
+    Writes, surgical edits, emit-bytes, revisions and drift detection are F20b.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\ZWarden.Domain\ZWarden.Domain.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Loretta.CodeAnalysis.Lua" />
+  </ItemGroup>
+
+  <!-- The Loretta-backed reader, the pre-check scanner and the schema table are internal
+       implementation detail; the test assembly exercises them directly as the executable spec. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="ZWarden.PzConfig.Tests" />
+  </ItemGroup>
+
+</Project>
