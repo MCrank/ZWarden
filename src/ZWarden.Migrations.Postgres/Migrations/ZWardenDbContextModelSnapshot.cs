@@ -291,6 +291,48 @@ namespace ZWarden.Migrations.Postgres.Migrations
                     b.ToTable("RolePermissionGrants", (string)null);
                 });
 
+            modelBuilder.Entity("ZWarden.Domain.Configuration.ConfigurationRevision", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CanonicalSnapshot")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("File")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<Guid>("ServerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("SnapshotHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "ServerId", "File", "CreatedAt");
+
+                    b.ToTable("ConfigurationRevisions", (string)null);
+                });
+
             modelBuilder.Entity("ZWarden.Domain.Enrollments.Enrollment", b =>
                 {
                     b.Property<Guid>("Id")
