@@ -159,4 +159,76 @@ public class LuaConfigEditTests
         IPzConfigDocument doc = Open(PzConfigKind.SandboxVars, "SandboxVars = {\n    Zombies = 4,\n}");
         await Assert.That(doc.IsEditable).IsTrue();
     }
+
+    [Test]
+    public async Task A_spawnregions_file_round_trips_byte_exact()
+    {
+        const string src = "function SpawnRegions()\n\treturn {\n\t\t{ name = \"Muldraugh, KY\", file = \"media/maps/Muldraugh, KY/spawnpoints.lua\" },\n\t}\nend\n";
+
+        IPzConfigDocument doc = Open(PzConfigKind.SpawnRegions, src);
+
+        await Assert.That(doc.IsEditable).IsTrue();
+        await Assert.That(Encoding.UTF8.GetString(doc.Emit())).IsEqualTo(src);
+    }
+
+    [Test]
+    public async Task A_spawnpoints_file_round_trips_byte_exact()
+    {
+        const string src = "function SpawnPoints()\n\treturn {\n\t\t[\"park ranger\"] = {\n\t\t\t{ worldX = 40, worldY = 22 }\n\t\t},\n\t}\nend\n";
+
+        IPzConfigDocument doc = Open(PzConfigKind.SpawnPoints, src);
+
+        await Assert.That(Encoding.UTF8.GetString(doc.Emit())).IsEqualTo(src);
+    }
+
+    [Test]
+    public async Task Setting_a_missing_key_is_path_not_found()
+    {
+        IPzConfigDocument doc = Open(PzConfigKind.SandboxVars, "SandboxVars = {\n    Zombies = 4,\n}");
+
+        PzConfigEditResult result = doc.TrySetValue("NoSuchKey", new PzNumber(1, "1", isInteger: true));
+
+        await Assert.That(result.Status).IsEqualTo(PzEditStatus.PathNotFound);
+    }
+
+    [Test]
+    public async Task Setting_a_table_valued_path_is_path_is_table()
+    {
+        IPzConfigDocument doc = Open(PzConfigKind.SandboxVars, "SandboxVars = {\n    Map = {\n        AllowMiniMap = false,\n    },\n}");
+
+        PzConfigEditResult result = doc.TrySetValue("Map", new PzBoolean(true));
+
+        await Assert.That(result.Status).IsEqualTo(PzEditStatus.PathIsTable);
+    }
+
+    [Test]
+    public async Task Descending_through_a_scalar_is_path_not_found()
+    {
+        IPzConfigDocument doc = Open(PzConfigKind.SandboxVars, "SandboxVars = {\n    Zombies = 4,\n}");
+
+        // Zombies is a scalar, so "Zombies.Something" has nothing to descend into.
+        PzConfigEditResult result = doc.TrySetValue("Zombies.Something", new PzNumber(1, "1", isInteger: true));
+
+        await Assert.That(result.Status).IsEqualTo(PzEditStatus.PathNotFound);
+    }
+
+    [Test]
+    public async Task A_quoted_profession_key_that_holds_a_table_is_path_is_table()
+    {
+        const string src = "function SpawnPoints()\n\treturn {\n\t\t[\"park ranger\"] = {\n\t\t\t{ worldX = 40 }\n\t\t},\n\t}\nend\n";
+
+        IPzConfigDocument doc = Open(PzConfigKind.SpawnPoints, src);
+
+        PzConfigEditResult result = doc.TrySetValue("park ranger", new PzBoolean(true));
+
+        await Assert.That(result.Status).IsEqualTo(PzEditStatus.PathIsTable);
+    }
+
+    [Test]
+    public async Task An_empty_path_segment_is_path_not_found()
+    {
+        IPzConfigDocument doc = Open(PzConfigKind.SandboxVars, "SandboxVars = {\n    Map = {\n        AllowMiniMap = false,\n    },\n}");
+
+        await Assert.That(doc.TrySetValue("Map..AllowMiniMap", new PzBoolean(true)).Status).IsEqualTo(PzEditStatus.PathNotFound);
+    }
 }
