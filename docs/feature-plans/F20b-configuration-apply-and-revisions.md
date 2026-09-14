@@ -9,7 +9,10 @@ the two are mapped in PR 3's apply path), the EF mapping + tenant-scoped reposit
 `AddConfigurationRevisions` migration, and `PzDriftCheck` — the pure, fail-closed value-level drift check
 the Agent runs before every write. Repository DI registration is deferred to PR 3 with its consumer.
 
-**PR 3 = agent apply + drift + enqueue (this branch, `feat/f20b-config-agent-apply`).** 7 TDD slices:
+**PR 4 = the operator UI (this branch, `feat/f20b-config-ui`) — the final PR; the detailed just-in-time
+scope is [§ Scope — PR 4](#scope--pr-4-operator-ui) at the foot of this doc.**
+
+**PR 3 = agent apply + drift + enqueue (branch `feat/f20b-config-agent-apply`, merged).** 7 TDD slices:
 (S1) the `ConfigApply` wire command carrying `PzConfigFile` + drift baseline + a **partial edit list**
 (`ConfigValueEdit` — path/kind/wire-value; the `Operation` command-payload bound rules out a full-snapshot
 payload) and the additive `ConfigApplyResult` on `OperationCompleted`; (S2) `OperationKind.ConfigApply`
@@ -196,3 +199,89 @@ tests/ZWarden.PzConfig.Tests/ZWarden.PzConfig.Tests.csproj -c Release`. No new p
 already pinned from F20a), so no lock-file regeneration is required for PR 1. The new
 `--minimum-expected-tests` floor moves with the test count; no Web.Tests change, so the ci.yml
 silent-drop guard is untouched.
+
+## Scope — PR 4 (operator UI)
+
+The final PR gives the operator a **Configuration** section on `ServerDetail` (`/servers/{id}`), gated by the
+existing `Permissions.ServerConfigurationEdit` and re-checked server-side on every action (ADR 0018). It is
+built on the substrate PRs 1–3 already delivered — the enqueue service, the revision persistence, and the
+Agent write path — plus a small library read-back and a read/restore service.
+
+### The load-bearing constraint that shaped this PR
+
+**The Web tier has no live read of a Server's config files.** Only the Agent can touch the `/pz/` mount, and
+the write path deliberately runs Agent-side (decision 4). The *only* configuration data the control plane
+ever holds is the **value snapshot recorded after a write** (`ConfigurationRevision.CanonicalSnapshot`, the
+order-normalized `[[path, encoded-scalar]]` form from `PzValueSnapshot`). That snapshot is **values only** —
+no comments, no raw layout — and it **does not exist at all** until the first apply. A ~45 KB file also
+cannot ride an `Operation` result payload (2 KB cap, `Operation.MaxCommandPayloadLength`).
+
+Two pieces the earlier one-line sketch named are therefore **not buildable on today's plumbing** and are
+**deferred to a follow-up feature**, tracked as its own issue:
+
+- a **schema-driven editor pre-filled with the file's current values**, and
+- an **advanced raw view/edit** of the file text.
+
+Both require a new **config-*read* path from the Agent** (a non-mutating read Operation plus a large-payload
+transfer mechanism — SignalR streaming or a blob, because the file exceeds the command/result payload cap).
+That is a feature in its own right, not a slice of this PR. The maintainer chose to ship the honest UI on the
+existing substrate now (Option A) and defer the read-path-dependent editor.
+
+Same constraint, one knock-on: **restore cannot re-send a whole file** (a full sandbox file is ~275 keys ≫
+2 KB). Restore therefore means *"re-apply only the values that differ between the chosen revision and now"* —
+a small edit set, computed from the two stored snapshots.
+
+### What PR 4 delivers
+
+1. **Configuration card** on `ServerDetail`, shown only to a holder of `ServerConfigurationEdit`, with a
+   file selector over the four `PzConfigFile` values. All controls are BlazorBlueprint `Bb*` on the existing
+   static-SSR form seam (ADR 0003; [[blueprint-seam-ssr-forms]]) — one `EditForm` with a verb carried on the
+   submit button's `name`/`value`, mirroring the Players card.
+2. **Targeted value edit** — path + kind (`Bool`/`Number`/`Text`) + value → `IServerConfigurationEditor.ApplyAsync`.
+   Typed and validated, but not a full key list (that is the deferred schema editor). This is the direct UI
+   caller PR 3's enqueue half was built for.
+3. **Revision history** for the selected file (`ConfigurationRevisionRepository.ListForFileAsync`), newest
+   first: recorded-at (UTC), a short hash, the change-count, and the value-level **diff from the previous
+   revision** rendered as parsed values (ADR 0011) — the deliverable that makes "revisions are values, not
+   bytes" visible.
+4. **Restore** a prior revision — enqueues the value-diff that moves *now → that revision*, via a new
+   `IServerConfigurationEditor.RestoreAsync`, reusing the same authorize/validate/enqueue/audit path as apply.
+   Structural differences (a key present in one revision and not the other) are reported as not-surgically-
+   restorable rather than guessed at (`PzRestore`, values-only writer).
+5. **Fail-closed drift**, surfaced honestly: a drift makes the apply/restore Operation fail closed with an
+   operator-readable reason. A true *confirm-and-override* flow needs a live re-read to refresh the baseline,
+   so it rides the same deferred read-path follow-up; PR 4 shows the refusal clearly and says why.
+
+### Library + service additions
+
+- **`ZWarden.PzConfig` (leaf, no new ref):** `PzValueSnapshot.Parse(canonicalText)` — the inverse of the
+  existing `Encode`, reconstructing a snapshot (and its `Scalars`) from stored canonical text so restore can
+  run `PzRestore.PlanTo(target, current)` on two persisted revisions; and a
+  `PzValueDiff.Compare(before, after)` overload over two snapshots for the history diff. Both are pure value
+  logic — **neither touches Loretta** (only `PzConfigParser.Open` does), so nothing changes on the seam.
+- **`ZWarden.Application`:** an `IServerConfigurationHistory` read seam returning layer-neutral DTOs
+  (`ConfigRevisionView` + `ConfigValueChange`, no `PzValue` across the seam), and `RestoreAsync` on the
+  existing `IServerConfigurationEditor`.
+- **`ZWarden.Infrastructure`:** `ConfigurationHistoryService` and `ServerConfigurationEditor.RestoreAsync`,
+  which decode snapshots and plan restores with the library. This adds the **first `Infrastructure →
+  ZWarden.PzConfig` project reference.** It is arch-legal: `ReferenceDirectionTests` reads only *declared*
+  package references, and `Only_pzconfig_references_the_lua_parser` counts the direct Loretta
+  `<PackageReference>` (which stays solely in `ZWarden.PzConfig`); a transitive project reference adds none.
+  The new project reference pulls Loretta into Infrastructure's (and thus Web's) **lock closure**, so both
+  lock files regenerate with the pinned SDK ([[zwarden-local-toolchain]]).
+
+### Non-scope — PR 4 (deferred to the read-path follow-up)
+
+- The **live config-read path** from the Agent (read Operation + large-payload transfer).
+- The **schema-driven editor pre-filled with current values** and the **advanced raw view/edit** (both need
+  that read path).
+- An interactive **drift confirm-and-override** (needs a live re-read to refresh the baseline).
+
+### Testing & verification — PR 4
+
+TDD in slices, each its own commit. Library slices run in `ZWarden.PzConfig.Tests` (bump its floor);
+service slices in `ZWarden.Infrastructure.Tests` (bump its floor); the UI over the real host in
+`ZWarden.Web.Tests` — bump the Web.Tests floor in **both** the csproj and the `ci.yml`
+`tier1-silent-drop-guard` ([[web-tests-discovery-floor-bump]]). The `Infrastructure → ZWarden.PzConfig`
+reference regenerates the Infrastructure and Web lock files with the pinned SDK; verify with a
+`--locked-mode` restore. Regenerate `app.css` (`npm run build:css`) if utility classes changed.
