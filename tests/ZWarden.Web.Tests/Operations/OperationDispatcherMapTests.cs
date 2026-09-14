@@ -1,5 +1,7 @@
+using ZWarden.Application.Configuration;
 using ZWarden.Application.Players;
 using ZWarden.Contracts.Protocol.Messages;
+using ZWarden.Domain.Configuration;
 using ZWarden.Domain.Operations;
 using ZWarden.Web.Operations;
 
@@ -68,6 +70,33 @@ public class OperationDispatcherMapTests
     public async Task A_player_action_kind_without_a_payload_throws()
     {
         await Assert.That(() => OperationDispatcher.CommandFor(OperationKind.KickPlayer)).Throws<InvalidOperationException>();
+    }
+
+    [Test]
+    public async Task The_config_apply_kind_reads_its_file_baseline_and_edits_from_the_payload()
+    {
+        string json = new ConfigApplyPayload(
+            PzConfigFile.SandboxVars,
+            BaselineHash: "abc123",
+            Edits:
+            [
+                new ConfigApplyEdit("Zombies", ConfigEditKind.Number, "3"),
+                new ConfigApplyEdit("PublicName", ConfigEditKind.Text, "My Server"),
+            ]).ToJson();
+
+        var apply = (ConfigApply)OperationDispatcher.CommandFor(OperationKind.ConfigApply, json);
+
+        await Assert.That(apply.File).IsEqualTo(PzConfigFile.SandboxVars);
+        await Assert.That(apply.BaselineHash).IsEqualTo("abc123");
+        await Assert.That(apply.Edits.Count).IsEqualTo(2);
+        await Assert.That(apply.Edits[0]).IsEqualTo(new ConfigValueEdit("Zombies", ConfigValueKind.Number, "3"));
+        await Assert.That(apply.Edits[1]).IsEqualTo(new ConfigValueEdit("PublicName", ConfigValueKind.Text, "My Server"));
+    }
+
+    [Test]
+    public async Task The_config_apply_kind_without_a_payload_throws()
+    {
+        await Assert.That(() => OperationDispatcher.CommandFor(OperationKind.ConfigApply)).Throws<InvalidOperationException>();
     }
 
     [Test]

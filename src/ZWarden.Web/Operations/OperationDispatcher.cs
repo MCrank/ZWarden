@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Options;
 using ZWarden.Application.Agents;
 using ZWarden.Application.Audit;
+using ZWarden.Application.Configuration;
 using ZWarden.Application.Operations;
 using ZWarden.Application.Players;
 using ZWarden.Contracts.Protocol;
@@ -112,9 +113,29 @@ public sealed class OperationDispatcher : IOperationDispatcher
         OperationKind.UnbanPlayer => new UnbanPlayer(Payload(commandPayload).Username!),
         OperationKind.RemoveFromWhitelist => new RemoveFromWhitelist(Payload(commandPayload).Username!),
         OperationKind.SetWhitelistMode => new SetWhitelistMode(Payload(commandPayload).Open ?? false),
+        OperationKind.ConfigApply => ConfigApplyCommand(commandPayload),
         _ => throw new NotSupportedException($"No command mapping for operation kind '{kind}'."),
     };
 
     private static PlayerCommandPayload Payload(string? commandPayload) => PlayerCommandPayload.FromJson(
         commandPayload ?? throw new InvalidOperationException("A player Operation was dispatched with no command payload."));
+
+    // Builds the ConfigApply wire command from the Application-neutral payload the enqueueing service wrote,
+    // mapping the neutral edit kinds onto their wire twins (F20b PR3). The file and baseline cross unchanged.
+    private static ConfigApply ConfigApplyCommand(string? commandPayload)
+    {
+        ConfigApplyPayload payload = ConfigApplyPayload.FromJson(
+            commandPayload ?? throw new InvalidOperationException("A config Operation was dispatched with no command payload."));
+        IReadOnlyList<ConfigValueEdit> edits =
+            [.. payload.Edits.Select(e => new ConfigValueEdit(e.Path, ToWireKind(e.Kind), e.Value))];
+        return new ConfigApply(payload.File, payload.BaselineHash, edits);
+    }
+
+    private static ConfigValueKind ToWireKind(ConfigEditKind kind) => kind switch
+    {
+        ConfigEditKind.Bool => ConfigValueKind.Bool,
+        ConfigEditKind.Number => ConfigValueKind.Number,
+        ConfigEditKind.Text => ConfigValueKind.Text,
+        _ => throw new NotSupportedException($"No wire mapping for config edit kind '{kind}'."),
+    };
 }
