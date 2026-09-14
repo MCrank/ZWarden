@@ -30,6 +30,10 @@
   <ItemGroup>
     <ProjectReference Include="..\ZWarden.Contracts\ZWarden.Contracts.csproj" />
     <ProjectReference Include="..\ZWarden.Rcon\ZWarden.Rcon.csproj" />
+    <!-- F20b PR3: the parse-only PZ config seam (ADR 0010). The Agent is the tier that reads and writes the
+         live /pz/ files, so it consumes IPzConfigDocument/PzDriftCheck here; Loretta stays confined to
+         ZWarden.PzConfig behind the seam (ReferenceDirectionTests). -->
+    <ProjectReference Include="..\ZWarden.PzConfig\ZWarden.PzConfig.csproj" />
   </ItemGroup>
 
 </Project>

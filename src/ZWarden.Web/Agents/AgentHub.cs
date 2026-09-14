@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using ZWarden.Application.Agents;
 using ZWarden.Application.Audit;
+using ZWarden.Application.Configuration;
 using ZWarden.Application.Operations;
 using ZWarden.Application.Players;
 using ZWarden.Application.Servers;
@@ -34,6 +35,7 @@ public sealed partial class AgentHub : Hub
     private readonly IServerMetricsCache _metrics;
     private readonly IServerHealthCache _healthCache;
     private readonly IPlayerRosterCache _rosters;
+    private readonly IConfigurationRevisionRecorder _configRevisions;
     private readonly ControlPlaneMetrics _telemetry;
     private readonly IAuditWriter _audit;
     private readonly ILogger<AgentHub> _logger;
@@ -46,6 +48,7 @@ public sealed partial class AgentHub : Hub
         IServerMetricsCache metrics,
         IServerHealthCache healthCache,
         IPlayerRosterCache rosters,
+        IConfigurationRevisionRecorder configRevisions,
         ControlPlaneMetrics telemetry,
         IAuditWriter audit,
         ILogger<AgentHub> logger)
@@ -57,6 +60,7 @@ public sealed partial class AgentHub : Hub
         ArgumentNullException.ThrowIfNull(metrics);
         ArgumentNullException.ThrowIfNull(healthCache);
         ArgumentNullException.ThrowIfNull(rosters);
+        ArgumentNullException.ThrowIfNull(configRevisions);
         ArgumentNullException.ThrowIfNull(telemetry);
         ArgumentNullException.ThrowIfNull(audit);
         ArgumentNullException.ThrowIfNull(logger);
@@ -67,6 +71,7 @@ public sealed partial class AgentHub : Hub
         _metrics = metrics;
         _healthCache = healthCache;
         _rosters = rosters;
+        _configRevisions = configRevisions;
         _telemetry = telemetry;
         _audit = audit;
         _logger = logger;
@@ -305,6 +310,16 @@ public sealed partial class AgentHub : Hub
             {
                 _rosters.Record(new PlayerRoster(
                     rosterServerId, reportingAgent, roster.Count, roster.Players, completed.Timestamp));
+            }
+
+            // A successful configuration apply carries the revision the Agent recorded from the file after the
+            // BOM-less atomic write (F20b, ADR 0011); persist it as the new drift baseline before marking the
+            // operation done. Observed, tenant-scoped, unattributed (the audit trail carries who applied it).
+            if (completed.Payload.Config is { } config && completed.ServerId is { } configServerId)
+            {
+                await _configRevisions.RecordAsync(
+                    configServerId, config.File, config.CanonicalSnapshot, config.SnapshotHash, Context.ConnectionAborted)
+                    .ConfigureAwait(false);
             }
 
             await _operations.CompleteSucceededAsync(operationId, Context.ConnectionAborted).ConfigureAwait(false);

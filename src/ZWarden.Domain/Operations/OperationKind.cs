@@ -86,4 +86,12 @@ public enum OperationKind
     /// per-server lock (ADR 0022); reconciling the INI write against configuration revisions is F20b's concern.
     /// The desired <c>Open</c> value rides the command payload.</summary>
     SetWhitelistMode = 13,
+
+    /// <summary>Apply surgical value edits to one of a Server's four configuration files (F20b). A
+    /// <b>mutating, server-scoped</b> Operation — it writes to the <c>/pz/</c> mount — so it claims the
+    /// per-server lock (ADR 0022): a config write never runs while a lifecycle Operation is in flight. The Agent
+    /// re-parses the live file, fails the write closed on a drift from the recorded baseline (ADR 0011), then
+    /// writes byte-preserving, BOM-less, and atomically, reporting a <c>ConfigApplyResult</c> on success. The
+    /// target file, drift baseline, and edits ride the command payload.</summary>
+    ConfigApply = 14,
 }

@@ -99,6 +99,11 @@
           "Docker.DotNet.Enhanced.Handler.Abstractions": "4.3.3"
         }
       },
+      "Loretta.CodeAnalysis.Common": {
+        "type": "Transitive",
+        "resolved": "0.2.13",
+        "contentHash": "fXlVjbh29oC/0nDHSRaQzmKMI48Yg9hecMMTap7zNUo7wLTVvBcLFLJhxvsf3+Nj2yG8nSK+KrYxsrp1uosVzQ=="
+      },
       "Microsoft.ApplicationInsights": {
         "type": "Transitive",
         "resolved": "2.23.0",
@@ -654,6 +659,11 @@
         "resolved": "10.0.10",
         "contentHash": "OvGz3PrzuAI/Sj7LTcXcCe3FClRI1IyRMZjNONcZtFh+Ww7nAtSh4kh08r8KVe/xxkXJPjR0Y1jF7H+N42d4xQ=="
       },
+      "Tsu": {
+        "type": "Transitive",
+        "resolved": "2.2.2",
+        "contentHash": "l6svA84RD5MYyZgLFOI0Tj1ssEkcNUi0Q13wfH7VBJxd17o+YL1sgdLEyu3kkBBjvJIgOgszZUPR0vCrZOgBKg=="
+      },
       "TUnit.Assertions": {
         "type": "Transitive",
         "resolved": "1.66.27",
@@ -691,6 +701,7 @@
           "Serilog.Sinks.Console": "[6.1.1, )",
           "Serilog.Sinks.File": "[7.0.0, )",
           "ZWarden.Contracts": "[1.0.0, )",
+          "ZWarden.PzConfig": "[1.0.0, )",
           "ZWarden.Rcon": "[1.0.0, )"
         }
       },
@@ -725,6 +736,13 @@
           "ZWarden.Infrastructure": "[1.0.0, )"
         }
       },
+      "zwarden.pzconfig": {
+        "type": "Project",
+        "dependencies": {
+          "Loretta.CodeAnalysis.Lua": "[0.2.13, )",
+          "ZWarden.Domain": "[1.0.0, )"
+        }
+      },
       "zwarden.rcon": {
         "type": "Project",
         "dependencies": {
@@ -749,6 +767,16 @@
           "Docker.DotNet.Enhanced.NativeHttp": "4.3.3",
           "Docker.DotNet.Enhanced.Unix": "4.3.3",
           "Microsoft.Extensions.Logging.Abstractions": "8.0.3"
+        }
+      },
+      "Loretta.CodeAnalysis.Lua": {
+        "type": "CentralTransitive",
+        "requested": "[0.2.13, )",
+        "resolved": "0.2.13",
+        "contentHash": "lTidKc2iJApe3g1FvYlSacdsBCi3xkhqNRHxPgeuY9L4rc6jsEt1ELUuCaWWfxIiMVAAHsgORUzX2sWRYcxrCg==",
+        "dependencies": {
+          "Loretta.CodeAnalysis.Common": "0.2.13",
+          "Tsu": "2.2.2"
         }
       },
       "Microsoft.AspNetCore.Identity.EntityFrameworkCore": {

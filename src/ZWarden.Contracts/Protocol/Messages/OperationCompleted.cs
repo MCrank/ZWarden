@@ -1,3 +1,5 @@
+using ZWarden.Domain.Configuration;
+
 namespace ZWarden.Contracts.Protocol.Messages;
 
 /// <summary>
@@ -39,6 +41,13 @@ namespace ZWarden.Contracts.Protocol.Messages;
 /// reply. <c>null</c> for every other Operation. Additive and optional (ADR 0020); the detail is
 /// <b>untrusted</b> PZ output (trust-boundaries.md §8), carried verbatim for escaping at render (F28).
 /// </param>
+/// <param name="Config">
+/// For a successful configuration apply (<see cref="ConfigApply"/>), the revision the Agent recorded — the
+/// canonical value snapshot the file holds after the write and its hash — so the control plane can persist a
+/// Configuration Revision (F20b, ADR 0011). <c>null</c> for every other Operation, and for a failed or
+/// drift-refused apply. Additive and optional (ADR 0020); observed data, recorded only against the Server the
+/// envelope's <c>ServerId</c> names.
+/// </param>
 [ProtocolMessage("operation.completed")]
 public sealed record OperationCompleted(
     OperationOutcome Outcome,
@@ -47,7 +56,8 @@ public sealed record OperationCompleted(
     UpdateResult? Update = null,
     RconHealthResult? Rcon = null,
     PlayerRosterResult? Roster = null,
-    PlayerActionResult? PlayerAction = null) : AgentEvent;
+    PlayerActionResult? PlayerAction = null,
+    ConfigApplyResult? Config = null) : AgentEvent;
 
 /// <summary>The container facts a successful <see cref="CreateServer"/> Operation observed (F14 PR-B): the two
 /// allocated host UDP ports and the created Docker container id. Non-secret; the Server it belongs to is the
@@ -111,3 +121,16 @@ public enum PlayerActionOutcome
 /// <param name="Outcome">The classified outcome.</param>
 /// <param name="Detail">PZ's reply text (bounded, untrusted), or <c>null</c> when PZ sent no reply.</param>
 public sealed record PlayerActionResult(PlayerActionOutcome Outcome, string? Detail);
+
+/// <summary>The revision a successful <see cref="ConfigApply"/> Operation recorded (F20b, ADR 0011): the
+/// canonical, order-normalized snapshot of the file's parsed values <b>after</b> the write, its SHA-256 hash
+/// (the next write's drift baseline), and how many values the edits actually changed. The control plane persists
+/// this as a Configuration Revision against the Server the completion envelope's <c>ServerId</c> names. Never
+/// carries file bytes (ADR 0011) or a secret; the snapshot is parsed values the operator authored.</summary>
+/// <param name="File">Which of the Server's four configuration files was written.</param>
+/// <param name="SnapshotHash">The lowercase-hex SHA-256 of <paramref name="CanonicalSnapshot"/> — the drift
+/// baseline the next write re-checks.</param>
+/// <param name="CanonicalSnapshot">The order-normalized serialization of the file's scalar values after the
+/// write (from <c>PzValueSnapshot</c>) — the "state" the recorded revision holds.</param>
+/// <param name="ChangedCount">How many edits the Agent applied to the file.</param>
+public sealed record ConfigApplyResult(PzConfigFile File, string SnapshotHash, string CanonicalSnapshot, int ChangedCount);

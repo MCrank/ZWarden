@@ -2,13 +2,16 @@ using Microsoft.AspNetCore.Http.Connections;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.DependencyInjection;
 using ZWarden.Application.Agents;
+using ZWarden.Application.Configuration;
 using ZWarden.Application.Operations;
 using ZWarden.Contracts.Protocol;
 using ZWarden.Contracts.Protocol.Messages;
 using ZWarden.Domain.Agents;
+using ZWarden.Domain.Configuration;
 using ZWarden.Domain.Ids;
 using ZWarden.Domain.Operations;
 using ZWarden.Infrastructure.Agents;
+using ZWarden.Infrastructure.Configuration;
 using ZWarden.Infrastructure.Operations;
 using ZWarden.Infrastructure.Persistence;
 using ZWarden.Web.Agents;
@@ -106,6 +109,69 @@ public class OperationDispatchIntegrationTests
     }
 
     [Test]
+    public async Task A_config_apply_runs_end_to_end_and_records_a_revision()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        (AgentId agentId, string credential) = await SeedTrustedAgentAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, agentId);
+        await using HubConnection connection = BuildConnection(factory, credential);
+
+        // The stand-in Agent verifies it received a ConfigApply carrying the file, baseline and edits from the
+        // command payload, then reports the recorded revision. (The real drift-checked write is unit-tested.)
+        ConfigApply? received = null;
+        connection.On<string>(AgentHubProtocol.ReceiveCommand, async json =>
+        {
+            Envelope<IProtocolMessage> command = ProtocolJson.Deserialize(json);
+            if (command.Payload is ConfigApply apply && command.OperationId is { } operationId)
+            {
+                received = apply;
+                Envelope<OperationCompleted> reply = Envelope.Create(
+                    new OperationCompleted(
+                        OperationOutcome.Succeeded,
+                        Config: new ConfigApplyResult(apply.File, "new-hash-42", "[[\"Zombies\",\"n:1:i\"]]", 1)),
+                    Now, serverId: command.ServerId, operationId: operationId);
+                await connection.SendAsync(AgentHubProtocol.OperationCompleted, reply);
+            }
+        });
+
+        await connection.StartAsync();
+        await connection.InvokeAsync<ProtocolNegotiationResult>(AgentHubProtocol.Hello, Hello(agentId));
+
+        OperationId operationId;
+        using (IServiceScope scope = factory.Services.CreateScope())
+        {
+            IOperationCoordinator coordinator = scope.ServiceProvider.GetRequiredService<IOperationCoordinator>();
+            string payload = new ConfigApplyPayload(
+                PzConfigFile.SandboxVars, "base-1", [new ConfigApplyEdit("Zombies", ConfigEditKind.Number, "1")]).ToJson();
+            Operation op = await coordinator.EnqueueAsync(
+                new EnqueueOperationRequest(
+                    agentId, OperationKind.ConfigApply, IsMutating: true, "e2e-config-apply",
+                    ServerId: serverId, CommandPayload: payload));
+            operationId = op.Id;
+        }
+
+        Operation? final = await WaitForStateAsync(factory, operationId, OperationState.Succeeded);
+        await Assert.That(final).IsNotNull();
+        await Assert.That(received).IsNotNull();
+        await Assert.That(received!.File).IsEqualTo(PzConfigFile.SandboxVars);
+        await Assert.That(received.BaselineHash).IsEqualTo("base-1");
+        await Assert.That(received.Edits[0].Path).IsEqualTo("Zombies");
+
+        // The completion recorded a Configuration Revision (the new drift baseline) against the Server.
+        using (IServiceScope scope = factory.Services.CreateScope())
+        {
+            ConfigurationRevisionRepository revisions =
+                new(scope.ServiceProvider.GetRequiredService<ZWardenDbContext>());
+            ConfigurationRevision? latest = await revisions.FindLatestAsync(serverId, PzConfigFile.SandboxVars);
+            await Assert.That(latest).IsNotNull();
+            await Assert.That(latest!.SnapshotHash).IsEqualTo("new-hash-42");
+            await Assert.That(latest.CanonicalSnapshot).IsEqualTo("[[\"Zombies\",\"n:1:i\"]]");
+        }
+
+        await connection.StopAsync();
+    }
+
+    [Test]
     public async Task An_operation_for_a_disconnected_agent_stays_pending()
     {
         await using ZWardenWebAppFactory factory = new();
@@ -151,6 +217,18 @@ public class OperationDispatchIntegrationTests
         context.Add(agent);
         await context.SaveChangesAsync();
         return (agent.Id, credential.Reveal());
+    }
+
+    private static async Task<ServerId> SeedServerAsync(ZWardenWebAppFactory factory, AgentId agentId)
+    {
+        using IServiceScope scope = factory.Services.CreateScope();
+        ZWardenDbContext context = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
+        // The ownership interceptor stamps the ambient (default) tenant on insert (ADR 0016), the same tenant the
+        // hub records the revision under — so the completion resolves to this Server.
+        Domain.Servers.Server server = Domain.Servers.Server.Import(agentId, ServerId.New(), "alpha", Now);
+        context.Add(server);
+        await context.SaveChangesAsync();
+        return server.Id;
     }
 
     private static async Task<Operation?> WaitForStateAsync(

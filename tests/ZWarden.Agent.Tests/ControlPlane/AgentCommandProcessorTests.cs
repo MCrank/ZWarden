@@ -4,12 +4,14 @@ using ZWarden.Agent.ControlPlane;
 using ZWarden.Agent.Docker;
 using ZWarden.Agent.Players;
 using ZWarden.Agent.Rcon;
+using ZWarden.Agent.ServerConfig;
 using ZWarden.Agent.SteamCmd;
 using ZWarden.Agent.Tests.Docker;
 using ZWarden.Agent.Tests.Players;
 using ZWarden.Agent.Tests.Rcon;
 using ZWarden.Contracts.Protocol;
 using ZWarden.Contracts.Protocol.Messages;
+using ZWarden.Domain.Configuration;
 using ZWarden.Domain.Ids;
 
 namespace ZWarden.Agent.Tests.ControlPlane;
@@ -29,7 +31,8 @@ public class AgentCommandProcessorTests
         IServerUpdateRunner? updates = null,
         IRconHealthProbe? rconProbe = null,
         IRconServerConfig? rconConfig = null,
-        IPlayerAdministration? players = null) =>
+        IPlayerAdministration? players = null,
+        IServerConfigWriter? configWriter = null) =>
         new(
             TimeProvider.System,
             runtime ?? new FakeContainerRuntime(),
@@ -37,6 +40,7 @@ public class AgentCommandProcessorTests
             rconProbe ?? new FakeRconHealthProbe(),
             rconConfig ?? new FakeRconServerConfig(),
             players ?? new FakePlayerAdministration(),
+            configWriter ?? new FakeServerConfigWriter(),
             Options.Create(new AgentOptions
             {
                 PzImageReference = "zwarden/pzserver:pinned",
@@ -535,5 +539,68 @@ public class AgentCommandProcessorTests
 
         await Assert.That(second).IsNull();
         await Assert.That(players.CallCount).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task Config_apply_succeeds_and_carries_the_recorded_revision()
+    {
+        var writer = new FakeServerConfigWriter { Outcome = ConfigApplyOutcome.Applied("[[\"Zombies\",\"n:1:i\"]]", "hash-9", 2) };
+        ServerId server = ServerId.New();
+        OperationId operationId = OperationId.New();
+        var command = new ConfigApply(PzConfigFile.SandboxVars, "base-1", [new ConfigValueEdit("Zombies", ConfigValueKind.Number, "1")]);
+
+        Envelope<OperationCompleted>? reply = await Processor(configWriter: writer)
+            .ProcessAsync(Json(command, operationId, server), CancellationToken.None);
+
+        await Assert.That(reply!.OperationId).IsEqualTo(operationId);
+        await Assert.That(reply.ServerId).IsEqualTo(server);
+        await Assert.That(reply.Payload.Outcome).IsEqualTo(OperationOutcome.Succeeded);
+        await Assert.That(reply.Payload.Config!.File).IsEqualTo(PzConfigFile.SandboxVars);
+        await Assert.That(reply.Payload.Config!.SnapshotHash).IsEqualTo("hash-9");
+        await Assert.That(reply.Payload.Config!.CanonicalSnapshot).IsEqualTo("[[\"Zombies\",\"n:1:i\"]]");
+        await Assert.That(reply.Payload.Config!.ChangedCount).IsEqualTo(2);
+        // The command's file, baseline, and edits reached the writer unchanged.
+        await Assert.That(writer.LastFile).IsEqualTo(PzConfigFile.SandboxVars);
+        await Assert.That(writer.LastBaselineHash).IsEqualTo("base-1");
+        await Assert.That(writer.LastEdits!.Count).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task Config_apply_fails_closed_on_drift_with_the_writers_reason_and_no_result()
+    {
+        var writer = new FakeServerConfigWriter { Outcome = ConfigApplyOutcome.DriftRefused("The configuration on disk changed outside ZWarden.") };
+
+        Envelope<OperationCompleted>? reply = await Processor(configWriter: writer)
+            .ProcessAsync(Json(new ConfigApply(PzConfigFile.Ini, "base-1", []), OperationId.New(), ServerId.New()), CancellationToken.None);
+
+        await Assert.That(reply!.Payload.Outcome).IsEqualTo(OperationOutcome.Failed);
+        await Assert.That(reply.Payload.FailureReason).Contains("changed outside ZWarden");
+        await Assert.That(reply.Payload.Config).IsNull();
+    }
+
+    [Test]
+    public async Task Config_apply_without_a_target_server_fails_and_does_not_write()
+    {
+        var writer = new FakeServerConfigWriter();
+
+        Envelope<OperationCompleted>? reply = await Processor(configWriter: writer)
+            .ProcessAsync(Json(new ConfigApply(PzConfigFile.Ini, null, []), OperationId.New()), CancellationToken.None);
+
+        await Assert.That(reply!.Payload.Outcome).IsEqualTo(OperationOutcome.Failed);
+        await Assert.That(writer.ApplyCount).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task A_redelivered_config_apply_runs_once()
+    {
+        var writer = new FakeServerConfigWriter();
+        AgentCommandProcessor sut = Processor(configWriter: writer);
+        string json = Json(new ConfigApply(PzConfigFile.SandboxVars, "base-1", []), OperationId.New(), ServerId.New());
+
+        await sut.ProcessAsync(json, CancellationToken.None);
+        Envelope<OperationCompleted>? second = await sut.ProcessAsync(json, CancellationToken.None);
+
+        await Assert.That(second).IsNull();
+        await Assert.That(writer.ApplyCount).IsEqualTo(1);
     }
 }
