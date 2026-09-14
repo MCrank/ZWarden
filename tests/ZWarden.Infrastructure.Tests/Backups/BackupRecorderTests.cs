@@ -89,6 +89,46 @@ public class BackupRecorderTests
         });
     }
 
+    [Test]
+    public async Task RecordRestoreProtectiveBackup_persists_a_pre_operation_backup_for_the_owning_agent()
+    {
+        await WithSqlite(async options =>
+        {
+            AgentId agent = AgentId.New();
+            ServerId serverId = await SeedServerAsync(options, agent);
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            BackupRecorder sut = Recorder(db, new FakeOperationStore(OperationId.New(), operation: null));
+
+            await sut.RecordRestoreProtectiveBackupAsync(
+                serverId, agent, "world-1-pre-restore.tar.gz", 2048, "protectivesha", Now);
+
+            IReadOnlyList<Backup> backups = await new BackupRepository(db).ListForServerAsync(serverId);
+            await Assert.That(backups.Count).IsEqualTo(1);
+            await Assert.That(backups[0].ArchiveName).IsEqualTo("world-1-pre-restore.tar.gz");
+            await Assert.That(backups[0].Sha256).IsEqualTo("protectivesha");
+            await Assert.That(backups[0].Reason).IsEqualTo(BackupReason.PreOperation);
+        });
+    }
+
+    [Test]
+    public async Task RecordRestoreProtectiveBackup_is_a_no_op_when_the_reporting_agent_does_not_own_the_server()
+    {
+        await WithSqlite(async options =>
+        {
+            AgentId owner = AgentId.New();
+            AgentId other = AgentId.New();
+            ServerId serverId = await SeedServerAsync(options, owner);
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            BackupRecorder sut = Recorder(db, new FakeOperationStore(OperationId.New(), operation: null));
+
+            await sut.RecordRestoreProtectiveBackupAsync(serverId, other, "world-1-pre-restore.tar.gz", 1, "sha", Now);
+
+            await Assert.That((await new BackupRepository(db).ListForServerAsync(serverId)).Count).IsEqualTo(0);
+        });
+    }
+
     private static BackupRecorder Recorder(ZWardenDbContext db, IOperationStore operations)
         => new(operations, new ServerRepository(db), new BackupRepository(db), db);
 

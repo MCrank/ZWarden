@@ -475,6 +475,33 @@ public sealed class ServerDetailPageTests
         client.Dispose();
     }
 
+    [Test]
+    public async Task The_restore_button_posts_and_enqueues_a_mutating_restore_operation()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        (ServerId serverId, AgentId agent) = await SeedServerAndAgentAsync(factory, "backup-restorable");
+        BackupId backupId = await SeedBackupAsync(factory, serverId, agent, "world-1.tar.gz");
+
+        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+        await Assert.That(page).Contains("data-action=\"backup-restore\"");
+        Dictionary<string, string> form = new(StringComparer.Ordinal)
+        {
+            ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
+            ["_handler"] = "backup-manage",
+            ["_backupForm.Command"] = $"restore|{backupId}",
+        };
+        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}", UriKind.Relative), new FormUrlEncodedContent(form));
+
+        await Assert.That((int)post.StatusCode).IsLessThan(400);
+        Operation? op = FirstOperation(factory, serverId, OperationKind.Restore);
+        await Assert.That(op).IsNotNull();
+        await Assert.That(op!.IsMutating).IsTrue();
+        await Assert.That(op.CommandPayload).Contains("world-1.tar.gz");
+        await Assert.That(op.CommandPayload).Contains("abc123");
+        client.Dispose();
+    }
+
     private static async Task<BackupId> SeedBackupAsync(
         ZWardenWebAppFactory factory, ServerId server, AgentId agent, string archiveName)
     {

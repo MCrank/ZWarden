@@ -13,6 +13,7 @@
 @using ZWarden.Domain.Ids
 @inject IServerInventory Inventory
 @inject IServerBackup ServerBackups
+@inject IServerRestore ServerRestores
 @inject IBackupQuery BackupQuery
 @inject IPlayerManagement Players
 @inject IBanQuery Bans
@@ -554,7 +555,9 @@ else
             <p class="mt-1 text-xs text-muted-foreground">
                 A backup is a verifiable <span class="font-mono">.tar.gz</span> copy of this server's world data,
                 taken on the host and checksummed (SHA-256). Taking one is a durable operation that briefly locks
-                the server against other changes; deleting one removes the archive from the host.
+                the server against other changes; deleting one removes the archive from the host. Restoring overwrites
+                the live world — <strong>stop the server first</strong>, and a protective backup of the current world
+                is taken automatically before the swap.
             </p>
 
             @if (_backupMessage is not null)
@@ -599,11 +602,18 @@ else
                                         <td class="py-2 pr-4 tabular-nums">@FormatSize(backup.SizeBytes)</td>
                                         <td class="py-2 pr-4 font-mono text-xs">@ShortChecksum(backup.Sha256)</td>
                                         <td class="py-2">
-                                            @if (_backupPerm.CanDelete)
-                                            {
-                                                <BbButton Variant="ButtonVariant.Destructive" Type="ButtonType.Submit" Size="ButtonSize.Small"
-                                                          name="_backupForm.Command" value="@($"delete|{backup.Id}")" data-action="backup-delete">Delete</BbButton>
-                                            }
+                                            <div class="flex gap-2">
+                                                @if (_backupPerm.CanRestore)
+                                                {
+                                                    <BbButton Type="ButtonType.Submit" Size="ButtonSize.Small"
+                                                              name="_backupForm.Command" value="@($"restore|{backup.Id}")" data-action="backup-restore">Restore</BbButton>
+                                                }
+                                                @if (_backupPerm.CanDelete)
+                                                {
+                                                    <BbButton Variant="ButtonVariant.Destructive" Type="ButtonType.Submit" Size="ButtonSize.Small"
+                                                              name="_backupForm.Command" value="@($"delete|{backup.Id}")" data-action="backup-delete">Delete</BbButton>
+                                                }
+                                            </div>
                                         </td>
                                     </tr>
                                 }
@@ -1093,6 +1103,7 @@ else
         _backupPerm = new BackupPermissions(
             CanView: (await PermissionChecker.EvaluateAsync(user, Permissions.BackupView, serverId)).IsAllowed,
             CanCreate: (await PermissionChecker.EvaluateAsync(user, Permissions.BackupCreate, serverId)).IsAllowed,
+            CanRestore: (await PermissionChecker.EvaluateAsync(user, Permissions.BackupRestore, serverId)).IsAllowed,
             CanDelete: (await PermissionChecker.EvaluateAsync(user, Permissions.BackupDelete, serverId)).IsAllowed);
 
         _backups = _backupPerm.CanView
@@ -1113,6 +1124,11 @@ else
         if (command == "create")
         {
             SetBackupCreateResult(await ServerBackups.CreateAsync(user, serverId, BackupReason.Manual));
+        }
+        else if (command.StartsWith("restore|", StringComparison.Ordinal)
+                 && BackupId.TryParse(command["restore|".Length..], out BackupId restoreId))
+        {
+            SetBackupRestoreResult(await ServerRestores.RestoreAsync(user, restoreId));
         }
         else if (command.StartsWith("delete|", StringComparison.Ordinal)
                  && BackupId.TryParse(command["delete|".Length..], out BackupId backupId))
@@ -1153,6 +1169,26 @@ else
             BackupDeletionFailure.NotAuthorized => "You are not permitted to delete this server's backups.",
             BackupDeletionFailure.BackupNotFound => "That backup is no longer available.",
             _ => "The backup could not be deleted.",
+        }, ok: false);
+    }
+
+    private void SetBackupRestoreResult(RestoreRequestResult result)
+    {
+        if (result.Succeeded)
+        {
+            SetBackupMessage(
+                $"Restore enqueued (operation {result.Operation}). A protective backup of the current world is taken first, then the world is swapped in.",
+                ok: true);
+            return;
+        }
+
+        SetBackupMessage(result.Failure switch
+        {
+            RestoreRequestFailure.NotAuthorized => "You are not permitted to restore this server.",
+            RestoreRequestFailure.BackupNotFound => "That backup is no longer available.",
+            RestoreRequestFailure.ServerBusy => "The server is busy with another operation; try again once it finishes.",
+            RestoreRequestFailure.ServerRunning => "Stop the server before restoring — a restore overwrites the live world.",
+            _ => "The restore could not be started.",
         }, ok: false);
     }
 
@@ -1262,5 +1298,5 @@ else
         public string? Command { get; set; }
     }
 
-    private readonly record struct BackupPermissions(bool CanView, bool CanCreate, bool CanDelete);
+    private readonly record struct BackupPermissions(bool CanView, bool CanCreate, bool CanRestore, bool CanDelete);
 }

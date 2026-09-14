@@ -67,6 +67,14 @@ namespace ZWarden.Contracts.Protocol.Messages;
 /// for a failed deletion. Additive and optional (ADR 0020); the control plane removes the backup record on seeing
 /// it. Carries no host path and no secret.
 /// </param>
+/// <param name="Restore">
+/// For a successful restore Operation (<see cref="RestoreServer"/>), what the Agent did (F25): the archive it
+/// restored and the <b>protective</b> backup it took of the pre-restore world before the destructive swap — so the
+/// control plane can persist the protective archive as a <c>PreOperation</c> backup the operator can roll back to.
+/// <c>null</c> for every other Operation, and for a failed restore. Additive and optional (ADR 0020); observed
+/// data, recorded only against the Server the envelope's <c>ServerId</c> names, in the current tenant. Carries no
+/// host path and no secret.
+/// </param>
 [ProtocolMessage("operation.completed")]
 public sealed record OperationCompleted(
     OperationOutcome Outcome,
@@ -79,7 +87,8 @@ public sealed record OperationCompleted(
     ConfigApplyResult? Config = null,
     ModDiscoveryResult? Mods = null,
     BackupResult? Backup = null,
-    BackupDeletionResult? BackupDeletion = null) : AgentEvent;
+    BackupDeletionResult? BackupDeletion = null,
+    RestoreResult? Restore = null) : AgentEvent;
 
 /// <summary>The archive a successful <see cref="BackupServer"/> Operation wrote (F24): the compressed
 /// <c>.tar.gz</c> of the Server's world tree the Agent produced host-side under its <c>BackupRoot</c>. Carries the
@@ -100,6 +109,18 @@ public sealed record BackupResult(string ArchiveName, long SizeBytes, string Sha
 /// envelope's <c>ServerId</c>.</summary>
 /// <param name="ArchiveName">The archive file name the Agent deleted.</param>
 public sealed record BackupDeletionResult(string ArchiveName);
+
+/// <summary>What a successful <see cref="RestoreServer"/> Operation did (F25): the Agent verified the named archive
+/// against the recorded SHA-256, took an inline <b>protective</b> backup of the current world, then atomically
+/// swapped the archive's contents into the Server's world tree. Carries the restored archive's file name (echoed for
+/// the audit trail) and the <see cref="ProtectiveBackup"/> the Agent produced — a full <c>.tar.gz</c> of the
+/// pre-restore world under the same <c>BackupRoot</c>, which the control plane records as a <c>PreOperation</c>
+/// backup so a mistaken restore can itself be undone. Non-secret; the Server it belongs to is the completion
+/// envelope's <c>ServerId</c>.</summary>
+/// <param name="RestoredArchiveName">The backup archive file name the Agent restored from.</param>
+/// <param name="ProtectiveBackup">The protective backup the Agent took of the pre-restore world (its relative
+/// locator, size, and lowercase-hex SHA-256) before overwriting it.</param>
+public sealed record RestoreResult(string RestoredArchiveName, BackupResult ProtectiveBackup);
 
 /// <summary>The container facts a successful <see cref="CreateServer"/> Operation observed (F14 PR-B): the two
 /// allocated host UDP ports and the created Docker container id. Non-secret; the Server it belongs to is the

@@ -43,5 +43,6 @@ instead. New ADRs take the next number and follow [`TEMPLATE.md`](./TEMPLATE.md)
 | [0026](./0026-rcon-foundation-private-transport-and-agent-owned-credential.md) | RCON foundation: private transport, never host-published, Agent-owned credential | #39 |
 | [0027](./0027-ban-registry-records-zwarden-issued-bans-not-a-mirror.md) | The ban registry records ZWarden-issued bans (advisory intent), not a mirror of PZ's user store | #41 |
 | [0028](./0028-backup-archive-contract-and-local-destination.md) | A backup is a checksummed tar.gz of the world tree, written host-side to a configurable local BackupRoot | #45 |
+| [0029](./0029-restore-verifies-stages-and-swaps-atomically-with-an-inline-protective-backup.md) | A restore verifies the archive, stages it, and swaps it in atomically after an inline protective backup | #46 |
 
 When you add an ADR, add its row here in the same commit.

@@ -130,6 +130,21 @@ public class OperationDispatcherMapTests
     }
 
     [Test]
+    public async Task The_restore_kind_reads_the_archive_name_and_checksum_from_the_payload()
+    {
+        string json = new RestoreCommandPayload(BackupId: "bkp-x", ArchiveName: "world-1.tar.gz", Sha256: "abc123").ToJson();
+        var restore = (RestoreServer)OperationDispatcher.CommandFor(OperationKind.Restore, json);
+        await Assert.That(restore.ArchiveName).IsEqualTo("world-1.tar.gz");
+        await Assert.That(restore.Sha256).IsEqualTo("abc123");
+    }
+
+    [Test]
+    public async Task A_restore_kind_without_a_payload_throws()
+    {
+        await Assert.That(() => OperationDispatcher.CommandFor(OperationKind.Restore)).Throws<InvalidOperationException>();
+    }
+
+    [Test]
     public async Task An_unmapped_kind_throws()
     {
         await Assert.That(() => OperationDispatcher.CommandFor((OperationKind)999)).Throws<NotSupportedException>();

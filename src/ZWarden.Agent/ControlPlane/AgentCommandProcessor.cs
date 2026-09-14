@@ -30,6 +30,7 @@ public sealed class AgentCommandProcessor
     private readonly IContainerRuntime _containerRuntime;
     private readonly IServerUpdateRunner _updates;
     private readonly IServerBackupRunner _backups;
+    private readonly IServerRestoreRunner _restores;
     private readonly IRconHealthProbe _rconProbe;
     private readonly IRconServerConfig _rconConfig;
     private readonly IPlayerAdministration _players;
@@ -43,6 +44,7 @@ public sealed class AgentCommandProcessor
         IContainerRuntime containerRuntime,
         IServerUpdateRunner updates,
         IServerBackupRunner backups,
+        IServerRestoreRunner restores,
         IRconHealthProbe rconProbe,
         IRconServerConfig rconConfig,
         IPlayerAdministration players,
@@ -54,6 +56,7 @@ public sealed class AgentCommandProcessor
         ArgumentNullException.ThrowIfNull(containerRuntime);
         ArgumentNullException.ThrowIfNull(updates);
         ArgumentNullException.ThrowIfNull(backups);
+        ArgumentNullException.ThrowIfNull(restores);
         ArgumentNullException.ThrowIfNull(rconProbe);
         ArgumentNullException.ThrowIfNull(rconConfig);
         ArgumentNullException.ThrowIfNull(players);
@@ -64,6 +67,7 @@ public sealed class AgentCommandProcessor
         _containerRuntime = containerRuntime;
         _updates = updates;
         _backups = backups;
+        _restores = restores;
         _rconProbe = rconProbe;
         _rconConfig = rconConfig;
         _players = players;
@@ -217,6 +221,35 @@ public sealed class AgentCommandProcessor
                         OperationOutcome.Succeeded, failureReason: null, operationId, deleteServerId,
                         backupDeletion: new BackupDeletionResult(deleteBackup.ArchiveName))
                     : Completed(OperationOutcome.Failed, deletion.FailureReason, operationId, deleteServerId);
+
+            case RestoreServer restore:
+                if (envelope.ServerId is not { } restoreServerId)
+                {
+                    // A restore command with no target Server is malformed — fail it explicitly.
+                    return Completed(OperationOutcome.Failed, "No target Server on the restore command.", operationId);
+                }
+
+                if (!_handled.TryAdd(operationId, 0))
+                {
+                    return null; // Already handling this restore — a redelivered command (PRD 20).
+                }
+
+                ServerRestoreOutcome restored = await _restores
+                    .RunAsync(
+                        restoreServerId, operationId, restore.ArchiveName, restore.Sha256,
+                        progress ?? NullOperationProgressReporter.Instance, cancellationToken)
+                    .ConfigureAwait(false);
+                return restored.Succeeded
+                    ? Completed(
+                        OperationOutcome.Succeeded, failureReason: null, operationId, restoreServerId,
+                        restore: new RestoreResult(
+                            restored.RestoredArchiveName!,
+                            new BackupResult(
+                                restored.ProtectiveArchiveName!,
+                                restored.ProtectiveSizeBytes,
+                                restored.ProtectiveSha256!,
+                                restored.ProtectiveCreatedAt!.Value)))
+                    : Completed(OperationOutcome.Failed, restored.FailureReason, operationId, restoreServerId);
 
             case ListPlayers:
                 if (envelope.ServerId is not { } listServerId)
@@ -478,10 +511,11 @@ public sealed class AgentCommandProcessor
         ConfigApplyResult? config = null,
         ModDiscoveryResult? mods = null,
         BackupResult? backup = null,
-        BackupDeletionResult? backupDeletion = null) =>
+        BackupDeletionResult? backupDeletion = null,
+        RestoreResult? restore = null) =>
         Envelope.Create(
             new OperationCompleted(
-                outcome, failureReason, provision, update, rcon, roster, playerAction, config, mods, backup, backupDeletion),
+                outcome, failureReason, provision, update, rcon, roster, playerAction, config, mods, backup, backupDeletion, restore),
             _timeProvider.GetUtcNow(),
             serverId: serverId,
             operationId: operationId);
