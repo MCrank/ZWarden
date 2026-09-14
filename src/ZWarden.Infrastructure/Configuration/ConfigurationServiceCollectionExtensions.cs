@@ -19,6 +19,7 @@ public static class ConfigurationServiceCollectionExtensions
         services.AddScoped<ConfigurationRevisionRepository>();
         services.AddScoped<IConfigurationRevisionRecorder, ConfigurationRevisionRecorder>();
         services.AddScoped<IServerConfigurationEditor, ServerConfigurationEditor>();
+        services.AddScoped<IServerConfigurationHistory, ConfigurationHistoryService>();
 
         return services;
     }
