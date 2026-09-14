@@ -32,4 +32,7 @@ public static class ServerAuditActions
 
     /// <summary>Deletion of a Server's backup was requested (a deletion Operation was enqueued — F24).</summary>
     public const string BackupDeleted = "Server.BackupDeleted";
+
+    /// <summary>A restore of a Server from a backup was requested (a restore Operation was enqueued — F25).</summary>
+    public const string Restored = "Server.Restored";
 }

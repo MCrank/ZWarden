@@ -181,6 +181,39 @@ public static class ServerEndpoints
             };
         });
 
+        // Restore a Server from a backup (F25): a mutating, server-scoped Operation on the backup's Agent. Fail-closed
+        // server-scoped gate (Backup.Restore) in the service; the Agent verifies the archive, takes a protective
+        // backup, and swaps the world atomically. Backup-scoped route (the backup id resolves its Server and Agent);
+        // poll /api/operations/{id}. A running Server is refused (409) — stop it first.
+        backups.MapPost("/{id}/restore", async (string id, ClaimsPrincipal principal, UserManager<ApplicationUser> users,
+            IServerRestore svc, CancellationToken ct) =>
+        {
+            if (!BackupId.TryParse(id, out BackupId backupId))
+            {
+                return Results.BadRequest(new { error = "invalid_request" });
+            }
+
+            RestoreRequestResult result = await svc.RestoreAsync(Actor(principal, users), backupId, ct).ConfigureAwait(false);
+            if (result.Succeeded)
+            {
+                return Results.Accepted(
+                    $"/api/operations/{result.Operation!.Value}", new { operationId = result.Operation!.Value.ToString() });
+            }
+
+            return result.Failure switch
+            {
+                RestoreRequestFailure.NotAuthorized =>
+                    Results.Json(new { error = "not_authorized" }, statusCode: StatusCodes.Status403Forbidden),
+                RestoreRequestFailure.BackupNotFound =>
+                    Results.Json(new { error = "backup_not_found" }, statusCode: StatusCodes.Status404NotFound),
+                RestoreRequestFailure.ServerBusy =>
+                    Results.Json(new { error = "server_busy" }, statusCode: StatusCodes.Status409Conflict),
+                RestoreRequestFailure.ServerRunning =>
+                    Results.Json(new { error = "server_running" }, statusCode: StatusCodes.Status409Conflict),
+                _ => Results.BadRequest(new { error = "restore_failed" }),
+            };
+        });
+
         register.MapPost("/servers/import", async (
             ImportServerRequest? request,
             ClaimsPrincipal principal,

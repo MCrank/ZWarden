@@ -118,11 +118,21 @@ public sealed class OperationDispatcher : IOperationDispatcher
         OperationKind.ConfigApply => ConfigApplyCommand(commandPayload),
         OperationKind.Backup => new BackupServer(),
         OperationKind.DeleteBackup => new DeleteBackup(BackupPayload(commandPayload).ArchiveName!),
+        OperationKind.Restore => RestoreCommand(commandPayload),
         _ => throw new NotSupportedException($"No command mapping for operation kind '{kind}'."),
     };
 
     private static BackupCommandPayload BackupPayload(string? commandPayload) => BackupCommandPayload.FromJson(
         commandPayload ?? throw new InvalidOperationException("A backup-deletion Operation was dispatched with no command payload."));
+
+    // Builds the RestoreServer wire command from the Application-neutral payload the enqueueing service wrote: the
+    // Agent needs the archive name (to locate it under BackupRoot) and the checksum (to re-verify before unpacking).
+    private static RestoreServer RestoreCommand(string? commandPayload)
+    {
+        RestoreCommandPayload payload = RestoreCommandPayload.FromJson(
+            commandPayload ?? throw new InvalidOperationException("A restore Operation was dispatched with no command payload."));
+        return new RestoreServer(payload.ArchiveName, payload.Sha256);
+    }
 
     private static PlayerCommandPayload Payload(string? commandPayload) => PlayerCommandPayload.FromJson(
         commandPayload ?? throw new InvalidOperationException("A player Operation was dispatched with no command payload."));

@@ -33,6 +33,7 @@ public class AgentCommandProcessorTests
         IContainerRuntime? runtime = null,
         IServerUpdateRunner? updates = null,
         IServerBackupRunner? backups = null,
+        IServerRestoreRunner? restores = null,
         IRconHealthProbe? rconProbe = null,
         IRconServerConfig? rconConfig = null,
         IPlayerAdministration? players = null,
@@ -43,6 +44,7 @@ public class AgentCommandProcessorTests
             runtime ?? new FakeContainerRuntime(),
             updates ?? new FakeServerUpdateRunner(),
             backups ?? new FakeServerBackupRunner(),
+            restores ?? new FakeServerRestoreRunner(),
             rconProbe ?? new FakeRconHealthProbe(),
             rconConfig ?? new FakeRconServerConfig(),
             players ?? new FakePlayerAdministration(),
@@ -569,6 +571,74 @@ public class AgentCommandProcessorTests
 
         await Assert.That(reply!.Payload.Outcome).IsEqualTo(OperationOutcome.Failed);
         await Assert.That(backups.DeleteCount).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task Restore_server_reports_the_restored_archive_and_protective_backup_on_success()
+    {
+        var restores = new FakeServerRestoreRunner
+        {
+            Outcome = new(
+                true, "world-1.tar.gz", "world-1-pre-restore.tar.gz", 8192, "def456",
+                new DateTimeOffset(2026, 9, 14, 9, 59, 0, TimeSpan.Zero), null),
+        };
+        OperationId operationId = OperationId.New();
+        ServerId serverId = ServerId.New();
+
+        Envelope<OperationCompleted>? reply = await Processor(restores: restores)
+            .ProcessAsync(Json(new RestoreServer("world-1.tar.gz", "abc123"), operationId, serverId), CancellationToken.None);
+
+        await Assert.That(reply!.OperationId).IsEqualTo(operationId);
+        await Assert.That(reply.ServerId).IsEqualTo(serverId);
+        await Assert.That(reply.Payload.Outcome).IsEqualTo(OperationOutcome.Succeeded);
+        await Assert.That(reply.Payload.Restore!.RestoredArchiveName).IsEqualTo("world-1.tar.gz");
+        await Assert.That(reply.Payload.Restore!.ProtectiveBackup.ArchiveName).IsEqualTo("world-1-pre-restore.tar.gz");
+        await Assert.That(reply.Payload.Restore!.ProtectiveBackup.Sha256).IsEqualTo("def456");
+        await Assert.That(restores.LastServerId).IsEqualTo(serverId);
+        await Assert.That(restores.LastArchiveName).IsEqualTo("world-1.tar.gz");
+        await Assert.That(restores.LastExpectedSha256).IsEqualTo("abc123");
+    }
+
+    [Test]
+    public async Task Restore_server_fails_with_the_runners_reason()
+    {
+        var restores = new FakeServerRestoreRunner
+        {
+            Outcome = new(false, null, null, 0, null, null, "The server is running. Stop the server before restoring a backup."),
+        };
+
+        Envelope<OperationCompleted>? reply = await Processor(restores: restores)
+            .ProcessAsync(Json(new RestoreServer("world-1.tar.gz", "abc123"), OperationId.New(), ServerId.New()), CancellationToken.None);
+
+        await Assert.That(reply!.Payload.Outcome).IsEqualTo(OperationOutcome.Failed);
+        await Assert.That(reply.Payload.FailureReason).IsEqualTo("The server is running. Stop the server before restoring a backup.");
+        await Assert.That(reply.Payload.Restore).IsNull();
+    }
+
+    [Test]
+    public async Task Restore_server_without_a_target_server_fails_and_does_not_run()
+    {
+        var restores = new FakeServerRestoreRunner();
+
+        Envelope<OperationCompleted>? reply = await Processor(restores: restores)
+            .ProcessAsync(Json(new RestoreServer("world-1.tar.gz", "abc123"), OperationId.New()), CancellationToken.None);
+
+        await Assert.That(reply!.Payload.Outcome).IsEqualTo(OperationOutcome.Failed);
+        await Assert.That(restores.RunCount).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task A_redelivered_restore_runs_once()
+    {
+        var restores = new FakeServerRestoreRunner();
+        AgentCommandProcessor sut = Processor(restores: restores);
+        string json = Json(new RestoreServer("world-1.tar.gz", "abc123"), OperationId.New(), ServerId.New());
+
+        await sut.ProcessAsync(json, CancellationToken.None);
+        Envelope<OperationCompleted>? second = await sut.ProcessAsync(json, CancellationToken.None);
+
+        await Assert.That(second).IsNull();
+        await Assert.That(restores.RunCount).IsEqualTo(1);
     }
 
     [Test]

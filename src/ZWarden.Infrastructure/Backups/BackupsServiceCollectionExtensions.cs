@@ -22,6 +22,7 @@ public static class BackupsServiceCollectionExtensions
         services.AddScoped<ServerBackup>();
         services.AddScoped<IServerBackup>(sp => sp.GetRequiredService<ServerBackup>());
         services.AddScoped<IPreOperationBackup>(sp => sp.GetRequiredService<ServerBackup>());
+        services.AddScoped<IServerRestore, ServerRestore>();
         services.AddScoped<IBackupRecorder, BackupRecorder>();
         services.AddScoped<IBackupQuery, BackupQuery>();
 

@@ -116,4 +116,14 @@ public enum OperationKind
     /// lifecycle Operation. The target archive name rides the command payload (path-traversal-guarded on the Agent);
     /// the backup record is removed on the Operation's confirmed completion.</summary>
     DeleteBackup = 17,
+
+    /// <summary>Restore a Server's world data from one of its backups (F25). A <b>mutating, server-scoped</b>
+    /// Operation, so it claims the per-server lock (ADR 0022) — a restore never races a lifecycle or backup
+    /// Operation. The Agent re-verifies the archive against the recorded SHA-256 before unpacking (a corrupt archive
+    /// is refused; ADR 0028), <b>refuses if the container is running</b>, takes an inline protective backup of the
+    /// current world, then unpacks host-side into a staging tree and atomically swaps it into place — no
+    /// <c>exec</c>, no <c>docker cp</c> (ADR 0008/0029). It reports a <c>RestoreResult</c> — the restored archive and
+    /// the protective backup it took — on completion. The target backup id, archive name, and checksum ride the
+    /// command payload.</summary>
+    Restore = 18,
 }

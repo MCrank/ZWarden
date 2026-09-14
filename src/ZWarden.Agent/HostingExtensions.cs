@@ -98,6 +98,10 @@ public static class HostingExtensions
         services.AddSingleton<IBackupArchiver, TarGzBackupArchiver>();
         services.AddSingleton<IServerBackupRunner, ServerBackupRunner>();
 
+        // Restore (F25): the safe tar.gz extractor and the runner that verifies, protectively backs up, and swaps.
+        services.AddSingleton<IRestoreArchiveExtractor, TarGzRestoreArchiveExtractor>();
+        services.AddSingleton<IServerRestoreRunner, ServerRestoreRunner>();
+
         // RCON foundation (F18): the Agent owns the RCON credential (seeded host-side into servertest.ini at
         // provision), resolves the container's private-network endpoint, and runs the on-demand health probe over
         // the ZWarden.Rcon client. The RCON password type lives only here in the Agent — never in Web (§9 rule 7).

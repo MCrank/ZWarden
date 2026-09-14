@@ -360,6 +360,19 @@ public sealed partial class AgentHub : Hub
                 await _backups.RecordDeletedAsync(operationId, Context.ConnectionAborted).ConfigureAwait(false);
             }
 
+            // A successful restore carries the protective backup the Agent took of the pre-restore world (F25); persist
+            // it as a tenant-owned PreOperation Backup, scoped to the reporting Agent's own Server (ownership guard, §3),
+            // so a mistaken restore can itself be rolled back. The world swap itself happened inside the Operation.
+            if (completed.Payload.Restore is { } restoreResult && completed.ServerId is { } restoreServerId
+                && AgentClaims.TryGetAgentId(Context.User, out AgentId restoreAgent))
+            {
+                await _backups.RecordRestoreProtectiveBackupAsync(
+                    restoreServerId, restoreAgent,
+                    restoreResult.ProtectiveBackup.ArchiveName, restoreResult.ProtectiveBackup.SizeBytes,
+                    restoreResult.ProtectiveBackup.Sha256, restoreResult.ProtectiveBackup.CreatedAt,
+                    Context.ConnectionAborted).ConfigureAwait(false);
+            }
+
             await _operations.CompleteSucceededAsync(operationId, Context.ConnectionAborted).ConfigureAwait(false);
         }
         else

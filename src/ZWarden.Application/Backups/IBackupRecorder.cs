@@ -27,4 +27,17 @@ public interface IBackupRecorder
     /// <summary>Removes the backup record a confirmed deletion Operation removed the archive for, resolving the
     /// record id from the Operation's stored command payload. No-op if the Operation or record is not visible.</summary>
     Task RecordDeletedAsync(OperationId operationId, CancellationToken cancellationToken = default);
+
+    /// <summary>Records the <b>protective</b> backup a confirmed restore Operation took of the pre-restore world
+    /// (F25, ADR 0029): creates a tenant-owned <c>Backup</c> tagged <see cref="Domain.Backups.BackupReason.PreOperation"/>
+    /// from the reported archive facts, so a mistaken restore can itself be rolled back. No-op if the Server is not
+    /// visible or is not owned by the reporting Agent (the same ownership guard as <see cref="RecordCreatedAsync"/>).</summary>
+    Task RecordRestoreProtectiveBackupAsync(
+        ServerId serverId,
+        AgentId agentId,
+        string protectiveArchiveName,
+        long sizeBytes,
+        string sha256,
+        DateTimeOffset createdAt,
+        CancellationToken cancellationToken = default);
 }
