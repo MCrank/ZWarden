@@ -72,12 +72,14 @@ bans **ZWarden issued**, not a mirror of PZ's authoritative list.
 - **D-4 — Persist a `BanRecord` registry of bans ZWarden issued; do *not* persist a player roster.
   `[recommend, confirmed 2026-09-13]`** PZ ships **no "list bans" RCON command** (research §7 operation
   matrix), so without our own record the ban list is invisible in the UI and unban is a blind username
-  text box. F19 therefore persists a `BanRecord` (`ban-`, `ITenantOwned`, server-scoped) reconciled from
-  the **terminal result** of the `BanPlayer`/`UnbanPlayer` operation — never inferred from enqueue
-  (trust-boundaries §3: observed state enters only via the Agent's completion). **ADR 0027** records the
-  honest boundary: the registry is "bans ZWarden applied and believes active", **not** a mirror of PZ's
-  authoritative user store (a ban issued in-game or from the console will not appear), a bounded
-  drift in the same family as ADR 0011/0012. The **roster is not persisted** — "enumeration" is the live
+  text box. F19 therefore persists a `BanRecord` (`ban-`, `ITenantOwned`, server-scoped) recorded **at enqueue
+  from the operator's authorized intent** — the ingest path carries no acting user and persists no per-action
+  result (it drops F18's `RconHealthResult` the same way), so reconciling from the completion would be real
+  plumbing for a record that is advisory regardless. **ADR 0027** records the honest boundary: the registry is
+  "bans ZWarden **issued**", **not** a mirror of PZ's authoritative user store (a ban issued in-game or from
+  the console will not appear, and a ban ZWarden issued may not have taken effect) — a bounded drift in the same
+  family as ADR 0011/0012. The **Operation and audit trail are authoritative** for whether the RCON command
+  actually succeeded; the registry states intent. The **roster is not persisted** — "enumeration" is the live
   poll (D-1); the reserved `ply-` `PlayerRecordId` stays reserved for a later seen-players/history feature.
   Scope of ban targets is **account username only** (`banuser`/`unbanuser`), matching the usernames the
   `players` roster yields; Steam-ID (`banid`) and IP (`banip`) bans are out of scope (they need an input
@@ -158,17 +160,20 @@ persistence and its completion-reconciliation seam.
    the tenant filter (→ `ServerNotFound`), fail-closed authorize the mapped `Player.*`/`Server.Configuration.Edit`
    permission **server-scoped inside the service** (F14-D3 pattern; → `NotAuthorized`), validate the
    username/reason (D-3, edge copy), `EnqueueAsync(... IsMutating: false, ServerId ...)`, and audit. One
-   method per action; enumeration authorizes `Player.View` and is **not** audited (it is a read, not
-   administrative activity — criterion 11); the five mutations **are** audited.
-3. **Ban registry (D-4):** `BanRecord` domain entity (`ban-`, `ITenantOwned`: `Id, TenantId, ServerId,
-   Username, Reason?, IssuedByUserId, IssuedAt, Status{Active|Lifted}, LiftedByUserId?, LiftedAt?`) +
+   method per action for the five actions (kick/ban/unban/remove/mode), all **audited**. Enumeration
+   (`Player.View`, a read — not audited) lands in **PR-C** with the roster result-surfacing and UI (the
+   `ListPlayers` kind + `CommandFor` mapping ship here so the dispatch layer is complete).
+3. **Ban registry (D-4, ADR 0027):** `BanRecord` domain entity (`ban-`, `ITenantOwned`: `Id, TenantId,
+   ServerId, Username, Reason?, IssuedByUserId, IssuedAt, Status{Active|Lifted}, LiftedByUserId?, LiftedAt?`) +
    `BanRecordConfiguration` (auto-discovered; unique filtered index on `(TenantId, ServerId, Username)
-   WHERE Status='Active'`) + a `TenantScopedRepository<BanRecord>` + an `IBanQuery` read model for the UI.
-   **Dual-provider migration** in **both** `ZWarden.Migrations.Postgres` and `.Sqlite` (the `_AddOperations`
-   pair is the template). The record is written/lifted from the **terminal** `BanPlayer`/`UnbanPlayer`
-   result via a small completion-reaction seam on the operation store dispatched by kind — so the registry
-   reflects what the Agent *applied*, never an inferred success (trust-boundaries §3). This seam is the one
-   genuinely new bit of plumbing in F19; it is unit-tested against a fake completion.
+   WHERE Status='Active'`) + a `BanRecordRepository` (`FindActiveAsync`/`ListForServerAsync`). **Dual-provider
+   migration** in **both** `ZWarden.Migrations.Postgres` and `.Sqlite` (the `_AddOperations` pair is the
+   template) — this same migration adds the `Operations.CommandPayload` column that carries a player command's
+   username/reason/flag to the dispatcher (existing kinds are payload-free). The record is written/lifted **at
+   enqueue from the operator's authorized intent** in `PlayerManagement` (the ingest path has no acting user or
+   per-action result to reconcile from cheaply, and the registry is advisory regardless — ADR 0027); the
+   Operation + audit trail are authoritative for effect. The `IBanQuery` read model for listing is PR-C, with
+   the UI that renders it.
 4. **Audit:** new `PlayerAuditActions` constants (`Player.Kicked`, `Player.Banned`, `Player.Unbanned`,
    `Player.RemovedFromWhitelist`, `Player.WhitelistModeChanged`) written on `Succeeded`/`Failed`/`Denied`
    via `IAuditWriter`, plus the automatic `Operation.*` trail from the engine.

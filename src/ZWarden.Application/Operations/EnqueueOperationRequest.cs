@@ -16,9 +16,13 @@ namespace ZWarden.Application.Operations;
 /// Operation (PRD 20).</param>
 /// <param name="ServerId">The Server acted on, or <c>null</c> for host-level work. Required when
 /// <paramref name="IsMutating"/> is true.</param>
+/// <param name="CommandPayload">An optional, control-plane-authored JSON payload for kinds whose command carries
+/// parameters (F19 player commands), read by the dispatcher to build the wire command. <c>null</c> for
+/// payload-free kinds. Operator input validated before enqueue; never a secret.</param>
 public sealed record EnqueueOperationRequest(
     AgentId AgentId,
     OperationKind Kind,
     bool IsMutating,
     string IdempotencyKey,
-    ServerId? ServerId = null);
+    ServerId? ServerId = null,
+    string? CommandPayload = null);

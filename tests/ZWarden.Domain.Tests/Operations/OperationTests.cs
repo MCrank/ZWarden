@@ -66,6 +66,28 @@ public class OperationTests
     }
 
     [Test]
+    public async Task Enqueue_carries_an_optional_command_payload()
+    {
+        Operation withPayload = Operation.Enqueue(
+            AgentId.New(), OperationKind.KickPlayer, isMutating: false, "kick-1", Now, ServerId.New(), "{\"username\":\"Bob\"}");
+        Operation withoutPayload = Operation.Enqueue(
+            AgentId.New(), OperationKind.DiagnosticsPing, isMutating: false, "ping-9", Now);
+
+        await Assert.That(withPayload.CommandPayload).IsEqualTo("{\"username\":\"Bob\"}");
+        await Assert.That(withoutPayload.CommandPayload).IsNull();
+    }
+
+    [Test]
+    public async Task Enqueue_rejects_an_over_long_command_payload()
+    {
+        string tooLong = new('a', Operation.MaxCommandPayloadLength + 1);
+
+        await Assert.That(() => Operation.Enqueue(
+                AgentId.New(), OperationKind.KickPlayer, isMutating: false, "kick-2", Now, ServerId.New(), tooLong))
+            .Throws<ArgumentException>();
+    }
+
+    [Test]
     public async Task Enqueue_rejects_a_blank_idempotency_key()
     {
         await Assert.That(() => Operation.Enqueue(AgentId.New(), OperationKind.DiagnosticsPing, true, "  ", Now, ServerId.New()))

@@ -3,6 +3,7 @@ using Microsoft.Extensions.Options;
 using ZWarden.Application.Agents;
 using ZWarden.Application.Audit;
 using ZWarden.Application.Operations;
+using ZWarden.Application.Players;
 using ZWarden.Contracts.Protocol;
 using ZWarden.Contracts.Protocol.Messages;
 using ZWarden.Domain.Audit;
@@ -77,7 +78,7 @@ public sealed class OperationDispatcher : IOperationDispatcher
                 Detail: $"{operation.Kind} {operation.Id}"),
             cancellationToken).ConfigureAwait(false);
 
-        AgentCommand command = CommandFor(operation.Kind);
+        AgentCommand command = CommandFor(operation.Kind, operation.CommandPayload);
         Envelope<AgentCommand> envelope = Envelope.Create<AgentCommand>(
             command, now, agentId: operation.AgentId, serverId: operation.ServerId, operationId: operation.Id);
 
@@ -88,12 +89,14 @@ public sealed class OperationDispatcher : IOperationDispatcher
     }
 
     /// <summary>
-    /// Maps an <see cref="OperationKind"/> to the payload-free <see cref="AgentCommand"/> that carries it down
-    /// the connection. The whole mutating and diagnostic vocabulary is here in one place; a new kind without a
-    /// mapping throws rather than dispatching a wrong command. Pure and static so the map is unit-testable
+    /// Maps an <see cref="OperationKind"/> (and, for kinds whose command carries parameters, the Operation's
+    /// <paramref name="commandPayload"/>) to the <see cref="AgentCommand"/> that carries it down the connection.
+    /// The whole vocabulary is here in one place; a new kind without a mapping throws rather than dispatching a
+    /// wrong command. The F19 player commands read their target username/reason/flag from the payload the
+    /// enqueueing service wrote (<see cref="PlayerCommandPayload"/>). Pure and static so the map is unit-testable
     /// without the hub/registry/persistence dependencies.
     /// </summary>
-    public static AgentCommand CommandFor(OperationKind kind) => kind switch
+    public static AgentCommand CommandFor(OperationKind kind, string? commandPayload = null) => kind switch
     {
         OperationKind.DiagnosticsPing => new PingAgent(),
         OperationKind.DiagnosticsDockerHealth => new ProbeDockerHealth(),
@@ -103,6 +106,15 @@ public sealed class OperationDispatcher : IOperationDispatcher
         OperationKind.RestartServer => new RestartServer(),
         OperationKind.UpdateServer => new UpdateServer(),
         OperationKind.RconHealthProbe => new ProbeRconHealth(),
+        OperationKind.ListPlayers => new ListPlayers(),
+        OperationKind.KickPlayer => new KickPlayer(Payload(commandPayload).Username!, Payload(commandPayload).Reason),
+        OperationKind.BanPlayer => new BanPlayer(Payload(commandPayload).Username!, Payload(commandPayload).Reason),
+        OperationKind.UnbanPlayer => new UnbanPlayer(Payload(commandPayload).Username!),
+        OperationKind.RemoveFromWhitelist => new RemoveFromWhitelist(Payload(commandPayload).Username!),
+        OperationKind.SetWhitelistMode => new SetWhitelistMode(Payload(commandPayload).Open ?? false),
         _ => throw new NotSupportedException($"No command mapping for operation kind '{kind}'."),
     };
+
+    private static PlayerCommandPayload Payload(string? commandPayload) => PlayerCommandPayload.FromJson(
+        commandPayload ?? throw new InvalidOperationException("A player Operation was dispatched with no command payload."));
 }

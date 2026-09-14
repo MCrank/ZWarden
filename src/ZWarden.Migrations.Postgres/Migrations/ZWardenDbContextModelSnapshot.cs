@@ -347,6 +347,10 @@ namespace ZWarden.Migrations.Postgres.Migrations
                     b.Property<Guid>("AgentId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("CommandPayload")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
                     b.Property<DateTimeOffset?>("CompletedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -412,6 +416,55 @@ namespace ZWarden.Migrations.Postgres.Migrations
                         .IsUnique();
 
                     b.ToTable("Operations", (string)null);
+                });
+
+            modelBuilder.Entity("ZWarden.Domain.Players.BanRecord", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("IssuedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("IssuedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("LiftedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("LiftedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid>("ServerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Username")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "ServerId", "IssuedAt");
+
+                    b.HasIndex("TenantId", "ServerId", "Username")
+                        .IsUnique()
+                        .HasDatabaseName("UX_BanRecords_Active_PerServerUser")
+                        .HasFilter("\"Status\" = 'Active'");
+
+                    b.ToTable("BanRecords", (string)null);
                 });
 
             modelBuilder.Entity("ZWarden.Domain.Servers.Server", b =>

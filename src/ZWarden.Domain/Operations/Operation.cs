@@ -25,6 +25,11 @@ public sealed class Operation : IVersioned, ITenantOwned
     /// <see cref="FailureReason"/>; longer text is truncated (trust-boundaries.md §3).</summary>
     public const int MaxReportedTextLength = 512;
 
+    /// <summary>The greatest length stored for the operator-supplied <see cref="CommandPayload"/>. Player
+    /// commands (F19) carry only a bounded username and reason, so this sits well above them; it is a storage
+    /// bound, not a trust bound (the payload is control-plane input, validated before enqueue).</summary>
+    public const int MaxCommandPayloadLength = 2048;
+
     /// <summary>EF / factory use.</summary>
     public Operation()
     {
@@ -63,6 +68,13 @@ public sealed class Operation : IVersioned, ITenantOwned
     /// <c>(TenantId, IdempotencyKey)</c> returns the existing Operation rather than creating a second
     /// (PRD 20). Never a secret.</summary>
     public string IdempotencyKey { get; init; } = string.Empty;
+
+    /// <summary>An optional, control-plane-authored command payload for kinds whose command carries parameters
+    /// (F19 player commands — the target username, an optional reason, the whitelist-mode flag), serialized as
+    /// JSON at enqueue and read by the dispatcher to build the wire command. <c>null</c> for payload-free kinds
+    /// (every kind before F19). It is operator input validated before enqueue, not Agent-reported text; never a
+    /// secret.</summary>
+    public string? CommandPayload { get; init; }
 
     /// <summary>Progress in <c>0..100</c>, advanced by <c>OperationProgress</c> and forced to 100 on
     /// success. Agent-reported and clamped.</summary>
@@ -114,7 +126,8 @@ public sealed class Operation : IVersioned, ITenantOwned
         bool isMutating,
         string idempotencyKey,
         DateTimeOffset now,
-        ServerId? serverId = null)
+        ServerId? serverId = null,
+        string? commandPayload = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(idempotencyKey);
         if (agentId.IsEmpty)
@@ -127,6 +140,12 @@ public sealed class Operation : IVersioned, ITenantOwned
             throw new ArgumentException("A mutating operation must be server-scoped.", nameof(serverId));
         }
 
+        if (commandPayload is { Length: > MaxCommandPayloadLength })
+        {
+            throw new ArgumentException(
+                $"The command payload must be {MaxCommandPayloadLength} characters or fewer.", nameof(commandPayload));
+        }
+
         return new Operation
         {
             Id = OperationId.New(),
@@ -135,6 +154,7 @@ public sealed class Operation : IVersioned, ITenantOwned
             Kind = kind,
             IsMutating = isMutating,
             IdempotencyKey = idempotencyKey,
+            CommandPayload = commandPayload,
             State = OperationState.Pending,
             EnqueuedAt = now,
         };

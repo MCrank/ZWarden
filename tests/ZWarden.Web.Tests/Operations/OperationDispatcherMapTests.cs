@@ -1,3 +1,4 @@
+using ZWarden.Application.Players;
 using ZWarden.Contracts.Protocol.Messages;
 using ZWarden.Domain.Operations;
 using ZWarden.Web.Operations;
@@ -38,6 +39,35 @@ public class OperationDispatcherMapTests
     public async Task The_rcon_health_kind_maps_to_the_rcon_probe_command()
     {
         await Assert.That(OperationDispatcher.CommandFor(OperationKind.RconHealthProbe)).IsTypeOf<ProbeRconHealth>();
+    }
+
+    [Test]
+    public async Task The_list_players_kind_maps_to_the_list_command()
+    {
+        await Assert.That(OperationDispatcher.CommandFor(OperationKind.ListPlayers)).IsTypeOf<ListPlayers>();
+    }
+
+    [Test]
+    public async Task The_player_action_kinds_read_their_target_from_the_command_payload()
+    {
+        string kickJson = new PlayerCommandPayload(Username: "Bob", Reason: "grief").ToJson();
+        var kick = (KickPlayer)OperationDispatcher.CommandFor(OperationKind.KickPlayer, kickJson);
+        await Assert.That(kick.Username).IsEqualTo("Bob");
+        await Assert.That(kick.Reason).IsEqualTo("grief");
+
+        string userJson = new PlayerCommandPayload(Username: "Mallory").ToJson();
+        await Assert.That(((BanPlayer)OperationDispatcher.CommandFor(OperationKind.BanPlayer, userJson)).Username).IsEqualTo("Mallory");
+        await Assert.That(((UnbanPlayer)OperationDispatcher.CommandFor(OperationKind.UnbanPlayer, userJson)).Username).IsEqualTo("Mallory");
+        await Assert.That(((RemoveFromWhitelist)OperationDispatcher.CommandFor(OperationKind.RemoveFromWhitelist, userJson)).Username).IsEqualTo("Mallory");
+
+        string modeJson = new PlayerCommandPayload(Open: false).ToJson();
+        await Assert.That(((SetWhitelistMode)OperationDispatcher.CommandFor(OperationKind.SetWhitelistMode, modeJson)).Open).IsFalse();
+    }
+
+    [Test]
+    public async Task A_player_action_kind_without_a_payload_throws()
+    {
+        await Assert.That(() => OperationDispatcher.CommandFor(OperationKind.KickPlayer)).Throws<InvalidOperationException>();
     }
 
     [Test]
