@@ -1,0 +1,95 @@
+@using ZWarden.Application.Players
+@using ZWarden.Domain.Ids
+@implements IDisposable
+@inject IPlayerRosterCache Rosters
+
+@* The live roster island (F19): an interactive island embedded in the static server-detail page, mirroring
+   LiveServerPanel. The parent does the authorized, tenant-filtered work (it has an HttpContext); this child only
+   reads the process-local, ownership-guarded roster cache (keyed by ServerId + owning AgentId), so it needs no
+   tenant context — which a circuit lacks. It refreshes once per second and shows the newest roster a ListPlayers
+   Operation observed. Ids arrive as strings so they cross the static→interactive boundary cleanly. Usernames are
+   untrusted PZ output and rendered as data (trust-boundaries.md §8). *@
+
+<div data-live-roster>
+    @if (_roster is { } roster)
+    {
+        <div class="flex items-baseline justify-between gap-3">
+            <span class="text-sm font-medium" data-roster-count>@roster.Count connected</span>
+            <span class="text-xs text-muted-foreground tabular-nums">as of @Observed(roster.ObservedAt)</span>
+        </div>
+        @if (roster.Players.Count > 0)
+        {
+            <ul class="mt-3 space-y-1" data-roster-list>
+                @foreach (string player in roster.Players)
+                {
+                    <li class="font-mono text-sm" data-roster-player>@player</li>
+                }
+            </ul>
+        }
+        else
+        {
+            <p class="mt-3 text-sm text-muted-foreground">No players are connected.</p>
+        }
+    }
+    else
+    {
+        <p class="text-sm text-muted-foreground" data-roster-awaiting>No roster yet — use Refresh to enumerate the connected players.</p>
+    }
+</div>
+
+@code {
+    /// <summary>The Server, as its canonical string id (crosses the static→interactive boundary as a string).</summary>
+    [Parameter]
+    [EditorRequired]
+    public string ServerId { get; set; } = string.Empty;
+
+    /// <summary>The Server's owning Agent, as its canonical string id (the cache ownership-guard key).</summary>
+    [Parameter]
+    [EditorRequired]
+    public string AgentId { get; set; } = string.Empty;
+
+    private ZWarden.Domain.Ids.ServerId _server;
+    private ZWarden.Domain.Ids.AgentId _agent;
+    private bool _parsed;
+    private PlayerRoster? _roster;
+    private PeriodicTimer? _timer;
+    private Task? _loop;
+
+    protected override void OnInitialized()
+    {
+        _parsed = ZWarden.Domain.Ids.ServerId.TryParse(ServerId, out _server)
+            & ZWarden.Domain.Ids.AgentId.TryParse(AgentId, out _agent);
+        Refresh();
+        _timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+        _loop = RunAsync();
+    }
+
+    private async Task RunAsync()
+    {
+        try
+        {
+            while (await _timer!.WaitForNextTickAsync().ConfigureAwait(false))
+            {
+                Refresh();
+                await InvokeAsync(StateHasChanged).ConfigureAwait(false);
+            }
+        }
+        catch (ObjectDisposedException)
+        {
+            // The panel was disposed while awaiting the next tick — expected on navigation away.
+        }
+    }
+
+    private void Refresh()
+    {
+        if (_parsed)
+        {
+            _roster = Rosters.GetLatest(_server, _agent);
+        }
+    }
+
+    private static string Observed(DateTimeOffset at) =>
+        at.UtcDateTime.ToString("HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture) + " UTC";
+
+    public void Dispose() => _timer?.Dispose();
+}

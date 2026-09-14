@@ -16,6 +16,11 @@ namespace ZWarden.Application.Players;
 /// </summary>
 public interface IPlayerManagement
 {
+    /// <summary>Enqueues a roster enumeration (PZ's <c>players</c>). Authorized by <c>Player.View</c>. The
+    /// observed roster lands in the in-memory <see cref="IPlayerRosterCache"/> for the live UI; a read, so it is
+    /// not audited.</summary>
+    Task<PlayerManagementResult> ListPlayersAsync(UserId user, ServerId server, CancellationToken cancellationToken = default);
+
     /// <summary>Kicks a connected player by account username. Authorized by <c>Player.Kick</c>.</summary>
     Task<PlayerManagementResult> KickAsync(UserId user, ServerId server, string username, string? reason, CancellationToken cancellationToken = default);
 

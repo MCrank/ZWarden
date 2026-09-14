@@ -29,6 +29,52 @@ public class PlayerManagementTests
     private static readonly DateTimeOffset Now = new(2026, 9, 14, 10, 0, 0, TimeSpan.Zero);
 
     [Test]
+    public async Task List_players_enqueues_a_non_mutating_enumeration_and_is_not_audited()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            AgentId agent = AgentId.New();
+            ServerId serverId = await SeedServerAsync(options, agent);
+            await SeedAssignmentAsync(options, user, serverId, Permissions.PlayerView);
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            RecordingCoordinator coordinator = new();
+            CapturingAuditWriter audit = new();
+            PlayerManagement sut = Management(db, coordinator, audit);
+
+            PlayerManagementResult result = await sut.ListPlayersAsync(user, serverId);
+
+            await Assert.That(result.Succeeded).IsTrue();
+            await Assert.That(coordinator.LastRequest!.Kind).IsEqualTo(OperationKind.ListPlayers);
+            await Assert.That(coordinator.LastRequest!.IsMutating).IsFalse();
+            await Assert.That(coordinator.LastRequest!.CommandPayload).IsNull();
+            // Enumeration is a read, not administrative activity — not audited.
+            await Assert.That(audit.Actions).IsEmpty();
+        });
+    }
+
+    [Test]
+    public async Task List_players_denies_without_the_view_permission()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            ServerId serverId = await SeedServerAsync(options, AgentId.New());
+            // No Player.View assignment.
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            RecordingCoordinator coordinator = new();
+            PlayerManagement sut = Management(db, coordinator, new CapturingAuditWriter());
+
+            PlayerManagementResult result = await sut.ListPlayersAsync(user, serverId);
+
+            await Assert.That(result.Failure).IsEqualTo(PlayerManagementFailure.NotAuthorized);
+            await Assert.That(coordinator.LastRequest).IsNull();
+        });
+    }
+
+    [Test]
     public async Task Kick_enqueues_a_non_mutating_kick_carrying_the_username_and_reason()
     {
         await WithSqlite(async options =>
