@@ -272,6 +272,9 @@ public class ServerRestoreRunnerTests
 
         public Task<string?> ResolveNetworkAddressAsync(ServerId serverId, string networkName, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
+
+        public Task FollowServerLogsAsync(ServerId serverId, int tailLines, Func<ContainerLogFrame, CancellationToken, ValueTask> onFrame, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
     }
 
     private sealed class TempRoot : IDisposable

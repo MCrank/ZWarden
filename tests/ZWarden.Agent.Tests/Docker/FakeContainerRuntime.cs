@@ -119,6 +119,60 @@ internal sealed class FakeContainerRuntime : IContainerRuntime
     public Task<string> ReadServerLogsAsync(ServerId serverId, DateTimeOffset? since, CancellationToken cancellationToken) =>
         throw new NotSupportedException();
 
+    /// <summary>Frames <see cref="FollowServerLogsAsync"/> replays through its callback before (optionally) blocking.</summary>
+    public List<ContainerLogFrame> FollowFrames { get; } = [];
+
+    /// <summary>When set, <see cref="FollowServerLogsAsync"/> blocks after replaying frames until the token cancels
+    /// — modelling a live, long-lived follow so a subscription's teardown can be exercised.</summary>
+    public bool FollowBlocksUntilCancelled { get; set; }
+
+    /// <summary>When set, <see cref="FollowServerLogsAsync"/> throws it (e.g. <see cref="ContainerNotFoundException"/>).</summary>
+    public Exception? FollowException { get; set; }
+
+    /// <summary>The Server the last <see cref="FollowServerLogsAsync"/> was asked to follow.</summary>
+    public ServerId? FollowedServerId { get; private set; }
+
+    /// <summary>The <c>tailLines</c> the last <see cref="FollowServerLogsAsync"/> was asked for.</summary>
+    public int? FollowTailLines { get; private set; }
+
+    private int _followCount;
+
+    /// <summary>How many times <see cref="FollowServerLogsAsync"/> has been invoked (dedupe assertions).</summary>
+    public int FollowCount => Volatile.Read(ref _followCount);
+
+    public async Task FollowServerLogsAsync(
+        ServerId serverId,
+        int tailLines,
+        Func<ContainerLogFrame, CancellationToken, ValueTask> onFrame,
+        CancellationToken cancellationToken)
+    {
+        Interlocked.Increment(ref _followCount);
+        FollowedServerId = serverId;
+        FollowTailLines = tailLines;
+        if (FollowException is not null)
+        {
+            throw FollowException;
+        }
+
+        foreach (ContainerLogFrame frame in FollowFrames)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await onFrame(frame, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (FollowBlocksUntilCancelled)
+        {
+            try
+            {
+                await Task.Delay(Timeout.Infinite, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // The subscription was torn down — the expected end of a live follow.
+            }
+        }
+    }
+
     /// <summary>The address <see cref="ResolveNetworkAddressAsync"/> returns; <c>null</c> models no owned
     /// container or no address on the network.</summary>
     public string? NetworkAddress { get; set; }

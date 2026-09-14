@@ -88,6 +88,7 @@ public class ServerHealthObserverTests
 
         public Task<string> ReadServerLogsAsync(ServerId serverId, DateTimeOffset? since, CancellationToken cancellationToken) => throw new NotSupportedException();
         public Task<string?> ResolveNetworkAddressAsync(ServerId serverId, string networkName, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Task FollowServerLogsAsync(ServerId serverId, int tailLines, Func<ContainerLogFrame, CancellationToken, ValueTask> onFrame, CancellationToken cancellationToken) => throw new NotSupportedException();
     }
 
     private sealed class RecordingProbe(bool? reachable) : INetworkReachabilityProbe

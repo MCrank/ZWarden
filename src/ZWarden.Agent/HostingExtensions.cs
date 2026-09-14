@@ -11,6 +11,7 @@ using ZWarden.Agent.Diagnostics;
 using ZWarden.Agent.Docker;
 using ZWarden.Agent.Health;
 using ZWarden.Agent.Identity;
+using ZWarden.Agent.LogStreaming;
 using ZWarden.Agent.Mods;
 using ZWarden.Agent.Observability;
 using ZWarden.Agent.Players;
@@ -131,6 +132,7 @@ public static class HostingExtensions
 
         // Control plane (F10): the outbound SignalR connection the Agent opens once enrolled.
         services.AddSingleton<AgentCommandProcessor>();
+        services.AddSingleton<IServerLogSubscriptionService, ServerLogSubscriptionService>();
         services.AddSingleton<IAgentControlPlaneConnection, SignalRControlPlaneConnection>();
 
         // Order matters: identity resolves, then enrollment runs, then the connection opens, before/while the

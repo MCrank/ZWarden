@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using ZWarden.Agent.Configuration;
 using ZWarden.Agent.Health;
+using ZWarden.Agent.LogStreaming;
 using ZWarden.Agent.Trust;
 using ZWarden.Contracts.Protocol;
 using ZWarden.Contracts.Protocol.Messages;
@@ -23,6 +24,7 @@ public sealed partial class SignalRControlPlaneConnection : IAgentControlPlaneCo
     private readonly IAgentTrustStore _trustStore;
     private readonly AgentCommandProcessor _commands;
     private readonly IServerHealthObserver _health;
+    private readonly IServerLogSubscriptionService _logSubscriptions;
     private readonly AgentOptions _options;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<SignalRControlPlaneConnection> _logger;
@@ -32,6 +34,7 @@ public sealed partial class SignalRControlPlaneConnection : IAgentControlPlaneCo
         IAgentTrustStore trustStore,
         AgentCommandProcessor commands,
         IServerHealthObserver health,
+        IServerLogSubscriptionService logSubscriptions,
         IOptions<AgentOptions> options,
         TimeProvider timeProvider,
         ILogger<SignalRControlPlaneConnection> logger)
@@ -39,12 +42,14 @@ public sealed partial class SignalRControlPlaneConnection : IAgentControlPlaneCo
         ArgumentNullException.ThrowIfNull(trustStore);
         ArgumentNullException.ThrowIfNull(commands);
         ArgumentNullException.ThrowIfNull(health);
+        ArgumentNullException.ThrowIfNull(logSubscriptions);
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(timeProvider);
         ArgumentNullException.ThrowIfNull(logger);
         _trustStore = trustStore;
         _commands = commands;
         _health = health;
+        _logSubscriptions = logSubscriptions;
         _options = options.Value;
         _timeProvider = timeProvider;
         _logger = logger;
@@ -178,6 +183,34 @@ public sealed partial class SignalRControlPlaneConnection : IAgentControlPlaneCo
             }
 #pragma warning restore CA1031
         });
+
+        // Live-log subscription control (F27): Web calls these to begin/stop following a Server's logs while an
+        // operator is watching. This is transport plumbing, not a command — no OperationId, no reply, no lock (ADR
+        // 0030). The emitter is built over this live connection (like HubOperationProgressReporter), so the
+        // subscription service never takes a connection dependency.
+        connection.On<string>(AgentHubProtocol.StartServerLogStream, serverIdText =>
+        {
+            if (ServerId.TryParse(serverIdText, out ServerId serverId))
+            {
+                _logSubscriptions.Start(serverId, new ServerLogEmitter(connection, _timeProvider));
+            }
+        });
+
+        connection.On<string>(AgentHubProtocol.StopServerLogStream, async serverIdText =>
+        {
+            if (ServerId.TryParse(serverIdText, out ServerId serverId))
+            {
+                await _logSubscriptions.StopAsync(serverId).ConfigureAwait(false);
+            }
+        });
+
+        // A terminal close (auto-reconnect gave up, or an explicit stop) tears down every follow, so none lingers
+        // against a dead connection; a transient drop keeps them — auto-reconnect reuses this same connection and
+        // the emitter resumes once it is Connected again.
+        connection.Closed += async _ =>
+        {
+            await _logSubscriptions.StopAllAsync().ConfigureAwait(false);
+        };
 
         // On every reconnect, re-negotiate and resend the snapshot so the server never trusts stale state.
         connection.Reconnected += async _ =>

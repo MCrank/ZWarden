@@ -172,6 +172,87 @@ public sealed class AgentDockerRuntimeTests : IAsyncDisposable
         proxied.Dispose();
     }
 
+    [Test]
+    [Category("Networked")]
+    [Timeout(300_000)]
+    public async Task Log_follow_streams_multiplexed_stdout_and_stderr_live_through_the_allowlist_proxy(CancellationToken ct)
+    {
+        // F27's risk gate (docs/research/docker-socket-proxy.md §9 item 9): long-lived, multiplexed, hijacked log
+        // streaming through wollomatic was never tested and is the likeliest place for an unpleasant surprise. Prove
+        // it here — if it does not hold, the allowlist or the proxy choice gives, not the feature.
+        await EnsureImageAsync(ct);
+
+        // A container that writes a distinguishable line to BOTH stdout and stderr every second and never exits —
+        // the shape of a live server's console, and exactly what a follow must keep delivering rather than block on.
+        CreateContainerResponse chatty = await _direct.Containers.CreateContainerAsync(new CreateContainerParameters
+        {
+            Image = TestImage,
+            Cmd = ["sh", "-c", "i=0; while true; do echo \"out-line $i\"; echo \"err-line $i\" 1>&2; i=$((i+1)); sleep 1; done"],
+        }, ct);
+        _containers.Add(chatty.ID);
+        await _direct.Containers.StartContainerAsync(chatty.ID, new ContainerStartParameters(), ct);
+
+        // The SAME §3.5 allowlist the deployment ships — `logs` is already permitted (path-only match), so a
+        // follow=1 stream must ride the existing entry unchanged; no allowlist amendment (ADR 0008).
+        await using IContainer proxy = new ContainerBuilder("wollomatic/socket-proxy:1.13.1")
+            .WithBindMount("/var/run/docker.sock", "/var/run/docker.sock")
+            .WithCreateParameterModifier(parameters => parameters.User = "0:0")
+            .WithCommand(
+                "-loglevel=INFO",
+                "-listenip=0.0.0.0",
+                "-allowfrom=0.0.0.0/0",
+                "-allowGET=(/v1\\.[0-9]+)?/(_ping|version|info|containers/json|containers/[a-zA-Z0-9_.-]+/(json|logs|stats))",
+                "-allowHEAD=(/v1\\.[0-9]+)?/_ping",
+                "-allowPOST=(/v1\\.[0-9]+)?/(containers/create|containers/[a-zA-Z0-9_.-]+/(start|stop|restart))",
+                "-allowbindmountfrom=/tmp",
+                "-watchdoginterval=0")
+            .WithPortBinding(2375, assignRandomHostPort: true)
+            .Build();
+        await proxy.StartAsync(ct);
+
+        DockerClient proxied = new DockerClientBuilder()
+            .WithEndpoint(new Uri($"tcp://{proxy.Hostname}:{proxy.GetMappedPublicPort(2375)}"))
+            .Build();
+        await WaitUntilReachableAsync(RuntimeOver(new DockerDotNetEngine(proxied)), ct);
+
+        // Follow through the proxy on a background task; collect frames until BOTH streams have arrived live
+        // (incrementally, while the container keeps running) or the budget elapses.
+        System.Collections.Concurrent.ConcurrentQueue<ContainerLogFrame> frames = new();
+        using CancellationTokenSource follow = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        Task following = new DockerDotNetEngine(proxied).FollowLogsAsync(
+            chatty.ID,
+            tailLines: 0,
+            (frame, _) =>
+            {
+                frames.Enqueue(frame);
+                return ValueTask.CompletedTask;
+            },
+            follow.Token);
+
+        DateTimeOffset deadline = DateTimeOffset.UtcNow.AddSeconds(60);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            ContainerLogFrame[] seen = frames.ToArray();
+            if (seen.Count(f => !f.IsStderr && f.Text.StartsWith("out-line", StringComparison.Ordinal)) >= 2
+                && seen.Count(f => f.IsStderr && f.Text.StartsWith("err-line", StringComparison.Ordinal)) >= 2)
+            {
+                break;
+            }
+
+            await Task.Delay(500, ct);
+        }
+
+        // Cancelling is how a subscription is torn down mid-stream — it must complete the follow cleanly, not throw.
+        await follow.CancelAsync();
+        await following;
+
+        ContainerLogFrame[] all = frames.ToArray();
+        await Assert.That(all.Count(f => !f.IsStderr && f.Text.StartsWith("out-line", StringComparison.Ordinal))).IsGreaterThanOrEqualTo(2);
+        await Assert.That(all.Count(f => f.IsStderr && f.Text.StartsWith("err-line", StringComparison.Ordinal))).IsGreaterThanOrEqualTo(2);
+
+        proxied.Dispose();
+    }
+
     private static async Task WaitUntilReachableAsync(ContainerRuntime runtime, CancellationToken ct)
     {
         for (int attempt = 0; attempt < 30; attempt++)

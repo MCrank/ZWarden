@@ -197,4 +197,40 @@ public class ContainerRuntimeTests
 
         await Assert.That(engine.Stopped).IsEmpty();
     }
+
+    [Test]
+    public async Task Follow_logs_by_server_id_streams_the_owned_containers_frames()
+    {
+        ServerId mine = ServerId.New();
+        var engine = new FakeDockerEngine();
+        engine.Listed.Add(Container("mine", Self, mine));
+        engine.Listed.Add(Container("foreign", AgentId.New(), ServerId.New()));
+        engine.LogFrames.Add(new ContainerLogFrame(DateTimeOffset.UnixEpoch, IsStderr: false, "hello"));
+        engine.LogFrames.Add(new ContainerLogFrame(DateTimeOffset.UnixEpoch, IsStderr: true, "oops"));
+        ContainerRuntime runtime = Runtime(engine);
+
+        List<ContainerLogFrame> seen = [];
+        await runtime.FollowServerLogsAsync(
+            mine, tailLines: 50, (frame, _) => { seen.Add(frame); return ValueTask.CompletedTask; }, CancellationToken.None);
+
+        string[] expected = ["hello", "oops"];
+        await Assert.That(engine.LastFollowContainerId).IsEqualTo("mine");
+        await Assert.That(engine.LastFollowTailLines).IsEqualTo(50);
+        await Assert.That(seen.Select(f => f.Text)).IsEquivalentTo(expected);
+    }
+
+    [Test]
+    public async Task Follow_logs_by_server_id_throws_when_no_owned_container_matches()
+    {
+        var engine = new FakeDockerEngine();
+        // Only a foreign container exists — nothing this Agent owns to follow.
+        engine.Listed.Add(Container("foreign", AgentId.New(), ServerId.New()));
+        ContainerRuntime runtime = Runtime(engine);
+
+        await Assert.ThrowsAsync<ContainerNotFoundException>(() =>
+            runtime.FollowServerLogsAsync(
+                ServerId.New(), tailLines: 0, (_, _) => ValueTask.CompletedTask, CancellationToken.None));
+
+        await Assert.That(engine.LastFollowContainerId).IsNull();
+    }
 }

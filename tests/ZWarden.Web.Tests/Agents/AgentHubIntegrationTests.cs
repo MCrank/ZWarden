@@ -182,6 +182,39 @@ public class AgentHubIntegrationTests
         await connection.StopAsync();
     }
 
+    [Test]
+    public async Task An_agent_log_batch_lands_in_the_buffer_under_ownership()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        (AgentId agentId, string credential) = await SeedTrustedAgentAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, agentId);
+        await using HubConnection connection = BuildConnection(factory, credential);
+
+        await connection.StartAsync();
+        await connection.InvokeAsync<ProtocolNegotiationResult>(
+            AgentHubProtocol.Hello, Hello(agentId, ProtocolVersion.Current));
+
+        await connection.InvokeAsync(
+            AgentHubProtocol.ServerLogBatch,
+            Envelope.Create(
+                new ServerLogBatch(
+                    serverId,
+                    [new ServerLogLine(1, Now, LogStreamKind.Stderr, "java exception", Truncated: false)],
+                    Dropped: false),
+                Now, agentId, serverId));
+
+        IServerLogBuffer buffer = factory.Services.GetRequiredService<IServerLogBuffer>();
+        await WaitUntilAsync(() => Task.FromResult(buffer.Read(serverId, agentId, 0).Lines.Count > 0));
+
+        ServerLogSlice slice = buffer.Read(serverId, agentId, 0);
+        await Assert.That(slice.Lines[0].Text).IsEqualTo("java exception");
+        await Assert.That(slice.Lines[0].IsStderr).IsTrue();
+        // Ownership guard: another Agent cannot read this Server's lines.
+        await Assert.That(buffer.Read(serverId, AgentId.New(), 0).Lines).IsEmpty();
+
+        await connection.StopAsync();
+    }
+
     private static HealthBreakdown Breakdown() => new(
         new ProbeCheck(ProbeStatus.Pass),
         new ProbeCheck(ProbeStatus.Pass),

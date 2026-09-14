@@ -79,6 +79,31 @@ public sealed class AgentOptionsValidator : IValidateOptions<AgentOptions>
             failures.Add($"{AgentOptions.SectionName}:{nameof(AgentOptions.ShutdownTimeout)} must be positive.");
         }
 
+        if (options.LogTailLines <= 0)
+        {
+            failures.Add($"{AgentOptions.SectionName}:{nameof(AgentOptions.LogTailLines)} must be positive.");
+        }
+
+        if (options.LogLineMaxCharacters <= 0)
+        {
+            failures.Add($"{AgentOptions.SectionName}:{nameof(AgentOptions.LogLineMaxCharacters)} must be positive.");
+        }
+
+        if (options.LogMaxLinesPerSecond <= 0)
+        {
+            failures.Add($"{AgentOptions.SectionName}:{nameof(AgentOptions.LogMaxLinesPerSecond)} must be positive.");
+        }
+
+        if (options.LogBatchFlushInterval <= TimeSpan.Zero)
+        {
+            failures.Add($"{AgentOptions.SectionName}:{nameof(AgentOptions.LogBatchFlushInterval)} must be positive.");
+        }
+
+        if (options.LogFollowRetryInterval <= TimeSpan.Zero)
+        {
+            failures.Add($"{AgentOptions.SectionName}:{nameof(AgentOptions.LogFollowRetryInterval)} must be positive.");
+        }
+
         return failures.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(failures);
     }
 }

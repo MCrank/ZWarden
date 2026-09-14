@@ -22,6 +22,10 @@ public static class AgentControlPlaneServiceCollectionExtensions
         // aborts through, so it must be the one shared singleton.
         services.AddSingleton<IAgentConnectionRegistry, AgentConnectionRegistry>();
 
+        // The live-log viewer ref-count (F27): drives the owning Agent's on-demand follow on/off through the hub.
+        // A singleton, beside the registry it routes through.
+        services.AddSingleton<IServerLogSubscriptionCoordinator, ServerLogSubscriptionCoordinator>();
+
         // The bearer-credential handshake scheme. Added alongside the cookie schemes without changing the
         // application's default scheme; the hub opts into it explicitly via [Authorize].
         services.AddAuthentication()

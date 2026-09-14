@@ -224,6 +224,142 @@ public sealed class DockerDotNetEngine : IDockerEngine
         public void Report(string value) => _builder.Append(value).Append('\n');
     }
 
+    // Reassembles one standard stream's newline-delimited lines out of the raw byte chunks a MultiplexedStream
+    // yields (a chunk neither starts nor ends on a line or even a UTF-8 boundary). A stateful UTF-8 decoder carries
+    // a multi-byte character split across chunks; a pending StringBuilder carries a line split across chunks. Each
+    // completed line is stripped of a trailing '\r', has its daemon timestamp prefix split off, and is emitted.
+    private sealed class LineAssembler(bool isStderr)
+    {
+        private readonly Decoder _decoder = Encoding.UTF8.GetDecoder();
+        private readonly StringBuilder _line = new();
+        private char[] _chars = new char[4096];
+
+        public async ValueTask AppendAsync(
+            byte[] buffer,
+            int count,
+            Func<ContainerLogFrame, CancellationToken, ValueTask> onFrame,
+            CancellationToken cancellationToken)
+        {
+            int needed = _decoder.GetCharCount(buffer, 0, count, flush: false);
+            if (needed == 0)
+            {
+                return;
+            }
+
+            if (_chars.Length < needed)
+            {
+                _chars = new char[needed];
+            }
+
+            int produced = _decoder.GetChars(buffer, 0, count, _chars, 0, flush: false);
+            for (int i = 0; i < produced; i++)
+            {
+                char c = _chars[i];
+                if (c == '\n')
+                {
+                    await EmitAsync(onFrame, cancellationToken).ConfigureAwait(false);
+                }
+                else
+                {
+                    _line.Append(c);
+                }
+            }
+        }
+
+        public ValueTask FlushAsync(Func<ContainerLogFrame, CancellationToken, ValueTask> onFrame, CancellationToken cancellationToken) =>
+            _line.Length > 0 ? EmitAsync(onFrame, cancellationToken) : ValueTask.CompletedTask;
+
+        private async ValueTask EmitAsync(Func<ContainerLogFrame, CancellationToken, ValueTask> onFrame, CancellationToken cancellationToken)
+        {
+            string raw = _line.ToString();
+            _line.Clear();
+            if (raw.EndsWith('\r'))
+            {
+                raw = raw[..^1];
+            }
+
+            int space = raw.IndexOf(' ', StringComparison.Ordinal);
+            if (space > 0
+                && DateTimeOffset.TryParse(
+                    raw.AsSpan(0, space), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out DateTimeOffset timestamp))
+            {
+                await onFrame(new ContainerLogFrame(timestamp, isStderr, raw[(space + 1)..]), cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                await onFrame(new ContainerLogFrame(DateTimeOffset.UtcNow, isStderr, raw), cancellationToken).ConfigureAwait(false);
+            }
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task FollowLogsAsync(
+        string containerId,
+        int tailLines,
+        Func<ContainerLogFrame, CancellationToken, ValueTask> onFrame,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(onFrame);
+        ContainerLogsParameters parameters = new()
+        {
+            ShowStdout = true,
+            ShowStderr = true,
+            Follow = true,
+            // Daemon-side timestamps let the frame carry when the line was written, not merely when it was read.
+            Timestamps = true,
+            Tail = tailLines >= 0 ? tailLines.ToString(CultureInfo.InvariantCulture) : "all",
+        };
+
+        // The two-arg (tty:false) overload returns a MultiplexedStream that preserves the stdout/stderr framing —
+        // the IProgress<string> overload used by the non-following ReadLogsAsync flattens both into one text, which
+        // F27 must not do. The 8-byte frame headers do not align to log lines, so a per-stream assembler splits the
+        // decoded bytes on '\n' and emits one ContainerLogFrame per complete line.
+        using MultiplexedStream stream = await _client.Containers
+            .GetContainerLogsAsync(containerId, parameters, cancellationToken)
+            .ConfigureAwait(false);
+
+        LineAssembler stdout = new(isStderr: false);
+        LineAssembler stderr = new(isStderr: true);
+        byte[] buffer = new byte[16 * 1024];
+        bool endOfStream = false;
+
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            MultiplexedStream.ReadResult result;
+            try
+            {
+                result = await stream.ReadOutputAsync(buffer, 0, buffer.Length, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // The subscription was torn down mid-read — the expected, clean end of a follow. Leave any
+                // partially-assembled line unemitted rather than flush under a cancelled token.
+                return;
+            }
+
+            if (result.EOF)
+            {
+                endOfStream = true;
+                break;
+            }
+
+            if (result.Count == 0)
+            {
+                continue;
+            }
+
+            LineAssembler target = result.Target == MultiplexedStream.TargetStream.StandardError ? stderr : stdout;
+            await target.AppendAsync(buffer, result.Count, onFrame, cancellationToken).ConfigureAwait(false);
+        }
+
+        // Only when the container's stream actually ended do we flush a trailing, newline-less final line.
+        if (endOfStream)
+        {
+            await stdout.FlushAsync(onFrame, cancellationToken).ConfigureAwait(false);
+            await stderr.FlushAsync(onFrame, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
     /// <inheritdoc />
     public async Task<string> CreateAsync(CreateContainerParameters parameters, CancellationToken cancellationToken)
     {

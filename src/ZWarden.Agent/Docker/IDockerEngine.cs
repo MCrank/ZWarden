@@ -37,6 +37,22 @@ public interface IDockerEngine
     /// </summary>
     Task<string> ReadLogsAsync(string containerId, DateTimeOffset? since, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Follows a container's logs (stdout+stderr) as a long-lived stream (F27), invoking <paramref name="onFrame"/>
+    /// once per newline-delimited line as it arrives. It backfills the last <paramref name="tailLines"/> lines
+    /// first, then streams live until the container exits, the stream ends, or <paramref name="cancellationToken"/>
+    /// is cancelled — cancellation is the normal way a subscription is torn down and completes the task cleanly.
+    /// Maps to the allowlisted read verb <c>GET /containers/{id}/logs?follow=1</c> (ADR 0008) — a read verb, no
+    /// mutation, and the query string the proxy does not constrain, so streaming rides the same allowlist entry as
+    /// <see cref="ReadLogsAsync"/>. Frames are raw and <b>unsanitized</b>; the caller sanitizes them (PRD 38). This
+    /// is the streaming sibling of <see cref="ReadLogsAsync"/>, distinguished by carrying the stdout/stderr origin.
+    /// </summary>
+    Task FollowLogsAsync(
+        string containerId,
+        int tailLines,
+        Func<ContainerLogFrame, CancellationToken, ValueTask> onFrame,
+        CancellationToken cancellationToken);
+
     /// <summary>Creates a container from fully-formed parameters and returns its id.</summary>
     Task<string> CreateAsync(CreateContainerParameters parameters, CancellationToken cancellationToken);
 

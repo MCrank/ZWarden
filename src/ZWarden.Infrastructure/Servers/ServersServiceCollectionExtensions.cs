@@ -43,6 +43,11 @@ public static class ServersServiceCollectionExtensions
         // live health without a tenant-scoped read. Transient; the durable value is Server.LastHealth.
         services.AddSingleton<IServerHealthCache, ServerHealthCache>();
 
+        // The bounded per-Server live-log tail (F27), beside the metrics cache: the interactive log panel polls it.
+        // Transient and never persisted; ownership-guarded by (Server, reporting Agent) partitioning.
+        services.TryAddSingleton<ServerLogBufferOptions>();
+        services.AddSingleton<IServerLogBuffer, ServerLogBuffer>();
+
         return services;
     }
 }

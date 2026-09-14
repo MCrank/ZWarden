@@ -88,6 +88,21 @@ public enum ProbeStatus
     Skipped = 3,
 }
 
+/// <summary>
+/// Which of a container's two standard output streams a <see cref="Messages.ServerLogLine"/> came from (F27). The
+/// Agent demultiplexes the container's combined log stream, so a line's origin is preserved for the operator
+/// (stderr is where a PZ server's crashes and stack traces surface). Serialized by name, so a later addition is
+/// additive.
+/// </summary>
+public enum LogStreamKind
+{
+    /// <summary>The container's standard output.</summary>
+    Stdout = 0,
+
+    /// <summary>The container's standard error.</summary>
+    Stderr = 1,
+}
+
 /// <summary>The terminal outcome of an Operation, reported by the Agent (PRD 18). Serialized by name.</summary>
 public enum OperationOutcome
 {

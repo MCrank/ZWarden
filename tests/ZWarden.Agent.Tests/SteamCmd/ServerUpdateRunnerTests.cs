@@ -155,6 +155,7 @@ public class ServerUpdateRunnerTests
         }
 
         public Task<string?> ResolveNetworkAddressAsync(ServerId serverId, string networkName, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Task FollowServerLogsAsync(ServerId serverId, int tailLines, Func<ContainerLogFrame, CancellationToken, ValueTask> onFrame, CancellationToken cancellationToken) => throw new NotSupportedException();
         public Task<DockerHealth> ProbeHealthAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
         public Task<IReadOnlyList<ManagedContainer>> ListManagedAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
         public Task<IReadOnlyList<ObservedContainer>> InspectManagedAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
