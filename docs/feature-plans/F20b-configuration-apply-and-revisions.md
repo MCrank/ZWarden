@@ -1,8 +1,9 @@
 # Feature 20b Mini-Plan — Configuration Apply and Revisions
 
 **Status:** in progress. Track D. Delivered across **~4 PRs** on branch
-`feat/f20b-config-apply-revisions`; **PR 1 = the library write-half** (this document's current slice),
-PRs 2–4 wire it. One commit per TDD slice.
+`feat/f20b-config-apply-revisions`; **PR 1 = the library write-half** ([PR #105](https://github.com/MCrank/ZWarden/pull/105),
+in review — part of [#42](https://github.com/MCrank/ZWarden/issues/42)), PRs 2–4 wire it. One commit per
+TDD slice.
 
 **Format:** PRD 60. **Written against:** PRD 32 (structured configuration editing — the *apply* half),
 PRD 33 (every meaningful mutation records a revision with a previous/resulting state), PRD 2.2 (TDD
