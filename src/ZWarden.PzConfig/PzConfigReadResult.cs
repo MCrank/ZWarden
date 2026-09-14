@@ -25,16 +25,20 @@ public sealed class PzConfigReadResult
 
     /// <summary>
     /// Findings from opening the file. On failure these are the fatal errors (pre-check violation or
-    /// syntax error, each with a position where one applies). On success this is empty — validation
-    /// findings come separately from <see cref="IPzConfigValidator"/>.
+    /// syntax error, each with a position where one applies). On success these are read-phase notes
+    /// such as a malformed line the reader recovered from — <em>semantic</em> validation (types,
+    /// ranges, unknown keys) comes separately from <see cref="IPzConfigValidator"/>.
     /// </summary>
     public IReadOnlyList<PzConfigDiagnostic> Diagnostics { get; }
 
-    /// <summary>A successful open.</summary>
-    public static PzConfigReadResult Success(IPzConfigDocument document)
+    /// <summary>A successful open, optionally carrying non-fatal read-phase diagnostics.</summary>
+    public static PzConfigReadResult Success(IPzConfigDocument document, IReadOnlyList<PzConfigDiagnostic>? diagnostics = null)
     {
         ArgumentNullException.ThrowIfNull(document);
-        return new PzConfigReadResult(parsed: true, document, ReadOnlyCollection<PzConfigDiagnostic>.Empty);
+        return new PzConfigReadResult(
+            parsed: true,
+            document,
+            diagnostics is { Count: > 0 } ? [.. diagnostics] : ReadOnlyCollection<PzConfigDiagnostic>.Empty);
     }
 
     /// <summary>A failed open carrying the fatal diagnostics.</summary>
