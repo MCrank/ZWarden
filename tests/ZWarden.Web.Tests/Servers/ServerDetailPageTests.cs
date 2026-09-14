@@ -196,6 +196,42 @@ public sealed class ServerDetailPageTests
         return revision.Id;
     }
 
+    [Test]
+    public async Task The_mods_card_shows_for_a_permitted_operator()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "mod-managed");
+
+        string html = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        await Assert.That(html).Contains("data-mods-card");
+        await Assert.That(html).Contains("data-action=\"mod-refresh\"");
+        // The live inventory island prerendered with its awaiting state (no inventory cached yet).
+        await Assert.That(html).Contains("data-mods-awaiting");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task The_mod_refresh_form_posts_and_enqueues_a_discovery()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "discoverable");
+
+        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+        Dictionary<string, string> form = new(StringComparer.Ordinal)
+        {
+            ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
+            ["_handler"] = "mod-discovery",
+        };
+        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}", UriKind.Relative), new FormUrlEncodedContent(form));
+
+        await Assert.That((int)post.StatusCode).IsLessThan(400);
+        await Assert.That(EnqueuedKind(factory, serverId, OperationKind.ModDiscovery)).IsTrue();
+        client.Dispose();
+    }
+
     private static bool EnqueuedKind(ZWardenWebAppFactory factory, ServerId serverId, OperationKind kind)
     {
         using IServiceScope scope = factory.Services.CreateScope();
