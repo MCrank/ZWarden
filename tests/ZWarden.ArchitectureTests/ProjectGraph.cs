@@ -31,6 +31,16 @@ public sealed record ProjectGraph(
             Includes(doc, "FrameworkReference", v => v));
     }
 
+    /// <summary>The names of every project under <c>src/</c> (a folder holding a matching <c>.csproj</c>).</summary>
+    public static IReadOnlyList<string> SourceProjectNames()
+    {
+        string src = Path.Combine(RepoRoot.Value, "src");
+        return [.. Directory.GetDirectories(src)
+            .Select(Path.GetFileName)
+            .Where(name => name is not null && File.Exists(Path.Combine(src, name, $"{name}.csproj")))
+            .Select(name => name!)];
+    }
+
     private static readonly Lazy<string> RepoRoot = new(() =>
     {
         DirectoryInfo? dir = new(AppContext.BaseDirectory);
