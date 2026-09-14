@@ -5,6 +5,7 @@
 @using ZWarden.Application.Configuration
 @using ZWarden.Application.Mods
 @using ZWarden.Application.Players
+@using ZWarden.Application.Servers
 @using ZWarden.Domain.Authorization
 @using ZWarden.Domain.Configuration
 @using ZWarden.Domain.Ids
@@ -14,6 +15,9 @@
 @inject IServerConfigurationEditor ConfigEditor
 @inject IServerConfigurationHistory ConfigHistory
 @inject IModDiscoveryService ModDiscovery
+@inject IServerModManager ModManager
+@inject IServerLifecycle Lifecycle
+@inject IModInventoryCache ModInventories
 @inject IPermissionChecker PermissionChecker
 @inject UserManager<ApplicationUser> Users
 
@@ -255,6 +259,160 @@ else
                                            AgentId="@_server.AgentId.ToString()" />
                 </div>
             </EditForm>
+
+            @if (_modPerm.CanAny)
+            {
+                <div class="mt-6 border-t border-border pt-4" data-mod-manage>
+                    <h3 class="text-sm font-medium">Manage mods</h3>
+                    <p class="mt-1 text-xs text-muted-foreground">
+                        Changes are written to <span class="font-mono">WorkshopItems=</span>/<span class="font-mono">Mods=</span>
+                        as drift-checked, recorded config edits. Mods load only when the server boots — use
+                        <span class="font-medium">Restart to apply</span> once you are done. The lists below reflect the last
+                        discovery; refresh above after a change to see it.
+                    </p>
+
+                    @if (_modManageMessage is not null)
+                    {
+                        <div class="mt-3" data-mod-manage-message>
+                            <BbAlert Variant="_modManageAlert" AccentBorder>
+                                <BbAlertDescription>@_modManageMessage</BbAlertDescription>
+                            </BbAlert>
+                        </div>
+                    }
+
+                    @if (_modInventory is null)
+                    {
+                        <p class="mt-3 text-sm text-muted-foreground" data-mod-manage-awaiting>
+                            Refresh discovery above to load this server's mods before making changes.
+                        </p>
+                    }
+                    else
+                    {
+                        <EditForm Model="_modManageForm" FormName="mod-manage" OnValidSubmit="ModManageAsync" class="mt-4 space-y-5">
+                            @if (_modPerm.CanInstall)
+                            {
+                                <div class="flex flex-wrap items-end gap-2" data-mod-add>
+                                    <div class="flex flex-col text-sm">
+                                        <BbLabel For="mod-workshop-id" Class="mb-1 text-muted-foreground">Add Workshop item</BbLabel>
+                                        <BbInput Id="mod-workshop-id" @bind-Value="_modManageForm!.WorkshopId" autocomplete="off"
+                                                 inputmode="numeric" Placeholder="Workshop id, e.g. 2392709985" />
+                                    </div>
+                                    <BbButton Type="ButtonType.Submit" Size="ButtonSize.Small"
+                                              name="_modManageForm.Command" value="add" data-action="mod-add">Add &amp; download</BbButton>
+                                </div>
+                            }
+
+                            <div data-mod-enabled>
+                                <h4 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Enabled mods — load order</h4>
+                                @if (_modInventory.EnabledModIds.Count == 0)
+                                {
+                                    <p class="mt-2 text-sm text-muted-foreground" data-mod-enabled-empty>
+                                        No mods enabled in <span class="font-mono">Mods=</span>.
+                                    </p>
+                                }
+                                else
+                                {
+                                    <BbItemGroup Class="mt-2">
+                                        @for (int i = 0; i < _modInventory.EnabledModIds.Count; i++)
+                                        {
+                                            string modId = _modInventory.EnabledModIds[i];
+                                            bool isFirst = i == 0;
+                                            bool isLast = i == _modInventory.EnabledModIds.Count - 1;
+                                            <BbItem Variant="ItemVariant.Outline" Size="ItemSize.Sm" data-mod-enabled-row data-mod-id="@modId">
+                                                <BbItemContent>
+                                                    <BbItemTitle><span class="font-mono text-sm">@modId</span></BbItemTitle>
+                                                </BbItemContent>
+                                                <BbItemActions>
+                                                    @if (_modPerm.CanInstall && !isFirst)
+                                                    {
+                                                        <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" Type="ButtonType.Submit"
+                                                                  name="_modManageForm.Command" value="@($"moveup|{modId}")" data-action="mod-moveup">Up</BbButton>
+                                                    }
+                                                    @if (_modPerm.CanInstall && !isLast)
+                                                    {
+                                                        <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" Type="ButtonType.Submit"
+                                                                  name="_modManageForm.Command" value="@($"movedown|{modId}")" data-action="mod-movedown">Down</BbButton>
+                                                    }
+                                                    @if (_modPerm.CanRemove)
+                                                    {
+                                                        <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" Type="ButtonType.Submit"
+                                                                  name="_modManageForm.Command" value="@($"disable|{modId}")" data-action="mod-disable">Disable</BbButton>
+                                                    }
+                                                </BbItemActions>
+                                            </BbItem>
+                                        }
+                                    </BbItemGroup>
+                                }
+
+                                @if (_modPerm.CanInstall && _enableCandidates.Count > 0)
+                                {
+                                    <div class="mt-3 flex flex-wrap items-end gap-2" data-mod-enable>
+                                        <div class="flex flex-col text-sm">
+                                            <BbLabel For="mod-enable-id" Class="mb-1 text-muted-foreground">Enable an installed mod</BbLabel>
+                                            <BbNativeSelect TValue="string" Id="mod-enable-id" Name="_modManageForm.EnableModId" @bind-Value="_modManageForm!.EnableModId">
+                                                @foreach (string candidate in _enableCandidates)
+                                                {
+                                                    <option value="@candidate">@candidate</option>
+                                                }
+                                            </BbNativeSelect>
+                                        </div>
+                                        <BbButton Type="ButtonType.Submit" Size="ButtonSize.Small"
+                                                  name="_modManageForm.Command" value="enable" data-action="mod-enable">Enable</BbButton>
+                                    </div>
+                                }
+                            </div>
+
+                            <div data-mod-workshop>
+                                <h4 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Workshop items</h4>
+                                @if (_modInventory.ConfiguredWorkshopIds.Count == 0)
+                                {
+                                    <p class="mt-2 text-sm text-muted-foreground" data-mod-workshop-empty>
+                                        No items in <span class="font-mono">WorkshopItems=</span>.
+                                    </p>
+                                }
+                                else
+                                {
+                                    <BbItemGroup Class="mt-2">
+                                        @foreach (string workshopId in _modInventory.ConfiguredWorkshopIds)
+                                        {
+                                            bool onDisk = _installedWorkshopIds.Contains(workshopId);
+                                            <BbItem Variant="ItemVariant.Outline" Size="ItemSize.Sm" data-mod-workshop-row data-workshop-id="@workshopId">
+                                                <BbItemContent>
+                                                    <BbItemTitle><span class="font-mono text-sm">@workshopId</span></BbItemTitle>
+                                                    <BbItemDescription>@(onDisk ? "on disk" : "not installed on disk")</BbItemDescription>
+                                                </BbItemContent>
+                                                <BbItemActions>
+                                                    @if (_modPerm.CanRemove)
+                                                    {
+                                                        <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" Type="ButtonType.Submit"
+                                                                  name="_modManageForm.Command" value="@($"remove|{workshopId}")" data-action="mod-remove">Remove</BbButton>
+                                                    }
+                                                </BbItemActions>
+                                            </BbItem>
+                                        }
+                                    </BbItemGroup>
+                                }
+                            </div>
+
+                            @if (_modPerm.CanUpdate || _modPerm.CanRestart)
+                            {
+                                <div class="flex flex-wrap gap-2 border-t border-border pt-4" data-mod-apply>
+                                    @if (_modPerm.CanUpdate)
+                                    {
+                                        <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" Type="ButtonType.Submit"
+                                                  name="_modManageForm.Command" value="update" data-action="mod-update">Update Workshop content</BbButton>
+                                    }
+                                    @if (_modPerm.CanRestart)
+                                    {
+                                        <BbButton Variant="ButtonVariant.Destructive" Size="ButtonSize.Small" Type="ButtonType.Submit"
+                                                  name="_modManageForm.Command" value="restart" data-action="mod-restart">Restart to apply</BbButton>
+                                    }
+                                </div>
+                            }
+                        </EditForm>
+                    }
+                </div>
+            }
         </BbCard>
     }
 
@@ -408,10 +566,20 @@ else
     [SupplyParameterFromForm(FormName = "mod-discovery")]
     private ModDiscoveryModel _modForm { get; set; } = default!;
 
+    [SupplyParameterFromForm(FormName = "mod-manage")]
+    private ModManageModel _modManageForm { get; set; } = default!;
+
     private ServerSummary? _server;
     private PlayerPermissions _perm;
     private bool _canViewMods;
     private string? _modMessage;
+
+    private ModManagePermissions _modPerm;
+    private ModInventory? _modInventory;
+    private IReadOnlyList<string> _enableCandidates = [];
+    private HashSet<string> _installedWorkshopIds = [];
+    private string? _modManageMessage;
+    private AlertVariant _modManageAlert = AlertVariant.Warning;
     private IReadOnlyList<BanView> _bans = [];
     private string? _playerMessage;
 
@@ -427,6 +595,7 @@ else
         _configForm ??= new ConfigFormModel();
         _restoreForm ??= new ConfigRestoreModel();
         _modForm ??= new ModDiscoveryModel();
+        _modManageForm ??= new ModManageModel();
         _configForm.File ??= nameof(PzConfigFile.Ini);
         _configForm.Kind ??= nameof(ConfigEditKind.Bool);
         _selectedFile = ParseFile(_configForm.File);
@@ -442,11 +611,42 @@ else
         {
             await LoadPlayersAsync(user, serverId);
             _canViewMods = (await PermissionChecker.EvaluateAsync(user, Permissions.ModView, serverId)).IsAllowed;
+            await LoadModManagementAsync(user, serverId);
             if (_perm.CanConfigEdit)
             {
                 await LoadHistoryAsync(user, serverId);
             }
         }
+    }
+
+    private async Task LoadModManagementAsync(UserId user, ServerId serverId)
+    {
+        // Per-server mod permissions (fail-closed, re-checked in the service on submit): a control shows only where
+        // the caller holds the matching Mod.* / Server.Restart grant.
+        _modPerm = new ModManagePermissions(
+            CanInstall: (await PermissionChecker.EvaluateAsync(user, Permissions.ModInstall, serverId)).IsAllowed,
+            CanRemove: (await PermissionChecker.EvaluateAsync(user, Permissions.ModRemove, serverId)).IsAllowed,
+            CanUpdate: (await PermissionChecker.EvaluateAsync(user, Permissions.ModUpdate, serverId)).IsAllowed,
+            CanRestart: (await PermissionChecker.EvaluateAsync(user, Permissions.ServerRestart, serverId)).IsAllowed);
+
+        // The last observed inventory (ownership-guarded by the Server's owning Agent) drives the actionable lists.
+        // The mod manager re-reads it on submit, so a stale snapshot here only affects which controls are offered.
+        _modInventory = _server is null ? null : ModInventories.GetLatest(serverId, _server.AgentId);
+        if (_modInventory is null)
+        {
+            _enableCandidates = [];
+            _installedWorkshopIds = [];
+            return;
+        }
+
+        _installedWorkshopIds = new HashSet<string>(_modInventory.InstalledItems.Select(i => i.WorkshopId), StringComparer.Ordinal);
+        HashSet<string> enabled = new(_modInventory.EnabledModIds, StringComparer.Ordinal);
+        // Installed mods not already enabled — the candidates the operator can enable in one click.
+        _enableCandidates = _modInventory.InstalledItems
+            .SelectMany(i => i.Mods.Select(m => m.ModId))
+            .Where(id => !enabled.Contains(id))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
     }
 
     private async Task DiscoverModsAsync()
@@ -466,6 +666,131 @@ else
                 ModDiscoveryFailure.ServerNotFound => "That server is no longer available.",
                 _ => "Discovery could not be started.",
             };
+    }
+
+    private async Task ModManageAsync()
+    {
+        if (_server is null || !ServerId.TryParse(Id, out ServerId serverId))
+        {
+            return;
+        }
+
+        UserId user = await CurrentUserAsync();
+        string[] parts = (_modManageForm?.Command ?? string.Empty).Split('|', 2);
+        string verb = parts[0];
+        string arg = parts.Length == 2 ? parts[1] : string.Empty;
+
+        switch (verb)
+        {
+            case "add":
+                SetModResult("Add & download", await ModManager.AddWorkshopItemAsync(user, serverId, (_modManageForm?.WorkshopId ?? string.Empty).Trim()));
+                break;
+            case "enable":
+                string enableId = (_modManageForm?.EnableModId ?? string.Empty).Trim();
+                if (enableId.Length == 0)
+                {
+                    SetModMessage("Choose a mod to enable.", ok: false);
+                }
+                else
+                {
+                    SetModResult("Enable", await ModManager.EnableModsAsync(user, serverId, [enableId]));
+                }
+
+                break;
+            case "disable":
+                SetModResult("Disable", await ModManager.DisableModsAsync(user, serverId, [arg]));
+                break;
+            case "remove":
+                SetModResult("Remove", await ModManager.RemoveWorkshopItemsAsync(user, serverId, [arg]));
+                break;
+            case "moveup":
+            case "movedown":
+                await ReorderAsync(user, serverId, verb, arg);
+                break;
+            case "update":
+                SetModResult("Update", await ModManager.UpdateModsAsync(user, serverId));
+                break;
+            case "restart":
+                SetRestartResult(await Lifecycle.RestartAsync(user, serverId));
+                break;
+            default:
+                SetModMessage("Choose an action.", ok: false);
+                break;
+        }
+
+        await LoadModManagementAsync(user, serverId);
+    }
+
+    private async Task ReorderAsync(UserId user, ServerId serverId, string verb, string modId)
+    {
+        if (_modInventory is null)
+        {
+            SetModMessage("Refresh mod discovery before reordering.", ok: false);
+            return;
+        }
+
+        List<string> order = [.. _modInventory.EnabledModIds];
+        int index = order.FindIndex(id => string.Equals(id, modId, StringComparison.Ordinal));
+        if (index < 0)
+        {
+            SetModMessage("That mod is no longer enabled; refresh discovery.", ok: false);
+            return;
+        }
+
+        int target = string.Equals(verb, "moveup", StringComparison.Ordinal) ? index - 1 : index + 1;
+        if (target < 0 || target >= order.Count)
+        {
+            return; // Already at the edge — nothing to do.
+        }
+
+        (order[index], order[target]) = (order[target], order[index]);
+        SetModResult("Reorder", await ModManager.ReorderModsAsync(user, serverId, order));
+    }
+
+    private void SetModResult(string action, ModManagementResult result)
+    {
+        if (result.Succeeded)
+        {
+            SetModMessage($"{action} enqueued (operation {result.Operation}). Restart to load the change once it completes.", ok: true);
+            return;
+        }
+
+        string message = result.Failure switch
+        {
+            ModManagementFailure.NotAuthorized => "You are not permitted to manage this server's mods.",
+            ModManagementFailure.ServerNotFound => "That server is no longer available.",
+            ModManagementFailure.ServerBusy => "The server is busy with another operation; try again once it finishes.",
+            ModManagementFailure.SnapshotUnavailable => "Refresh mod discovery for this server before making changes.",
+            ModManagementFailure.NoChange => "That did not change the mod list.",
+            ModManagementFailure.InvalidReorder => "A reorder must keep exactly the currently enabled mods.",
+            ModManagementFailure.InvalidInput => result.Message ?? "That mod change is not valid.",
+            _ => "The mod change could not be completed.",
+        };
+        SetModMessage(message, ok: false);
+    }
+
+    private void SetRestartResult(ServerLifecycleResult result)
+    {
+        if (result.Succeeded)
+        {
+            SetModMessage($"Restart enqueued (operation {result.Operation}). Mods load as the server boots.", ok: true);
+            return;
+        }
+
+        string message = result.Failure switch
+        {
+            ServerLifecycleFailure.NotAuthorized => "You are not permitted to restart this server.",
+            ServerLifecycleFailure.ServerNotFound => "That server is no longer available.",
+            ServerLifecycleFailure.ServerBusy => "The server is busy with another operation; try again once it finishes.",
+            _ => "The restart could not be started.",
+        };
+        SetModMessage(message, ok: false);
+    }
+
+    private void SetModMessage(string message, bool ok)
+    {
+        _modManageMessage = message;
+        _modManageAlert = ok ? AlertVariant.Success : AlertVariant.Warning;
     }
 
     private async Task LoadPlayersAsync(UserId user, ServerId serverId)
@@ -731,8 +1056,26 @@ else
     {
     }
 
+    private sealed class ModManageModel
+    {
+        // The Workshop id typed into the "Add Workshop item" field.
+        public string? WorkshopId { get; set; }
+
+        // The mod id chosen in the "Enable an installed mod" select.
+        public string? EnableModId { get; set; }
+
+        // The submit button's command token: "add"/"enable"/"update"/"restart", or "{verb}|{id}" for a per-row
+        // action (disable|{modId}, remove|{workshopId}, moveup|{modId}, movedown|{modId}).
+        public string? Command { get; set; }
+    }
+
     private readonly record struct PlayerPermissions(bool CanView, bool CanKick, bool CanBan, bool CanUnban, bool CanConfigEdit)
     {
         public bool CanAny => CanView || CanKick || CanBan || CanUnban || CanConfigEdit;
+    }
+
+    private readonly record struct ModManagePermissions(bool CanInstall, bool CanRemove, bool CanUpdate, bool CanRestart)
+    {
+        public bool CanAny => CanInstall || CanRemove || CanUpdate || CanRestart;
     }
 }
