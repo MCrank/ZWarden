@@ -2,12 +2,16 @@
 @attribute [Authorize]
 @using System.Security.Claims
 @using ZWarden.Application.Authorization
+@using ZWarden.Application.Configuration
 @using ZWarden.Application.Players
 @using ZWarden.Domain.Authorization
+@using ZWarden.Domain.Configuration
 @using ZWarden.Domain.Ids
 @inject IServerInventory Inventory
 @inject IPlayerManagement Players
 @inject IBanQuery Bans
+@inject IServerConfigurationEditor ConfigEditor
+@inject IServerConfigurationHistory ConfigHistory
 @inject IPermissionChecker PermissionChecker
 @inject UserManager<ApplicationUser> Users
 
@@ -217,6 +221,133 @@ else
             }
         </BbCard>
     }
+
+    @if (_perm.CanConfigEdit)
+    {
+        <BbCard Class="mt-6 p-5" data-config-card>
+            <h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Configuration</h2>
+            <p class="mt-1 text-xs text-muted-foreground">
+                Change a single setting's value in one of this server's four configuration files. Each edit is
+                re-checked against the live file on the host and refused if the file changed outside ZWarden
+                (fail-closed), then written byte-for-byte and recorded as a revision. Adding or removing keys is
+                not supported — the game owns the key set. Sandbox and spawn changes take effect on the next
+                restart; <span class="font-mono">.ini</span> changes reload live.
+            </p>
+
+            @if (_configMessage is not null)
+            {
+                <div class="mt-3" data-config-message>
+                    <BbAlert Variant="_configAlert" AccentBorder>
+                        <BbAlertDescription>@_configMessage</BbAlertDescription>
+                    </BbAlert>
+                </div>
+            }
+
+            <EditForm Model="_configForm" FormName="server-config" OnValidSubmit="ConfigAsync" class="mt-4">
+                <DataAnnotationsValidator />
+                <div class="grid gap-3 sm:grid-cols-4">
+                    <div class="flex flex-col text-sm">
+                        <BbLabel For="config-file" Class="mb-1 text-muted-foreground">File</BbLabel>
+                        @* BbNativeSelect auto-derives only the leaf name under static SSR; set the full model path (#84). *@
+                        <BbNativeSelect TValue="string" Id="config-file" Name="_configForm.File" @bind-Value="_configForm!.File">
+                            <option value="Ini">servertest.ini</option>
+                            <option value="SandboxVars">SandboxVars.lua</option>
+                            <option value="SpawnRegions">spawnregions.lua</option>
+                            <option value="SpawnPoints">spawnpoints.lua</option>
+                        </BbNativeSelect>
+                    </div>
+                    <div class="flex flex-col text-sm">
+                        <BbLabel For="config-path" Class="mb-1 text-muted-foreground">Setting path</BbLabel>
+                        <BbInput Id="config-path" @bind-Value="_configForm!.Path" autocomplete="off" Placeholder="e.g. Map.AllowMiniMap" />
+                    </div>
+                    <div class="flex flex-col text-sm">
+                        <BbLabel For="config-kind" Class="mb-1 text-muted-foreground">Type</BbLabel>
+                        <BbNativeSelect TValue="string" Id="config-kind" Name="_configForm.Kind" @bind-Value="_configForm!.Kind">
+                            <option value="Bool">true / false</option>
+                            <option value="Number">number</option>
+                            <option value="Text">text</option>
+                        </BbNativeSelect>
+                    </div>
+                    <div class="flex flex-col text-sm">
+                        <BbLabel For="config-value" Class="mb-1 text-muted-foreground">New value</BbLabel>
+                        <BbInput Id="config-value" @bind-Value="_configForm!.Value" autocomplete="off" />
+                    </div>
+                </div>
+                <div class="mt-3 flex flex-wrap gap-2">
+                    <BbButton Type="ButtonType.Submit" Size="ButtonSize.Small"
+                              name="_configForm.Target" value="apply" data-action="config-apply">Apply edit</BbButton>
+                    <BbButton Variant="ButtonVariant.Outline" Type="ButtonType.Submit" Size="ButtonSize.Small"
+                              name="_configForm.Target" value="load" data-action="config-load">Load history</BbButton>
+                </div>
+            </EditForm>
+
+            <div class="mt-6 border-t border-border pt-4">
+                <h3 class="text-sm font-medium">Revision history — @FileLabel(_selectedFile)</h3>
+                <p class="mt-1 text-xs text-muted-foreground">
+                    Each recorded change to this file, newest first, shown as the parsed values that changed —
+                    not a text diff (the game rewrites these files on every start). Restoring re-applies a prior
+                    revision's values as a fresh, drift-checked edit.
+                </p>
+
+                @if (_revisions.Count == 0)
+                {
+                    <p class="mt-3 text-sm text-muted-foreground" data-revisions-empty>
+                        No revisions recorded for this file yet. A revision is recorded the first time a change is applied.
+                    </p>
+                }
+                else
+                {
+                    <EditForm Model="_restoreForm" FormName="config-restore" OnValidSubmit="RestoreAsync" class="mt-3 block overflow-x-auto">
+                        <table class="w-full border-collapse text-left text-sm" data-revisions-table>
+                            <thead>
+                                <tr class="border-b border-border text-muted-foreground">
+                                    <th class="py-2 pr-4 font-medium">Recorded (UTC)</th>
+                                    <th class="py-2 pr-4 font-medium">Changes</th>
+                                    <th class="py-2 pr-4 font-medium">Snapshot</th>
+                                    <th class="py-2 font-medium"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (ConfigRevisionView rev in _revisions)
+                                {
+                                    <tr class="border-b border-border/60 align-top" data-revision-row>
+                                        <td class="py-2 pr-4 tabular-nums">
+                                            @Recorded(rev.RecordedAt)
+                                            @if (rev.IsCurrent)
+                                            {
+                                                <span class="ml-1 text-xs text-muted-foreground">(current)</span>
+                                            }
+                                        </td>
+                                        <td class="py-2 pr-4">
+                                            @if (rev.Changes.Count == 0)
+                                            {
+                                                <span class="text-muted-foreground">baseline</span>
+                                            }
+                                            else
+                                            {
+                                                foreach (ConfigValueChange change in rev.Changes)
+                                                {
+                                                    <div class="font-mono text-xs" data-change>@ChangeText(change)</div>
+                                                }
+                                            }
+                                        </td>
+                                        <td class="py-2 pr-4 font-mono text-xs">@rev.ShortHash</td>
+                                        <td class="py-2">
+                                            @if (!rev.IsCurrent)
+                                            {
+                                                <BbButton Variant="ButtonVariant.Outline" Type="ButtonType.Submit" Size="ButtonSize.Small"
+                                                          name="_restoreForm.Target" value="@($"{rev.File}|{rev.Id}")" data-action="config-restore">Restore</BbButton>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </EditForm>
+                }
+            </div>
+        </BbCard>
+    }
 }
 
 @code {
@@ -232,15 +363,31 @@ else
     [SupplyParameterFromForm(FormName = "ban-unban")]
     private UnbanModel _unbanForm { get; set; } = default!;
 
+    [SupplyParameterFromForm(FormName = "server-config")]
+    private ConfigFormModel _configForm { get; set; } = default!;
+
+    [SupplyParameterFromForm(FormName = "config-restore")]
+    private ConfigRestoreModel _restoreForm { get; set; } = default!;
+
     private ServerSummary? _server;
     private PlayerPermissions _perm;
     private IReadOnlyList<BanView> _bans = [];
     private string? _playerMessage;
 
+    private PzConfigFile _selectedFile = PzConfigFile.Ini;
+    private IReadOnlyList<ConfigRevisionView> _revisions = [];
+    private string? _configMessage;
+    private AlertVariant _configAlert = AlertVariant.Warning;
+
     protected override async Task OnInitializedAsync()
     {
         _actionForm ??= new PlayerActionModel();
         _unbanForm ??= new UnbanModel();
+        _configForm ??= new ConfigFormModel();
+        _restoreForm ??= new ConfigRestoreModel();
+        _configForm.File ??= nameof(PzConfigFile.Ini);
+        _configForm.Kind ??= nameof(ConfigEditKind.Bool);
+        _selectedFile = ParseFile(_configForm.File);
 
         if (!ServerId.TryParse(Id, out ServerId serverId))
         {
@@ -252,6 +399,10 @@ else
         if (_server is not null)
         {
             await LoadPlayersAsync(user, serverId);
+            if (_perm.CanConfigEdit)
+            {
+                await LoadHistoryAsync(user, serverId);
+            }
         }
     }
 
@@ -318,6 +469,109 @@ else
         await LoadPlayersAsync(user, serverId);
     }
 
+    private async Task ConfigAsync()
+    {
+        if (_server is null || !ServerId.TryParse(Id, out ServerId serverId))
+        {
+            return;
+        }
+
+        UserId user = await CurrentUserAsync();
+        ConfigFormModel form = _configForm ?? new ConfigFormModel();
+        _selectedFile = ParseFile(form.File);
+
+        if (string.Equals(form.Target, "apply", StringComparison.Ordinal))
+        {
+            string path = form.Path?.Trim() ?? string.Empty;
+            if (path.Length == 0)
+            {
+                SetConfigMessage("Enter the setting path to change (e.g. Map.AllowMiniMap).", ok: false);
+            }
+            else
+            {
+                ConfigApplyEdit edit = new(path, ParseKind(form.Kind), form.Value ?? string.Empty);
+                ServerConfigurationResult result = await ConfigEditor.ApplyAsync(user, serverId, _selectedFile, [edit]);
+                SetConfigResult(result, $"Edit to {path} enqueued");
+            }
+        }
+
+        await LoadHistoryAsync(user, serverId);
+    }
+
+    private async Task RestoreAsync()
+    {
+        if (_server is null || !ServerId.TryParse(Id, out ServerId serverId))
+        {
+            return;
+        }
+
+        // The restore button carries "{file}|{revisionId}" so the right file's history reloads after the post.
+        string token = _restoreForm?.Target ?? string.Empty;
+        string[] parts = token.Split('|', 2);
+        if (parts.Length == 2 && Enum.TryParse(parts[0], out PzConfigFile file)
+            && ConfigurationRevisionId.TryParse(parts[1], out ConfigurationRevisionId revisionId))
+        {
+            _selectedFile = file;
+            UserId user = await CurrentUserAsync();
+            ServerConfigurationResult result = await ConfigEditor.RestoreAsync(user, serverId, revisionId);
+            SetConfigResult(result, "Restore enqueued");
+            await LoadHistoryAsync(user, serverId);
+        }
+    }
+
+    private async Task LoadHistoryAsync(UserId user, ServerId serverId) =>
+        _revisions = await ConfigHistory.GetHistoryAsync(user, serverId, _selectedFile);
+
+    private void SetConfigResult(ServerConfigurationResult result, string success)
+    {
+        if (result.Succeeded)
+        {
+            SetConfigMessage($"{success} (operation {result.Operation}). The outcome appears on that operation shortly.", ok: true);
+            return;
+        }
+
+        string message = result.Failure switch
+        {
+            ServerConfigurationFailure.NotAuthorized => "You are not permitted to edit this server's configuration.",
+            ServerConfigurationFailure.ServerNotFound => "That server is no longer available.",
+            ServerConfigurationFailure.ServerBusy => "The server is busy with another operation; try again once it finishes.",
+            ServerConfigurationFailure.InvalidInput => result.Message ?? "That configuration change is not valid.",
+            _ => "The configuration change could not be completed.",
+        };
+        SetConfigMessage(message, ok: false);
+    }
+
+    private void SetConfigMessage(string message, bool ok)
+    {
+        _configMessage = message;
+        _configAlert = ok ? AlertVariant.Success : AlertVariant.Warning;
+    }
+
+    private static PzConfigFile ParseFile(string? value) =>
+        Enum.TryParse(value, out PzConfigFile file) ? file : PzConfigFile.Ini;
+
+    private static ConfigEditKind ParseKind(string? value) =>
+        Enum.TryParse(value, out ConfigEditKind kind) ? kind : ConfigEditKind.Text;
+
+    private static string FileLabel(PzConfigFile file) => file switch
+    {
+        PzConfigFile.Ini => "servertest.ini",
+        PzConfigFile.SandboxVars => "SandboxVars.lua",
+        PzConfigFile.SpawnRegions => "spawnregions.lua",
+        PzConfigFile.SpawnPoints => "spawnpoints.lua",
+        _ => file.ToString(),
+    };
+
+    private static string ChangeText(ConfigValueChange change) => change.Kind switch
+    {
+        ConfigChangeKind.Added => $"+ {change.Path} = {change.After}",
+        ConfigChangeKind.Removed => $"− {change.Path} (was {change.Before})",
+        _ => $"{change.Path}: {change.Before} → {change.After}",
+    };
+
+    private static string Recorded(DateTimeOffset at) =>
+        at.UtcDateTime.ToString("yyyy-MM-dd HH:mm", System.Globalization.CultureInfo.InvariantCulture);
+
     private static string? NullIfBlank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     private static string Describe(string verb, PlayerManagementResult? result)
@@ -383,6 +637,30 @@ else
     private sealed class UnbanModel
     {
         // The username of the ban row whose Unban button was pressed.
+        public string? Target { get; set; }
+    }
+
+    private sealed class ConfigFormModel
+    {
+        // The PzConfigFile to edit and whose history is shown.
+        public string? File { get; set; }
+
+        // The dotted path of the scalar to change.
+        public string? Path { get; set; }
+
+        // The ConfigEditKind name (Bool/Number/Text) interpreting Value.
+        public string? Kind { get; set; }
+
+        // The new value in wire form.
+        public string? Value { get; set; }
+
+        // The submit button's verb ("apply"/"load").
+        public string? Target { get; set; }
+    }
+
+    private sealed class ConfigRestoreModel
+    {
+        // The restore button's "{file}|{revisionId}" token.
         public string? Target { get; set; }
     }
 

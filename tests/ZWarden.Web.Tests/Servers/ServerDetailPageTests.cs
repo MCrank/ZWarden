@@ -1,11 +1,13 @@
 using System.Net;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.DependencyInjection;
+using ZWarden.Domain.Configuration;
 using ZWarden.Domain.Ids;
 using ZWarden.Domain.Operations;
 using ZWarden.Domain.Servers;
 using ZWarden.Infrastructure.Authorization;
 using ZWarden.Infrastructure.Persistence;
+using ZWarden.PzConfig.Revisions;
 using ZWarden.Web.Tests.Account;
 
 namespace ZWarden.Web.Tests.Servers;
@@ -89,6 +91,109 @@ public sealed class ServerDetailPageTests
         await Assert.That(op!.IsMutating).IsFalse();
         await Assert.That(op.CommandPayload).Contains("Bob");
         client.Dispose();
+    }
+
+    [Test]
+    public async Task The_configuration_card_shows_the_edit_form_and_empty_history_for_a_permitted_operator()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "configurable");
+
+        string html = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        await Assert.That(html).Contains("data-config-card");
+        await Assert.That(html).Contains("data-action=\"config-apply\"");
+        // The file select binds by its full model-path name under static SSR.
+        await Assert.That(html).Contains("name=\"_configForm.File\"");
+        await Assert.That(html).Contains("data-revisions-empty");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task The_apply_form_posts_and_enqueues_a_config_apply_carrying_the_edit()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "editable");
+
+        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+        Dictionary<string, string> form = new(StringComparer.Ordinal)
+        {
+            ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
+            ["_handler"] = "server-config",
+            ["_configForm.File"] = "SandboxVars",
+            ["_configForm.Path"] = "Zombies",
+            ["_configForm.Kind"] = "Number",
+            ["_configForm.Value"] = "1",
+            ["_configForm.Target"] = "apply",
+        };
+        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}", UriKind.Relative), new FormUrlEncodedContent(form));
+
+        await Assert.That((int)post.StatusCode).IsLessThan(400);
+        using IServiceScope scope = factory.Services.CreateScope();
+        ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
+        Operation? op = db.Set<Operation>().FirstOrDefault(o => o.ServerId == serverId && o.Kind == OperationKind.ConfigApply);
+        await Assert.That(op).IsNotNull();
+        await Assert.That(op!.IsMutating).IsTrue();
+        await Assert.That(op.CommandPayload).Contains("Zombies");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task The_history_table_lists_a_recorded_revision()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "with-history");
+        await SeedRevisionAsync(factory, serverId, PzConfigFile.Ini, "[[\"PublicName\",\"s:First\"]]", DateTimeOffset.UtcNow);
+
+        string html = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        await Assert.That(html).Contains("data-revisions-table");
+        await Assert.That(html).Contains("data-revision-row");
+        await Assert.That(html).DoesNotContain("data-revisions-empty");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task The_restore_button_posts_and_enqueues_a_config_apply()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "restorable");
+        DateTimeOffset t0 = DateTimeOffset.UtcNow;
+        ConfigurationRevisionId older = await SeedRevisionAsync(factory, serverId, PzConfigFile.Ini, "[[\"PublicName\",\"s:First\"]]", t0);
+        await SeedRevisionAsync(factory, serverId, PzConfigFile.Ini, "[[\"PublicName\",\"s:Second\"]]", t0.AddMinutes(5));
+
+        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+        Dictionary<string, string> form = new(StringComparer.Ordinal)
+        {
+            ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
+            ["_handler"] = "config-restore",
+            ["_restoreForm.Target"] = $"{PzConfigFile.Ini}|{older}",
+        };
+        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}", UriKind.Relative), new FormUrlEncodedContent(form));
+
+        await Assert.That((int)post.StatusCode).IsLessThan(400);
+        using IServiceScope scope = factory.Services.CreateScope();
+        ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
+        Operation? op = db.Set<Operation>().FirstOrDefault(o => o.ServerId == serverId && o.Kind == OperationKind.ConfigApply);
+        await Assert.That(op).IsNotNull();
+        await Assert.That(op!.CommandPayload).Contains("PublicName");
+        client.Dispose();
+    }
+
+    private static async Task<ConfigurationRevisionId> SeedRevisionAsync(
+        ZWardenWebAppFactory factory, ServerId server, PzConfigFile file, string canonicalText, DateTimeOffset at)
+    {
+        using IServiceScope scope = factory.Services.CreateScope();
+        ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
+        PzValueSnapshot snapshot = PzValueSnapshot.Parse(canonicalText);
+        ConfigurationRevision revision = ConfigurationRevision.Record(server, file, snapshot.CanonicalText, snapshot.Hash, at);
+        db.Set<ConfigurationRevision>().Add(revision);
+        await db.SaveChangesAsync();
+        return revision.Id;
     }
 
     private static bool EnqueuedKind(ZWardenWebAppFactory factory, ServerId serverId, OperationKind kind)

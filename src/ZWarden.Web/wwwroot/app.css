@@ -858,6 +858,10 @@ html {
   margin-bottom: 1.5rem;
 }
 
+.ml-1 {
+  margin-left: 0.25rem;
+}
+
 .mt-0\.5 {
   margin-top: 0.125rem;
 }
@@ -1328,6 +1332,10 @@ html {
 
 .text-right {
   text-align: right;
+}
+
+.align-top {
+  vertical-align: top;
 }
 
 .font-mono {
