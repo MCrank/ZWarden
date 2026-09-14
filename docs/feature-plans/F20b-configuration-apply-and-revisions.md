@@ -2,8 +2,8 @@
 
 **Status:** in progress. Track D. Delivered across **~4 PRs** — part of [#42](https://github.com/MCrank/ZWarden/issues/42),
 one commit per TDD slice. **PR 1 = the library write-half** ([PR #105](https://github.com/MCrank/ZWarden/pull/105),
-**merged**). **PR 2 = persistence + drift-comparison** (in review, branch
-`feat/f20b-config-revisions-persistence`): the `ConfigurationRevision` `cfg-` aggregate + its own
+**merged**). **PR 2 = persistence + drift-comparison** ([PR #106](https://github.com/MCrank/ZWarden/pull/106),
+in review): the `ConfigurationRevision` `cfg-` aggregate + its own
 `PzConfigFile` domain identity (Domain references nothing, so it cannot store PzConfig's `PzConfigKind`;
 the two are mapped in PR 3's apply path), the EF mapping + tenant-scoped repository + dual-provider
 `AddConfigurationRevisions` migration, and `PzDriftCheck` — the pure, fail-closed value-level drift check
