@@ -6,7 +6,9 @@ using ZWarden.Agent.Players;
 using ZWarden.Agent.Rcon;
 using ZWarden.Agent.ServerConfig;
 using ZWarden.Agent.SteamCmd;
+using ZWarden.Agent.Mods;
 using ZWarden.Agent.Tests.Docker;
+using ZWarden.Agent.Tests.Mods;
 using ZWarden.Agent.Tests.Players;
 using ZWarden.Agent.Tests.Rcon;
 using ZWarden.Contracts.Protocol;
@@ -32,7 +34,8 @@ public class AgentCommandProcessorTests
         IRconHealthProbe? rconProbe = null,
         IRconServerConfig? rconConfig = null,
         IPlayerAdministration? players = null,
-        IServerConfigWriter? configWriter = null) =>
+        IServerConfigWriter? configWriter = null,
+        IModDiscovery? modDiscovery = null) =>
         new(
             TimeProvider.System,
             runtime ?? new FakeContainerRuntime(),
@@ -41,6 +44,7 @@ public class AgentCommandProcessorTests
             rconConfig ?? new FakeRconServerConfig(),
             players ?? new FakePlayerAdministration(),
             configWriter ?? new FakeServerConfigWriter(),
+            modDiscovery ?? new FakeModDiscovery(),
             Options.Create(new AgentOptions
             {
                 PzImageReference = "zwarden/pzserver:pinned",
@@ -162,6 +166,56 @@ public class AgentCommandProcessorTests
 
         await Assert.That(reply!.Payload.Outcome).IsEqualTo(OperationOutcome.Failed);
         await Assert.That(reply.Payload.FailureReason).IsEqualTo("No target Server on the RCON health probe.");
+    }
+
+    [Test]
+    public async Task A_mod_discovery_succeeds_and_carries_the_result_on_the_same_operation()
+    {
+        var discovery = new FakeModDiscovery
+        {
+            Result = new ModDiscoveryResult(
+                InstalledItems: [new DiscoveredWorkshopItem("111", [new DiscoveredMod("ModA", "Mod A")])],
+                ConfiguredWorkshopIds: ["111"],
+                EnabledModIds: ["ModA"],
+                Findings: []),
+        };
+        ServerId server = ServerId.New();
+        OperationId operationId = OperationId.New();
+
+        Envelope<OperationCompleted>? reply = await Processor(modDiscovery: discovery)
+            .ProcessAsync(Json(new DiscoverMods(), operationId, server), CancellationToken.None);
+
+        await Assert.That(reply!.OperationId).IsEqualTo(operationId);
+        await Assert.That(reply.ServerId).IsEqualTo(server);
+        await Assert.That(reply.Payload.Outcome).IsEqualTo(OperationOutcome.Succeeded);
+        await Assert.That(reply.Payload.Mods!.InstalledItems.Single().Mods.Single().ModId).IsEqualTo("ModA");
+        await Assert.That(discovery.DiscoveredFor).IsEqualTo(server);
+        await Assert.That(discovery.CallCount).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task A_mod_discovery_without_a_target_server_fails()
+    {
+        Envelope<OperationCompleted>? reply = await Processor()
+            .ProcessAsync(Json(new DiscoverMods(), OperationId.New()), CancellationToken.None);
+
+        await Assert.That(reply!.Payload.Outcome).IsEqualTo(OperationOutcome.Failed);
+        await Assert.That(reply.Payload.FailureReason).IsEqualTo("No target Server on the mod discovery.");
+    }
+
+    [Test]
+    public async Task A_redelivered_mod_discovery_runs_once()
+    {
+        var discovery = new FakeModDiscovery();
+        AgentCommandProcessor sut = Processor(modDiscovery: discovery);
+        string json = Json(new DiscoverMods(), OperationId.New(), ServerId.New());
+
+        Envelope<OperationCompleted>? first = await sut.ProcessAsync(json, CancellationToken.None);
+        Envelope<OperationCompleted>? second = await sut.ProcessAsync(json, CancellationToken.None);
+
+        await Assert.That(first).IsNotNull();
+        await Assert.That(second).IsNull();
+        await Assert.That(discovery.CallCount).IsEqualTo(1);
     }
 
     [Test]

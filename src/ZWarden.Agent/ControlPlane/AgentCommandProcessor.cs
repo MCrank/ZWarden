@@ -3,6 +3,7 @@ using Docker.DotNet;
 using Microsoft.Extensions.Options;
 using ZWarden.Agent.Configuration;
 using ZWarden.Agent.Docker;
+using ZWarden.Agent.Mods;
 using ZWarden.Agent.Players;
 using ZWarden.Agent.Rcon;
 using ZWarden.Agent.ServerConfig;
@@ -31,6 +32,7 @@ public sealed class AgentCommandProcessor
     private readonly IRconServerConfig _rconConfig;
     private readonly IPlayerAdministration _players;
     private readonly IServerConfigWriter _configWriter;
+    private readonly IModDiscovery _modDiscovery;
     private readonly AgentOptions _options;
     private readonly ConcurrentDictionary<OperationId, byte> _handled = new();
 
@@ -42,6 +44,7 @@ public sealed class AgentCommandProcessor
         IRconServerConfig rconConfig,
         IPlayerAdministration players,
         IServerConfigWriter configWriter,
+        IModDiscovery modDiscovery,
         IOptions<AgentOptions> options)
     {
         ArgumentNullException.ThrowIfNull(timeProvider);
@@ -51,6 +54,7 @@ public sealed class AgentCommandProcessor
         ArgumentNullException.ThrowIfNull(rconConfig);
         ArgumentNullException.ThrowIfNull(players);
         ArgumentNullException.ThrowIfNull(configWriter);
+        ArgumentNullException.ThrowIfNull(modDiscovery);
         ArgumentNullException.ThrowIfNull(options);
         _timeProvider = timeProvider;
         _containerRuntime = containerRuntime;
@@ -59,6 +63,7 @@ public sealed class AgentCommandProcessor
         _rconConfig = rconConfig;
         _players = players;
         _configWriter = configWriter;
+        _modDiscovery = modDiscovery;
         _options = options.Value;
     }
 
@@ -186,6 +191,22 @@ public sealed class AgentCommandProcessor
                 {
                     return Completed(OperationOutcome.Failed, ex.Message, operationId, listServerId);
                 }
+
+            case DiscoverMods:
+                if (envelope.ServerId is not { } modsServerId)
+                {
+                    return Completed(OperationOutcome.Failed, "No target Server on the mod discovery.", operationId);
+                }
+
+                if (!_handled.TryAdd(operationId, 0))
+                {
+                    return null; // Already handled this operation — a redelivered command (PRD 20).
+                }
+
+                // Discovery is read-only and resilient: it returns empty/partial data for a missing tree or an
+                // unparseable config rather than throwing, so a successful completion always carries the result.
+                ModDiscoveryResult modResult = await _modDiscovery.DiscoverAsync(modsServerId, cancellationToken).ConfigureAwait(false);
+                return Completed(OperationOutcome.Succeeded, failureReason: null, operationId, modsServerId, mods: modResult);
 
             case KickPlayer kick:
                 return await PlayerActionAsync(
@@ -407,9 +428,10 @@ public sealed class AgentCommandProcessor
         RconHealthResult? rcon = null,
         PlayerRosterResult? roster = null,
         PlayerActionResult? playerAction = null,
-        ConfigApplyResult? config = null) =>
+        ConfigApplyResult? config = null,
+        ModDiscoveryResult? mods = null) =>
         Envelope.Create(
-            new OperationCompleted(outcome, failureReason, provision, update, rcon, roster, playerAction, config),
+            new OperationCompleted(outcome, failureReason, provision, update, rcon, roster, playerAction, config, mods),
             _timeProvider.GetUtcNow(),
             serverId: serverId,
             operationId: operationId);
