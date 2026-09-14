@@ -11,8 +11,18 @@ internal static class PzText
 {
     private static readonly byte[] Utf8Bom = [0xEF, 0xBB, 0xBF];
 
+    // A UTF-8 encoding that never emits a BOM (encoderShouldEmitUTF8Identifier: false).
+    private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: false);
+
     /// <summary><see langword="true"/> if the bytes begin with a UTF-8 BOM.</summary>
     public static bool HasUtf8Bom(ReadOnlySpan<byte> bytes) => bytes.StartsWith(Utf8Bom);
+
+    /// <summary>Encodes text as UTF-8 with <em>no</em> BOM — the only safe way to write a PZ config file (ADR 0010).</summary>
+    public static byte[] EncodeUtf8(string text)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        return Utf8NoBom.GetBytes(text);
+    }
 
     /// <summary>Decodes UTF-8, stripping a single leading BOM if present.</summary>
     public static string DecodeUtf8(ReadOnlySpan<byte> bytes)
