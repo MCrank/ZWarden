@@ -10,6 +10,7 @@ using ZWarden.Agent.Diagnostics;
 using ZWarden.Agent.Docker;
 using ZWarden.Agent.Health;
 using ZWarden.Agent.Identity;
+using ZWarden.Agent.Mods;
 using ZWarden.Agent.Observability;
 using ZWarden.Agent.Players;
 using ZWarden.Agent.Rcon;
@@ -110,6 +111,11 @@ public static class HostingExtensions
         // BOM-less and atomically. The parser is stateless and thread-safe.
         services.AddSingleton<IPzConfigParser, PzConfigParser>();
         services.AddSingleton<IServerConfigWriter, ServerConfigWriter>();
+
+        // Workshop and mod discovery (F21): read-only, offline. Walks the Server's Workshop content subtree and
+        // reconciles it against the config's WorkshopItems=/Mods= lists (via the parser above) into the mapping and
+        // compatibility findings. No exec, no writes, no external network call.
+        services.AddSingleton<IModDiscovery, ModDiscovery>();
 
         // Observability baseline (F16, ADR 0024): OpenTelemetry SDK + HttpClient instrumentation + opt-in OTLP.
         services.AddAgentTelemetry(configuration, environment);

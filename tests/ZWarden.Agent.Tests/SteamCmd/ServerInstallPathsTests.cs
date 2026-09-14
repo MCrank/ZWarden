@@ -73,4 +73,22 @@ public class ServerInstallPathsTests
             Directory.Delete(root, recursive: true);
         }
     }
+
+    [Test]
+    public async Task The_workshop_content_root_is_under_the_install_volume_for_app_108600()
+    {
+        (ServerInstallPaths paths, string root) = NewPaths();
+        ServerId serverId = ServerId.New();
+
+        try
+        {
+            string expected = Path.Combine(
+                root, $"{serverId}.server", "steamapps", "workshop", "content", "108600");
+            await Assert.That(paths.GetWorkshopContentRoot(serverId)).IsEqualTo(expected);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
 }
