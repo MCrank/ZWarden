@@ -19,6 +19,43 @@ public static class PzValueDiff
         return Compare(before.Root, after.Root);
     }
 
+    /// <summary>
+    /// The value-level differences between two canonical snapshots (F20b PR-4). Snapshots are already flat,
+    /// path-keyed and order-normalized, so this is a direct per-path comparison — the form the revision-history
+    /// diff needs when the control plane holds two persisted revisions and no live document.
+    /// </summary>
+    public static IReadOnlyList<PzConfigChange> Compare(PzValueSnapshot before, PzValueSnapshot after)
+    {
+        ArgumentNullException.ThrowIfNull(before);
+        ArgumentNullException.ThrowIfNull(after);
+
+        Dictionary<string, PzValue> beforeByPath = before.Scalars.ToDictionary(s => s.Path, s => s.Value, StringComparer.Ordinal);
+        Dictionary<string, PzValue> afterByPath = after.Scalars.ToDictionary(s => s.Path, s => s.Value, StringComparer.Ordinal);
+
+        var changes = new List<PzConfigChange>();
+        foreach (string path in beforeByPath.Keys.Union(afterByPath.Keys, StringComparer.Ordinal))
+        {
+            bool hasBefore = beforeByPath.TryGetValue(path, out PzValue? b);
+            bool hasAfter = afterByPath.TryGetValue(path, out PzValue? a);
+
+            if (!hasBefore)
+            {
+                changes.Add(new PzConfigChange(path, PzConfigChangeKind.Added, null, a));
+            }
+            else if (!hasAfter)
+            {
+                changes.Add(new PzConfigChange(path, PzConfigChangeKind.Removed, b, null));
+            }
+            else if (!PzScalar.AreEqual(b!, a!))
+            {
+                changes.Add(new PzConfigChange(path, PzConfigChangeKind.Changed, b, a));
+            }
+        }
+
+        changes.Sort(static (x, y) => string.CompareOrdinal(x.Path, y.Path));
+        return changes;
+    }
+
     /// <summary>The value-level differences between two value trees.</summary>
     public static IReadOnlyList<PzConfigChange> Compare(PzTable before, PzTable after)
     {
