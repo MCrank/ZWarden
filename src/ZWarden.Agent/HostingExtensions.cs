@@ -11,6 +11,7 @@ using ZWarden.Agent.Docker;
 using ZWarden.Agent.Health;
 using ZWarden.Agent.Identity;
 using ZWarden.Agent.Observability;
+using ZWarden.Agent.Players;
 using ZWarden.Agent.Rcon;
 using ZWarden.Agent.SteamCmd;
 using ZWarden.Agent.Trust;
@@ -96,6 +97,11 @@ public static class HostingExtensions
         services.AddSingleton<IRconConnectionFactory>(_ => new RconConnectionFactory());
         services.AddSingleton<IRconEndpointResolver, RconEndpointResolver>();
         services.AddSingleton<IRconHealthProbe, RconHealthProbe>();
+
+        // Player management (F19): runs kick/ban/unban/remove-from-whitelist and the whitelist-mode toggle over
+        // the Agent-owned RCON connection, building and quoting the admin commands (ADR 0026 deferred quoting to
+        // F19) and parsing PZ's untrusted replies into typed results.
+        services.AddSingleton<IPlayerAdministration, PlayerAdministration>();
 
         // Observability baseline (F16, ADR 0024): OpenTelemetry SDK + HttpClient instrumentation + opt-in OTLP.
         services.AddAgentTelemetry(configuration, environment);

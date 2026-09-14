@@ -28,13 +28,26 @@ namespace ZWarden.Contracts.Protocol.Messages;
 /// and optional (ADR 0020); carries no secret (never the password) and no free-form runtime output, only the
 /// two booleans and an Agent-authored detail. Recorded against the Server the envelope's <c>ServerId</c> names.
 /// </param>
+/// <param name="Roster">
+/// For a successful player enumeration (<see cref="ListPlayers"/>), the connected players the Agent observed
+/// over RCON. <c>null</c> for every other Operation. Additive and optional (ADR 0020); the usernames are
+/// <b>untrusted</b> PZ output (trust-boundaries.md §8), carried verbatim for escaping at render (F28).
+/// </param>
+/// <param name="PlayerAction">
+/// For a player action (<see cref="KickPlayer"/>, <see cref="BanPlayer"/>, <see cref="UnbanPlayer"/>,
+/// <see cref="RemoveFromWhitelist"/>, <see cref="SetWhitelistMode"/>), the outcome the Agent parsed from PZ's
+/// reply. <c>null</c> for every other Operation. Additive and optional (ADR 0020); the detail is
+/// <b>untrusted</b> PZ output (trust-boundaries.md §8), carried verbatim for escaping at render (F28).
+/// </param>
 [ProtocolMessage("operation.completed")]
 public sealed record OperationCompleted(
     OperationOutcome Outcome,
     string? FailureReason = null,
     ProvisionResult? Provision = null,
     UpdateResult? Update = null,
-    RconHealthResult? Rcon = null) : AgentEvent;
+    RconHealthResult? Rcon = null,
+    PlayerRosterResult? Roster = null,
+    PlayerActionResult? PlayerAction = null) : AgentEvent;
 
 /// <summary>The container facts a successful <see cref="CreateServer"/> Operation observed (F14 PR-B): the two
 /// allocated host UDP ports and the created Docker container id. Non-secret; the Server it belongs to is the
@@ -61,3 +74,40 @@ public sealed record UpdateResult(string? InstalledBuildId);
 /// <paramref name="Reachable"/>.</param>
 /// <param name="Detail">A short, Agent-authored explanation of the outcome, or <c>null</c> when healthy.</param>
 public sealed record RconHealthResult(bool Reachable, bool Authenticated, string? Detail);
+
+/// <summary>The players a successful <see cref="ListPlayers"/> Operation observed over RCON (F19), parsed from
+/// PZ's <c>players</c> reply (<c>"Players connected (N): "</c> then one <c>-&lt;username&gt;</c> per line). The
+/// usernames are <b>untrusted</b> PZ output (trust-boundaries.md §8) — carried verbatim, never interpreted,
+/// escaped only at render (F28). The Server they belong to is the completion envelope's <c>ServerId</c>.</summary>
+/// <param name="Count">The connected-player count PZ reported in its header line.</param>
+/// <param name="Players">The connected usernames, in the order PZ listed them (may be empty).</param>
+public sealed record PlayerRosterResult(int Count, IReadOnlyList<string> Players);
+
+/// <summary>How a player action turned out, as the Agent parsed it from PZ's reply (F19). PZ's kick replies are
+/// stable strings; ban/unban/remove and the whitelist-mode toggle are prose, parsed with a light heuristic and
+/// otherwise reported as <see cref="PlayerActionOutcome.Applied"/> with the raw detail.</summary>
+public enum PlayerActionOutcome
+{
+    /// <summary>The action was carried out (or PZ confirmed it) — e.g. <c>User X kicked.</c>,
+    /// <c>Option : Open is now : false</c>.</summary>
+    Applied,
+
+    /// <summary>PZ reported the target user does not exist — e.g. <c>User X doesn't exist.</c></summary>
+    NotFound,
+
+    /// <summary>PZ refused the action on an existing target — e.g. <c>This user can't be kicked.</c></summary>
+    Rejected,
+
+    /// <summary>PZ's reply could not be classified (unexpected or empty). The <see cref="PlayerActionResult.Detail"/>
+    /// carries the raw reply for the operator to read.</summary>
+    Unknown,
+}
+
+/// <summary>The outcome a player action Operation observed (F19: <see cref="KickPlayer"/>,
+/// <see cref="BanPlayer"/>, <see cref="UnbanPlayer"/>, <see cref="RemoveFromWhitelist"/>,
+/// <see cref="SetWhitelistMode"/>). Never carries a secret; the detail is <b>untrusted</b> PZ output
+/// (trust-boundaries.md §8), bounded and carried verbatim for escaping at render (F28). The Server it belongs to
+/// is the completion envelope's <c>ServerId</c>.</summary>
+/// <param name="Outcome">The classified outcome.</param>
+/// <param name="Detail">PZ's reply text (bounded, untrusted), or <c>null</c> when PZ sent no reply.</param>
+public sealed record PlayerActionResult(PlayerActionOutcome Outcome, string? Detail);
