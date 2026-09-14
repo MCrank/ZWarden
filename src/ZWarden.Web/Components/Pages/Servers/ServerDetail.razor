@@ -3,6 +3,7 @@
 @using System.Security.Claims
 @using ZWarden.Application.Authorization
 @using ZWarden.Application.Configuration
+@using ZWarden.Application.Mods
 @using ZWarden.Application.Players
 @using ZWarden.Domain.Authorization
 @using ZWarden.Domain.Configuration
@@ -12,6 +13,7 @@
 @inject IBanQuery Bans
 @inject IServerConfigurationEditor ConfigEditor
 @inject IServerConfigurationHistory ConfigHistory
+@inject IModDiscoveryService ModDiscovery
 @inject IPermissionChecker PermissionChecker
 @inject UserManager<ApplicationUser> Users
 
@@ -222,6 +224,40 @@ else
         </BbCard>
     }
 
+    @if (_canViewMods)
+    {
+        <BbCard Class="mt-6 p-5" data-mods-card>
+            <h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Mods</h2>
+            <p class="mt-1 text-xs text-muted-foreground">
+                The Workshop content this server has on disk and the mods each item provides, reconciled against the
+                server's <span class="font-mono">WorkshopItems=</span>/<span class="font-mono">Mods=</span> config.
+                Discovery reads the host only — it installs nothing (that is coming later).
+            </p>
+
+            @if (_modMessage is not null)
+            {
+                <div class="mt-3" data-mod-message>
+                    <BbAlert Variant="AlertVariant.Warning" AccentBorder>
+                        <BbAlertDescription>@_modMessage</BbAlertDescription>
+                    </BbAlert>
+                </div>
+            }
+
+            <EditForm Model="_modForm" FormName="mod-discovery" OnValidSubmit="DiscoverModsAsync" class="mt-4">
+                <div class="flex items-center justify-between gap-3">
+                    <h3 class="text-sm font-medium">Installed Workshop content</h3>
+                    <BbButton Variant="ButtonVariant.Outline" Type="ButtonType.Submit" Size="ButtonSize.Small"
+                              data-action="mod-refresh">Refresh</BbButton>
+                </div>
+                <div class="mt-3">
+                    <LiveModInventoryPanel @rendermode="InteractiveServer"
+                                           ServerId="@_server.Id.ToString()"
+                                           AgentId="@_server.AgentId.ToString()" />
+                </div>
+            </EditForm>
+        </BbCard>
+    }
+
     @if (_perm.CanConfigEdit)
     {
         <BbCard Class="mt-6 p-5" data-config-card>
@@ -369,8 +405,13 @@ else
     [SupplyParameterFromForm(FormName = "config-restore")]
     private ConfigRestoreModel _restoreForm { get; set; } = default!;
 
+    [SupplyParameterFromForm(FormName = "mod-discovery")]
+    private ModDiscoveryModel _modForm { get; set; } = default!;
+
     private ServerSummary? _server;
     private PlayerPermissions _perm;
+    private bool _canViewMods;
+    private string? _modMessage;
     private IReadOnlyList<BanView> _bans = [];
     private string? _playerMessage;
 
@@ -385,6 +426,7 @@ else
         _unbanForm ??= new UnbanModel();
         _configForm ??= new ConfigFormModel();
         _restoreForm ??= new ConfigRestoreModel();
+        _modForm ??= new ModDiscoveryModel();
         _configForm.File ??= nameof(PzConfigFile.Ini);
         _configForm.Kind ??= nameof(ConfigEditKind.Bool);
         _selectedFile = ParseFile(_configForm.File);
@@ -399,11 +441,31 @@ else
         if (_server is not null)
         {
             await LoadPlayersAsync(user, serverId);
+            _canViewMods = (await PermissionChecker.EvaluateAsync(user, Permissions.ModView, serverId)).IsAllowed;
             if (_perm.CanConfigEdit)
             {
                 await LoadHistoryAsync(user, serverId);
             }
         }
+    }
+
+    private async Task DiscoverModsAsync()
+    {
+        if (_server is null || !ServerId.TryParse(Id, out ServerId serverId))
+        {
+            return;
+        }
+
+        UserId user = await CurrentUserAsync();
+        ModDiscoveryDispatch result = await ModDiscovery.RequestAsync(user, serverId);
+        _modMessage = result.Succeeded
+            ? $"Discovery started (operation {result.Operation}). The inventory below refreshes when it completes."
+            : result.Failure switch
+            {
+                ModDiscoveryFailure.NotAuthorized => "You are not permitted to view this server's mods.",
+                ModDiscoveryFailure.ServerNotFound => "That server is no longer available.",
+                _ => "Discovery could not be started.",
+            };
     }
 
     private async Task LoadPlayersAsync(UserId user, ServerId serverId)
@@ -662,6 +724,11 @@ else
     {
         // The restore button's "{file}|{revisionId}" token.
         public string? Target { get; set; }
+    }
+
+    // The mod-discovery form carries no fields — its single Refresh button enqueues a discovery.
+    private sealed class ModDiscoveryModel
+    {
     }
 
     private readonly record struct PlayerPermissions(bool CanView, bool CanKick, bool CanBan, bool CanUnban, bool CanConfigEdit)

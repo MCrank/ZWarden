@@ -108,6 +108,7 @@ public sealed class OperationDispatcher : IOperationDispatcher
         OperationKind.UpdateServer => new UpdateServer(),
         OperationKind.RconHealthProbe => new ProbeRconHealth(),
         OperationKind.ListPlayers => new ListPlayers(),
+        OperationKind.ModDiscovery => new DiscoverMods(),
         OperationKind.KickPlayer => new KickPlayer(Payload(commandPayload).Username!, Payload(commandPayload).Reason),
         OperationKind.BanPlayer => new BanPlayer(Payload(commandPayload).Username!, Payload(commandPayload).Reason),
         OperationKind.UnbanPlayer => new UnbanPlayer(Payload(commandPayload).Username!),

@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.DependencyInjection;
 using ZWarden.Application.Agents;
 using ZWarden.Application.Configuration;
+using ZWarden.Application.Mods;
 using ZWarden.Application.Operations;
 using ZWarden.Contracts.Protocol;
 using ZWarden.Contracts.Protocol.Messages;
@@ -167,6 +168,65 @@ public class OperationDispatchIntegrationTests
             await Assert.That(latest!.SnapshotHash).IsEqualTo("new-hash-42");
             await Assert.That(latest.CanonicalSnapshot).IsEqualTo("[[\"Zombies\",\"n:1:i\"]]");
         }
+
+        await connection.StopAsync();
+    }
+
+    [Test]
+    public async Task A_mod_discovery_runs_end_to_end_and_caches_the_inventory()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        (AgentId agentId, string credential) = await SeedTrustedAgentAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, agentId);
+        await using HubConnection connection = BuildConnection(factory, credential);
+
+        // The dispatcher must map ModDiscovery to the DiscoverMods command (F21). The stand-in Agent verifies it
+        // received exactly that, then reports an observed inventory. (The real disk walk is unit-tested.)
+        bool receivedDiscoverMods = false;
+        connection.On<string>(AgentHubProtocol.ReceiveCommand, async json =>
+        {
+            Envelope<IProtocolMessage> command = ProtocolJson.Deserialize(json);
+            if (command.Payload is DiscoverMods && command.OperationId is { } operationId)
+            {
+                receivedDiscoverMods = true;
+                Envelope<OperationCompleted> reply = Envelope.Create(
+                    new OperationCompleted(
+                        OperationOutcome.Succeeded,
+                        Mods: new ModDiscoveryResult(
+                            InstalledItems: [new DiscoveredWorkshopItem("111", [new DiscoveredMod("ModA", "Mod A")])],
+                            ConfiguredWorkshopIds: ["111"],
+                            EnabledModIds: ["ModA"],
+                            Findings: [new ModCompatFinding(ModCompatKind.InstalledButInactive, "Idle", null)])),
+                    Now, serverId: command.ServerId, operationId: operationId);
+                await connection.SendAsync(AgentHubProtocol.OperationCompleted, reply);
+            }
+        });
+
+        await connection.StartAsync();
+        await connection.InvokeAsync<ProtocolNegotiationResult>(AgentHubProtocol.Hello, Hello(agentId));
+
+        OperationId operationId;
+        using (IServiceScope scope = factory.Services.CreateScope())
+        {
+            IOperationCoordinator coordinator = scope.ServiceProvider.GetRequiredService<IOperationCoordinator>();
+            Operation op = await coordinator.EnqueueAsync(
+                new EnqueueOperationRequest(
+                    agentId, OperationKind.ModDiscovery, IsMutating: false, "e2e-mod-discovery", ServerId: serverId));
+            operationId = op.Id;
+        }
+
+        Operation? final = await WaitForStateAsync(factory, operationId, OperationState.Succeeded);
+        await Assert.That(final).IsNotNull();
+        await Assert.That(receivedDiscoverMods).IsTrue();
+
+        // The completion cached the observed inventory (recorded before the operation is marked done),
+        // ownership-guarded by the reporting Agent.
+        IModInventoryCache cache = factory.Services.GetRequiredService<IModInventoryCache>();
+        ModInventory? inventory = cache.GetLatest(serverId, agentId);
+        await Assert.That(inventory).IsNotNull();
+        await Assert.That(inventory!.InstalledItems.Single().Mods.Single().ModId).IsEqualTo("ModA");
+        await Assert.That(inventory.Issues.Single().Kind).IsEqualTo(ModCompatIssueKind.InstalledButInactive);
+        await Assert.That(cache.GetLatest(serverId, AgentId.New())).IsNull();
 
         await connection.StopAsync();
     }

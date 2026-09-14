@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.SignalR;
 using ZWarden.Application.Agents;
 using ZWarden.Application.Audit;
 using ZWarden.Application.Configuration;
+using ZWarden.Application.Mods;
 using ZWarden.Application.Operations;
 using ZWarden.Application.Players;
 using ZWarden.Application.Servers;
@@ -36,6 +37,7 @@ public sealed partial class AgentHub : Hub
     private readonly IServerHealthCache _healthCache;
     private readonly IPlayerRosterCache _rosters;
     private readonly IConfigurationRevisionRecorder _configRevisions;
+    private readonly IModInventoryCache _mods;
     private readonly ControlPlaneMetrics _telemetry;
     private readonly IAuditWriter _audit;
     private readonly ILogger<AgentHub> _logger;
@@ -49,6 +51,7 @@ public sealed partial class AgentHub : Hub
         IServerHealthCache healthCache,
         IPlayerRosterCache rosters,
         IConfigurationRevisionRecorder configRevisions,
+        IModInventoryCache mods,
         ControlPlaneMetrics telemetry,
         IAuditWriter audit,
         ILogger<AgentHub> logger)
@@ -61,6 +64,7 @@ public sealed partial class AgentHub : Hub
         ArgumentNullException.ThrowIfNull(healthCache);
         ArgumentNullException.ThrowIfNull(rosters);
         ArgumentNullException.ThrowIfNull(configRevisions);
+        ArgumentNullException.ThrowIfNull(mods);
         ArgumentNullException.ThrowIfNull(telemetry);
         ArgumentNullException.ThrowIfNull(audit);
         ArgumentNullException.ThrowIfNull(logger);
@@ -72,6 +76,7 @@ public sealed partial class AgentHub : Hub
         _healthCache = healthCache;
         _rosters = rosters;
         _configRevisions = configRevisions;
+        _mods = mods;
         _telemetry = telemetry;
         _audit = audit;
         _logger = logger;
@@ -322,6 +327,15 @@ public sealed partial class AgentHub : Hub
                     .ConfigureAwait(false);
             }
 
+            // A successful mod discovery carries the Workshop-and-mod inventory the Agent observed on disk (F21);
+            // cache the newest per Server for the live UI, keyed by the reporting Agent (the ownership guard, §8).
+            // Transient display data — never persisted. Ids/names are untrusted, carried verbatim (escaped at render).
+            if (completed.Payload.Mods is { } mods && completed.ServerId is { } modsServerId
+                && AgentClaims.TryGetAgentId(Context.User, out AgentId modsAgent))
+            {
+                _mods.Record(ToInventory(modsServerId, modsAgent, mods, completed.Timestamp));
+            }
+
             await _operations.CompleteSucceededAsync(operationId, Context.ConnectionAborted).ConfigureAwait(false);
         }
         else
@@ -330,6 +344,28 @@ public sealed partial class AgentHub : Hub
                 .ConfigureAwait(false);
         }
     }
+
+    // Maps the wire discovery result onto the Application-side observed inventory (F21), so the cache and the UI
+    // never touch the protocol contracts. Ids and names cross verbatim (untrusted, escaped at render).
+    private static ModInventory ToInventory(ServerId server, AgentId agent, ModDiscoveryResult result, DateTimeOffset at) =>
+        new(
+            server,
+            agent,
+            [.. result.InstalledItems.Select(i =>
+                new InstalledWorkshopItem(i.WorkshopId, [.. i.Mods.Select(m => new InstalledMod(m.ModId, m.Name))]))],
+            result.ConfiguredWorkshopIds,
+            result.EnabledModIds,
+            [.. result.Findings.Select(f => new ModCompatIssue(ToIssueKind(f.Kind), f.Subject, f.Detail))],
+            at);
+
+    private static ModCompatIssueKind ToIssueKind(ModCompatKind kind) => kind switch
+    {
+        ModCompatKind.ReferencedNotInstalled => ModCompatIssueKind.ReferencedNotInstalled,
+        ModCompatKind.EnabledButMissing => ModCompatIssueKind.EnabledButMissing,
+        ModCompatKind.InstalledButInactive => ModCompatIssueKind.InstalledButInactive,
+        ModCompatKind.DuplicateModId => ModCompatIssueKind.DuplicateModId,
+        _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unknown mod compatibility kind."),
+    };
 
     private static AuditEntry Entry(string action, AgentId agentId)
         => new(action, AuditOutcome.Succeeded, null, null, $"agent {agentId}");

@@ -94,4 +94,10 @@ public enum OperationKind
     /// writes byte-preserving, BOM-less, and atomically, reporting a <c>ConfigApplyResult</c> on success. The
     /// target file, drift baseline, and edits ride the command payload.</summary>
     ConfigApply = 14,
+
+    /// <summary>Discover the Workshop content and mods a Server has on disk (F21). A <b>non-mutating,
+    /// server-scoped</b> Operation — the Agent only reads the Workshop content subtree and the config lists — so it
+    /// never claims the per-server lock (ADR 0022) and does not contend with an in-flight lifecycle Operation. The
+    /// Agent reports a <c>ModDiscoveryResult</c> on completion; there is no command payload.</summary>
+    ModDiscovery = 15,
 }

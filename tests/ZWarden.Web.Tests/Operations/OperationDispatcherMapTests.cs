@@ -50,6 +50,12 @@ public class OperationDispatcherMapTests
     }
 
     [Test]
+    public async Task The_mod_discovery_kind_maps_to_the_discover_command()
+    {
+        await Assert.That(OperationDispatcher.CommandFor(OperationKind.ModDiscovery)).IsTypeOf<DiscoverMods>();
+    }
+
+    [Test]
     public async Task The_player_action_kinds_read_their_target_from_the_command_payload()
     {
         string kickJson = new PlayerCommandPayload(Username: "Bob", Reason: "grief").ToJson();

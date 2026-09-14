@@ -4,6 +4,7 @@ using ZWarden.Infrastructure.Audit;
 using ZWarden.Infrastructure.Authorization;
 using ZWarden.Infrastructure.Configuration;
 using ZWarden.Infrastructure.Identity;
+using ZWarden.Infrastructure.Mods;
 using ZWarden.Infrastructure.Operations;
 using ZWarden.Infrastructure.Persistence;
 using ZWarden.Infrastructure.Players;
@@ -56,6 +57,7 @@ builder.Services.AddZWardenOperations();            // F11: operations engine �
 builder.Services.AddZWardenServers();               // F14: Server inventory + import, snapshot reconciler, discovery cache
 builder.Services.AddZWardenPlayers();               // F19: player management (kick/ban/unban/whitelist) — non-mutating RCON operations
 builder.Services.AddZWardenConfiguration();         // F20b: configuration revisions — repository + completion-time revision recorder
+builder.Services.AddZWardenMods();                  // F21: Workshop/mod discovery — inventory cache + discovery service (read-only)
 builder.Services.AddAgentControlPlane();            // F10: Agent hub, handshake auth scheme, connection registry + monitor
 builder.Services.AddOperationDispatch();            // F11 PR-B: real operation dispatcher over the SignalR connection
 builder.Services.AddZWardenTelemetry(builder.Configuration, builder.Environment); // F16: OpenTelemetry baseline (opt-in OTLP)
