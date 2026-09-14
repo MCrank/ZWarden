@@ -4,6 +4,11 @@
 
   <ItemGroup>
     <ProjectReference Include="..\ZWarden.Application\ZWarden.Application.csproj" />
+    <!-- F20b PR-4: the configuration read side (history diff + value-level restore) reads persisted
+         canonical snapshots back through ZWarden.PzConfig's Revisions helpers (Parse/Diff/Restore) — pure
+         value logic, not the Loretta parser. This is the only Infrastructure->PzConfig reference; the direct
+         Loretta PackageReference stays solely in PzConfig (ReferenceDirectionTests). -->
+    <ProjectReference Include="..\ZWarden.PzConfig\ZWarden.PzConfig.csproj" />
   </ItemGroup>
 
   <ItemGroup>

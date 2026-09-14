@@ -9,6 +9,8 @@ using ZWarden.Domain.Ids;
 using ZWarden.Domain.Operations;
 using ZWarden.Domain.Servers;
 using ZWarden.Infrastructure.Servers;
+using ZWarden.PzConfig.Model;
+using ZWarden.PzConfig.Revisions;
 
 namespace ZWarden.Infrastructure.Configuration;
 
@@ -85,9 +87,78 @@ public sealed class ServerConfigurationEditor : IServerConfigurationEditor
             return ServerConfigurationResult.Denied(ServerConfigurationFailure.InvalidInput, "An edit has an empty configuration path.");
         }
 
+        return await EnqueueAsync(user, resolved, file, edits, ConfigurationAuditActions.Applied, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<ServerConfigurationResult> RestoreAsync(
+        UserId user,
+        ServerId server,
+        ConfigurationRevisionId revision,
+        CancellationToken cancellationToken = default)
+    {
+        Server? resolved = await _servers.FindByIdAsync(server, cancellationToken).ConfigureAwait(false);
+        if (resolved is null)
+        {
+            return ServerConfigurationResult.Denied(ServerConfigurationFailure.ServerNotFound);
+        }
+
+        AuthorizationDecision decision = await _permissions
+            .EvaluateAsync(user, Permissions.ServerConfigurationEdit, server: server, cancellationToken).ConfigureAwait(false);
+        if (!decision.IsAllowed)
+        {
+            return ServerConfigurationResult.Denied(ServerConfigurationFailure.NotAuthorized);
+        }
+
+        // Resolve the target revision through the tenant filter, and confirm it belongs to this Server — a
+        // revision id for another Server (or tenant) is not a restore target here.
+        ConfigurationRevision? target = await _revisions.FindByIdAsync(revision, cancellationToken).ConfigureAwait(false);
+        if (target is null || target.ServerId != server)
+        {
+            return ServerConfigurationResult.Denied(
+                ServerConfigurationFailure.ServerNotFound, "That revision does not exist for this server.");
+        }
+
+        PzConfigFile file = target.File;
+
+        // The current recorded state of this file is both what we restore *from* and the drift baseline the
+        // Agent re-checks. Restoring the current revision itself is a no-op.
+        ConfigurationRevision? current = await _revisions.FindLatestAsync(server, file, cancellationToken).ConfigureAwait(false);
+        PzValueSnapshot targetSnapshot = PzValueSnapshot.Parse(target.CanonicalSnapshot);
+        PzValueSnapshot currentSnapshot = current is null
+            ? targetSnapshot
+            : PzValueSnapshot.Parse(current.CanonicalSnapshot);
+
+        // Only the differing scalars become edits — a whole-file resend would blow the payload cap, and PZ owns
+        // the key set, so a structural add/remove is reported rather than applied (values-only writer, ADR 0010).
+        PzRestorePlan plan = PzRestore.PlanTo(targetSnapshot, currentSnapshot);
+        if (plan.Edits.Count == 0)
+        {
+            string reason = plan.Obstacles.Count > 0
+                ? "That revision differs from the current configuration only by keys that cannot be restored surgically."
+                : "That revision already matches the current configuration.";
+            return ServerConfigurationResult.Denied(ServerConfigurationFailure.InvalidInput, reason);
+        }
+
+        List<ConfigApplyEdit> edits = [.. plan.Edits.Select(e => new ConfigApplyEdit(e.Path, KindOf(e.Value), WireValueOf(e.Value)))];
+        return await EnqueueAsync(user, resolved, file, edits, ConfigurationAuditActions.Restored, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    // The shared enqueue half of apply and restore: capture the drift baseline, size-check the payload, enqueue a
+    // mutating server-scoped Operation, and audit. The caller has already resolved and authorized the Server.
+    private async Task<ServerConfigurationResult> EnqueueAsync(
+        UserId user,
+        Server resolved,
+        PzConfigFile file,
+        IReadOnlyList<ConfigApplyEdit> edits,
+        string auditAction,
+        CancellationToken cancellationToken)
+    {
         // The drift baseline: the last recorded revision's hash for this file, or null when none exists (the
         // Agent then treats it as the first write — no baseline to drift from, ADR 0011).
-        ConfigurationRevision? baseline = await _revisions.FindLatestAsync(server, file, cancellationToken).ConfigureAwait(false);
+        ConfigurationRevision? baseline = await _revisions.FindLatestAsync(resolved.Id, file, cancellationToken).ConfigureAwait(false);
         string payload = new ConfigApplyPayload(file, baseline?.SnapshotHash, edits).ToJson();
         if (payload.Length > Operation.MaxCommandPayloadLength)
         {
@@ -97,17 +168,17 @@ public sealed class ServerConfigurationEditor : IServerConfigurationEditor
 
         try
         {
-            // A mutating, server-scoped Operation on the Server's Agent (ADR 0022). Each apply is a fresh intent,
-            // so the idempotency key is fresh; the per-server lock refuses a second in-flight mutation.
+            // A mutating, server-scoped Operation on the Server's Agent (ADR 0022). Each request is a fresh
+            // intent, so the idempotency key is fresh; the per-server lock refuses a second in-flight mutation.
             Operation operation = await _operations.EnqueueAsync(
                 new EnqueueOperationRequest(
                     resolved.AgentId, OperationKind.ConfigApply, IsMutating: true, Guid.NewGuid().ToString("N"),
-                    ServerId: server, CommandPayload: payload),
+                    ServerId: resolved.Id, CommandPayload: payload),
                 user,
                 cancellationToken).ConfigureAwait(false);
 
             await _audit.WriteAsync(
-                new AuditEntry(ConfigurationAuditActions.Applied, AuditOutcome.Succeeded, user, server,
+                new AuditEntry(auditAction, AuditOutcome.Succeeded, user, resolved.Id,
                     $"{file}, {edits.Count} edit(s) — operation {operation.Id}"),
                 cancellationToken).ConfigureAwait(false);
 
@@ -117,9 +188,25 @@ public sealed class ServerConfigurationEditor : IServerConfigurationEditor
         {
             // The per-server lock (ADR 0022) refused: another mutating Operation is already in flight.
             await _audit.WriteAsync(
-                new AuditEntry(ConfigurationAuditActions.Applied, AuditOutcome.Failed, user, server, "server busy"),
+                new AuditEntry(auditAction, AuditOutcome.Failed, user, resolved.Id, "server busy"),
                 cancellationToken).ConfigureAwait(false);
             return ServerConfigurationResult.Denied(ServerConfigurationFailure.ServerBusy);
         }
     }
+
+    private static ConfigEditKind KindOf(PzValue value) => value switch
+    {
+        PzBoolean => ConfigEditKind.Bool,
+        PzNumber => ConfigEditKind.Number,
+        PzString => ConfigEditKind.Text,
+        _ => throw new ArgumentException($"A {value.GetType().Name} is not a scalar edit value.", nameof(value)),
+    };
+
+    private static string WireValueOf(PzValue value) => value switch
+    {
+        PzBoolean b => b.Value ? "true" : "false",
+        PzNumber n => n.Lexeme,
+        PzString s => s.Value,
+        _ => throw new ArgumentException($"A {value.GetType().Name} is not a scalar edit value.", nameof(value)),
+    };
 }

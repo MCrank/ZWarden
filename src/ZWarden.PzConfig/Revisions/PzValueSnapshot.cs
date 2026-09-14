@@ -47,8 +47,52 @@ public sealed class PzValueSnapshot
     public static PzValueSnapshot Of(PzTable root)
     {
         ArgumentNullException.ThrowIfNull(root);
+        return FromScalars(Flatten(root));
+    }
 
-        List<PzScalarEntry> scalars = Flatten(root);
+    /// <summary>
+    /// Reconstructs a snapshot from the <see cref="CanonicalText"/> a <c>ConfigurationRevision</c> persisted
+    /// (F20b PR-4). The control plane holds no live file to re-parse, so the history diff and a value-level
+    /// restore read the stored snapshot back through here — the inverse of the private <see cref="Encode"/>.
+    /// The result canonicalizes and hashes identically to the <see cref="Of(PzTable)"/> that produced the
+    /// text, so a round-trip preserves <see cref="Hash"/>. Throws <see cref="FormatException"/> on text this
+    /// library did not write.
+    /// </summary>
+    public static PzValueSnapshot Parse(string canonicalText)
+    {
+        ArgumentNullException.ThrowIfNull(canonicalText);
+
+        string[][]? pairs;
+        try
+        {
+            pairs = JsonSerializer.Deserialize<string[][]>(canonicalText);
+        }
+        catch (JsonException ex)
+        {
+            throw new FormatException("The canonical snapshot text is not valid snapshot JSON.", ex);
+        }
+
+        if (pairs is null)
+        {
+            throw new FormatException("The canonical snapshot text deserialized to null.");
+        }
+
+        var scalars = new List<PzScalarEntry>(pairs.Length);
+        foreach (string[] pair in pairs)
+        {
+            if (pair is not [string path, string encoded])
+            {
+                throw new FormatException("A canonical snapshot entry is not a [path, value] pair.");
+            }
+
+            scalars.Add(new PzScalarEntry(path, Decode(encoded)));
+        }
+
+        return FromScalars(scalars);
+    }
+
+    private static PzValueSnapshot FromScalars(List<PzScalarEntry> scalars)
+    {
         scalars.Sort(static (x, y) => string.CompareOrdinal(x.Path, y.Path));
 
         // A JSON array of [path, encoded-value] pairs: STJ escapes both, so a value containing a
@@ -106,6 +150,43 @@ public sealed class PzValueSnapshot
         PzString s => $"s:{s.Value}",
         _ => throw new ArgumentException($"A {value.GetType().Name} is not a scalar leaf.", nameof(value)),
     };
+
+    // The inverse of Encode. A number's original lexeme is not stored (the snapshot is value-level, ADR 0011),
+    // so it is synthesized from the value and its integer-ness to the shape PZ writes: an integer has no
+    // decimal point (6), a float always carries one (1.0) — the same signal the Agent reads back on the wire.
+    private static PzValue Decode(string encoded)
+    {
+        if (encoded is "b:true")
+        {
+            return new PzBoolean(true);
+        }
+
+        if (encoded is "b:false")
+        {
+            return new PzBoolean(false);
+        }
+
+        if (encoded.StartsWith("s:", StringComparison.Ordinal))
+        {
+            return new PzString(encoded[2..]);
+        }
+
+        if (encoded.StartsWith("n:", StringComparison.Ordinal))
+        {
+            string[] parts = encoded.Split(':');
+            if (parts.Length == 3
+                && double.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out double number)
+                && parts[2] is "i" or "f")
+            {
+                bool isInteger = parts[2] is "i";
+                string canonical = number.ToString("R", CultureInfo.InvariantCulture);
+                string lexeme = isInteger || canonical.IndexOfAny(['.', 'e', 'E']) >= 0 ? canonical : canonical + ".0";
+                return new PzNumber(number, lexeme, isInteger);
+            }
+        }
+
+        throw new FormatException($"'{encoded}' is not a recognized canonical scalar encoding.");
+    }
 
     private readonly record struct Frame(string Prefix, PzTable Table);
 }

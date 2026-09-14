@@ -11,6 +11,7 @@ using ZWarden.Infrastructure.Configuration;
 using ZWarden.Infrastructure.Persistence;
 using ZWarden.Infrastructure.Servers;
 using ZWarden.Infrastructure.Tests.Agents;
+using ZWarden.PzConfig.Revisions;
 using ZWarden.TestSupport;
 
 namespace ZWarden.Infrastructure.Tests.Configuration;
@@ -203,6 +204,143 @@ public class ServerConfigurationEditorTests
             await Assert.That(result.Failure).IsEqualTo(ServerConfigurationFailure.InvalidInput);
             await Assert.That(coordinator.LastRequest).IsNull();
         });
+    }
+
+    [Test]
+    public async Task Restore_enqueues_the_edits_that_move_current_to_the_target_revision()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            AgentId agent = AgentId.New();
+            ServerId serverId = await SeedServerAsync(options, agent);
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ServerConfigurationEdit);
+            // An older revision (Zombies = 4) is the restore target; the current state is Zombies = 1.
+            ConfigurationRevisionId target = await SeedSnapshotRevisionAsync(
+                options, serverId, PzConfigFile.SandboxVars, "[[\"Zombies\",\"n:4:i\"]]", Now);
+            await SeedSnapshotRevisionAsync(
+                options, serverId, PzConfigFile.SandboxVars, "[[\"Zombies\",\"n:1:i\"]]", Now.AddMinutes(5));
+            string currentHash = PzValueSnapshot.Parse("[[\"Zombies\",\"n:1:i\"]]").Hash;
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            RecordingCoordinator coordinator = new();
+            CapturingAuditWriter audit = new();
+            ServerConfigurationEditor sut = Editor(db, coordinator, audit);
+
+            ServerConfigurationResult result = await sut.RestoreAsync(user, serverId, target);
+
+            await Assert.That(result.Succeeded).IsTrue();
+            await Assert.That(coordinator.LastRequest!.Kind).IsEqualTo(OperationKind.ConfigApply);
+            await Assert.That(coordinator.LastRequest!.IsMutating).IsTrue();
+            ConfigApplyPayload payload = ConfigApplyPayload.FromJson(coordinator.LastRequest!.CommandPayload!);
+            await Assert.That(payload.File).IsEqualTo(PzConfigFile.SandboxVars);
+            await Assert.That(payload.BaselineHash).IsEqualTo(currentHash);
+            await Assert.That(payload.Edits.Count).IsEqualTo(1);
+            await Assert.That(payload.Edits[0].Path).IsEqualTo("Zombies");
+            await Assert.That(payload.Edits[0].Kind).IsEqualTo(ConfigEditKind.Number);
+            await Assert.That(payload.Edits[0].Value).IsEqualTo("4");
+            await Assert.That(audit.Actions).Contains(ConfigurationAuditActions.Restored);
+        });
+    }
+
+    [Test]
+    public async Task Restore_denies_when_the_revision_already_matches_the_current_state()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            ServerId serverId = await SeedServerAsync(options, AgentId.New());
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ServerConfigurationEdit);
+            // The only revision is also the current state: restoring it is a no-op.
+            ConfigurationRevisionId only = await SeedSnapshotRevisionAsync(
+                options, serverId, PzConfigFile.SandboxVars, "[[\"Zombies\",\"n:4:i\"]]", Now);
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            RecordingCoordinator coordinator = new();
+            ServerConfigurationEditor sut = Editor(db, coordinator, new CapturingAuditWriter());
+
+            ServerConfigurationResult result = await sut.RestoreAsync(user, serverId, only);
+
+            await Assert.That(result.Failure).IsEqualTo(ServerConfigurationFailure.InvalidInput);
+            await Assert.That(coordinator.LastRequest).IsNull();
+        });
+    }
+
+    [Test]
+    public async Task Restore_reports_server_not_found_for_a_revision_of_another_server()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            ServerId serverId = await SeedServerAsync(options, AgentId.New());
+            ServerId other = await SeedServerAsync(options, AgentId.New());
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ServerConfigurationEdit);
+            ConfigurationRevisionId foreign = await SeedSnapshotRevisionAsync(
+                options, other, PzConfigFile.SandboxVars, "[[\"Zombies\",\"n:4:i\"]]", Now);
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            RecordingCoordinator coordinator = new();
+            ServerConfigurationEditor sut = Editor(db, coordinator, new CapturingAuditWriter());
+
+            ServerConfigurationResult result = await sut.RestoreAsync(user, serverId, foreign);
+
+            await Assert.That(result.Failure).IsEqualTo(ServerConfigurationFailure.ServerNotFound);
+            await Assert.That(coordinator.LastRequest).IsNull();
+        });
+    }
+
+    [Test]
+    public async Task Restore_denies_without_the_server_scoped_config_edit_permission()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            ServerId serverId = await SeedServerAsync(options, AgentId.New());
+            ConfigurationRevisionId target = await SeedSnapshotRevisionAsync(
+                options, serverId, PzConfigFile.SandboxVars, "[[\"Zombies\",\"n:4:i\"]]", Now);
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            RecordingCoordinator coordinator = new();
+            ServerConfigurationEditor sut = Editor(db, coordinator, new CapturingAuditWriter());
+
+            ServerConfigurationResult result = await sut.RestoreAsync(user, serverId, target);
+
+            await Assert.That(result.Failure).IsEqualTo(ServerConfigurationFailure.NotAuthorized);
+            await Assert.That(coordinator.LastRequest).IsNull();
+        });
+    }
+
+    [Test]
+    public async Task Restore_reports_server_busy_when_the_per_server_lock_refuses()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            ServerId serverId = await SeedServerAsync(options, AgentId.New());
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ServerConfigurationEdit);
+            ConfigurationRevisionId target = await SeedSnapshotRevisionAsync(
+                options, serverId, PzConfigFile.SandboxVars, "[[\"Zombies\",\"n:4:i\"]]", Now);
+            await SeedSnapshotRevisionAsync(
+                options, serverId, PzConfigFile.SandboxVars, "[[\"Zombies\",\"n:1:i\"]]", Now.AddMinutes(5));
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            ServerConfigurationEditor sut = Editor(db, new RecordingCoordinator { ThrowBusy = true }, new CapturingAuditWriter());
+
+            ServerConfigurationResult result = await sut.RestoreAsync(user, serverId, target);
+
+            await Assert.That(result.Failure).IsEqualTo(ServerConfigurationFailure.ServerBusy);
+        });
+    }
+
+    private static async Task<ConfigurationRevisionId> SeedSnapshotRevisionAsync(
+        DbContextOptions options, ServerId server, PzConfigFile file, string canonicalText, DateTimeOffset at)
+    {
+        await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+        PzValueSnapshot snapshot = PzValueSnapshot.Parse(canonicalText);
+        ConfigurationRevision revision = ConfigurationRevision.Record(server, file, snapshot.CanonicalText, snapshot.Hash, at);
+        new ConfigurationRevisionRepository(db).Add(revision);
+        await db.SaveChangesAsync();
+        return revision.Id;
     }
 
     private static ServerConfigurationEditor Editor(

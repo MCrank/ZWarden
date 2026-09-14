@@ -99,6 +99,11 @@
           "AngleSharp.Css": "1.0.1"
         }
       },
+      "Loretta.CodeAnalysis.Common": {
+        "type": "Transitive",
+        "resolved": "0.2.13",
+        "contentHash": "fXlVjbh29oC/0nDHSRaQzmKMI48Yg9hecMMTap7zNUo7wLTVvBcLFLJhxvsf3+Nj2yG8nSK+KrYxsrp1uosVzQ=="
+      },
       "Markdig": {
         "type": "Transitive",
         "resolved": "0.37.0",
@@ -207,6 +212,11 @@
           "Planetarium.LruCacheNet": "1.2.0"
         }
       },
+      "Tsu": {
+        "type": "Transitive",
+        "resolved": "2.2.2",
+        "contentHash": "l6svA84RD5MYyZgLFOI0Tj1ssEkcNUi0Q13wfH7VBJxd17o+YL1sgdLEyu3kkBBjvJIgOgszZUPR0vCrZOgBKg=="
+      },
       "zwarden.application": {
         "type": "Project",
         "dependencies": {
@@ -235,7 +245,8 @@
           "Microsoft.EntityFrameworkCore": "[10.0.12, )",
           "Microsoft.EntityFrameworkCore.Sqlite": "[10.0.12, )",
           "Npgsql.EntityFrameworkCore.PostgreSQL": "[10.0.3, )",
-          "ZWarden.Application": "[1.0.0, )"
+          "ZWarden.Application": "[1.0.0, )",
+          "ZWarden.PzConfig": "[1.0.0, )"
         }
       },
       "zwarden.migrations.postgres": {
@@ -250,11 +261,28 @@
           "ZWarden.Infrastructure": "[1.0.0, )"
         }
       },
+      "zwarden.pzconfig": {
+        "type": "Project",
+        "dependencies": {
+          "Loretta.CodeAnalysis.Lua": "[0.2.13, )",
+          "ZWarden.Domain": "[1.0.0, )"
+        }
+      },
       "BlazorBlueprint.Primitives": {
         "type": "CentralTransitive",
         "requested": "[3.16.0, )",
         "resolved": "3.16.0",
         "contentHash": "FQXgRNRTyqYp25MTm/Z3rSP6/vUOWiHIm6D4/fcY4Ksm58IqI1gyxf/o7bMrSJDngF1bUq8TDon8BbEX/kNerw=="
+      },
+      "Loretta.CodeAnalysis.Lua": {
+        "type": "CentralTransitive",
+        "requested": "[0.2.13, )",
+        "resolved": "0.2.13",
+        "contentHash": "lTidKc2iJApe3g1FvYlSacdsBCi3xkhqNRHxPgeuY9L4rc6jsEt1ELUuCaWWfxIiMVAAHsgORUzX2sWRYcxrCg==",
+        "dependencies": {
+          "Loretta.CodeAnalysis.Common": "0.2.13",
+          "Tsu": "2.2.2"
+        }
       },
       "Microsoft.AspNetCore.Identity.EntityFrameworkCore": {
         "type": "CentralTransitive",

@@ -727,7 +727,8 @@
           "Microsoft.EntityFrameworkCore": "[10.0.12, )",
           "Microsoft.EntityFrameworkCore.Sqlite": "[10.0.12, )",
           "Npgsql.EntityFrameworkCore.PostgreSQL": "[10.0.3, )",
-          "ZWarden.Application": "[1.0.0, )"
+          "ZWarden.Application": "[1.0.0, )",
+          "ZWarden.PzConfig": "[1.0.0, )"
         }
       },
       "zwarden.migrations.postgres": {

@@ -9,4 +9,8 @@ public static class ConfigurationAuditActions
 {
     /// <summary>An operator requested a configuration apply (a mutating config Operation was enqueued — F20b).</summary>
     public const string Applied = "Server.ConfigurationApplied";
+
+    /// <summary>An operator requested a restore of a prior configuration revision (F20b PR-4). The value edits
+    /// that move the current state to the target revision were enqueued as a mutating config Operation.</summary>
+    public const string Restored = "Server.ConfigurationRestored";
 }
