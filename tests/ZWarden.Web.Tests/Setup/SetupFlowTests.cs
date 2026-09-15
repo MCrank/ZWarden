@@ -72,6 +72,19 @@ public sealed class SetupFlowTests
     }
 
     [Test]
+    public async Task The_container_liveness_endpoint_is_ungated_and_returns_ok_before_setup()
+    {
+        // F34 (D-5): the Compose stack's container healthcheck hits /healthz. It must return 200 even on a
+        // brand-new, un-set-up install, or the Web container never becomes healthy and the stack never starts.
+        await using ZWardenWebAppFactory factory = new() { CompleteSetupOnStart = false };
+        using HttpClient client = factory.CreateWebClient();
+
+        HttpResponseMessage response = await client.GetAsync(new Uri("/healthz", UriKind.Relative));
+
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
+    }
+
+    [Test]
     public async Task The_first_run_flow_creates_an_admin_signs_in_and_completes_setup()
     {
         await using ZWardenWebAppFactory factory = new() { CompleteSetupOnStart = false };

@@ -1,0 +1,19 @@
+# Keep the Docker build context lean and correct (F34). Host build outputs must never enter the image —
+# a Windows-host bin/obj would poison the Linux build — and VCS/tooling/test noise only slows the send.
+**/bin/
+**/obj/
+**/.vs/
+**/.vscode/
+**/.idea/
+.git/
+.github/
+**/node_modules/
+**/*.user
+artifacts/
+TestResults/
+**/TestResults/
+**/*.trx
+# The generated dev database and any local env/secret files must never be baked into an image.
+**/*.db
+**/*.db-*
+deploy/compose/.env

@@ -1,0 +1,5 @@
+# The real deployment environment holds secrets (the AES key ring, the enrollment secret) — never commit it.
+# The template (.env.example) IS committed; the generated .env is not.
+.env
+.env.*
+!.env.example
