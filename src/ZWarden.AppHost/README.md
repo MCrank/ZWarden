@@ -18,17 +18,36 @@ boot wired into CI's Docker tier.
 
 ## Run it
 
+**One-time machine setup — trust the dev HTTPS cert:**
+
 ```sh
-aspire run            # from the repo root, or:
+dotnet dev-certs https --trust    # click "Yes" on the Windows prompt
+```
+
+The dashboard talks to the AppHost's resource service over TLS. Without a *trusted* dev cert that gRPC
+connection fails with `UntrustedRoot`, and the symptom is confusing: **the dashboard won't load and
+every resource shows unhealthy in `aspire describe`, even though Postgres and Web are actually running
+fine.** `aspire run` tries to do this trust step for you ("Trusting certificates…"); `aspire start`
+(headless) does not, so trust it once by hand.
+
+**Then boot the graph:**
+
+```sh
+aspire run            # from the repo root — interactive; prints the dashboard URL + login token
+# or:
 dotnet run --project src/ZWarden.AppHost
 ```
 
-Either works — `AspireUseCliBundle=false` means DCP and the dashboard restore from NuGet, so a build
-machine without the `aspire` CLI still builds and runs deterministically from the committed lockfile.
-The console prints the dashboard URL (with a one-time login token); the Web endpoint is listed there.
+- `aspire run` is the inner-loop command: it launches the graph **and** the dashboard and prints the
+  dashboard URL (with a one-time login token) plus the Web endpoint.
+- `aspire start` runs the AppHost **headless in the background** — it does **not** open a dashboard.
+  With one running, `aspire describe` lists the resources and `aspire dashboard` manages the dashboard.
+- `AspireUseCliBundle=false` means DCP + the dashboard restore from NuGet, so a machine without the
+  `aspire` CLI can still `dotnet run` / build the AppHost (see the lockfile note in the `.csproj`).
 
-**Requirements:** a running Docker daemon (for the Postgres container) and the .NET 10 SDK. The dev
-database persists in an Aspire data volume across runs, so migrations only run once.
+**Requirements:** a running Docker daemon (for the Postgres container), the .NET 10 SDK, and the
+trusted dev cert above. The dev database persists in an Aspire data volume across runs, so migrations
+only run once.
 
 ## Dev-only conveniences (never production paths)
 
