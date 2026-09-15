@@ -128,7 +128,7 @@ jobs:
           # floor - proving the reflection switch is load-bearing. A floor below the source-gen
           # -discoverable count (the .cs tests) would pass even with the drop and defeat the guard.
           set +e
-          "$exe" --minimum-expected-tests 200 > guarded.log 2>&1
+          "$exe" --minimum-expected-tests 202 > guarded.log 2>&1
           guarded=$?
           set -e
           cat guarded.log
@@ -169,6 +169,42 @@ jobs:
             exit 1
           fi
           echo "app.css is up to date."
+
+  # ---------------------------------------------------------------------------
+  # The reference Caddy ingress config (F32, ADR 0035). Always-on gate so a
+  # malformed or unformatted Caddyfile fails on the PR - the behavioural proof
+  # (308 redirect + WebSocket upgrade) is the networked CaddyReferenceDeployment
+  # test, which only runs on schedule/dispatch. Uses the pinned caddy image.
+  # ---------------------------------------------------------------------------
+  caddy-config:
+    name: tier1-caddy-config
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Validate and format-check the reference Caddy ingress config
+        env:
+          # A placeholder host so {$ZWARDEN_DOMAIN} resolves during adaptation; this checks config shape only.
+          ZWARDEN_DOMAIN: zwarden.example.com
+        run: |
+          fail=0
+          for f in deploy/caddy/Caddyfile deploy/caddy/Caddyfile.internal; do
+            echo "== validate $f =="
+            docker run --rm -e ZWARDEN_DOMAIN \
+              -v "$PWD/$f:/etc/caddy/Caddyfile:ro" \
+              caddy:2.11.4 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+
+            echo "== fmt-check $f =="
+            if ! docker run --rm -v "$PWD/$f:/etc/caddy/Caddyfile:ro" \
+              caddy:2.11.4 caddy fmt /etc/caddy/Caddyfile | diff - "$f"; then
+              echo "::error file=$f::not canonically formatted - run 'caddy fmt --overwrite $f' and commit"
+              fail=1
+            fi
+          done
+          exit $fail
 
   # ---------------------------------------------------------------------------
   # End-to-end tier: assembly stub only in Feature 0. Playwright wiring is

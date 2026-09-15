@@ -1,0 +1,23 @@
+# ZWarden — reference reverse-proxy ingress, PRIVATE mode (F32, ADR 0035, PRD §46).
+#
+# Use this variant for an internal or air-gapped install that cannot obtain a public Let's Encrypt certificate:
+# `tls internal` makes Caddy issue the site's certificate from its own built-in CA. Clients (and the ZWarden
+# Agent) must trust that CA — export Caddy's root and install it in the host/container trust store, or point the
+# Agent at a trusted copy. See docs/deployment/https-reference.md for the trust-distribution steps.
+#
+# This is the only delta from the PUBLIC-mode deploy/caddy/Caddyfile: the reverse-proxy, HSTS, and WebSocket
+# behaviour are identical. ZWARDEN_DOMAIN here is the internal hostname clients use (e.g. zwarden.lan).
+
+{$ZWARDEN_DOMAIN} {
+	# Issue the certificate from Caddy's built-in CA instead of a public ACME CA (PRD §46 "Private").
+	tls internal
+
+	# HSTS is NOT emitted automatically by Caddy's automatic-HTTPS — it must be set explicitly (ADR 0035, D-5).
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+
+	# Forward everything to ZWarden.Web. Caddy v2 upgrades and tunnels WebSocket connections natively, so the
+	# SignalR agent hub (/agent/hub) and the log/console streams pass through with no special matcher or header
+	# plumbing. Caddy sets X-Forwarded-For/Proto/Host to the real client and, as the edge, ignores any inbound
+	# X-Forwarded-* (no `trusted_proxies` here by design); ZWarden.Web is what trusts Caddy — see the ADR.
+	reverse_proxy {$ZWARDEN_UPSTREAM:web:8080}
+}

@@ -11,8 +11,16 @@
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
     <LangVersion>14.0</LangVersion>
-    <TestingPlatformCommandLineArguments>--minimum-expected-tests 17</TestingPlatformCommandLineArguments>
+    <TestingPlatformCommandLineArguments>--minimum-expected-tests 19</TestingPlatformCommandLineArguments>
   </PropertyGroup>
+
+  <!--
+    The F32 Caddy reference-deployment test stands up a stub upstream in-process (Kestrel) behind the real
+    caddy:2.11.4 container, so it needs the ASP.NET shared framework. No production project here depends on it.
+  -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="TUnit" />
