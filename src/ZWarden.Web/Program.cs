@@ -12,6 +12,7 @@ using ZWarden.Infrastructure.Persistence;
 using ZWarden.Infrastructure.Players;
 using ZWarden.Infrastructure.Security;
 using ZWarden.Infrastructure.Servers;
+using ZWarden.Infrastructure.Setup;
 using ZWarden.Infrastructure.Tenancy;
 using ZWarden.Web.Agents;
 using ZWarden.Web.Observability;
@@ -57,6 +58,7 @@ builder.Services.AddTenantFoundation();
 builder.Services.AddZWardenPersistence(provider, connectionString);
 builder.Services.AddZWardenAuthentication(allowedHosts);
 builder.Services.AddZWardenAuthorization();        // F5: decision service, policy provider, handlers
+builder.Services.AddZWardenSetup();                 // F33: first-run setup state (InstallState singleton) + gate signal
 builder.Services.AddZWardenAudit();                 // F6: writer, query, correlation, durable auth sink
 builder.Services.AddZWardenEnrollment();            // F9: enrollment issuance/exchange, trust management, verifier
 builder.Services.AddZWardenOperations();            // F11: operations engine — coordinator, store, per-server lock (PR-B adds dispatch)
@@ -86,6 +88,13 @@ if (!app.Environment.IsDevelopment())
 
 app.UseHostFiltering();       // host-header validation at the browser boundary (ADR 0006)
 app.UseHttpsRedirection();
+
+// F33: until first-run setup is complete, redirect browser navigations to the /setup wizard. Runs BEFORE
+// authentication/authorization so an un-set-up install routes even [Authorize] pages to /setup rather than
+// /login; framework assets, the SignalR circuit, the Agent hub, and the wizard's own pages pass through so
+// setup can proceed. Once complete the gate short-circuits on a process-wide signal at zero cost (ADR 0036).
+app.UseSetupGate();
+
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseAntiforgery();
@@ -117,11 +126,18 @@ app.MapAgentHub();
 // serving traffic. The security foundation loads its key ring here and fails closed if it is absent.
 await app.Services.MigrateAndBootstrapDefaultTenantAsync();
 
+// F33: seed the empty install-state singleton so the first-run gate always has a row to read (ADR 0036).
+await SetupBootstrapper.EnsureInstallStateAsync(app.Services);
+
 string? adminEmail = builder.Configuration["ZWarden:Admin:Email"];
 string? adminPassword = builder.Configuration["ZWarden:Admin:Password"];
 if (!string.IsNullOrWhiteSpace(adminEmail) && !string.IsNullOrWhiteSpace(adminPassword))
 {
     await AdminBootstrapper.EnsureAdminAsync(app.Services, adminEmail, adminPassword);
+
+    // A headless deploy that seeds its administrator from configuration is already set up — mark setup
+    // complete so it never lands on the first-run wizard (F33 D-1).
+    await SetupBootstrapper.MarkSetupCompleteAsync(app.Services);
 }
 
 // F5: seed the tenant's built-in roles and grant the first administrator the Tenant Owner role. Runs

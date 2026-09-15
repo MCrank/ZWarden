@@ -942,6 +942,10 @@ html {
   height: 1rem;
 }
 
+.h-5 {
+  height: 1.25rem;
+}
+
 .h-9 {
   height: 2.25rem;
 }
@@ -964,6 +968,10 @@ html {
 
 .w-4 {
   width: 1rem;
+}
+
+.w-5 {
+  width: 1.25rem;
 }
 
 .w-9 {
@@ -996,6 +1004,10 @@ html {
 
 .max-w-sm {
   max-width: 24rem;
+}
+
+.max-w-xl {
+  max-width: 36rem;
 }
 
 .flex-1 {
@@ -1174,6 +1186,10 @@ html {
   border-color: var(--border);
 }
 
+.border-primary {
+  border-color: var(--primary);
+}
+
 .border-status-busy {
   border-color: var(--status-busy);
 }
@@ -1236,6 +1252,10 @@ html {
 
 .bg-meter-watch {
   background-color: var(--meter-watch);
+}
+
+.bg-muted {
+  background-color: var(--muted);
 }
 
 .bg-primary {
@@ -1303,6 +1323,11 @@ html {
   padding-bottom: 0.125rem;
 }
 
+.py-1\.5 {
+  padding-top: 0.375rem;
+  padding-bottom: 0.375rem;
+}
+
 .py-10 {
   padding-top: 2.5rem;
   padding-bottom: 2.5rem;
@@ -1353,6 +1378,10 @@ html {
 .text-2xl {
   font-size: 1.5rem;
   line-height: 2rem;
+}
+
+.text-\[0\.7rem\] {
+  font-size: 0.7rem;
 }
 
 .text-lg {

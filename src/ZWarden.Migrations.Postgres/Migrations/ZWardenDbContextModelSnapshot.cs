@@ -620,6 +620,27 @@ namespace ZWarden.Migrations.Postgres.Migrations
                     b.ToTable("Servers", (string)null);
                 });
 
+            modelBuilder.Entity("ZWarden.Domain.Setup.InstallState", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("SetupCompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("TlsMode")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<Guid>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("InstallState", (string)null);
+                });
+
             modelBuilder.Entity("ZWarden.Domain.Tenancy.Tenant", b =>
                 {
                     b.Property<Guid>("Id")

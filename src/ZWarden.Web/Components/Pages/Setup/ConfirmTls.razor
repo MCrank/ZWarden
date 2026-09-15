@@ -1,0 +1,109 @@
+@page "/setup/tls"
+@layout SetupLayout
+@attribute [Authorize]
+@using ZWarden.Application.Setup
+@using ZWarden.Domain.Setup
+@inject ISetupState SetupState
+@inject UserManager<ApplicationUser> UserManager
+@inject NavigationManager Nav
+
+@* Step 2 of first-run setup (F33): the signed-in administrator declares the TLS deployment mode. ZWarden
+   records the mode (for the product and the F34 distribution) and marks setup complete — it does NOT
+   terminate TLS or configure Caddy (that is F32/F34; ADR 0035/0036). Static-rendered, gated to an
+   authenticated caller. Reachability is surfaced as a warning, never a block. *@
+
+<PageTitle>Set up ZWarden · TLS mode</PageTitle>
+
+<SetupStepIndicator Current="2" />
+
+<h1 class="text-lg font-semibold text-foreground">Confirm your TLS mode</h1>
+<p class="mt-1 text-sm text-muted-foreground">
+    How is HTTPS terminated in front of this control plane? ZWarden records your choice; the reference Caddy
+    ingress does the actual TLS work.
+</p>
+
+@if (_httpWarning)
+{
+    <div class="mt-4" data-tls-warning>
+        <BbAlert Variant="AlertVariant.Warning" AccentBorder>
+            <BbAlertDescription>
+                You are viewing this over plain HTTP. <strong>Public</strong> and <strong>Private</strong>
+                modes expect HTTPS at the edge (via the reference reverse proxy). You can still finish setup.
+            </BbAlertDescription>
+        </BbAlert>
+    </div>
+}
+
+<EditForm class="mt-5 space-y-4" Model="Input" method="post" OnValidSubmit="ConfirmAsync" FormName="setup-tls">
+    <DataAnnotationsValidator />
+
+    @if (!string.IsNullOrEmpty(_error))
+    {
+        <StatusAlert Message="@_error" Kind="StatusAlert.AlertKind.Error" />
+    }
+
+    <div class="space-y-1">
+        <BbLabel For="tls-mode" Class="block text-xs font-medium uppercase tracking-[0.1em] text-muted-foreground">TLS mode</BbLabel>
+        @* Explicit Name for static-SSR binding on BbNativeSelect (issue #84). *@
+        <BbNativeSelect TValue="string" Id="tls-mode" Name="Input.Mode" @bind-Value="Input.Mode" Class="w-full">
+            <option value="@nameof(TlsMode.Public)">Public — automatic HTTPS via Let's Encrypt</option>
+            <option value="@nameof(TlsMode.Private)">Private — internal CA (air-gapped / LAN)</option>
+            <option value="@nameof(TlsMode.ExistingReverseProxy)">Existing reverse proxy — I terminate TLS upstream</option>
+        </BbNativeSelect>
+        <ValidationMessage For="() => Input.Mode" class="text-xs text-destructive" />
+    </div>
+
+    <BbButton Type="ButtonType.Submit" Class="w-full">Finish setup</BbButton>
+</EditForm>
+
+@code {
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    [SupplyParameterFromForm]
+    private InputModel Input { get; set; } = default!;
+
+    private string? _error;
+    private bool _httpWarning;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Input ??= new() { Mode = nameof(TlsMode.Public) };
+
+        if (await SetupState.IsSetupCompleteAsync())
+        {
+            Nav.NavigateTo("/");
+            return;
+        }
+
+        // Never complete setup with no administrator (that would lock everyone out). Send them to step 1.
+        if (!UserManager.Users.Any())
+        {
+            Nav.NavigateTo("/setup");
+            return;
+        }
+
+        _httpWarning = !HttpContext.Request.IsHttps;
+    }
+
+    private async Task ConfirmAsync()
+    {
+        if (!Enum.TryParse(Input.Mode, out TlsMode mode))
+        {
+            _error = "Choose a TLS mode.";
+            return;
+        }
+
+        await SetupState.RecordTlsModeAsync(mode);
+        await SetupState.MarkSetupCompleteAsync();
+
+        // Setup is done: the gate lifts and the operator lands on the dashboard.
+        Nav.NavigateTo("/");
+    }
+
+    private sealed class InputModel
+    {
+        [Required]
+        public string Mode { get; set; } = string.Empty;
+    }
+}

@@ -2,6 +2,8 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using ZWarden.Application.Setup;
 using ZWarden.Infrastructure.Identity;
 
 namespace ZWarden.Web.Tests.Account;
@@ -22,6 +24,14 @@ public sealed class ZWardenWebAppFactory : WebApplicationFactory<Program>
 {
     private readonly string _databasePath = Path.Combine(Path.GetTempPath(), $"zw-web-{Guid.NewGuid():N}.db");
 
+    /// <summary>
+    /// Whether to mark first-run setup complete as the host starts (F33). Defaults to <see langword="true"/>
+    /// so the vast majority of Web tests boot straight past the first-run gate, exactly as a configured
+    /// deployment would. First-run setup tests set this to <see langword="false"/> to exercise the gate and
+    /// the /setup wizard on a genuinely un-set-up install.
+    /// </summary>
+    public bool CompleteSetupOnStart { get; init; } = true;
+
     static ZWardenWebAppFactory()
     {
         // AddSecurityFoundation loads the key ring from the environment (ADR 0015) and fails closed
@@ -36,6 +46,23 @@ public sealed class ZWardenWebAppFactory : WebApplicationFactory<Program>
         builder.UseEnvironment("Development");
         // Pooling=False so the file handle is released for deletion at teardown.
         builder.UseSetting("ConnectionStrings:ZWarden", $"Data Source={_databasePath};Pooling=False");
+    }
+
+    protected override IHost CreateHost(IHostBuilder builder)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        IHost host = base.CreateHost(builder);
+
+        // The Program bootstrap (migrate + seed the InstallState row) has already run by here. Unless a test
+        // wants the first-run gate active, mark setup complete so requests are not redirected to /setup.
+        if (CompleteSetupOnStart)
+        {
+            using IServiceScope scope = host.Services.CreateScope();
+            ISetupState setup = scope.ServiceProvider.GetRequiredService<ISetupState>();
+            setup.MarkSetupCompleteAsync().GetAwaiter().GetResult();
+        }
+
+        return host;
     }
 
     /// <summary>A client that speaks https (so the Secure cookie is kept) and does not chase redirects
