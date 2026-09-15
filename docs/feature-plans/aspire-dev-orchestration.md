@@ -84,13 +84,13 @@ Grouped into three PRs; each slice is independently verifiable.
 6. Confirm telemetry: OTLP endpoint injected, dashboard shows correlated Web+Agent logs/traces (D-SVCDEFAULTS: no ServiceDefaults).
 7. `aspire agent init` (D-AGENTTOOLING): commit skills under the repo layout, reconcile with `docs/agents/`, CLAUDE.md pointer; update the `run`/`run-web` skills to `aspire run`; `CONTRIBUTING.md` dev-loop note.
 
-**PR-3 — Integration-test tier (branch `feat/aspire-testing`) — closes #123.**
-8. Risk-gate test first (D-RISK-TEST), then the end-to-end graph test, the D-ENROLL guard test, and the arch test.
-9. Wire the boot into CI's **Docker-requiring tier** (ADR 0002), gated so the offline tier skips it; confirm deterministic restore with the committed lockfiles.
+**PR-3 — Boundary guard (branch `feat/aspire-testing`) — closes #123.**
+8. The **arch test** (offline, every PR): no Aspire package in any production `src/` project — `ZWarden.AppHost` is the sole exception. Plus the D-ENROLL guard, already unit-tested in PR-2 (`DevEnrollmentBootstrapperTests`).
+9. **Revised in PR-3 (maintainer decision):** we do **not** ship a standing in-process integration-test tier. Aspire is dev/test-only, so a CI boot of the graph exercises no production code path; its value did not justify a Docker-tier test plus dev-cert handling. The dev loop is validated by running `aspire run`. The **D-RISK-TEST** feasibility gate (`DistributedApplicationTestingBuilder` under TUnit/MTP) was still **proven once, locally** — it boots the graph and asserts a healthy Web, so the xUnit fallback is confirmed unnecessary should a standing test ever be added (it would slot into the Docker tier, ADR 0002). See ADR 0031 decision 8.
 
 ## Diagnostics
 
-The Aspire **dashboard** is the primary dev diagnostic — per-resource logs, traces, metrics, health, and an interactive terminal, correlated across Web + Agent. The red→green risk gate (D-RISK-TEST) makes the TUnit/MTP compatibility question a visible pass/fail rather than a late surprise. CI surfaces the integration tier's logs on failure. The optional MCP server lets an agent inspect the running graph directly.
+The Aspire **dashboard** is the primary dev diagnostic — per-resource logs, traces, metrics, health, and an interactive terminal, correlated across Web + Agent. The D-RISK-TEST gate settled the TUnit/MTP compatibility question once (locally). The optional MCP server lets an agent inspect the running graph directly.
 
 ## Documentation
 
@@ -103,15 +103,15 @@ The Aspire **dashboard** is the primary dev diagnostic — per-resource logs, tr
 
 ## Acceptance criteria
 
-- `aspire run` boots Web + Postgres + Agent + wollomatic locally; the Agent self-enrolls and reaches `Connected`; the dashboard shows correlated Web+Agent telemetry.
-- An integration test boots the graph and asserts a running-Web response **green in CI's Docker tier** (or the documented xUnit fallback, if D-RISK-TEST forces it).
-- The dev enrollment credential is refused outside Development (test-proven).
-- No Aspire package is referenced by any production `src/` project (arch-test-proven); the wollomatic allowlist is unchanged.
-- Solution builds warnings-as-errors green; lockfiles committed; `run`/`run-web` skills, ADR 0031, and docs updated.
+- `aspire run` boots Web + Postgres + Agent + wollomatic locally; the Agent self-enrolls and reaches `Connected`; the dashboard shows correlated Web+Agent telemetry. (Verified by hand — PR-2.)
+- The dev enrollment credential is refused outside Development (unit-test-proven — PR-2).
+- No Aspire package is referenced by any production `src/` project (arch-test-proven, offline, every PR — PR-3); the wollomatic allowlist is unchanged.
+- Solution builds warnings-as-errors green; `run-web` skill points at `aspire run`, ADR 0031, and docs updated.
+- **Not shipped (maintainer decision, PR-3):** a standing in-process integration-test tier in CI — see ADR 0031 decision 8. D-RISK-TEST proven once locally.
 
 ## Definition of Done
 
-All three PRs merged; code, tests (TDD), the security guard, ADR 0031, skill/doc updates, and committed lockfiles complete; CI green including the new Docker-tier integration boot; #123 closed. No production runtime, protocol, or persistence change shipped.
+All three PRs merged; code, tests (TDD for the seams that carry production code: DevEnrollmentBootstrapper + the arch guard), ADR 0031, and skill/doc updates complete; CI green (offline tier, every PR); #123 closed. No production runtime, protocol, or persistence change shipped.
 
 ## Open confirmations to raise if they bite
 
