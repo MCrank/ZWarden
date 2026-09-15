@@ -164,6 +164,7 @@ yet.** Today they exist and PZ manages them; ZWarden has no config editor.
 | **RCON client + health probe** | F18 | ✅ built (private-network transport, Agent-owned credential; ADR 0026) |
 | **RCON console** | F28 | ✅ built — arbitrary RCON over F18 on the server-detail page, elevated `Console.Execute`, denylist + input safety, non-mutating audited Operations, untrusted bounded output, live output pane (ADR 0032) |
 | **Diagnostics engine** | F29 | ✅ built — read-only aggregating sweep over ten domains (DB/TLS/Web/Agent in-process; Docker/RCON/game-port/filesystem/SteamCMD/mods/config/compatibility gathered over two non-mutating Operations); tenant-wide `Diagnostics.View`; ownership-guarded transient cache; per-server card on server-detail; all detail untrusted/escaped; no remediation (ADR 0033) |
+| **Support package** | F30 | ✅ built — Web-side, transient: collect the F29 report → sanitize/redact/pseudonymize → **fail-closed secret scan** (a detection aborts generation, PRD 51) → ZIP (`manifest.json` + `diagnostics.json`, per-entry SHA-256) streamed as a download; tenant-wide `Diagnostics.Export`, audited; `DiagnosticId` correlation id; pure I/O-free pipeline core (ADR 0034) |
 | **Destroy / deprovision a server** | (future) | ⛔ not built |
 
 ---

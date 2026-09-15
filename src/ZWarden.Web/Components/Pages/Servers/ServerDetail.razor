@@ -181,10 +181,23 @@ else
                 </div>
             }
 
-            <EditForm Model="_diagnosticsForm" FormName="diagnostics-gather" OnValidSubmit="DiagnosticsGatherAsync" class="mt-4">
-                <BbButton Variant="ButtonVariant.Secondary" Type="ButtonType.Submit" Size="ButtonSize.Small"
-                          data-action="run-diagnostics">Run diagnostics</BbButton>
-            </EditForm>
+            <div class="mt-4 flex flex-wrap items-center gap-2">
+                <EditForm Model="_diagnosticsForm" FormName="diagnostics-gather" OnValidSubmit="DiagnosticsGatherAsync">
+                    <BbButton Variant="ButtonVariant.Secondary" Type="ButtonType.Submit" Size="ButtonSize.Small"
+                              data-action="run-diagnostics">Run diagnostics</BbButton>
+                </EditForm>
+
+                @if (_canExportDiagnostics)
+                {
+                    @* A native POST to the export endpoint so the browser downloads the returned ZIP; the endpoint
+                       authorizes Diagnostics.Export fail-closed and refuses (without emitting) if a secret is found. *@
+                    <form method="post" action="@($"/api/servers/{_server.Id}/diagnostics/support-package")"
+                          data-diagnostics-export>
+                        <BbButton Variant="ButtonVariant.Outline" Type="ButtonType.Submit" Size="ButtonSize.Small"
+                                  data-action="export-support-package">Export support package</BbButton>
+                    </form>
+                }
+            </div>
 
             <div class="mt-4">
                 <LiveServerDiagnosticsPanel @rendermode="InteractiveServer"
@@ -769,6 +782,7 @@ else
     private string? _consoleMessage;
     private AlertVariant _consoleAlert = AlertVariant.Warning;
     private bool _canViewDiagnostics;
+    private bool _canExportDiagnostics;
     private string? _diagnosticsMessage;
     private AlertVariant _diagnosticsAlert = AlertVariant.Info;
     private bool _canViewMods;
@@ -820,8 +834,9 @@ else
             await LoadPlayersAsync(user, serverId);
             _canViewLogs = (await PermissionChecker.EvaluateAsync(user, Permissions.ConsoleView, serverId)).IsAllowed;
             _canExecuteConsole = (await PermissionChecker.EvaluateAsync(user, Permissions.ConsoleExecute, serverId)).IsAllowed;
-            // Diagnostics.View is tenant-wide (not server-scoped), so it is evaluated without a Server.
+            // Diagnostics.View / .Export are tenant-wide (not server-scoped), so they evaluate without a Server.
             _canViewDiagnostics = (await PermissionChecker.EvaluateAsync(user, Permissions.DiagnosticsView)).IsAllowed;
+            _canExportDiagnostics = (await PermissionChecker.EvaluateAsync(user, Permissions.DiagnosticsExport)).IsAllowed;
             _canViewMods = (await PermissionChecker.EvaluateAsync(user, Permissions.ModView, serverId)).IsAllowed;
             await LoadModManagementAsync(user, serverId);
             if (_perm.CanConfigEdit)
