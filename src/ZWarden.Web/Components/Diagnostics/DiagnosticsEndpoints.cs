@@ -107,6 +107,34 @@ public static class DiagnosticsEndpoints
                 new { operationId = operation.Id.ToString(), state = operation.State.ToString() });
         });
 
+        // Read the per-server diagnostics report (F29): the Server's cached gather plus its owning Agent's host
+        // domains. Read-only; the report is transient. The Server is resolved through the tenant filter (foreign or
+        // unknown ⇒ 404).
+        api.MapGet("/servers/{id}/diagnostics", async (
+            string id,
+            ClaimsPrincipal principal,
+            UserManager<ApplicationUser> users,
+            ServerRepository servers,
+            IDiagnosticsService diagnostics,
+            CancellationToken cancellationToken) =>
+        {
+            if (!ServerId.TryParse(id, out ServerId serverId))
+            {
+                return Results.BadRequest();
+            }
+
+            var server = await servers.FindByIdAsync(serverId, cancellationToken).ConfigureAwait(false);
+            if (server is null)
+            {
+                return Results.NotFound();
+            }
+
+            DiagnosticsRunResult result = await diagnostics
+                .RunForServerAsync(Actor(principal, users), serverId, server.AgentId, cancellationToken).ConfigureAwait(false);
+
+            return result.Succeeded ? Results.Ok(Project(result.Report!)) : Results.Forbid();
+        });
+
         return endpoints;
     }
 

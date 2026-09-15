@@ -1,0 +1,159 @@
+@using ZWarden.Application.Diagnostics
+@using ZWarden.Domain.Ids
+@implements IDisposable
+@inject IDiagnosticsResultCache Diagnostics
+
+@* The live per-server diagnostics island (F29): an interactive island embedded in the static server-detail page,
+   mirroring LiveConsoleOutputPanel. The parent did the Diagnostics.View gate and knows the Server's owning Agent;
+   this child carries no tenant context — which a circuit lacks — and only reads the process-local,
+   ownership-guarded gather cache (server bundle keyed by ServerId + owning AgentId, host bundle keyed by the Agent)
+   once per second. Every check's detail is untrusted, bounded at the Agent, and rendered here as data
+   (trust-boundaries §8). Checks are shown worst-first so problems surface at the top. Ids arrive as strings so they
+   cross the static→interactive boundary cleanly. *@
+
+<div data-diagnostics-panel>
+    @if (_checks.Count == 0)
+    {
+        <p class="text-xs text-muted-foreground" data-diagnostics-empty>@EmptyText</p>
+    }
+    else
+    {
+        <p class="mb-2 text-xs text-muted-foreground" data-diagnostics-reported>Last gathered @Time(_reportedAt)</p>
+        <ul class="space-y-2">
+            @foreach (DiagnosticCheck check in _checks)
+            {
+                <li class="flex items-start gap-2" data-diagnostics-check data-domain="@check.Domain">
+                    <span class="mt-0.5 inline-flex w-[108px] shrink-0 items-center gap-1.5 rounded-sm border px-2 py-0.5 text-xs font-medium text-foreground @Border(check.Status)">
+                        <span class="inline-block h-2 w-2 rounded-full @Dot(check.Status)"></span>
+                        @check.Status.ToString().ToUpperInvariant()
+                    </span>
+                    <div class="text-sm">
+                        <div class="font-medium text-foreground">@Domain(check.Domain)</div>
+                        <div class="text-muted-foreground" data-diagnostics-summary>@check.Summary</div>
+                        @if (!string.IsNullOrEmpty(check.Detail))
+                        {
+                            <div class="mt-0.5 font-mono text-xs text-muted-foreground" data-diagnostics-detail>@check.Detail</div>
+                        }
+                    </div>
+                </li>
+            }
+        </ul>
+    }
+</div>
+
+@code {
+    /// <summary>The Server, as its canonical string id (crosses the static→interactive boundary as a string).</summary>
+    [Parameter]
+    [EditorRequired]
+    public string ServerId { get; set; } = string.Empty;
+
+    /// <summary>The Server's owning Agent, as its canonical string id (the cache ownership-guard key).</summary>
+    [Parameter]
+    [EditorRequired]
+    public string AgentId { get; set; } = string.Empty;
+
+    private ZWarden.Domain.Ids.ServerId _server;
+    private ZWarden.Domain.Ids.AgentId _agent;
+    private bool _parsed;
+    private readonly List<DiagnosticCheck> _checks = [];
+    private DateTimeOffset _reportedAt;
+    private PeriodicTimer? _timer;
+    private Task? _loop;
+
+    protected override void OnInitialized()
+    {
+        _parsed = ZWarden.Domain.Ids.ServerId.TryParse(ServerId, out _server)
+            & ZWarden.Domain.Ids.AgentId.TryParse(AgentId, out _agent);
+        Refresh();
+        _timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+        _loop = RunAsync();
+    }
+
+    private async Task RunAsync()
+    {
+        try
+        {
+            while (await _timer!.WaitForNextTickAsync().ConfigureAwait(false))
+            {
+                Refresh();
+                await InvokeAsync(StateHasChanged).ConfigureAwait(false);
+            }
+        }
+        catch (ObjectDisposedException)
+        {
+            // The panel was disposed while awaiting the next tick — expected on navigation away.
+        }
+    }
+
+    private void Refresh()
+    {
+        if (!_parsed)
+        {
+            return;
+        }
+
+        List<DiagnosticCheck> combined = [];
+        DateTimeOffset reported = default;
+        if (Diagnostics.GetServer(_server, _agent) is { } serverBundle)
+        {
+            combined.AddRange(serverBundle.Checks);
+            reported = serverBundle.ReportedAt;
+        }
+
+        if (Diagnostics.GetHost(_agent) is { } hostBundle)
+        {
+            combined.AddRange(hostBundle.Checks);
+            if (hostBundle.ReportedAt > reported)
+            {
+                reported = hostBundle.ReportedAt;
+            }
+        }
+
+        _checks.Clear();
+        // Worst-first so failures and warnings surface above passing/skipped checks.
+        _checks.AddRange(combined.OrderByDescending(c => Severity(c.Status)).ThenBy(c => c.Domain.ToString(), StringComparer.Ordinal));
+        _reportedAt = reported;
+    }
+
+    private static int Severity(DiagnosticStatus status) => status switch
+    {
+        DiagnosticStatus.Fail => 3,
+        DiagnosticStatus.Warn => 2,
+        DiagnosticStatus.Pass => 1,
+        _ => 0,
+    };
+
+    private string EmptyText => _parsed
+        ? "No diagnostics yet — run a gather to check this server."
+        : "Diagnostics are unavailable for this server.";
+
+    private static string Domain(DiagnosticDomain domain) => domain switch
+    {
+        DiagnosticDomain.GamePort => "Game port",
+        DiagnosticDomain.SteamCmd => "SteamCMD",
+        DiagnosticDomain.Rcon => "RCON",
+        _ => domain.ToString(),
+    };
+
+    // Reuse StatusBadge's status-* ramp (already emitted in app.css): pass→running, warn→busy, fail→unhealthy, skipped→stopped.
+    private static string Border(DiagnosticStatus status) => status switch
+    {
+        DiagnosticStatus.Pass => "border-status-running",
+        DiagnosticStatus.Warn => "border-status-busy",
+        DiagnosticStatus.Fail => "border-status-unhealthy",
+        _ => "border-status-stopped",
+    };
+
+    private static string Dot(DiagnosticStatus status) => status switch
+    {
+        DiagnosticStatus.Pass => "bg-status-running",
+        DiagnosticStatus.Warn => "bg-status-busy",
+        DiagnosticStatus.Fail => "bg-status-unhealthy",
+        _ => "bg-status-stopped",
+    };
+
+    private static string Time(DateTimeOffset at) =>
+        at.UtcDateTime.ToString("HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture) + " UTC";
+
+    public void Dispose() => _timer?.Dispose();
+}
