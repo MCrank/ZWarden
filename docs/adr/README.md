@@ -48,5 +48,6 @@ instead. New ADRs take the next number and follow [`TEMPLATE.md`](./TEMPLATE.md)
 | [0031](./0031-aspire-is-dev-test-orchestration-only.md) | Aspire is dev/test orchestration only and does not govern production | #123 |
 | [0032](./0032-remote-console-runs-policy-gated-rcon-under-an-elevated-permission.md) | The remote console runs arbitrary RCON under an elevated permission, governed by a denylist and audited | #48 |
 | [0033](./0033-diagnostics-is-an-aggregating-read-only-transient-sweep-over-ten-domains.md) | Diagnostics is an aggregating, read-only, transient sweep over ten domains producing one untrusted report | #49 |
+| [0034](./0034-the-sanitized-support-package-is-a-transient-fail-closed-pipeline.md) | The sanitized support package is a transient, fail-closed collect→sanitize→redact→scan→validate→package pipeline | #50 |
 
 When you add an ADR, add its row here in the same commit.
