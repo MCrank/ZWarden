@@ -3,8 +3,10 @@ namespace ZWarden.ArchitectureTests;
 /// <summary>
 /// The reference-direction assertions from docs/trust-boundaries.md §9, each written
 /// so it fails the build when the boundary is crossed. These are the rules an empty
-/// skeleton already satisfies; §9 rules 3, 4 and 7 (free-form command contracts, the
-/// tenant filter, the RCON-password type) arrive with the features that add the types.
+/// skeleton already satisfies. The type-level rules landed with the features that added
+/// the types: rule 3 (no free-form command contract) in <see cref="ClosedCommandVocabularyTests"/>
+/// at the F40 gate, rule 4 (the tenant filter) in <c>TenantFilterGuardTests</c>, and rule 7
+/// (the RCON-password type is unreachable from Web) below.
 /// </summary>
 public class ReferenceDirectionTests
 {

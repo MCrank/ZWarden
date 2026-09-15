@@ -116,6 +116,12 @@
           "ZWarden.Domain": "[1.0.0, )"
         }
       },
+      "zwarden.contracts": {
+        "type": "Project",
+        "dependencies": {
+          "ZWarden.Domain": "[1.0.0, )"
+        }
+      },
       "zwarden.diagnostics": {
         "type": "Project",
         "dependencies": {
