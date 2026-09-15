@@ -1,0 +1,47 @@
+@* The persisted first-run progress indicator (F33 D-3). A static, no-circuit step rail driven by the
+   current step — the wizard "feel" without BbFormWizard's interactive circuit (which cannot span the
+   anonymous → signed-in boundary; see ADR 0036). Steps 3–5 are guided-but-skippable and land in PR-B. *@
+
+<ol class="mb-6 flex flex-wrap gap-2" data-setup-steps>
+    @foreach ((int Number, string Title) step in Steps)
+    {
+        string state = StateOf(step.Number);
+        <li class="flex items-center gap-2 rounded-md border px-3 py-1.5 text-xs @BorderClass(state)"
+            data-setup-step="@step.Number" data-state="@state">
+            <span class="inline-flex h-5 w-5 items-center justify-center rounded-full font-mono text-[0.7rem] @BadgeClass(state)">@step.Number</span>
+            <span class="@(state == "pending" ? "text-muted-foreground" : "text-foreground")">@step.Title</span>
+        </li>
+    }
+</ol>
+
+@code {
+    /// <summary>The 1-based step the operator is currently on.</summary>
+    [Parameter, EditorRequired]
+    public int Current { get; set; }
+
+    private static readonly (int Number, string Title)[] Steps =
+    [
+        (1, "Administrator"),
+        (2, "TLS mode"),
+        (3, "Enroll Agent"),
+        (4, "Servers"),
+        (5, "Health"),
+    ];
+
+    private string StateOf(int number) =>
+        number < Current ? "complete" : number == Current ? "active" : "pending";
+
+    private static string BorderClass(string state) => state switch
+    {
+        "active" => "border-primary bg-primary/5",
+        "complete" => "border-border",
+        _ => "border-border/60",
+    };
+
+    private static string BadgeClass(string state) => state switch
+    {
+        "active" => "bg-primary text-primary-foreground",
+        "complete" => "bg-muted text-foreground",
+        _ => "bg-muted/50 text-muted-foreground",
+    };
+}

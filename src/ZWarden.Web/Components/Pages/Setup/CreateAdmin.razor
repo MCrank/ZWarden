@@ -1,0 +1,133 @@
+@page "/setup"
+@layout SetupLayout
+@using ZWarden.Application.Setup
+@using ZWarden.Infrastructure.Authorization
+@inject IServiceProvider Services
+@inject UserManager<ApplicationUser> UserManager
+@inject SignInManager<ApplicationUser> SignInManager
+@inject ISetupState SetupState
+@inject NavigationManager Nav
+
+@* Step 1 of first-run setup (F33). Static-rendered (no @@rendermode): creating the first administrator and
+   signing them in must run on the real HTTP request/response so the auth cookie is written and the tenant
+   claim stamped (the same reason /login is static — issue #63). Reachable anonymously, but it only ever
+   creates the FIRST administrator: if any user already exists it refuses and moves on (no anonymous
+   privilege escalation once an admin is present). ADR 0036. *@
+
+<PageTitle>Set up ZWarden · Administrator</PageTitle>
+
+<SetupStepIndicator Current="1" />
+
+<h1 class="text-lg font-semibold text-foreground">Create the first administrator</h1>
+<p class="mt-1 text-sm text-muted-foreground">
+    This account owns the control plane. You will be signed in as this administrator to finish setup.
+</p>
+
+<EditForm class="mt-5 space-y-4" Model="Input" method="post" OnValidSubmit="CreateAdminAsync" FormName="setup-admin">
+    <DataAnnotationsValidator />
+
+    @if (!string.IsNullOrEmpty(_error))
+    {
+        <StatusAlert Message="@_error" Kind="StatusAlert.AlertKind.Error" />
+    }
+
+    <div class="space-y-1">
+        <BbLabel For="email" Class="block text-xs font-medium uppercase tracking-[0.1em] text-muted-foreground">Email</BbLabel>
+        <BbInput Id="email" @bind-Value="Input.Email" autocomplete="username" autofocus Class="w-full" />
+        <ValidationMessage For="() => Input.Email" class="text-xs text-destructive" />
+    </div>
+
+    <div class="space-y-1">
+        <BbLabel For="password" Class="block text-xs font-medium uppercase tracking-[0.1em] text-muted-foreground">Password</BbLabel>
+        <BbInput Id="password" Type="InputType.Password" @bind-Value="Input.Password" autocomplete="new-password" Class="w-full" />
+        <ValidationMessage For="() => Input.Password" class="text-xs text-destructive" />
+        <p class="text-xs text-muted-foreground">Use a long passphrase. Short or breached passwords are rejected.</p>
+    </div>
+
+    <div class="space-y-1">
+        <BbLabel For="confirm" Class="block text-xs font-medium uppercase tracking-[0.1em] text-muted-foreground">Confirm password</BbLabel>
+        <BbInput Id="confirm" Type="InputType.Password" @bind-Value="Input.ConfirmPassword" autocomplete="new-password" Class="w-full" />
+        <ValidationMessage For="() => Input.ConfirmPassword" class="text-xs text-destructive" />
+    </div>
+
+    <BbButton Type="ButtonType.Submit" Class="w-full">Create administrator</BbButton>
+</EditForm>
+
+@code {
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    // No initializer on a [SupplyParameterFromForm] property (BL0008) - created in OnInitialized.
+    [SupplyParameterFromForm]
+    private InputModel Input { get; set; } = default!;
+
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Input ??= new();
+
+        // Setup already finished (e.g. a headless env-admin boot, or this instance completed earlier): the
+        // wizard has nothing to do — send the operator to the app.
+        if (await SetupState.IsSetupCompleteAsync())
+        {
+            Nav.NavigateTo("/");
+            return;
+        }
+
+        // An administrator already exists but setup is not marked complete: skip ahead to confirming TLS
+        // rather than offering to create a second admin anonymously.
+        if (UserManager.Users.Any())
+        {
+            Nav.NavigateTo("/setup/tls");
+        }
+    }
+
+    private async Task CreateAdminAsync()
+    {
+        // Fail closed: only ever create the FIRST administrator.
+        if (UserManager.Users.Any())
+        {
+            _error = "An administrator already exists. Continue to the next step.";
+            return;
+        }
+
+        try
+        {
+            // Reuse the exact tested startup path: create the Administrator role + confirmed admin, then
+            // grant that account the Tenant Owner role (F4/F5).
+            await AdminBootstrapper.EnsureAdminAsync(Services, Input.Email, Input.Password);
+        }
+        catch (InvalidOperationException)
+        {
+            // Identity codes only - never echo the attempted password (AdminBootstrapper throws on policy).
+            _error = "That password does not meet the security policy. Choose a longer, un-breached passphrase.";
+            return;
+        }
+
+        await AuthorizationBootstrapper.EnsureSeededAsync(Services, Input.Email);
+
+        // Sign the new administrator in on this request (writes the auth cookie + stamps the tenant claim via
+        // the claims factory), so the remaining setup steps run authenticated (F33 D-5).
+        ApplicationUser admin = await UserManager.FindByEmailAsync(Input.Email)
+            ?? throw new InvalidOperationException("The administrator was created but could not be reloaded.");
+        await SignInManager.SignInAsync(admin, isPersistent: false);
+
+        Nav.NavigateTo("/setup/tls");
+    }
+
+    private sealed class InputModel
+    {
+        [Required]
+        [EmailAddress]
+        public string Email { get; set; } = string.Empty;
+
+        [Required]
+        [DataType(DataType.Password)]
+        public string Password { get; set; } = string.Empty;
+
+        [DataType(DataType.Password)]
+        [Compare(nameof(Password), ErrorMessage = "The passwords do not match.")]
+        public string ConfirmPassword { get; set; } = string.Empty;
+    }
+}
