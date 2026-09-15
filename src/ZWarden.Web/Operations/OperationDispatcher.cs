@@ -4,6 +4,7 @@ using ZWarden.Application.Agents;
 using ZWarden.Application.Audit;
 using ZWarden.Application.Backups;
 using ZWarden.Application.Configuration;
+using ZWarden.Application.Console;
 using ZWarden.Application.Operations;
 using ZWarden.Application.Players;
 using ZWarden.Contracts.Protocol;
@@ -116,6 +117,7 @@ public sealed class OperationDispatcher : IOperationDispatcher
         OperationKind.RemoveFromWhitelist => new RemoveFromWhitelist(Payload(commandPayload).Username!),
         OperationKind.SetWhitelistMode => new SetWhitelistMode(Payload(commandPayload).Open ?? false),
         OperationKind.ConfigApply => ConfigApplyCommand(commandPayload),
+        OperationKind.ExecuteConsoleCommand => new ExecuteConsoleCommand(ConsolePayload(commandPayload).Input),
         OperationKind.Backup => new BackupServer(),
         OperationKind.DeleteBackup => new DeleteBackup(BackupPayload(commandPayload).ArchiveName!),
         OperationKind.Restore => RestoreCommand(commandPayload),
@@ -136,6 +138,9 @@ public sealed class OperationDispatcher : IOperationDispatcher
 
     private static PlayerCommandPayload Payload(string? commandPayload) => PlayerCommandPayload.FromJson(
         commandPayload ?? throw new InvalidOperationException("A player Operation was dispatched with no command payload."));
+
+    private static ConsoleCommandPayload ConsolePayload(string? commandPayload) => ConsoleCommandPayload.FromJson(
+        commandPayload ?? throw new InvalidOperationException("A console Operation was dispatched with no command payload."));
 
     // Builds the ConfigApply wire command from the Application-neutral payload the enqueueing service wrote,
     // mapping the neutral edit kinds onto their wire twins (F20b PR3). The file and baseline cross unchanged.
