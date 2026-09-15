@@ -91,6 +91,22 @@ else
         </BbCard>
     </div>
 
+    @if (_canViewLogs)
+    {
+        <BbCard Class="mt-6 p-5" data-logs-card>
+            <h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Live logs</h2>
+            <p class="mt-1 text-xs text-muted-foreground">
+                The server's live console output (stdout and stderr), streamed from the host only while this panel is
+                open. Lines are shown as-is and are not stored — a live tail, not a searchable history.
+            </p>
+            <div class="mt-4">
+                <LiveServerLogPanel @rendermode="InteractiveServer"
+                                    ServerId="@_server.Id.ToString()"
+                                    AgentId="@_server.AgentId.ToString()" />
+            </div>
+        </BbCard>
+    }
+
     @if (_perm.CanAny)
     {
         <BbCard Class="mt-6 p-5" data-players-card>
@@ -656,6 +672,7 @@ else
 
     private ServerSummary? _server;
     private PlayerPermissions _perm;
+    private bool _canViewLogs;
     private bool _canViewMods;
     private string? _modMessage;
 
@@ -701,6 +718,7 @@ else
         if (_server is not null)
         {
             await LoadPlayersAsync(user, serverId);
+            _canViewLogs = (await PermissionChecker.EvaluateAsync(user, Permissions.ConsoleView, serverId)).IsAllowed;
             _canViewMods = (await PermissionChecker.EvaluateAsync(user, Permissions.ModView, serverId)).IsAllowed;
             await LoadModManagementAsync(user, serverId);
             if (_perm.CanConfigEdit)

@@ -1,0 +1,173 @@
+@using ZWarden.Domain.Ids
+@using ZWarden.Web.Agents
+@implements IAsyncDisposable
+@inject IServerLogBuffer LogBuffer
+@inject IServerLogSubscriptionCoordinator Coordinator
+
+@* The live-logs island (F27): an interactive island embedded in the static server-detail page, mirroring
+   LiveServerPanel / LivePlayerRosterPanel. On open it subscribes through the coordinator (which ref-counts viewers
+   and tells the owning Agent to start following); on dispose it unsubscribes (the last viewer stops the follow).
+   It then polls the process-local, ownership-guarded log buffer (keyed by ServerId + owning AgentId) by a
+   monotonic sequence cursor once per second, appending new lines and holding a bounded on-screen tail. The parent
+   page did the authorized, tenant-filtered load and the Console.View gate; this child carries no tenant context —
+   which a circuit lacks. Ids arrive as strings so they cross the static→interactive boundary cleanly. Every line
+   is untrusted Agent output, sanitized on the Agent and rendered here as data (trust-boundaries.md §8). Built from
+   Blueprint wrappers (ADR 0003): BbScrollArea for the tail, BbCheckbox for the stream toggles, BbInput to filter.
+   Log text is Chivo Mono (the style guide's data face); stderr carries the semantic destructive ink. *@
+
+<div data-live-logs>
+    <div class="flex flex-wrap items-center gap-4">
+        <div class="flex items-center gap-1.5">
+            <BbCheckbox @bind-Checked="_showStdout" Id="log-stdout" AriaLabel="Show stdout" />
+            <BbLabel For="log-stdout" Class="text-sm">stdout</BbLabel>
+        </div>
+        <div class="flex items-center gap-1.5">
+            <BbCheckbox @bind-Checked="_showStderr" Id="log-stderr" AriaLabel="Show stderr" />
+            <BbLabel For="log-stderr" Class="text-sm">stderr</BbLabel>
+        </div>
+        <BbInput Id="log-filter" Type="InputType.Search" UpdateTiming="UpdateTiming.Immediate"
+                 @bind-Value="_filter" Placeholder="Filter lines…" Class="min-w-40 flex-1" />
+        @if (_dropped)
+        {
+            <span class="text-xs text-destructive" data-log-dropped>Some lines were dropped (rate limit)</span>
+        }
+    </div>
+
+    <BbScrollArea Type="ScrollAreaType.Always" MaxHeight="24rem"
+                  Class="mt-3 rounded-md border border-border bg-muted/30"
+                  ViewportClass="p-3 font-mono text-xs leading-relaxed">
+        @{
+            IReadOnlyList<ServerLogLineView> visible = Visible();
+        }
+        @if (visible.Count == 0)
+        {
+            <p class="text-muted-foreground" data-log-empty>@EmptyText</p>
+        }
+        else
+        {
+            @foreach (ServerLogLineView line in visible)
+            {
+                <div class="whitespace-pre-wrap @(line.IsStderr ? "text-destructive" : "text-foreground")"
+                     data-log-line data-stream="@(line.IsStderr ? "stderr" : "stdout")">
+                    <span class="text-muted-foreground">@Time(line.Timestamp)</span>
+                    <span>@line.Text</span>
+                    @if (line.Truncated)
+                    {
+                        <span class="text-muted-foreground"> …</span>
+                    }
+                </div>
+            }
+        }
+    </BbScrollArea>
+</div>
+
+@code {
+    /// <summary>The Server, as its canonical string id (crosses the static→interactive boundary as a string).</summary>
+    [Parameter]
+    [EditorRequired]
+    public string ServerId { get; set; } = string.Empty;
+
+    /// <summary>The Server's owning Agent, as its canonical string id (the buffer/coordinator ownership key).</summary>
+    [Parameter]
+    [EditorRequired]
+    public string AgentId { get; set; } = string.Empty;
+
+    private const int DisplayCap = 500;
+
+    private ServerId _server;
+    private AgentId _agent;
+    private bool _parsed;
+    private bool _subscribed;
+    private long _cursor;
+    private bool _dropped;
+    private bool _showStdout = true;
+    private bool _showStderr = true;
+    private string _filter = string.Empty;
+    private readonly List<ServerLogLineView> _lines = [];
+    private PeriodicTimer? _timer;
+    private Task? _loop;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _parsed = Domain.Ids.ServerId.TryParse(ServerId, out _server)
+            & Domain.Ids.AgentId.TryParse(AgentId, out _agent);
+        if (!_parsed)
+        {
+            return;
+        }
+
+        await Coordinator.SubscribeAsync(_server, _agent, CancellationToken.None).ConfigureAwait(false);
+        _subscribed = true;
+        Refresh();
+        _timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+        _loop = RunAsync();
+    }
+
+    private async Task RunAsync()
+    {
+        try
+        {
+            while (await _timer!.WaitForNextTickAsync().ConfigureAwait(false))
+            {
+                Refresh();
+                await InvokeAsync(StateHasChanged).ConfigureAwait(false);
+            }
+        }
+        catch (ObjectDisposedException)
+        {
+            // The panel was disposed while awaiting the next tick — expected on navigation away.
+        }
+    }
+
+    private void Refresh()
+    {
+        if (!_parsed)
+        {
+            return;
+        }
+
+        ServerLogSlice slice = LogBuffer.Read(_server, _agent, _cursor);
+        if (slice.Lines.Count > 0)
+        {
+            _lines.AddRange(slice.Lines);
+            _cursor = slice.Lines[^1].Sequence;
+            if (_lines.Count > DisplayCap)
+            {
+                _lines.RemoveRange(0, _lines.Count - DisplayCap);
+            }
+        }
+
+        _dropped = slice.Dropped;
+    }
+
+    // The on-screen tail after the stdout/stderr toggles and the text filter (LogLineFilter is unit-tested directly).
+    private IReadOnlyList<ServerLogLineView> Visible() =>
+        LogLineFilter.Apply(_lines, _showStdout, _showStderr, _filter);
+
+    private string EmptyText => _subscribed
+        ? "Waiting for log output…"
+        : "Live logs are unavailable for this server.";
+
+    private static string Time(DateTimeOffset at) =>
+        at.UtcDateTime.ToString("HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture) + " UTC";
+
+    public async ValueTask DisposeAsync()
+    {
+        _timer?.Dispose();
+        if (_subscribed)
+        {
+            try
+            {
+                await Coordinator.UnsubscribeAsync(_server, _agent, CancellationToken.None).ConfigureAwait(false);
+            }
+#pragma warning disable CA1031 // Teardown is best-effort; a failed unsubscribe must not throw out of Dispose.
+            catch (Exception)
+            {
+                // Best-effort: the coordinator's ref-count self-heals on the next subscribe.
+            }
+#pragma warning restore CA1031
+        }
+
+        GC.SuppressFinalize(this);
+    }
+}

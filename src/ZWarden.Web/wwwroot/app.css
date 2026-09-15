@@ -982,6 +982,10 @@ html {
   width: 100%;
 }
 
+.min-w-40 {
+  min-width: 10rem;
+}
+
 .max-w-5xl {
   max-width: 64rem;
 }
@@ -1134,6 +1138,10 @@ html {
 
 .overflow-x-auto {
   overflow-x: auto;
+}
+
+.whitespace-pre-wrap {
+  white-space: pre-wrap;
 }
 
 .rounded {
@@ -1404,6 +1412,10 @@ html {
 .tabular-nums {
   --tw-numeric-spacing: tabular-nums;
   font-variant-numeric: var(--tw-ordinal) var(--tw-slashed-zero) var(--tw-numeric-figure) var(--tw-numeric-spacing) var(--tw-numeric-fraction);
+}
+
+.leading-relaxed {
+  line-height: 1.625;
 }
 
 .tracking-\[0\.1em\] {

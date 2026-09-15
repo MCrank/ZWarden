@@ -411,6 +411,22 @@ public sealed class ServerDetailPageTests
     }
 
     [Test]
+    public async Task The_logs_card_shows_and_prerenders_the_live_island_for_a_permitted_operator()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "log-viewable");
+
+        string html = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        await Assert.That(html).Contains("data-logs-card");
+        await Assert.That(html).Contains("data-live-logs");
+        // The interactive island prerenders its waiting state (no lines buffered yet).
+        await Assert.That(html).Contains("data-log-empty");
+        client.Dispose();
+    }
+
+    [Test]
     public async Task The_backups_card_shows_for_a_permitted_operator()
     {
         await using ZWardenWebAppFactory factory = new();
