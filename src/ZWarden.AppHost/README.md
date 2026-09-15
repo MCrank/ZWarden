@@ -46,11 +46,16 @@ dotnet run --project src/ZWarden.AppHost
   `aspire` CLI can still `dotnet run` / build the AppHost (see the lockfile note in the `.csproj`).
 
 **Requirements:** a running Docker daemon (for the Postgres container), the .NET 10 SDK, and the
-trusted dev cert above. The dev database persists in an Aspire data volume across runs, so migrations
-only run once.
+trusted dev cert above. The dev database **persists in an Aspire data volume across runs** (your admin,
+servers, and config survive `aspire run` sessions; migrations only run once). To start from a clean
+slate, remove the volume: `docker volume rm zwarden.apphost-<hash>-postgres-data` (see `docker volume ls`).
 
 ## Dev-only conveniences (never production paths)
 
+- **Postgres password** — a pinned, well-known dev value (`postgres-password` parameter in
+  `AppHost.cs`). It is throwaway and never a production credential; it is pinned rather than generated
+  so the persistent data volume (which bakes in its first-init password) keeps authenticating across
+  runs instead of failing with `password authentication failed`.
 - **Secret key ring** — a fresh 32-byte `ZW_SECRET_KEYS` is generated *per run* in `AppHost.cs` and
   injected. It is throwaway, never committed, and never a production key (ADR 0015 still fails closed;
   the AppHost simply supplies dev values, exactly as the `run-web` skill does).
