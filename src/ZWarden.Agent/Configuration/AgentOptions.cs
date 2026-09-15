@@ -112,6 +112,29 @@ public sealed class AgentOptions
     /// cold ~6.72 GiB first install; the operation's lease is the control plane's independent safety net.</summary>
     public TimeSpan UpdateTimeout { get; set; } = TimeSpan.FromMinutes(30);
 
+    /// <summary>How many trailing log lines a live-log subscription backfills when an operator starts watching a
+    /// Server (F27) — the initial tail. Must be positive; defaults to 200.</summary>
+    public int LogTailLines { get; set; } = 200;
+
+    /// <summary>The maximum characters a single sanitized log line may carry on the wire (F27); a longer line is cut
+    /// and flagged truncated, so one pathological line cannot blow the batch or the browser buffer. Must be
+    /// positive; defaults to 2000.</summary>
+    public int LogLineMaxCharacters { get; set; } = 2000;
+
+    /// <summary>The per-Server ceiling on log lines the Agent will forward each second while following (F27); lines
+    /// beyond it are coalesced away and the batch is flagged <c>Dropped</c>, bounding the stream at the source
+    /// (PRD 38) rather than flooding the socket. Must be positive; defaults to 500.</summary>
+    public int LogMaxLinesPerSecond { get; set; } = 500;
+
+    /// <summary>How often the Agent flushes accumulated log lines to ZWarden.Web as a <c>ServerLogBatch</c> while
+    /// following (F27) — batching avoids a per-line message storm. Must be positive; defaults to 250ms.</summary>
+    public TimeSpan LogBatchFlushInterval { get; set; } = TimeSpan.FromMilliseconds(250);
+
+    /// <summary>How long a live-log follow waits before retrying after the container's stream ends or is not yet
+    /// present (F27), so watching a stopped Server resumes when it starts and a restart re-attaches. Must be
+    /// positive; defaults to 2s.</summary>
+    public TimeSpan LogFollowRetryInterval { get; set; } = TimeSpan.FromSeconds(2);
+
     /// <summary>The default identity-file location: <c>%LOCALAPPDATA%/ZWarden/Agent/agent-id.txt</c>.</summary>
     public static string DefaultIdentityFilePath() => DefaultAgentFile("agent-id.txt");
 

@@ -56,4 +56,22 @@ public static class AgentHubProtocol
     /// <summary>The Agent's terminal report for an operation, carrying an
     /// <c>Envelope&lt;OperationCompleted&gt;</c> (F11); the operation is the envelope's <c>OperationId</c>.</summary>
     public const string OperationCompleted = "OperationCompleted";
+
+    /// <summary>The Agent's live log push while a subscription is open, carrying an
+    /// <c>Envelope&lt;ServerLogBatch&gt;</c> (F27); the Server is the batch's <c>ServerId</c>.</summary>
+    public const string ServerLogBatch = "ServerLogBatch";
+
+    /// <summary>
+    /// The client method ZWarden.Web invokes on the Agent to <b>begin</b> following a Server's logs (F27), with
+    /// the Server's canonical id string as its one argument. A live-log subscription is deliberately <b>not</b> an
+    /// Operation (ADR 0022 — no per-server lock, no audit, no lifecycle row) and <b>not</b> an <c>AgentCommand</c>
+    /// (that is the operation-dispatch vocabulary): it is ephemeral, read-only, per-viewer transport control, so it
+    /// rides its own channel rather than <see cref="ReceiveCommand"/> (ADR 0030). Web ref-counts viewers and calls
+    /// this only for the first watcher of a Server.
+    /// </summary>
+    public const string StartServerLogStream = "StartServerLogStream";
+
+    /// <summary>The client method ZWarden.Web invokes on the Agent to <b>stop</b> following a Server's logs (F27),
+    /// with the Server's canonical id string as its one argument — called when the last viewer leaves (ADR 0030).</summary>
+    public const string StopServerLogStream = "StopServerLogStream";
 }

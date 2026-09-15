@@ -36,6 +36,7 @@ public sealed partial class AgentHub : Hub
     private readonly IServerStateReconciler _servers;
     private readonly IServerMetricsCache _metrics;
     private readonly IServerHealthCache _healthCache;
+    private readonly IServerLogBuffer _logBuffer;
     private readonly IPlayerRosterCache _rosters;
     private readonly IConfigurationRevisionRecorder _configRevisions;
     private readonly IModInventoryCache _mods;
@@ -51,6 +52,7 @@ public sealed partial class AgentHub : Hub
         IServerStateReconciler servers,
         IServerMetricsCache metrics,
         IServerHealthCache healthCache,
+        IServerLogBuffer logBuffer,
         IPlayerRosterCache rosters,
         IConfigurationRevisionRecorder configRevisions,
         IModInventoryCache mods,
@@ -65,6 +67,7 @@ public sealed partial class AgentHub : Hub
         ArgumentNullException.ThrowIfNull(servers);
         ArgumentNullException.ThrowIfNull(metrics);
         ArgumentNullException.ThrowIfNull(healthCache);
+        ArgumentNullException.ThrowIfNull(logBuffer);
         ArgumentNullException.ThrowIfNull(rosters);
         ArgumentNullException.ThrowIfNull(configRevisions);
         ArgumentNullException.ThrowIfNull(mods);
@@ -78,6 +81,7 @@ public sealed partial class AgentHub : Hub
         _servers = servers;
         _metrics = metrics;
         _healthCache = healthCache;
+        _logBuffer = logBuffer;
         _rosters = rosters;
         _configRevisions = configRevisions;
         _mods = mods;
@@ -258,6 +262,28 @@ public sealed partial class AgentHub : Hub
                     s.SampledAt))
                 .ToList();
             _metrics.Record(mapped);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// The Agent's live log batch while an operator is watching (F27): sanitized stdout/stderr lines. Logs are
+    /// transient — appended to the in-memory <see cref="IServerLogBuffer"/> (a bounded per-Server tail) and polled
+    /// by the live panel, never persisted or audited. The batch is stamped with the reporting Agent so the buffer
+    /// partitions by owner and a batch forged for a Server this Agent does not own cannot surface under it
+    /// (trust-boundaries.md §8). Line text is untrusted; carried verbatim and rendered as data.
+    /// </summary>
+    public Task ServerLogBatch(Envelope<ServerLogBatch> batch)
+    {
+        ArgumentNullException.ThrowIfNull(batch);
+        if (AgentClaims.TryGetAgentId(Context.User, out AgentId agentId))
+        {
+            List<ServerLogLineView> lines = batch.Payload.Lines
+                .Select(l => new ServerLogLineView(
+                    l.Sequence, l.Timestamp, l.Stream == LogStreamKind.Stderr, l.Text, l.Truncated))
+                .ToList();
+            _logBuffer.Append(agentId, batch.Payload.ServerId, lines, batch.Payload.Dropped);
         }
 
         return Task.CompletedTask;

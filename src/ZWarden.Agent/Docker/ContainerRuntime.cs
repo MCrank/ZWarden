@@ -203,6 +203,31 @@ public sealed partial class ContainerRuntime : IContainerRuntime
     }
 
     /// <inheritdoc />
+    public async Task FollowServerLogsAsync(
+        ServerId serverId,
+        int tailLines,
+        Func<ContainerLogFrame, CancellationToken, ValueTask> onFrame,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(onFrame);
+
+        // Following logs is a read verb, like ReadServerLogsAsync — it does not pass the mutate ownership guard,
+        // but discovery already scopes to containers this Agent owns, so an unmatched ServerId has nothing to follow.
+        IReadOnlyList<ManagedContainer> managed = await ListManagedAsync(cancellationToken).ConfigureAwait(false);
+        foreach (ManagedContainer container in managed)
+        {
+            if (container.ServerId == serverId)
+            {
+                await _engine.FollowLogsAsync(container.DockerId, tailLines, onFrame, cancellationToken).ConfigureAwait(false);
+                return;
+            }
+        }
+
+        LogNoContainerForServer(serverId);
+        throw new ContainerNotFoundException(serverId);
+    }
+
+    /// <inheritdoc />
     public async Task<string?> ResolveNetworkAddressAsync(
         ServerId serverId, string networkName, CancellationToken cancellationToken)
     {

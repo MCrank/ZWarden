@@ -65,6 +65,18 @@ public interface IContainerRuntime
     /// carries that ServerId.</summary>
     Task<string> ReadServerLogsAsync(ServerId serverId, DateTimeOffset? since, CancellationToken cancellationToken);
 
+    /// <summary>Follows the logs of the canonical container this Agent owns for <paramref name="serverId"/> as a
+    /// live stream (F27): stdout+stderr, backfilling the last <paramref name="tailLines"/> lines then streaming
+    /// until <paramref name="cancellationToken"/> is cancelled. Each raw, <b>unsanitized</b> line is delivered to
+    /// <paramref name="onFrame"/>; the caller sanitizes (PRD 38). Discovery already scopes to owned containers, so
+    /// this throws <see cref="ContainerNotFoundException"/> when no owned container carries that ServerId — a
+    /// foreign or absent Server is nothing to follow.</summary>
+    Task FollowServerLogsAsync(
+        ServerId serverId,
+        int tailLines,
+        Func<ContainerLogFrame, CancellationToken, ValueTask> onFrame,
+        CancellationToken cancellationToken);
+
     /// <summary>Resolves the IP address of the canonical container this Agent owns for <paramref name="serverId"/>
     /// on the named network (F18): inspects the container and reads
     /// <c>NetworkSettings.Networks[networkName].IPAddress</c>. Returns <c>null</c> when no owned container carries

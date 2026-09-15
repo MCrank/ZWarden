@@ -60,6 +60,46 @@ internal sealed class FakeDockerEngine : IDockerEngine
         return Task.FromResult(LogText);
     }
 
+    /// <summary>The frames <see cref="FollowLogsAsync"/> replays through its callback before (optionally) blocking.</summary>
+    public List<ContainerLogFrame> LogFrames { get; } = [];
+
+    /// <summary>The container id the last <see cref="FollowLogsAsync"/> was asked to follow.</summary>
+    public string? LastFollowContainerId { get; private set; }
+
+    /// <summary>The <c>tailLines</c> the last <see cref="FollowLogsAsync"/> was asked for.</summary>
+    public int? LastFollowTailLines { get; private set; }
+
+    /// <summary>When set, <see cref="FollowLogsAsync"/> blocks after replaying frames until the token cancels —
+    /// simulating a live, long-lived stream so a subscription's teardown can be exercised.</summary>
+    public bool FollowBlocksUntilCancelled { get; set; }
+
+    public async Task FollowLogsAsync(
+        string containerId,
+        int tailLines,
+        Func<ContainerLogFrame, CancellationToken, ValueTask> onFrame,
+        CancellationToken cancellationToken)
+    {
+        LastFollowContainerId = containerId;
+        LastFollowTailLines = tailLines;
+        foreach (ContainerLogFrame frame in LogFrames)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await onFrame(frame, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (FollowBlocksUntilCancelled)
+        {
+            try
+            {
+                await Task.Delay(Timeout.Infinite, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // The subscription was torn down — the expected end of a live follow.
+            }
+        }
+    }
+
     public Task<string> CreateAsync(CreateContainerParameters parameters, CancellationToken cancellationToken)
     {
         CreatedWith = parameters;
