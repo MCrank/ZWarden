@@ -27,6 +27,12 @@ public sealed class AgentConfiguration : IEntityTypeConfiguration<Agent>
         // Agent first connects.
         builder.Property(a => a.ConnectionState).HasConversion<string>().HasMaxLength(32).IsRequired();
 
+        // Self-reported Host descriptor (F35 D-1) — observed, display-only facts for the multi-Host inventory,
+        // nullable until the Agent reports them (an Agent that predates the descriptor never does).
+        builder.Property(a => a.Hostname).HasMaxLength(253);
+        builder.Property(a => a.AgentVersion).HasMaxLength(64);
+        builder.Property(a => a.OsPlatform).HasMaxLength(64);
+
         // The verifier finds an Agent by the hash of the presented credential.
         builder.HasIndex(a => a.CredentialHash);
     }

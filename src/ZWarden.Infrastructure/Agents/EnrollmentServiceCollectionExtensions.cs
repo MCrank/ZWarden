@@ -33,6 +33,11 @@ public static class EnrollmentServiceCollectionExtensions
         services.AddScoped<IAgentEnrollmentExchange, AgentEnrollmentExchange>();
         services.AddScoped<IAgentCredentialVerifier, AgentCredentialVerifier>();
 
+        // F35: the read-only Host inventory the operator /hosts page reads (gated on Agent.View). It overlays
+        // the in-memory registry's "connected now" over the persisted last-known state, so it depends on the
+        // Web-singleton IAgentConnectionRegistry wired in the Web composition.
+        services.AddScoped<IAgentInventory, AgentInventoryService>();
+
         // F10: the durable companion to the in-memory connection registry — stamps the Agent's observed
         // connection state (last-seen, connection state, negotiated version) as the hub sees it, and the
         // background sweeper that reconciles stale connections. The in-memory registry itself is a Web

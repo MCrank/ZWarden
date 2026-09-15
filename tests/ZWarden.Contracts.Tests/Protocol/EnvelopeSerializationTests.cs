@@ -26,6 +26,29 @@ public class EnvelopeSerializationTests
     }
 
     [Test]
+    public async Task AgentHello_round_trips_with_its_host_descriptor()
+    {
+        Envelope<AgentHello> original = Envelope.Create(
+            new AgentHello(AgentId.New(), new HostDescriptor("pz-host-2", "1.0.0", "Linux")), At);
+
+        Envelope<AgentHello> back = ProtocolJson.Deserialize<AgentHello>(ProtocolJson.Serialize(original));
+
+        await Assert.That(back.Payload).IsEqualTo(original.Payload);
+        await Assert.That(back.Payload.Host).IsEqualTo(original.Payload.Host);
+    }
+
+    [Test]
+    public async Task AgentHello_from_an_older_agent_without_a_host_descriptor_deserializes_to_a_null_host()
+    {
+        // Back-compat: an Agent that predates the host descriptor sends only its id (F35 D-1 is additive).
+        Envelope<AgentHello> original = Envelope.Create(new AgentHello(AgentId.New()), At);
+
+        Envelope<AgentHello> back = ProtocolJson.Deserialize<AgentHello>(ProtocolJson.Serialize(original));
+
+        await Assert.That(back.Payload.Host).IsNull();
+    }
+
+    [Test]
     public async Task AgentHeartbeat_round_trips()
     {
         Envelope<AgentHeartbeat> original = Envelope.Create(new AgentHeartbeat(AgentHealthStatus.Degraded), At);

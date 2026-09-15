@@ -166,7 +166,9 @@ public sealed partial class AgentHub : Hub
             return result;
         }
 
-        await _state.MarkConnectedAsync(agentId, hello.ProtocolVersion, Context.ConnectionAborted).ConfigureAwait(false);
+        HostDescriptor? host = hello.Payload.Host;
+        HostFacts? facts = host is null ? null : new HostFacts(host.Hostname, host.AgentVersion, host.OsPlatform);
+        await _state.MarkConnectedAsync(agentId, hello.ProtocolVersion, facts, Context.ConnectionAborted).ConfigureAwait(false);
         return result;
     }
 

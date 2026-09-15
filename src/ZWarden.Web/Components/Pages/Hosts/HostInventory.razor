@@ -1,0 +1,132 @@
+@page "/hosts"
+@using System.Security.Claims
+@using ZWarden.Application.Agents
+@using ZWarden.Domain.Agents
+@using ZWarden.Domain.Ids
+@attribute [Authorize(Policy = "Agent.View")]
+@inject IAgentInventory Inventory
+@inject AuthenticationStateProvider AuthProvider
+@inject UserManager<ApplicationUser> Users
+
+@* Static server render (no @rendermode), like /audit: the page runs per request with a live HttpContext so
+   the session-derived tenant resolves and the read is tenant-filtered server-side. The Agent.View policy gates
+   the endpoint itself (tenant-wide, so it gates cleanly, ADR 0018) and the inventory service re-checks it —
+   this is enforcement, not UI visibility (PRD 12). Every Agent-reported fact (hostname, version, OS) is
+   untrusted and rendered as data (trust-boundaries.md §3): observed, never an authorization input. The live,
+   auto-refreshing fleet view is a later interactive surface (F36); F35 shows last-observed state over a plain
+   server-rendered table with the in-memory registry's "connected now" overlaid. *@
+
+<PageTitle>Hosts — ZWarden</PageTitle>
+
+<h1 class="text-2xl font-semibold tracking-tight">Hosts</h1>
+<p class="mt-1 text-sm text-muted-foreground">
+    The Agents managing your servers, one per Host. State is what each Agent last reported; "Connected" is
+    live from this control-plane instance.
+</p>
+
+<div class="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+    <BbCard Class="p-4">
+        <div class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Connected</div>
+        <div class="mt-1 font-mono text-2xl tabular-nums text-status-running">@_connected</div>
+    </BbCard>
+    <BbCard Class="p-4">
+        <div class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Enrolled</div>
+        <div class="mt-1 font-mono text-2xl tabular-nums text-foreground">@_hosts.Count</div>
+    </BbCard>
+    <BbCard Class="p-4">
+        <div class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Disabled</div>
+        <div class="mt-1 font-mono text-2xl tabular-nums text-status-unhealthy">@_disabled</div>
+    </BbCard>
+    <BbCard Class="p-4">
+        <div class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Revoked</div>
+        <div class="mt-1 font-mono text-2xl tabular-nums text-muted-foreground">@_revoked</div>
+    </BbCard>
+</div>
+
+<div class="mt-6 overflow-x-auto">
+    <table class="w-full border-collapse text-left text-sm">
+        <thead>
+            <tr class="border-b border-border text-muted-foreground">
+                <th class="py-2 pr-4 font-medium">Host</th>
+                <th class="py-2 pr-4 font-medium">Connection</th>
+                <th class="py-2 pr-4 font-medium">Agent version</th>
+                <th class="py-2 pr-4 font-medium">OS</th>
+                <th class="py-2 pr-4 font-medium">Protocol</th>
+                <th class="py-2 pr-4 font-medium">Trust</th>
+                <th class="py-2 pr-4 font-medium">Last seen (UTC)</th>
+            </tr>
+        </thead>
+        <tbody>
+            @if (_hosts.Count == 0)
+            {
+                <tr>
+                    <td colspan="7" class="py-4 text-muted-foreground" data-hosts-empty>
+                        No Hosts enrolled yet. Enrol an Agent to bring a Host under management.
+                    </td>
+                </tr>
+            }
+            @foreach (HostSummary host in _hosts)
+            {
+                <tr class="border-b border-border" data-host-row>
+                    <td class="py-2 pr-4 font-medium">
+                        @DisplayName(host)
+                        <span class="block font-mono text-xs text-muted-foreground">@host.Id</span>
+                    </td>
+                    <td class="py-2 pr-4" data-host-connection>
+                        @if (host.IsConnected)
+                        {
+                            <span class="inline-flex items-center gap-1 text-status-running">
+                                <span class="h-2 w-2 rounded-full bg-status-running"></span>Connected
+                            </span>
+                        }
+                        else
+                        {
+                            <span class="text-muted-foreground">Disconnected</span>
+                        }
+                    </td>
+                    <td class="py-2 pr-4 font-mono tabular-nums text-xs text-muted-foreground">@Dash(host.AgentVersion)</td>
+                    <td class="py-2 pr-4 text-muted-foreground">@Dash(host.OsPlatform)</td>
+                    <td class="py-2 pr-4 font-mono tabular-nums text-xs text-muted-foreground">@(host.LastProtocolVersion?.ToString() ?? "—")</td>
+                    <td class="py-2 pr-4" data-host-trust>@TrustLabel(host)</td>
+                    <td class="py-2 pr-4 tabular-nums text-muted-foreground">@LastSeen(host)</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</div>
+
+@code {
+    private IReadOnlyList<HostSummary> _hosts = [];
+    private int _connected;
+    private int _disabled;
+    private int _revoked;
+
+    protected override async Task OnInitializedAsync()
+    {
+        ClaimsPrincipal principal = (await AuthProvider.GetAuthenticationStateAsync()).User;
+        if (!Guid.TryParse(Users.GetUserId(principal), out Guid id))
+        {
+            throw new InvalidOperationException("Authenticated request carries no user id claim.");
+        }
+
+        _hosts = await Inventory.ListHostsAsync(UserId.FromGuid(id));
+        _connected = _hosts.Count(h => h.IsConnected);
+        _disabled = _hosts.Count(h => !h.IsEnabled);
+        _revoked = _hosts.Count(h => !h.HasCredential);
+    }
+
+    // The operator-facing name: the Agent's self-reported hostname, else the enrollment label, else "—".
+    // Both are untrusted, observed strings (trust-boundaries.md §3); the id below always disambiguates.
+    private static string DisplayName(HostSummary host)
+        => !string.IsNullOrWhiteSpace(host.Hostname) ? host.Hostname!
+            : !string.IsNullOrWhiteSpace(host.Label) ? host.Label!
+            : "—";
+
+    private static string Dash(string? value) => string.IsNullOrWhiteSpace(value) ? "—" : value!;
+
+    private static string LastSeen(HostSummary host)
+        => host.LastSeenAt?.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss") ?? "never";
+
+    private static string TrustLabel(HostSummary host)
+        => !host.HasCredential ? "Revoked" : host.IsEnabled ? "Trusted" : "Disabled";
+}

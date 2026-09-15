@@ -148,6 +148,43 @@ public class AgentTests
         await Assert.That(agent.IsTrusted).IsTrue();
     }
 
+    // F35 D-1: the Host descriptor the Agent self-reports on connect (hostname, agent version, OS). Observed,
+    // display-only state so a multi-Host fleet is legible; never an authorization input, never touches trust.
+
+    [Test]
+    public async Task A_freshly_enrolled_agent_has_no_host_descriptor()
+    {
+        Agent agent = Enroll();
+
+        await Assert.That(agent.Hostname).IsNull();
+        await Assert.That(agent.AgentVersion).IsNull();
+        await Assert.That(agent.OsPlatform).IsNull();
+    }
+
+    [Test]
+    public async Task RecordHostDescriptor_stores_the_reported_host_facts_without_touching_trust()
+    {
+        Agent agent = Enroll();
+
+        agent.RecordHostDescriptor("pz-host-2", "1.0.0", "Linux");
+
+        await Assert.That(agent.Hostname).IsEqualTo("pz-host-2");
+        await Assert.That(agent.AgentVersion).IsEqualTo("1.0.0");
+        await Assert.That(agent.OsPlatform).IsEqualTo("Linux");
+        await Assert.That(agent.IsTrusted).IsTrue();
+        await Assert.That(agent.CredentialHash).IsEqualTo(Hash);
+    }
+
+    [Test]
+    public async Task RecordHostDescriptor_rejects_blank_values()
+    {
+        Agent agent = Enroll();
+
+        await Assert.That(() => agent.RecordHostDescriptor(" ", "1.0.0", "Linux")).Throws<ArgumentException>();
+        await Assert.That(() => agent.RecordHostDescriptor("pz-host-2", "", "Linux")).Throws<ArgumentException>();
+        await Assert.That(() => agent.RecordHostDescriptor("pz-host-2", "1.0.0", " ")).Throws<ArgumentException>();
+    }
+
     [Test]
     public async Task MarkDisconnected_sets_disconnected_and_stamps_the_time_keeping_last_protocol_version()
     {

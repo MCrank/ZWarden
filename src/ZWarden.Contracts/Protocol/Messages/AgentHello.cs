@@ -9,5 +9,8 @@ namespace ZWarden.Contracts.Protocol.Messages;
 /// authenticate the Agent — enrollment and credentials are F9's.
 /// </summary>
 /// <param name="AgentId">The Agent identifying itself.</param>
+/// <param name="Host">The Host the Agent runs on, self-reported for the F35 multi-Host inventory (D-1).
+/// Optional and additive: <c>null</c> from an Agent that predates F35. Observed, never an authorization
+/// input (trust-boundaries.md §3).</param>
 [ProtocolMessage("agent.hello")]
-public sealed record AgentHello(AgentId AgentId) : AgentEvent;
+public sealed record AgentHello(AgentId AgentId, HostDescriptor? Host = null) : AgentEvent;

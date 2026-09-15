@@ -235,7 +235,8 @@ public sealed partial class SignalRControlPlaneConnection : IAgentControlPlaneCo
         HubConnection connection = _connection
             ?? throw new InvalidOperationException("The connection has not been built.");
 
-        Envelope<AgentHello> hello = Envelope.Create(new AgentHello(agentId), _timeProvider.GetUtcNow(), agentId);
+        Envelope<AgentHello> hello = Envelope.Create(
+            new AgentHello(agentId, HostDescriptorProvider.Current), _timeProvider.GetUtcNow(), agentId);
         ProtocolNegotiationResult result = await connection
             .InvokeAsync<ProtocolNegotiationResult>(AgentHubProtocol.Hello, hello, cancellationToken)
             .ConfigureAwait(false);
