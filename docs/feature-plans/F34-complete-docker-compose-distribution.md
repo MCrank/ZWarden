@@ -151,8 +151,12 @@ allowlist the F13 drift tests enforce, verbatim**. Every image runs **non-root**
   tier-1 `ComposeDistributionTests` guard (15 tests) + the `/healthz` Web test, ADR 0037. `docker compose
   config` renders; both Dockerfiles pass `docker build --check`. Floors bumped: ArchitectureTests 23→38,
   Web.Tests 218→219 (csproj + ci.yml guard).
-- **PR-B (Postgres mode + docs + smoke)** — `compose.postgres.yaml` overlay, the `docs/deployment/` guide
-  (SQLite/Postgres, secrets, upgrade, Private-mode Agent CA trust), the tier-2 networked boot smoke test.
+- **PR-B (Postgres mode + docs + smoke)** — `compose.postgres.yaml` overlay (adds `postgres:18-alpine` on an
+  internal-only `backend` network, `pg_isready` health-gate, flips Web to the Npgsql provider),
+  `docs/deployment/compose-reference.md` (topology, quick-start, both DB modes, secrets, TLS incl. the
+  Private-mode Agent-CA-trust how-to, enrollment, upgrade, troubleshooting), and the tier-2
+  `ComposeDistributionSmokeTests` (builds the real Web image, boots it in SQLite mode, asserts non-root uid
+  10001 + `/healthz` 200). Tier-1 guard extended (+4 → 42); IntegrationTests floor 19→20.
 
 ## Verification
 
