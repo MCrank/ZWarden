@@ -1,0 +1,221 @@
+@page "/setup/servers"
+@layout SetupLayout
+@attribute [Authorize]
+@using System.Security.Claims
+@using ZWarden.Application.Servers
+@using ZWarden.Application.Setup
+@using ZWarden.Domain.Ids
+@inject IServerInventory Inventory
+@inject IServerDiscoveryCache Discovery
+@inject ISetupState SetupState
+@inject UserManager<ApplicationUser> Users
+@inject NavigationManager Nav
+
+@* Step 4 (skippable): bring Project Zomboid servers under management — register a fresh one on a connected
+   host, or import a container an Agent has discovered (F14). Both need a connected Agent, which a brand-new
+   install may not have yet, so this step is optional. Reuses IServerInventory (fail-closed, tenant-filtered,
+   ADR 0018). Static-rendered. ADR 0036. *@
+
+<PageTitle>Set up ZWarden · Servers</PageTitle>
+
+<SetupStepIndicator Current="4" />
+
+<h1 class="text-lg font-semibold text-foreground">Add a server</h1>
+<p class="mt-1 text-sm text-muted-foreground">
+    Register a new Project Zomboid server on a connected host, or import one an Agent already reported. You can
+    always do this later from the Servers page — this step is optional.
+</p>
+
+@if (_message is not null)
+{
+    <div class="mt-4" data-servers-message>
+        <BbAlert Variant="AlertVariant.Warning" AccentBorder>
+            <BbAlertDescription>@_message</BbAlertDescription>
+        </BbAlert>
+    </div>
+}
+
+@if (_knownAgents.Count == 0 && _discovered.Count == 0)
+{
+    <p class="mt-4 text-sm text-muted-foreground" data-no-hosts>
+        No connected hosts yet. Enroll an Agent and start it on a host; servers appear here once it connects.
+        You can skip this for now.
+    </p>
+}
+
+@if (_knownAgents.Count > 0)
+{
+    <section class="mt-6">
+        <h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Register a new server</h2>
+        <EditForm Model="_registerForm" FormName="setup-register-server" OnValidSubmit="RegisterAsync" class="mt-3 flex flex-wrap items-end gap-3">
+            <DataAnnotationsValidator />
+            <div class="flex flex-col text-sm">
+                <BbLabel For="register-host" Class="mb-1 text-muted-foreground">Host</BbLabel>
+                @* Explicit Name for static-SSR binding on BbNativeSelect (issue #84). *@
+                <BbNativeSelect TValue="string" Id="register-host" Name="_registerForm.AgentId" @bind-Value="_registerForm!.AgentId" Placeholder="Select…">
+                    @foreach (AgentId agent in _knownAgents)
+                    {
+                        <option value="@agent">@agent</option>
+                    }
+                </BbNativeSelect>
+            </div>
+            <div class="flex flex-col text-sm">
+                <BbLabel For="register-name" Class="mb-1 text-muted-foreground">Name</BbLabel>
+                <BbInput Id="register-name" @bind-Value="_registerForm!.Name" />
+            </div>
+            <BbButton Type="ButtonType.Submit">Register</BbButton>
+        </EditForm>
+    </section>
+}
+
+@if (_discovered.Count > 0)
+{
+    <section class="mt-6">
+        <h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Import a discovered container</h2>
+        <EditForm Model="_importForm" FormName="setup-import-server" OnValidSubmit="ImportAsync" class="mt-3 flex flex-wrap items-end gap-3">
+            <DataAnnotationsValidator />
+            <div class="flex flex-col text-sm">
+                <BbLabel For="import-target" Class="mb-1 text-muted-foreground">Discovered container</BbLabel>
+                <BbNativeSelect TValue="string" Id="import-target" Name="_importForm.Target" @bind-Value="_importForm!.Target" Placeholder="Select…">
+                    @foreach (DiscoveredServerOnAgent d in _discovered)
+                    {
+                        <option value="@($"{d.AgentId}|{d.ServerId}")">@d.ServerId (@d.RunState on @d.AgentId)</option>
+                    }
+                </BbNativeSelect>
+            </div>
+            <div class="flex flex-col text-sm">
+                <BbLabel For="import-name" Class="mb-1 text-muted-foreground">Name</BbLabel>
+                <BbInput Id="import-name" @bind-Value="_importForm!.Name" />
+            </div>
+            <BbButton Type="ButtonType.Submit">Import</BbButton>
+        </EditForm>
+    </section>
+}
+
+@if (_servers.Count > 0)
+{
+    <p class="mt-6 text-sm text-foreground" data-registered-count>
+        @_servers.Count server@(_servers.Count == 1 ? "" : "s") under management.
+    </p>
+}
+
+<SetupStepNav NextHref="/setup/health" />
+
+@code {
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthState { get; set; }
+
+    [SupplyParameterFromForm(FormName = "setup-register-server")]
+    private RegisterModel? _registerForm { get; set; }
+
+    [SupplyParameterFromForm(FormName = "setup-import-server")]
+    private ImportModel? _importForm { get; set; }
+
+    private IReadOnlyList<AgentId> _knownAgents = [];
+    private IReadOnlyList<DiscoveredServerOnAgent> _discovered = [];
+    private IReadOnlyList<ServerSummary> _servers = [];
+    private string? _message;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _registerForm ??= new RegisterModel();
+        _importForm ??= new ImportModel();
+
+        if (await SetupState.IsSetupCompleteAsync())
+        {
+            Nav.NavigateTo("/");
+            return;
+        }
+
+        UserId user = await CurrentUserAsync();
+        _servers = await Inventory.ListVisibleAsync(user);
+        _knownAgents = [.. Discovery.KnownAgents()];
+        _discovered = await Inventory.ListAllDiscoveredUnregisteredAsync();
+    }
+
+    private async Task RegisterAsync()
+    {
+        RegisterModel form = _registerForm ?? new RegisterModel();
+        if (string.IsNullOrWhiteSpace(form.AgentId) || string.IsNullOrWhiteSpace(form.Name))
+        {
+            _message = "Choose a host and a name.";
+            return;
+        }
+
+        if (!AgentId.TryParse(form.AgentId, out AgentId agentId))
+        {
+            _message = "That host selection is no longer valid.";
+            return;
+        }
+
+        ServerRegisterResult result = await Inventory.RegisterAsync(await CurrentUserAsync(), agentId, form.Name.Trim());
+        if (result.Succeeded)
+        {
+            Nav.NavigateTo("/setup/servers");
+            return;
+        }
+
+        _message = result.Failure switch
+        {
+            ServerRegisterFailure.NotAuthorized => "You are not permitted to register servers.",
+            ServerRegisterFailure.AgentNotFound => "That host is no longer known.",
+            _ => "The server could not be registered.",
+        };
+    }
+
+    private async Task ImportAsync()
+    {
+        ImportModel form = _importForm ?? new ImportModel();
+        if (string.IsNullOrWhiteSpace(form.Target) || string.IsNullOrWhiteSpace(form.Name))
+        {
+            _message = "Choose a discovered container and a name.";
+            return;
+        }
+
+        string[] parts = form.Target.Split('|');
+        if (parts.Length != 2
+            || !AgentId.TryParse(parts[0], out AgentId agentId)
+            || !ServerId.TryParse(parts[1], out ServerId serverId))
+        {
+            _message = "That selection is no longer valid.";
+            return;
+        }
+
+        ServerImportResult result = await Inventory.ImportAsync(await CurrentUserAsync(), agentId, serverId, form.Name.Trim());
+        if (result.Succeeded)
+        {
+            Nav.NavigateTo("/setup/servers");
+            return;
+        }
+
+        _message = result.Failure switch
+        {
+            ServerImportFailure.NotAuthorized => "You are not permitted to register servers.",
+            ServerImportFailure.AgentNotFound => "That host is no longer known.",
+            ServerImportFailure.NotDiscovered => "That container is no longer discovered.",
+            _ => "The import could not be completed.",
+        };
+    }
+
+    private async Task<UserId> CurrentUserAsync()
+    {
+        ClaimsPrincipal principal = (await AuthState!).User;
+        return Guid.TryParse(Users.GetUserId(principal), out Guid id)
+            ? UserId.FromGuid(id)
+            : throw new InvalidOperationException("Authenticated request carries no user id claim.");
+    }
+
+    private sealed class RegisterModel
+    {
+        public string? AgentId { get; set; }
+
+        public string? Name { get; set; }
+    }
+
+    private sealed class ImportModel
+    {
+        public string? Target { get; set; }
+
+        public string? Name { get; set; }
+    }
+}

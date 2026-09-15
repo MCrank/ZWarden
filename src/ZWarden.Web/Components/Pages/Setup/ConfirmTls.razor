@@ -53,7 +53,13 @@
         <ValidationMessage For="() => Input.Mode" class="text-xs text-destructive" />
     </div>
 
-    <BbButton Type="ButtonType.Submit" Class="w-full">Finish setup</BbButton>
+    <div class="flex flex-col gap-2 sm:flex-row-reverse sm:items-center sm:justify-between">
+        @* Default submit (no Action) completes setup — the mandatory path. *@
+        <BbButton Type="ButtonType.Submit">Finish setup</BbButton>
+        @* Optional: record the mode and continue into the guided (skippable) steps. *@
+        <BbButton Type="ButtonType.Submit" Variant="ButtonVariant.Outline"
+                  name="Input.Action" value="continue" data-setup-continue>Set up an Agent &amp; servers →</BbButton>
+    </div>
 </EditForm>
 
 @code {
@@ -95,9 +101,16 @@
         }
 
         await SetupState.RecordTlsModeAsync(mode);
-        await SetupState.MarkSetupCompleteAsync();
 
-        // Setup is done: the gate lifts and the operator lands on the dashboard.
+        // Optional guided path: record the mode but leave setup open and continue to the skippable steps.
+        if (string.Equals(Input.Action, "continue", StringComparison.Ordinal))
+        {
+            Nav.NavigateTo("/setup/enroll");
+            return;
+        }
+
+        // The mandatory path: administrator + TLS mode is enough — complete setup and lift the gate.
+        await SetupState.MarkSetupCompleteAsync();
         Nav.NavigateTo("/");
     }
 
@@ -105,5 +118,8 @@
     {
         [Required]
         public string Mode { get; set; } = string.Empty;
+
+        // Set by the secondary "continue" submit button; absent on the default "Finish setup" submit.
+        public string? Action { get; set; }
     }
 }

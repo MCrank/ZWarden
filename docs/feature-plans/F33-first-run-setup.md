@@ -1,9 +1,10 @@
 # Feature 33 Mini-Plan — First-Run Setup
 
-**Status:** IN PROGRESS (started 2026-09-15). **PR-A COMPLETE** (InstallState + gate + first-admin +
-confirm-TLS + step indicator + ADR 0036; full TDD suite green — Domain 226, Infrastructure 346, Web 212,
-Architecture 23). **PR-B pending** (skippable enrollment / discovery-registration / health steps +
-completion polish). Load-bearing decisions were **LOCKED as-recommended with the maintainer (2026-09-15)**. Roadmap issue:
+**Status:** DONE (2026-09-15). **PR-A** (PR #138, merged): InstallState + gate + first-admin + confirm-TLS +
+step indicator + ADR 0036. **PR-B** (this PR, closes #52): the guided-but-skippable enrollment /
+discovery-registration / health steps + the shared Skip/Finish nav + the optional "continue" branch off the
+TLS step. Full TDD suite green — Domain 226, Infrastructure 346, Web 218, Architecture 23. Load-bearing
+decisions were **LOCKED as-recommended with the maintainer (2026-09-15)**. Roadmap issue:
 [F33 (#52)](https://github.com/MCrank/ZWarden/issues/52), **Track F — Deployment and release**. The feature
 that gives a fresh, self-hosted operator a **guided first-run wizard**: create the first administrator, confirm
 the TLS mode, enroll an Agent, discover and register PZ servers, run initial health checks, and record that the

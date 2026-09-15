@@ -1,0 +1,118 @@
+@page "/setup/health"
+@layout SetupLayout
+@attribute [Authorize]
+@using System.Security.Claims
+@using ZWarden.Application.Servers
+@using ZWarden.Application.Setup
+@using ZWarden.Domain.Ids
+@inject IServerInventory Inventory
+@inject IServerDiagnostics Diagnostics
+@inject ISetupState SetupState
+@inject UserManager<ApplicationUser> Users
+@inject NavigationManager Nav
+
+@* Step 5 (skippable, last): run an initial RCON health check against a managed server (F18/F29). The probe
+   is a non-mutating, authorized, audited Operation whose result arrives asynchronously on the Agent — this
+   surfaces that it started. A fresh install with no servers simply finishes. Static-rendered. ADR 0036. *@
+
+<PageTitle>Set up ZWarden · Health checks</PageTitle>
+
+<SetupStepIndicator Current="5" />
+
+<h1 class="text-lg font-semibold text-foreground">Initial health check</h1>
+<p class="mt-1 text-sm text-muted-foreground">
+    Confirm a managed server responds to RCON. This is optional — you can run checks any time from a server's
+    page.
+</p>
+
+@if (_message is not null)
+{
+    <div class="mt-4" data-health-message>
+        <BbAlert Variant="AlertVariant.Info" AccentBorder>
+            <BbAlertDescription>@_message</BbAlertDescription>
+        </BbAlert>
+    </div>
+}
+
+@if (_servers.Count == 0)
+{
+    <p class="mt-4 text-sm text-muted-foreground" data-no-servers>
+        No servers under management yet. Nothing to check — you are ready to finish.
+    </p>
+}
+else
+{
+    <EditForm Model="_form" FormName="setup-health" OnValidSubmit="CheckAsync" class="mt-5 flex flex-wrap items-end gap-3">
+        <DataAnnotationsValidator />
+        <div class="flex flex-col text-sm">
+            <BbLabel For="health-server" Class="mb-1 text-muted-foreground">Server</BbLabel>
+            @* Explicit Name for static-SSR binding on BbNativeSelect (issue #84). *@
+            <BbNativeSelect TValue="string" Id="health-server" Name="_form.ServerId" @bind-Value="_form!.ServerId" Placeholder="Select…">
+                @foreach (ServerSummary server in _servers)
+                {
+                    <option value="@server.Id">@server.Name</option>
+                }
+            </BbNativeSelect>
+        </div>
+        <BbButton Type="ButtonType.Submit" Variant="ButtonVariant.Outline">Check RCON</BbButton>
+    </EditForm>
+}
+
+<SetupStepNav IsLast="true" />
+
+@code {
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthState { get; set; }
+
+    [SupplyParameterFromForm(FormName = "setup-health")]
+    private HealthModel? _form { get; set; }
+
+    private IReadOnlyList<ServerSummary> _servers = [];
+    private string? _message;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _form ??= new HealthModel();
+
+        if (await SetupState.IsSetupCompleteAsync())
+        {
+            Nav.NavigateTo("/");
+            return;
+        }
+
+        _servers = await Inventory.ListVisibleAsync(await CurrentUserAsync());
+    }
+
+    private async Task CheckAsync()
+    {
+        HealthModel form = _form ?? new HealthModel();
+        if (!ServerId.TryParse(form.ServerId, out ServerId serverId))
+        {
+            _message = "Choose a server to check.";
+            return;
+        }
+
+        ServerLifecycleResult result = await Diagnostics.CheckRconHealthAsync(await CurrentUserAsync(), serverId);
+        _message = result.Succeeded
+            ? $"RCON health check started (operation {result.Operation}). The result appears on that server shortly."
+            : result.Failure switch
+            {
+                ServerLifecycleFailure.NotAuthorized => "You are not permitted to run diagnostics on that server.",
+                ServerLifecycleFailure.ServerNotFound => "That server is no longer available.",
+                _ => "The health check could not be started.",
+            };
+    }
+
+    private async Task<UserId> CurrentUserAsync()
+    {
+        ClaimsPrincipal principal = (await AuthState!).User;
+        return Guid.TryParse(Users.GetUserId(principal), out Guid id)
+            ? UserId.FromGuid(id)
+            : throw new InvalidOperationException("Authenticated request carries no user id claim.");
+    }
+
+    private sealed class HealthModel
+    {
+        public string? ServerId { get; set; }
+    }
+}
