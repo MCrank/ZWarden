@@ -135,4 +135,17 @@ public enum OperationKind
     /// the Operation's command payload; the Agent reports an (untrusted, bounded) <c>ConsoleCommandResult</c> on
     /// completion.</summary>
     ExecuteConsoleCommand = 19,
+
+    /// <summary>Gather the host-level infrastructure diagnostics from an Agent (F29): Docker connectivity, SteamCMD
+    /// availability + installed build, and host filesystem/disk. A <b>non-mutating, host-level</b> Operation — it
+    /// only reads — so it never claims the per-server lock (ADR 0022) and carries no <c>ServerId</c>. The Agent runs
+    /// every host check in one round-trip and reports a <c>HostDiagnosticsResult</c> bundle on completion.</summary>
+    GatherHostDiagnostics = 20,
+
+    /// <summary>Gather the per-server infrastructure diagnostics for a Server (F29): RCON reachability, the
+    /// game/query port, and the Server's filesystem (plus mods/config/compatibility in F29 PR-C). A
+    /// <b>non-mutating, server-scoped</b> Operation — it only reads — so it never claims the per-server lock (ADR
+    /// 0022) and does not contend with an in-flight lifecycle Operation. The target Server rides the envelope
+    /// <c>ServerId</c>; the Agent reports a <c>ServerDiagnosticsResult</c> bundle on completion.</summary>
+    GatherServerDiagnostics = 21,
 }
