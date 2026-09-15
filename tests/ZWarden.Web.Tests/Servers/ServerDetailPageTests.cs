@@ -428,6 +428,74 @@ public sealed class ServerDetailPageTests
     }
 
     [Test]
+    public async Task The_console_card_shows_and_prerenders_the_output_island_for_a_permitted_operator()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "console-runnable");
+
+        string html = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        await Assert.That(html).Contains("data-console-card");
+        await Assert.That(html).Contains("data-action=\"run-console\"");
+        // The command input binds by its full model-path name under static SSR (BbInput auto-derives, #121).
+        await Assert.That(html).Contains("name=\"_consoleForm.Input\"");
+        // The interactive output island prerenders its empty state (no output cached yet).
+        await Assert.That(html).Contains("data-console-empty");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task The_console_form_posts_and_enqueues_a_non_mutating_command_carrying_the_line()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "console-enqueue");
+
+        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+        Dictionary<string, string> form = new(StringComparer.Ordinal)
+        {
+            ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
+            ["_handler"] = "console-command",
+            ["_consoleForm.Input"] = "servermsg \"hello\"",
+        };
+        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}", UriKind.Relative), new FormUrlEncodedContent(form));
+
+        await Assert.That((int)post.StatusCode).IsLessThan(400);
+        using IServiceScope scope = factory.Services.CreateScope();
+        ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
+        Operation? op = db.Set<Operation>().FirstOrDefault(o => o.ServerId == serverId && o.Kind == OperationKind.ExecuteConsoleCommand);
+        await Assert.That(op).IsNotNull();
+        await Assert.That(op!.IsMutating).IsFalse();
+        await Assert.That(op.CommandPayload).Contains("servermsg");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task The_console_form_refuses_a_policy_blocked_command_without_enqueuing()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "console-denied");
+
+        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+        Dictionary<string, string> form = new(StringComparer.Ordinal)
+        {
+            ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
+            ["_handler"] = "console-command",
+            ["_consoleForm.Input"] = "setpassword \"bob\" \"pw\"",
+        };
+        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}", UriKind.Relative), new FormUrlEncodedContent(form));
+
+        await Assert.That((int)post.StatusCode).IsLessThan(400);
+        using IServiceScope scope = factory.Services.CreateScope();
+        ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
+        Operation? op = db.Set<Operation>().FirstOrDefault(o => o.ServerId == serverId && o.Kind == OperationKind.ExecuteConsoleCommand);
+        await Assert.That(op).IsNull();
+        client.Dispose();
+    }
+
+    [Test]
     public async Task The_backups_card_shows_for_a_permitted_operator()
     {
         await using ZWardenWebAppFactory factory = new();
