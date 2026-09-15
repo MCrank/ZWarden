@@ -90,10 +90,17 @@ deployment features by convenience.
    so a CLI-less build machine still builds deterministically) and suppresses only the resulting
    ASPIRE010 nudge.
 
-8. **CI placement.** (PR-3) The Aspire integration boot runs in the existing Docker-requiring tier
-   (ADR 0002), gated so the offline tier skips it.
+8. **CI enforces the boundary, not the boot.** (PR-3) The one CI guard is an **offline architecture
+   test** — no Aspire package may be referenced by any production `src/` project (`ZWarden.AppHost` is
+   the sole exception) — run every PR. We do **not** keep an in-process integration-test tier that boots
+   the graph in CI: the dev loop is validated by developers running `aspire run`, and an automated boot
+   of a dev-only tool exercises no production code path, so its value did not justify a Docker-tier test
+   plus dev-cert handling. The feasibility question that a test would have settled —
+   `DistributedApplicationTestingBuilder` under TUnit/MTP (the D-RISK-TEST gate) — was **proven once
+   locally** (it boots and asserts a healthy Web); should a standing integration test be wanted later,
+   it slots into the Docker-requiring tier (ADR 0002), gated off the offline tier.
 
-9. **The AppHost (and the PR-3 Aspire test project) carry no `packages.lock.json`.** With
+9. **The AppHost carries no `packages.lock.json`.** With
    `AspireUseCliBundle=false` the Aspire SDK restores the dashboard + DCP as **host-RID-specific**
    packages chosen from the build host's SDK RID (not from `RuntimeIdentifiers`), so a lockfile
    generated on Windows carries `win-x64` and fails a locked-mode restore on the linux CI runner
@@ -109,9 +116,8 @@ deployment features by convenience.
   a tool chosen for the inner loop. The dev/test fence is the whole point of this ADR.
 - **A hand-written Docker Compose file for dev.** Rejected for the inner loop: it gives the one-command
   boot but not the correlated dashboard, the strongly-typed project wiring, or the in-process
-  integration-test harness (the main prize — asserting against a running Web with real container
-  paths). Compose remains the likely *production* distribution shape under F34, which is a separate
-  decision.
+  integration-test harness Aspire makes available (see decision 8 on why we do not run that harness in
+  CI). Compose remains the likely *production* distribution shape under F34, which is a separate decision.
 - **Adopt Aspire's stock ServiceDefaults.** Rejected (decision 4): double-instrumentation and a fight
   with the Serilog two-stage bootstrap, for no gain over our existing OTLP export.
 - **Bump the shared `Microsoft.Extensions.Hosting` central pin to satisfy Aspire's floor.** Rejected in
@@ -120,11 +126,12 @@ deployment features by convenience.
 
 ## Consequences
 
-- One-command dev boot and an in-process integration harness that exercises real Web + Postgres (+
-  Agent + wollomatic in PR-2) with injected config — removing a class of "works because I set three
-  env vars by hand" bugs and giving UI/screenshot checks a dependency-complete app to run against.
-- A standing invariant to police: "no Aspire in production `src/`." It is arch-test-enforced (PR-3),
-  but every future contributor adding an Aspire integration must add it to the AppHost, not a host.
+- One-command dev boot of the whole graph (Web + Postgres + Agent + wollomatic) with injected config —
+  removing a class of "works because I set three env vars by hand" bugs and giving UI/screenshot checks
+  a dependency-complete app to run against. Correctness of that graph is confirmed by running it, not by
+  a CI test (decision 8).
+- A standing invariant, enforced by an offline arch test every PR: "no Aspire in production `src/`."
+  Every future contributor adding an Aspire integration must add it to the AppHost, not a host.
 - The dev enrollment credential (PR-2) is real attack surface if it ever authenticates in production;
   it is well-known and fenced, with a guard test, but it is a cost we accept knowingly.
 - We now track an Aspire version line (13.5.x) and its transitive floor (it forced the

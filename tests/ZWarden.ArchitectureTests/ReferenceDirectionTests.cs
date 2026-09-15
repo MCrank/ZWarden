@@ -24,6 +24,9 @@ public class ReferenceDirectionTests
         package.Contains("Auth0", StringComparison.OrdinalIgnoreCase)
         || package.Contains("Okta", StringComparison.OrdinalIgnoreCase);
 
+    private static bool IsAspire(string package) =>
+        package.StartsWith("Aspire.", StringComparison.OrdinalIgnoreCase);
+
     // §9 rule 1: a compromised Agent must not be able to reach the database, so it
     // references neither Infrastructure, EF Core, nor a provider.
     [Test]
@@ -127,6 +130,20 @@ public class ReferenceDirectionTests
 
         await Assert.That(withLoretta.Length).IsEqualTo(1);
         await Assert.That(withLoretta[0]).IsEqualTo("ZWarden.PzConfig");
+    }
+
+    // #123 / ADR 0031: Aspire is dev/test orchestration ONLY. No Aspire package may enter a production
+    // src/ project — the AppHost is the single exception (it IS the dev/test orchestrator). This keeps the
+    // dev/test/prod boundary honest: an Aspire dependency accidentally added to Web, the Agent, or any
+    // other production project fails the build here.
+    [Test]
+    public async Task Only_the_apphost_references_aspire()
+    {
+        string[] withAspire = [.. ProjectGraph.SourceProjectNames()
+            .Where(name => ProjectGraph.ForSourceProject(name).PackageReferences.Any(IsAspire))];
+
+        await Assert.That(withAspire.Length).IsEqualTo(1);
+        await Assert.That(withAspire[0]).IsEqualTo("ZWarden.AppHost");
     }
 
     // §9 rule 6: Auth0/IdP specifics never leak into Domain or Application (PRD 11).
