@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Options;
 using ZWarden.Agent.Backups;
 using ZWarden.Agent.Configuration;
+using ZWarden.Agent.Console;
 using ZWarden.Agent.ControlPlane;
 using ZWarden.Agent.Docker;
 using ZWarden.Agent.Players;
@@ -8,6 +9,7 @@ using ZWarden.Agent.Rcon;
 using ZWarden.Agent.ServerConfig;
 using ZWarden.Agent.SteamCmd;
 using ZWarden.Agent.Mods;
+using ZWarden.Agent.Tests.Console;
 using ZWarden.Agent.Tests.Docker;
 using ZWarden.Agent.Tests.Mods;
 using ZWarden.Agent.Tests.Players;
@@ -37,6 +39,7 @@ public class AgentCommandProcessorTests
         IRconHealthProbe? rconProbe = null,
         IRconServerConfig? rconConfig = null,
         IPlayerAdministration? players = null,
+        IConsoleAdministration? console = null,
         IServerConfigWriter? configWriter = null,
         IModDiscovery? modDiscovery = null) =>
         new(
@@ -48,6 +51,7 @@ public class AgentCommandProcessorTests
             rconProbe ?? new FakeRconHealthProbe(),
             rconConfig ?? new FakeRconServerConfig(),
             players ?? new FakePlayerAdministration(),
+            console ?? new FakeConsoleAdministration(),
             configWriter ?? new FakeServerConfigWriter(),
             modDiscovery ?? new FakeModDiscovery(),
             Options.Create(new AgentOptions
@@ -768,6 +772,59 @@ public class AgentCommandProcessorTests
 
         await Assert.That(second).IsNull();
         await Assert.That(players.CallCount).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task A_console_command_succeeds_and_carries_the_untrusted_reply()
+    {
+        var console = new FakeConsoleAdministration { Result = new ConsoleCommandResult("Players connected (0): ", Truncated: false) };
+        ServerId server = ServerId.New();
+        OperationId operationId = OperationId.New();
+
+        Envelope<OperationCompleted>? reply = await Processor(console: console)
+            .ProcessAsync(Json(new ExecuteConsoleCommand("players"), operationId, server), CancellationToken.None);
+
+        await Assert.That(reply!.OperationId).IsEqualTo(operationId);
+        await Assert.That(reply.ServerId).IsEqualTo(server);
+        await Assert.That(reply.Payload.Outcome).IsEqualTo(OperationOutcome.Succeeded);
+        await Assert.That(reply.Payload.ConsoleCommand!.Output).IsEqualTo("Players connected (0): ");
+        await Assert.That(console.LastInput).IsEqualTo("players");
+    }
+
+    [Test]
+    public async Task A_console_command_without_a_target_server_fails()
+    {
+        Envelope<OperationCompleted>? reply = await Processor()
+            .ProcessAsync(Json(new ExecuteConsoleCommand("players"), OperationId.New()), CancellationToken.None);
+
+        await Assert.That(reply!.Payload.Outcome).IsEqualTo(OperationOutcome.Failed);
+    }
+
+    [Test]
+    public async Task A_console_command_that_cannot_run_fails_with_the_agent_reason()
+    {
+        var console = new FakeConsoleAdministration { Throw = new ConsoleCommandException("RCON is disabled: no password is set in the server configuration.") };
+
+        Envelope<OperationCompleted>? reply = await Processor(console: console)
+            .ProcessAsync(Json(new ExecuteConsoleCommand("players"), OperationId.New(), ServerId.New()), CancellationToken.None);
+
+        await Assert.That(reply!.Payload.Outcome).IsEqualTo(OperationOutcome.Failed);
+        await Assert.That(reply.Payload.FailureReason).Contains("RCON is disabled");
+        await Assert.That(reply.Payload.ConsoleCommand).IsNull();
+    }
+
+    [Test]
+    public async Task A_redelivered_console_command_runs_once()
+    {
+        var console = new FakeConsoleAdministration();
+        AgentCommandProcessor sut = Processor(console: console);
+        string json = Json(new ExecuteConsoleCommand("save"), OperationId.New(), ServerId.New());
+
+        await sut.ProcessAsync(json, CancellationToken.None);
+        Envelope<OperationCompleted>? second = await sut.ProcessAsync(json, CancellationToken.None);
+
+        await Assert.That(second).IsNull();
+        await Assert.That(console.CallCount).IsEqualTo(1);
     }
 
     [Test]

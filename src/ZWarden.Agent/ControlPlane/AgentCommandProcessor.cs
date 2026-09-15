@@ -3,6 +3,7 @@ using Docker.DotNet;
 using Microsoft.Extensions.Options;
 using ZWarden.Agent.Backups;
 using ZWarden.Agent.Configuration;
+using ZWarden.Agent.Console;
 using ZWarden.Agent.Docker;
 using ZWarden.Agent.Mods;
 using ZWarden.Agent.Players;
@@ -34,6 +35,7 @@ public sealed class AgentCommandProcessor
     private readonly IRconHealthProbe _rconProbe;
     private readonly IRconServerConfig _rconConfig;
     private readonly IPlayerAdministration _players;
+    private readonly IConsoleAdministration _console;
     private readonly IServerConfigWriter _configWriter;
     private readonly IModDiscovery _modDiscovery;
     private readonly AgentOptions _options;
@@ -48,6 +50,7 @@ public sealed class AgentCommandProcessor
         IRconHealthProbe rconProbe,
         IRconServerConfig rconConfig,
         IPlayerAdministration players,
+        IConsoleAdministration console,
         IServerConfigWriter configWriter,
         IModDiscovery modDiscovery,
         IOptions<AgentOptions> options)
@@ -60,6 +63,7 @@ public sealed class AgentCommandProcessor
         ArgumentNullException.ThrowIfNull(rconProbe);
         ArgumentNullException.ThrowIfNull(rconConfig);
         ArgumentNullException.ThrowIfNull(players);
+        ArgumentNullException.ThrowIfNull(console);
         ArgumentNullException.ThrowIfNull(configWriter);
         ArgumentNullException.ThrowIfNull(modDiscovery);
         ArgumentNullException.ThrowIfNull(options);
@@ -71,6 +75,7 @@ public sealed class AgentCommandProcessor
         _rconProbe = rconProbe;
         _rconConfig = rconConfig;
         _players = players;
+        _console = console;
         _configWriter = configWriter;
         _modDiscovery = modDiscovery;
         _options = options.Value;
@@ -313,6 +318,31 @@ public sealed class AgentCommandProcessor
                     envelope, operationId, "set-whitelist-mode",
                     (server, ct) => _players.SetWhitelistModeAsync(server, mode.Open, ct), cancellationToken).ConfigureAwait(false);
 
+            case ExecuteConsoleCommand console:
+                if (envelope.ServerId is not { } consoleServerId)
+                {
+                    return Completed(OperationOutcome.Failed, "No target Server on the console command.", operationId);
+                }
+
+                if (!_handled.TryAdd(operationId, 0))
+                {
+                    return null; // Already handled this operation — a redelivered command (PRD 20).
+                }
+
+                try
+                {
+                    // The command ran: a succeeded Operation carries the (untrusted, bounded) reply. Whether PZ's
+                    // reply reports the desired effect is for the operator to read — the console is opaque by design.
+                    ConsoleCommandResult result = await _console
+                        .ExecuteAsync(consoleServerId, console.Input, cancellationToken).ConfigureAwait(false);
+                    return Completed(
+                        OperationOutcome.Succeeded, failureReason: null, operationId, consoleServerId, console: result);
+                }
+                catch (ConsoleCommandException ex)
+                {
+                    return Completed(OperationOutcome.Failed, ex.Message, operationId, consoleServerId);
+                }
+
             case ConfigApply apply:
                 if (envelope.ServerId is not { } configServerId)
                 {
@@ -512,10 +542,11 @@ public sealed class AgentCommandProcessor
         ModDiscoveryResult? mods = null,
         BackupResult? backup = null,
         BackupDeletionResult? backupDeletion = null,
-        RestoreResult? restore = null) =>
+        RestoreResult? restore = null,
+        ConsoleCommandResult? console = null) =>
         Envelope.Create(
             new OperationCompleted(
-                outcome, failureReason, provision, update, rcon, roster, playerAction, config, mods, backup, backupDeletion, restore),
+                outcome, failureReason, provision, update, rcon, roster, playerAction, config, mods, backup, backupDeletion, restore, console),
             _timeProvider.GetUtcNow(),
             serverId: serverId,
             operationId: operationId);
