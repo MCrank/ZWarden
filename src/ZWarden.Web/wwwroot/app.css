@@ -862,10 +862,6 @@ html {
   margin-left: 0.25rem;
 }
 
-.ml-4 {
-  margin-left: 1rem;
-}
-
 .mt-0\.5 {
   margin-top: 0.125rem;
 }
@@ -1096,12 +1092,6 @@ html {
   row-gap: 0.5rem;
 }
 
-.space-y-0\.5 > :not([hidden]) ~ :not([hidden]) {
-  --tw-space-y-reverse: 0;
-  margin-top: calc(0.125rem * calc(1 - var(--tw-space-y-reverse)));
-  margin-bottom: calc(0.125rem * var(--tw-space-y-reverse));
-}
-
 .space-y-1 > :not([hidden]) ~ :not([hidden]) {
   --tw-space-y-reverse: 0;
   margin-top: calc(0.25rem * calc(1 - var(--tw-space-y-reverse)));
@@ -1178,10 +1168,6 @@ html {
 
 .border-border {
   border-color: var(--border);
-}
-
-.border-input {
-  border-color: var(--input);
 }
 
 .border-status-busy {
@@ -1485,28 +1471,12 @@ html {
   filter: var(--tw-blur) var(--tw-brightness) var(--tw-contrast) var(--tw-grayscale) var(--tw-hue-rotate) var(--tw-invert) var(--tw-saturate) var(--tw-sepia) var(--tw-drop-shadow);
 }
 
-.transition {
-  transition-property: color, background-color, border-color, text-decoration-color, fill, stroke, opacity, box-shadow, transform, filter, -webkit-backdrop-filter;
-  transition-property: color, background-color, border-color, text-decoration-color, fill, stroke, opacity, box-shadow, transform, filter, backdrop-filter;
-  transition-property: color, background-color, border-color, text-decoration-color, fill, stroke, opacity, box-shadow, transform, filter, backdrop-filter, -webkit-backdrop-filter;
-  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-  transition-duration: 150ms;
-}
-
-.hover\:bg-muted:hover {
-  background-color: var(--muted);
-}
-
 .hover\:text-foreground:hover {
   color: var(--foreground);
 }
 
 .hover\:underline:hover {
   text-decoration-line: underline;
-}
-
-.hover\:opacity-90:hover {
-  opacity: 0.9;
 }
 
 @media (min-width: 640px) {

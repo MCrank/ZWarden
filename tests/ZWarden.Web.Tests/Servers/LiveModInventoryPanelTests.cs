@@ -40,6 +40,8 @@ public class LiveModInventoryPanelTests
         cache.Record(Inventory(server, agent));
 
         using BunitContext ctx = new();
+        // The inventory now renders BlazorBlueprint BbItem controls, which call JSInterop in OnAfterRender (ui-components.md).
+        ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddSingleton<IModInventoryCache>(cache);
 
         var cut = ctx.Render<LiveModInventoryPanel>(p => p
@@ -62,6 +64,8 @@ public class LiveModInventoryPanelTests
         cache.Record(Inventory(server, agent));
 
         using BunitContext ctx = new();
+        // The inventory now renders BlazorBlueprint BbItem controls, which call JSInterop in OnAfterRender (ui-components.md).
+        ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddSingleton<IModInventoryCache>(cache);
 
         var cut = ctx.Render<LiveModInventoryPanel>(p => p
@@ -74,9 +78,35 @@ public class LiveModInventoryPanelTests
     }
 
     [Test]
+    public async Task It_renders_the_inventory_as_blueprint_item_lists()
+    {
+        AgentId agent = AgentId.New();
+        ServerId server = ServerId.New();
+        ModInventoryCache cache = new();
+        cache.Record(Inventory(server, agent));
+
+        using BunitContext ctx = new();
+        ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+        ctx.Services.AddSingleton<IModInventoryCache>(cache);
+
+        var cut = ctx.Render<LiveModInventoryPanel>(p => p
+            .Add(c => c.ServerId, server.ToString())
+            .Add(c => c.AgentId, agent.ToString()));
+
+        string markup = cut.Markup;
+        // BbItemGroup renders role="list"; the installed items and issues keep their data-* hooks on the BbItems.
+        await Assert.That(markup).Contains("role=\"list\"");
+        await Assert.That(markup).Contains("data-mods-list");
+        await Assert.That(markup).Contains("data-workshop-item");
+        await Assert.That(markup).Contains("data-mod-id");
+    }
+
+    [Test]
     public async Task It_shows_the_awaiting_state_when_no_inventory_is_cached()
     {
         using BunitContext ctx = new();
+        // The inventory now renders BlazorBlueprint BbItem controls, which call JSInterop in OnAfterRender (ui-components.md).
+        ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddSingleton<IModInventoryCache>(new ModInventoryCache());
 
         var cut = ctx.Render<LiveModInventoryPanel>(p => p
@@ -98,6 +128,8 @@ public class LiveModInventoryPanelTests
             ["111"], [], [], At));
 
         using BunitContext ctx = new();
+        // The inventory now renders BlazorBlueprint BbItem controls, which call JSInterop in OnAfterRender (ui-components.md).
+        ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddSingleton<IModInventoryCache>(cache);
 
         var cut = ctx.Render<LiveModInventoryPanel>(p => p

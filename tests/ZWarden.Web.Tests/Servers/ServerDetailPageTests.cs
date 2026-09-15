@@ -41,8 +41,9 @@ public sealed class ServerDetailPageTests
         await Assert.That(html).Contains("data-action=\"remove-from-whitelist\"");
         // The live roster island prerendered with its awaiting state (no roster cached yet).
         await Assert.That(html).Contains("data-roster-awaiting");
-        // The static-SSR form binds the username by its model-path field name.
+        // The static-SSR form binds the username/reason by their model-path field names (BbInput auto-derives, #121).
         await Assert.That(html).Contains("name=\"_actionForm.Username\"");
+        await Assert.That(html).Contains("name=\"_actionForm.Reason\"");
         await Assert.That(html).Contains("data-bans-empty");
         client.Dispose();
     }

@@ -25,6 +25,8 @@ public class LivePlayerRosterPanelTests
         cache.Record(new PlayerRoster(server, agent, 2, ["Bob", "Alice"], At));
 
         using BunitContext ctx = new();
+        // The roster now renders BlazorBlueprint BbItem controls, which call JSInterop in OnAfterRender (ui-components.md).
+        ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddSingleton<IPlayerRosterCache>(cache);
 
         var cut = ctx.Render<LivePlayerRosterPanel>(p => p
@@ -38,9 +40,34 @@ public class LivePlayerRosterPanelTests
     }
 
     [Test]
+    public async Task It_renders_the_roster_as_blueprint_item_lists()
+    {
+        AgentId agent = AgentId.New();
+        ServerId server = ServerId.New();
+        PlayerRosterCache cache = new();
+        cache.Record(new PlayerRoster(server, agent, 1, ["Bob"], At));
+
+        using BunitContext ctx = new();
+        ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+        ctx.Services.AddSingleton<IPlayerRosterCache>(cache);
+
+        var cut = ctx.Render<LivePlayerRosterPanel>(p => p
+            .Add(c => c.ServerId, server.ToString())
+            .Add(c => c.AgentId, agent.ToString()));
+
+        string markup = cut.Markup;
+        // BbItemGroup renders role="list"; each player keeps its data-roster-* hooks (data-roster-player on the BbItem).
+        await Assert.That(markup).Contains("role=\"list\"");
+        await Assert.That(markup).Contains("data-roster-list");
+        await Assert.That(markup).Contains("data-roster-player");
+    }
+
+    [Test]
     public async Task It_shows_the_awaiting_state_when_no_roster_is_cached()
     {
         using BunitContext ctx = new();
+        // The roster now renders BlazorBlueprint BbItem controls, which call JSInterop in OnAfterRender (ui-components.md).
+        ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddSingleton<IPlayerRosterCache>(new PlayerRosterCache());
 
         var cut = ctx.Render<LivePlayerRosterPanel>(p => p
@@ -59,6 +86,8 @@ public class LivePlayerRosterPanelTests
         cache.Record(new PlayerRoster(server, agent, 1, ["<script>alert(1)</script>"], At));
 
         using BunitContext ctx = new();
+        // The roster now renders BlazorBlueprint BbItem controls, which call JSInterop in OnAfterRender (ui-components.md).
+        ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddSingleton<IPlayerRosterCache>(cache);
 
         var cut = ctx.Render<LivePlayerRosterPanel>(p => p
