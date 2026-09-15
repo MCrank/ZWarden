@@ -73,6 +73,34 @@ public sealed class AccountBlueprintFormTests
         await Assert.That(html).Contains("name=\"Input.Code\"");
     }
 
+    [Test]
+    public async Task The_manage_page_renders_the_two_factor_action_as_a_blueprint_link_button()
+    {
+        // #121: the "Enable authenticator" action was a hand-styled <a>; it now rides BbButton (Href → anchor),
+        // so the copied primary-button utilities are gone while the navigation target is unchanged.
+        await using ZWardenWebAppFactory factory = new();
+        await factory.CreateConfirmedUserAsync("manage@zwarden.test", StrongPassword);
+        using HttpClient client = factory.CreateWebClient();
+        await SignInAsync(client, "manage@zwarden.test", StrongPassword);
+
+        string html = await (await client.GetAsync(new Uri("/account/manage", UriKind.Relative)))
+            .Content.ReadAsStringAsync();
+
+        await Assert.That(html).Contains("href=\"/account/manage/enable-authenticator\"");
+        await Assert.That(html).Contains("Enable authenticator (2FA)");
+        // The removed hand-rolled primary-button hover utility must not survive the conversion.
+        await Assert.That(html).DoesNotContain("hover:opacity-90");
+    }
+
+    private static async Task SignInAsync(HttpClient client, string email, string password)
+    {
+        HttpResponseMessage page = await client.GetAsync(new Uri("/login", UriKind.Relative));
+        Dictionary<string, string> form = ParseHiddenInputs(await page.Content.ReadAsStringAsync());
+        form["Input.Email"] = email;
+        form["Input.Password"] = password;
+        await client.PostAsync(new Uri("/login", UriKind.Relative), new FormUrlEncodedContent(form));
+    }
+
     private static Dictionary<string, string> ParseHiddenInputs(string html)
     {
         Dictionary<string, string> inputs = new(StringComparer.Ordinal);

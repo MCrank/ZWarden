@@ -29,17 +29,17 @@
         </dd>
     </dl>
 
+    @* Plain navigation links (not the credential/cookie-sign path) — BbButton renders as an anchor when Href is set,
+       so these ride the Blueprint seam like the logout button below (#84/#121; ADR 0003). *@
     <div class="mt-6 flex flex-wrap gap-3">
-        <a href="/account/manage/enable-authenticator"
-           class="rounded bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground transition hover:opacity-90">
+        <BbButton Href="/account/manage/enable-authenticator">
             @(_twoFactorEnabled ? "Reconfigure authenticator" : "Enable authenticator (2FA)")
-        </a>
+        </BbButton>
         @if (_twoFactorEnabled)
         {
-            <a href="/account/manage/recovery-codes"
-               class="rounded border border-border px-3 py-2 text-sm font-medium text-foreground transition hover:bg-muted">
+            <BbButton Href="/account/manage/recovery-codes" Variant="ButtonVariant.Outline">
                 Regenerate recovery codes
-            </a>
+            </BbButton>
         }
     </div>
 

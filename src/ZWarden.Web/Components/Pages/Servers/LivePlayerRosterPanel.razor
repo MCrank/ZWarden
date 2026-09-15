@@ -19,12 +19,20 @@
         </div>
         @if (roster.Players.Count > 0)
         {
-            <ul class="mt-3 space-y-1" data-roster-list>
-                @foreach (string player in roster.Players)
-                {
-                    <li class="font-mono text-sm" data-roster-player>@player</li>
-                }
-            </ul>
+            @* BbItemGroup does not splat attributes, so the data-roster-list hook rides a wrapper div; BbItem does splat
+               (data-roster-player). Matches the mod-manage BbItem lists on the parent page (#121). *@
+            <div data-roster-list>
+                <BbItemGroup Class="mt-3">
+                    @foreach (string player in roster.Players)
+                    {
+                        <BbItem Variant="ItemVariant.Outline" Size="ItemSize.Sm" data-roster-player>
+                            <BbItemContent>
+                                <BbItemTitle><span class="font-mono text-sm">@player</span></BbItemTitle>
+                            </BbItemContent>
+                        </BbItem>
+                    }
+                </BbItemGroup>
+            </div>
         }
         else
         {
