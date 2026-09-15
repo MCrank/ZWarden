@@ -126,4 +126,13 @@ public enum OperationKind
     /// the protective backup it took — on completion. The target backup id, archive name, and checksum ride the
     /// command payload.</summary>
     Restore = 18,
+
+    /// <summary>Run one operator-authored RCON command line from the remote administrative console (F28). A
+    /// <b>non-mutating, server-scoped</b> Operation (an RCON passthrough already serialized by the Agent's
+    /// single-socket gate — ADR 0026), so it never claims the per-server lock (ADR 0022) and does not contend with
+    /// an in-flight lifecycle Operation. Gated by the elevated <c>Console.Execute</c> permission and governed by
+    /// the F28 command policy (ADR 0032 — no shell, no credential command, no <c>quit</c>). The command line rides
+    /// the Operation's command payload; the Agent reports an (untrusted, bounded) <c>ConsoleCommandResult</c> on
+    /// completion.</summary>
+    ExecuteConsoleCommand = 19,
 }

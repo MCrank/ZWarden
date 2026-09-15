@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using ZWarden.Agent.Backups;
 using ZWarden.Agent.Configuration;
+using ZWarden.Agent.Console;
 using ZWarden.Agent.ControlPlane;
 using ZWarden.Agent.Diagnostics;
 using ZWarden.Agent.Docker;
@@ -115,6 +116,11 @@ public static class HostingExtensions
         // the Agent-owned RCON connection, building and quoting the admin commands (ADR 0026 deferred quoting to
         // F19) and parsing PZ's untrusted replies into typed results.
         services.AddSingleton<IPlayerAdministration, PlayerAdministration>();
+
+        // Remote administrative console (F28): runs one operator-authored RCON line over the Agent-owned
+        // connection, re-checking the F28 input-safety + command policy (ADR 0032) before sending and bounding the
+        // untrusted reply. Gated by the elevated Console.Execute permission on the Web side.
+        services.AddSingleton<IConsoleAdministration, ConsoleAdministration>();
 
         // Configuration apply (F20b): the parse-only PZ config seam and the host-side surgical writer that
         // re-parses the live /pz/ file, fails closed on a drift from the recorded baseline (ADR 0011), and writes
