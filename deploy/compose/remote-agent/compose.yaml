@@ -1,0 +1,100 @@
+# ZWarden — remote Agent distribution (F35, ADR 0038). Run this on a SECOND host to bring it under an
+# existing ZWarden control plane, with NO privileged inbound port on this host (criterion 14).
+#
+#   ./bootstrap-env.sh            # scaffold .env from .env.example, once
+#   # edit .env: set ZWARDEN_DOMAIN + paste the wizard's one-time ZWARDEN_ENROLLMENT_SECRET
+#   docker compose up -d
+#
+# This stack is JUST the host worker: the ZWarden.Agent (F8) and the wollomatic socket-proxy its Docker path
+# runs through (ADR 0008). There is NO Caddy and NO Web here — the control plane already runs elsewhere (the
+# F34 reference stack). The Agent connects OUTBOUND over wss to the public control-plane domain; nothing on
+# this host listens for inbound ZWarden traffic. Project Zomboid game-server containers are NOT services here
+# — the Agent creates them at runtime on this host's daemon (F13). See docs/deployment/remote-agent.md.
+name: zwarden-agent
+
+services:
+  # The host worker (F8). Headless: no inbound HTTP. Reaches Docker only via wollomatic (ADR 0008), and the
+  # control plane only OUTBOUND over wss (F35). Identical image to the co-located Agent (F34) — this is the
+  # same component on a different host, not a new one.
+  agent:
+    build:
+      context: ../../..
+      dockerfile: src/ZWarden.Agent/Dockerfile
+    image: zwarden/agent:latest
+    restart: unless-stopped
+    depends_on:
+      wollomatic:
+        condition: service_started
+    environment:
+      - DOTNET_ENVIRONMENT=Production
+      # F35: outbound wss to the REMOTE public control plane (F8 requires https/wss). This resolves over the
+      # open Internet via public DNS — there is no in-stack Caddy alias here. Public TLS mode → trusted cert;
+      # a control plane in Private (tls internal) mode needs Caddy's CA trusted in this container — see the guide.
+      - Agent__ControlPlaneUri=wss://${ZWARDEN_DOMAIN}
+      # One-time enrollment (F9). Paste the secret the control plane's First-Run/Enroll wizard issues into .env;
+      # the Agent self-enrols once, then reuses its persisted per-Agent credential. Blank after first enrol.
+      - Agent__EnrollmentSecret=${ZWARDEN_ENROLLMENT_SECRET:-}
+      # The Docker path runs through the socket-proxy, never the raw socket (ADR 0008).
+      - Agent__DockerEndpoint=tcp://wollomatic:2375
+      # Identity + trust persist on a named volume so a restart never re-enrols (F9).
+      - Agent__IdentityFilePath=/var/lib/zwarden/agent-identity.json
+      - Agent__TrustFilePath=/var/lib/zwarden/agent-trust.json
+      # PZ world data + backups. Under /tmp because the proxy's -allowbindmountfrom is /tmp (ADR 0008).
+      - Agent__DataMountRoot=/tmp/zwarden/pz-data
+      - Agent__BackupRoot=/tmp/zwarden/pz-backups
+      # The Docker network provisioned PZ containers attach to (F14). Must be a real host network.
+      - Agent__NetworkName=${ZWARDEN_PZ_NETWORK:-zwarden-pz}
+      # The pinned canonical PZ image (repo@sha256:… — a floating tag is rejected, ADR 0008). Optional at
+      # startup; provisioning fails with an actionable message until set. See .env.example.
+      - Agent__PzImageReference=${ZWARDEN_PZ_IMAGE:-}
+    volumes:
+      - agent_state:/var/lib/zwarden
+    networks:
+      # egress reaches the Internet (to dial the control plane over wss); docker-proxy is the internal-only
+      # path to wollomatic.
+      - egress
+      - docker-proxy
+
+  # The Docker socket-proxy (ADR 0008): the ONLY thing that touches the daemon socket, constrained to a fixed
+  # allowlist. Internal-only network, never host-published. The allowlist below is the SAME set the F13 drift
+  # tests and the F34 reference compose enforce (RemoteAgentDistributionTests pins it) — edit all together.
+  wollomatic:
+    image: wollomatic/socket-proxy:1.13.1
+    restart: unless-stopped
+    user: "0:0"                       # must read the root-owned docker socket
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    # Single-quoted YAML so the regex backslashes are literal — the exact values the Agent's Docker client
+    # negotiates against (ADR 0008 as amended by F16: read-only stats).
+    command:
+      - '-loglevel=INFO'
+      - '-listenip=0.0.0.0'
+      # Only the internal docker-proxy subnet may connect (prod tightening over the dev graph's 0.0.0.0/0).
+      - '-allowfrom=172.31.0.0/24'
+      - '-allowGET=(/v1\.[0-9]+)?/(_ping|version|info|containers/json|containers/[a-zA-Z0-9_.-]+/(json|logs|stats))'
+      - '-allowHEAD=(/v1\.[0-9]+)?/_ping'
+      - '-allowPOST=(/v1\.[0-9]+)?/(containers/create|containers/[a-zA-Z0-9_.-]+/(start|stop|restart))'
+      - '-allowbindmountfrom=/tmp'
+      - '-watchdoginterval=0'
+    networks:
+      - docker-proxy
+
+networks:
+  # The Agent → Internet path (to dial the control plane over wss). A normal bridge with egress.
+  egress:
+    driver: bridge
+  # Agent → wollomatic only. internal:true ⇒ no route to the Internet for the socket-proxy (ADR 0008).
+  docker-proxy:
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.31.0.0/24
+  # The network provisioned PZ game-server containers join (F14). Fixed name so the Agent's NetworkName matches
+  # the real host network compose creates.
+  zwarden-pz:
+    name: ${ZWARDEN_PZ_NETWORK:-zwarden-pz}
+    driver: bridge
+
+volumes:
+  agent_state:

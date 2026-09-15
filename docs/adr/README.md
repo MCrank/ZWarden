@@ -51,5 +51,7 @@ instead. New ADRs take the next number and follow [`TEMPLATE.md`](./TEMPLATE.md)
 | [0034](./0034-the-sanitized-support-package-is-a-transient-fail-closed-pipeline.md) | The sanitized support package is a transient, fail-closed collect→sanitize→redact→scan→validate→package pipeline | #50 |
 | [0035](./0035-caddy-reference-reverse-proxy-ingress.md) | Caddy is the reference reverse-proxy ingress; three TLS modes; the app trusts the proxy | #51 |
 | [0036](./0036-first-run-setup-singleton-install-state-and-gate.md) | First-run setup is a singleton install-state record behind a redirect gate; complete at first admin + confirmed TLS mode | #52 |
+| [0037](./0037-reference-docker-compose-distribution.md) | The reference deployment is a hand-authored Docker Compose distribution, SQLite-base with a Postgres overlay | #53 |
+| [0038](./0038-remote-agents-are-the-same-outbound-agent-on-another-host.md) | A remote Agent is the same outbound-WSS Agent on another host; Hosts self-describe; host-scoped permissions wait for v1.1 | #54 |
 
 When you add an ADR, add its row here in the same commit.

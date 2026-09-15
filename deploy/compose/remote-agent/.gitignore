@@ -1,0 +1,2 @@
+# The remote Agent's environment file holds the one-time enrollment secret — never commit it.
+.env
