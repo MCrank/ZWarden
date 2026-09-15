@@ -179,8 +179,23 @@ One domain's verdict within a Diagnostic Report — a status (pass / warn / fail
 and optional untrusted detail. A **domain** is one area checked (database, Docker, RCON, TLS, …).
 
 **Support Package**:
-A sanitized, redacted diagnostic bundle a user can share without leaking secrets.
+A sanitized, redacted diagnostic bundle a user can share without leaking secrets — the transient,
+packaged form of a **Diagnostic Report**. Built by a fail-closed pipeline (collect → sanitize →
+redact → **secret scan** → validate → ZIP); a detected secret **aborts** generation rather than
+emitting it. Identified by a **DiagnosticId** (`diag-`), streamed as a download, never persisted (F30).
 _Avoid_: log dump, diagnostic export
+
+**Secret scan**:
+The last-line, content-based gate over a **Support Package**'s fully-sanitized payload. It looks for
+secret _shapes_ (private keys, tokens, credentials, high-entropy blobs) that key-based redaction
+could miss; a detection fails the package. Distinct from a **Diagnostic Report**'s domain checks.
+_Avoid_: scan (unqualified — collides with a diagnostics sweep)
+
+**Pseudonym**:
+A consistent, numbered placeholder a **Support Package** substitutes for operational PII
+(`<HOST-1>`, `<PLAYER-2>`, `<PRIVATE-IP-1>`, `<PUBLIC-IP-1>`). Consistent _within one package_ so
+relationships stay legible; deliberately not stable across packages (that would re-identify).
+_Avoid_: anonymize (the mapping is reversible in principle; "pseudonym" is the honest term)
 
 ### Identifiers
 

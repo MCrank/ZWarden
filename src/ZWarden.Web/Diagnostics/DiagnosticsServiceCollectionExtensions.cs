@@ -1,6 +1,7 @@
 using System.Reflection;
 using ZWarden.Application.Diagnostics;
 using ZWarden.Diagnostics;
+using ZWarden.Diagnostics.SupportPackage;
 using ZWarden.Infrastructure.Diagnostics;
 
 namespace ZWarden.Web.Diagnostics;
@@ -39,6 +40,13 @@ public static class DiagnosticsServiceCollectionExtensions
         services.AddSingleton<IDiagnosticsResultCache, DiagnosticsResultCache>();
 
         services.AddScoped<IDiagnosticsService, DiagnosticsService>();
+
+        // F30 sanitized support package: the pure pipeline builder (singleton — it only needs the clock), the
+        // Web-side environment-facts provider (scoped — it reads the scoped DbContext), and the orchestrator that
+        // authorizes Diagnostics.Export, collects the report, runs the pipeline, and audits the outcome.
+        services.AddSingleton<ISupportPackageBuilder, SupportPackageBuilder>();
+        services.AddScoped<IEnvironmentFactsProvider, WebEnvironmentFactsProvider>();
+        services.AddScoped<ISupportPackageService, SupportPackageService>();
 
         return services;
     }

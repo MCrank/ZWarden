@@ -97,6 +97,22 @@ public sealed class ServerDetailPageTests
     }
 
     [Test]
+    public async Task The_diagnostics_card_shows_the_export_button_for_a_permitted_operator()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "exportable");
+
+        string html = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        await Assert.That(html).Contains("data-diagnostics-card");
+        await Assert.That(html).Contains("data-action=\"export-support-package\"");
+        // A native POST to the export endpoint so the browser downloads the returned ZIP.
+        await Assert.That(html).Contains($"/api/servers/{serverId}/diagnostics/support-package");
+        client.Dispose();
+    }
+
+    [Test]
     public async Task The_configuration_card_shows_the_edit_form_and_empty_history_for_a_permitted_operator()
     {
         await using ZWardenWebAppFactory factory = new();

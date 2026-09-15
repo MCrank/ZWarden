@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Net;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -133,6 +134,55 @@ public sealed class DiagnosticsEndpointsTests
             new Uri($"/api/servers/{ServerId.New()}/diagnostics", UriKind.Relative));
 
         await Assert.That(read.StatusCode).IsNotEqualTo(HttpStatusCode.OK);
+    }
+
+    [Test]
+    public async Task Anonymous_cannot_export_a_support_package()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        using HttpClient client = factory.CreateWebClient();
+
+        HttpResponseMessage response = await client.PostAsync(
+            new Uri("/api/diagnostics/support-package", UriKind.Relative), content: null);
+
+        await Assert.That(response.StatusCode).IsNotEqualTo(HttpStatusCode.OK);
+    }
+
+    [Test]
+    public async Task An_operator_exports_a_tenant_support_package_as_a_zip()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        await factory.CreateConfirmedUserAsync("op@zwarden.test", StrongPassword);
+        await AuthorizationBootstrapper.EnsureSeededAsync(factory.Services, "op@zwarden.test");
+        using HttpClient client = factory.CreateWebClient();
+        await LoginAsync(client, "op@zwarden.test", StrongPassword);
+
+        HttpResponseMessage export = await client.PostAsync(
+            new Uri("/api/diagnostics/support-package", UriKind.Relative), content: null);
+
+        await Assert.That(export.StatusCode).IsEqualTo(HttpStatusCode.OK);
+        await Assert.That(export.Content.Headers.ContentType!.MediaType).IsEqualTo("application/zip");
+        await Assert.That(export.Content.Headers.ContentDisposition!.FileName!).Contains("support-package-diag-");
+
+        byte[] bytes = await export.Content.ReadAsByteArrayAsync();
+        using ZipArchive zip = new(new MemoryStream(bytes), ZipArchiveMode.Read);
+        await Assert.That(zip.GetEntry("manifest.json")).IsNotNull();
+        await Assert.That(zip.GetEntry("diagnostics.json")).IsNotNull();
+    }
+
+    [Test]
+    public async Task Exporting_a_support_package_for_an_unknown_server_is_not_found()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        await factory.CreateConfirmedUserAsync("op@zwarden.test", StrongPassword);
+        await AuthorizationBootstrapper.EnsureSeededAsync(factory.Services, "op@zwarden.test");
+        using HttpClient client = factory.CreateWebClient();
+        await LoginAsync(client, "op@zwarden.test", StrongPassword);
+
+        HttpResponseMessage export = await client.PostAsync(
+            new Uri($"/api/servers/{ServerId.New()}/diagnostics/support-package", UriKind.Relative), content: null);
+
+        await Assert.That(export.StatusCode).IsEqualTo(HttpStatusCode.NotFound);
     }
 
     private static async Task LoginAsync(HttpClient client, string email, string password)

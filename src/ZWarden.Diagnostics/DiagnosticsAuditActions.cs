@@ -9,4 +9,9 @@ public static class DiagnosticsAuditActions
 {
     /// <summary>An operator ran a tenant-wide diagnostics sweep (authorized by <c>Diagnostics.View</c>).</summary>
     public const string Run = "Diagnostics.Run";
+
+    /// <summary>An operator generated a sanitized support package (authorized by <c>Diagnostics.Export</c>; F30).
+    /// A <c>Failed</c> outcome records a fail-closed abort — the secret scanner blocked generation (PRD 51). The
+    /// detail carries the <c>DiagnosticId</c> and, on a block, the detector that fired — never the secret.</summary>
+    public const string Export = "Diagnostics.Export";
 }

@@ -1,6 +1,7 @@
 using ZWarden.Application.Audit;
 using ZWarden.Application.Authorization;
 using ZWarden.Application.Diagnostics;
+using ZWarden.Diagnostics.SupportPackage;
 using ZWarden.Domain.Authorization;
 using ZWarden.Domain.Ids;
 
@@ -94,4 +95,43 @@ internal sealed class FixedTimeProvider : TimeProvider
     public FixedTimeProvider(DateTimeOffset now) => _now = now;
 
     public override DateTimeOffset GetUtcNow() => _now;
+}
+
+/// <summary>A stand-in <see cref="IDiagnosticsService"/> returning preset run results (F30 service tests).</summary>
+internal sealed class FakeDiagnosticsService : IDiagnosticsService
+{
+    private readonly DiagnosticsRunResult _tenant;
+    private readonly DiagnosticsRunResult _server;
+
+    public FakeDiagnosticsService(DiagnosticsRunResult tenant, DiagnosticsRunResult? server = null)
+    {
+        _tenant = tenant;
+        _server = server ?? tenant;
+    }
+
+    public bool TenantRun { get; private set; }
+    public bool ServerRun { get; private set; }
+
+    public Task<DiagnosticsRunResult> RunAsync(UserId user, CancellationToken cancellationToken = default)
+    {
+        TenantRun = true;
+        return Task.FromResult(_tenant);
+    }
+
+    public Task<DiagnosticsRunResult> RunForServerAsync(
+        UserId user, ServerId serverId, AgentId owningAgentId, CancellationToken cancellationToken = default)
+    {
+        ServerRun = true;
+        return Task.FromResult(_server);
+    }
+}
+
+/// <summary>A fixed <see cref="IEnvironmentFactsProvider"/> for the F30 support-package tests.</summary>
+internal sealed class FakeEnvironmentFactsProvider : IEnvironmentFactsProvider
+{
+    private readonly EnvironmentFacts _facts;
+
+    public FakeEnvironmentFactsProvider(EnvironmentFacts facts) => _facts = facts;
+
+    public EnvironmentFacts Capture() => _facts;
 }

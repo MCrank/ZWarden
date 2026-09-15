@@ -2,11 +2,13 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Identity;
 using ZWarden.Application.Diagnostics;
 using ZWarden.Application.Operations;
+using ZWarden.Diagnostics.SupportPackage;
 using ZWarden.Domain.Authorization;
 using ZWarden.Domain.Ids;
 using ZWarden.Domain.Operations;
 using ZWarden.Infrastructure.Identity;
 using ZWarden.Infrastructure.Servers;
+using ZWarden.Web.Diagnostics;
 
 namespace ZWarden.Web.Components.Diagnostics;
 
@@ -135,7 +137,76 @@ public static class DiagnosticsEndpoints
             return result.Succeeded ? Results.Ok(Project(result.Report!)) : Results.Forbid();
         });
 
+        // Generate the tenant-wide sanitized support package and stream it as a ZIP download (F30). Additionally
+        // gated by the tenant-wide Diagnostics.Export permission; the service authorizes it fail-closed, runs the
+        // Collect→Sanitize→Redact→Secret-scan→Validate→Package pipeline, and audits the outcome. A detected secret
+        // aborts generation (PRD 51) — the response names the block, never the content.
+        api.MapPost("/diagnostics/support-package", async (
+            ClaimsPrincipal principal,
+            UserManager<ApplicationUser> users,
+            ISupportPackageService packages,
+            CancellationToken cancellationToken) =>
+        {
+            SupportPackageResult result = await packages
+                .CreateTenantPackageAsync(Actor(principal, users), cancellationToken).ConfigureAwait(false);
+
+            return Download(result);
+        }).RequireAuthorization(Permissions.DiagnosticsExport.Name);
+
+        // Generate the per-server sanitized support package (F30). The Server is resolved through the tenant filter
+        // (foreign/unknown ⇒ 404); the package covers the Server's domains plus its owning Agent's host domains.
+        api.MapPost("/servers/{id}/diagnostics/support-package", async (
+            string id,
+            ClaimsPrincipal principal,
+            UserManager<ApplicationUser> users,
+            ServerRepository servers,
+            ISupportPackageService packages,
+            CancellationToken cancellationToken) =>
+        {
+            if (!ServerId.TryParse(id, out ServerId serverId))
+            {
+                return Results.BadRequest();
+            }
+
+            var server = await servers.FindByIdAsync(serverId, cancellationToken).ConfigureAwait(false);
+            if (server is null)
+            {
+                return Results.NotFound();
+            }
+
+            SupportPackageResult result = await packages
+                .CreateServerPackageAsync(Actor(principal, users), serverId, server.AgentId, cancellationToken).ConfigureAwait(false);
+
+            return Download(result);
+        }).RequireAuthorization(Permissions.DiagnosticsExport.Name);
+
         return endpoints;
+    }
+
+    // Maps a support-package outcome to an HTTP result: the ZIP on success; a non-leaking problem on a fail-closed
+    // abort (409 secret detected / 422 invalid); 403 when the export was not authorized. The ZIP is built here (the
+    // only I/O in the F30 path) from the pure builder's documents + manifest.
+    private static IResult Download(SupportPackageResult result)
+    {
+        if (result.Succeeded)
+        {
+            byte[] zip = ZipSupportPackageWriter.Write(result.Package!);
+            string fileName = $"support-package-{result.Package!.Manifest.DiagnosticId}.zip";
+            return Results.File(zip, "application/zip", fileName);
+        }
+
+        return result.Failure switch
+        {
+            SupportPackageFailure.SecretDetected => Results.Problem(
+                title: "Export blocked",
+                detail: "A potential secret was detected and the package was not generated.",
+                statusCode: StatusCodes.Status409Conflict),
+            SupportPackageFailure.InvalidContent => Results.Problem(
+                title: "Export failed",
+                detail: "The diagnostic content could not be packaged.",
+                statusCode: StatusCodes.Status422UnprocessableEntity),
+            _ => Results.Forbid(),
+        };
     }
 
     private static object Project(DiagnosticReport report) => new
