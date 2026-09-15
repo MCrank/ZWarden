@@ -57,7 +57,10 @@ public sealed class SetupGateMiddleware
     private static bool IsAllowedDuringSetup(PathString path)
     {
         if (path.StartsWithSegments("/setup", StringComparison.OrdinalIgnoreCase)
-            || path.StartsWithSegments("/agent", StringComparison.OrdinalIgnoreCase))
+            || path.StartsWithSegments("/agent", StringComparison.OrdinalIgnoreCase)
+            // The container liveness probe (F34) must succeed before setup is complete, or the Web container
+            // never becomes healthy and the Compose stack never finishes starting.
+            || path.StartsWithSegments("/healthz", StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }

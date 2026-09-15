@@ -99,6 +99,11 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.UseAntiforgery();
 
+// F34: an unauthenticated, dependency-free container liveness probe for the reference Compose healthcheck
+// (ADR 0037). Deliberately distinct from F16's authenticated PZ-server health model — this only answers
+// "is the Web process serving?", is allow-listed past the first-run gate, and never touches the database.
+app.MapGet("/healthz", () => Results.Text("healthy")).AllowAnonymous();
+
 app.MapStaticAssets();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
