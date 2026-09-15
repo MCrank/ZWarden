@@ -75,6 +75,13 @@ namespace ZWarden.Contracts.Protocol.Messages;
 /// data, recorded only against the Server the envelope's <c>ServerId</c> names, in the current tenant. Carries no
 /// host path and no secret.
 /// </param>
+/// <param name="ConsoleCommand">
+/// For a remote-console command (<see cref="ExecuteConsoleCommand"/>, F28), the Server's RCON reply the Agent
+/// observed. <c>null</c> for every other Operation. Additive and optional (ADR 0020); the output is
+/// <b>untrusted</b> PZ text (trust-boundaries.md §8), bounded and carried verbatim for escaping at render. Carries
+/// no secret (the credential-reading commands are denied by policy — ADR 0032). Recorded against the Server the
+/// envelope's <c>ServerId</c> names.
+/// </param>
 [ProtocolMessage("operation.completed")]
 public sealed record OperationCompleted(
     OperationOutcome Outcome,
@@ -88,7 +95,8 @@ public sealed record OperationCompleted(
     ModDiscoveryResult? Mods = null,
     BackupResult? Backup = null,
     BackupDeletionResult? BackupDeletion = null,
-    RestoreResult? Restore = null) : AgentEvent;
+    RestoreResult? Restore = null,
+    ConsoleCommandResult? ConsoleCommand = null) : AgentEvent;
 
 /// <summary>The archive a successful <see cref="BackupServer"/> Operation wrote (F24): the compressed
 /// <c>.tar.gz</c> of the Server's world tree the Agent produced host-side under its <c>BackupRoot</c>. Carries the
@@ -184,6 +192,17 @@ public enum PlayerActionOutcome
 /// <param name="Outcome">The classified outcome.</param>
 /// <param name="Detail">PZ's reply text (bounded, untrusted), or <c>null</c> when PZ sent no reply.</param>
 public sealed record PlayerActionResult(PlayerActionOutcome Outcome, string? Detail);
+
+/// <summary>The reply a remote-console command Operation observed (F28: <see cref="ExecuteConsoleCommand"/>) — the
+/// raw text PZ returned over RCON. The output is <b>untrusted</b> PZ text (trust-boundaries.md §8): carried
+/// verbatim, never interpreted, and escaped only at render. It is <b>bounded</b> by the Agent (a large reply such
+/// as <c>help</c> or <c>showoptions</c> can be tens of KB); <see cref="Truncated"/> says whether the Agent cut it
+/// to the cap. Carries no secret (the credential-reading commands are denied by policy — ADR 0032; <c>showoptions</c>
+/// never prints the RCON/admin password, research §7). An empty <see cref="Output"/> is a valid empty reply (§7
+/// quirk 3), not a fault. The Server it belongs to is the completion envelope's <c>ServerId</c>.</summary>
+/// <param name="Output">PZ's reply text (bounded, untrusted), possibly empty.</param>
+/// <param name="Truncated">True when the Agent cut the reply to its output cap.</param>
+public sealed record ConsoleCommandResult(string Output, bool Truncated);
 
 /// <summary>The revision a successful <see cref="ConfigApply"/> Operation recorded (F20b, ADR 0011): the
 /// canonical, order-normalized snapshot of the file's parsed values <b>after</b> the write, its SHA-256 hash
