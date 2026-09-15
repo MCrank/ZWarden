@@ -12,8 +12,14 @@ namespace ZWarden.Application.Agents;
 /// </summary>
 public interface IAgentConnectionStateWriter
 {
-    /// <summary>Records that <paramref name="agentId"/> connected and negotiated <paramref name="protocolVersion"/>.</summary>
-    Task MarkConnectedAsync(AgentId agentId, int protocolVersion, CancellationToken cancellationToken = default);
+    /// <summary>Records that <paramref name="agentId"/> connected and negotiated <paramref name="protocolVersion"/>,
+    /// storing the self-reported <paramref name="host"/> facts when the Agent supplied them (F35 D-1; an Agent
+    /// that predates the descriptor passes <c>null</c>, leaving any previously-known facts intact).</summary>
+    Task MarkConnectedAsync(
+        AgentId agentId,
+        int protocolVersion,
+        HostFacts? host = null,
+        CancellationToken cancellationToken = default);
 
     /// <summary>Advances <paramref name="agentId"/>'s last-seen time on a heartbeat or snapshot.</summary>
     Task MarkHeartbeatAsync(AgentId agentId, CancellationToken cancellationToken = default);

@@ -29,8 +29,22 @@ public sealed class AgentConnectionStateWriter : IAgentConnectionStateWriter
     }
 
     /// <inheritdoc />
-    public Task MarkConnectedAsync(AgentId agentId, int protocolVersion, CancellationToken cancellationToken = default)
-        => StampAsync(agentId, agent => agent.MarkConnected(protocolVersion, _clock.GetUtcNow()), cancellationToken);
+    public Task MarkConnectedAsync(
+        AgentId agentId,
+        int protocolVersion,
+        HostFacts? host = null,
+        CancellationToken cancellationToken = default)
+        => StampAsync(
+            agentId,
+            agent =>
+            {
+                agent.MarkConnected(protocolVersion, _clock.GetUtcNow());
+                if (host is not null)
+                {
+                    agent.RecordHostDescriptor(host.Hostname, host.AgentVersion, host.OsPlatform);
+                }
+            },
+            cancellationToken);
 
     /// <inheritdoc />
     public Task MarkHeartbeatAsync(AgentId agentId, CancellationToken cancellationToken = default)

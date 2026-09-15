@@ -130,6 +130,10 @@ namespace ZWarden.Migrations.Postgres.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("AgentVersion")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
                     b.Property<string>("ConnectionState")
                         .IsRequired()
                         .HasMaxLength(32)
@@ -149,6 +153,10 @@ namespace ZWarden.Migrations.Postgres.Migrations
                     b.Property<Guid>("EnrolledVia")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("Hostname")
+                        .HasMaxLength(253)
+                        .HasColumnType("character varying(253)");
+
                     b.Property<bool>("IsEnabled")
                         .HasColumnType("boolean");
 
@@ -161,6 +169,10 @@ namespace ZWarden.Migrations.Postgres.Migrations
 
                     b.Property<DateTimeOffset?>("LastSeenAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("OsPlatform")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
 
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uuid");

@@ -62,6 +62,18 @@ public sealed class Agent : IVersioned, ITenantOwned
     /// it first connects.</summary>
     public int? LastProtocolVersion { get; private set; }
 
+    /// <summary>The Host's self-reported machine name (F35 D-1); <c>null</c> until the Agent reports it, or for
+    /// an Agent that predates the descriptor. <b>Observed, not trusted</b> — display-only, never an
+    /// authorization input (trust-boundaries.md §3).</summary>
+    public string? Hostname { get; private set; }
+
+    /// <summary>The Agent's self-reported build version (F35 D-1); <c>null</c> until reported. Observed only.</summary>
+    public string? AgentVersion { get; private set; }
+
+    /// <summary>The Host's self-reported OS platform label (F35 D-1), e.g. <c>Linux</c>; <c>null</c> until
+    /// reported. Observed only.</summary>
+    public string? OsPlatform { get; private set; }
+
     /// <summary>True when the Agent is trusted: enabled and holding a credential. The actual secret match
     /// is the verifier's (Infrastructure); this is the fail-closed gate around it.</summary>
     public bool IsTrusted => IsEnabled && !string.IsNullOrEmpty(CredentialHash);
@@ -123,6 +135,19 @@ public sealed class Agent : IVersioned, ITenantOwned
     /// <summary>Advances the last-seen time on a heartbeat or snapshot (F10), leaving the connection state and
     /// negotiated version as they were. Observed state only.</summary>
     public void MarkHeartbeat(DateTimeOffset now) => LastSeenAt = now;
+
+    /// <summary>Records the Host facts the Agent self-reported on connect (F35 D-1) — hostname, agent version,
+    /// OS platform — so the operator inventory can tell Hosts apart. Observed, display-only state: it does not
+    /// change trust and is never an authorization input (trust-boundaries.md §3).</summary>
+    public void RecordHostDescriptor(string hostname, string agentVersion, string osPlatform)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(hostname);
+        ArgumentException.ThrowIfNullOrWhiteSpace(agentVersion);
+        ArgumentException.ThrowIfNullOrWhiteSpace(osPlatform);
+        Hostname = hostname;
+        AgentVersion = agentVersion;
+        OsPlatform = osPlatform;
+    }
 
     /// <summary>Records that the Agent's connection ended (F10), keeping the last negotiated version as the
     /// last-known. Observed state only — a dropped connection does not untrust the Agent.</summary>

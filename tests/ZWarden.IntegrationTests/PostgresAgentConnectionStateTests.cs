@@ -49,7 +49,7 @@ public class PostgresAgentConnectionStateTests
                 await db.SaveChangesAsync(cancellationToken);
             }
 
-            await Stamp(options, tenant, ConnectedAt, w => w.MarkConnectedAsync(id, 1, cancellationToken));
+            await Stamp(options, tenant, ConnectedAt, w => w.MarkConnectedAsync(id, 1, cancellationToken: cancellationToken));
             await AssertState(options, tenant, id, AgentConnectionState.Connected, ConnectedAt, 1, cancellationToken);
 
             await Stamp(options, tenant, HeartbeatAt, w => w.MarkHeartbeatAsync(id, cancellationToken));

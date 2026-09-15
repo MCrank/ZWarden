@@ -12,6 +12,10 @@
             <nav class="mx-auto flex max-w-5xl items-center gap-6 px-6 py-4">
                 <a href="/" class="text-sm font-semibold tracking-tight text-primary">ZWarden</a>
                 <a href="/servers" class="text-sm font-medium text-muted-foreground hover:text-foreground">Servers</a>
+                @* Hosts (F35) is tenant-wide (Agent.View), so — like Audit — it gates cleanly on the policy. *@
+                <AuthorizeView Policy="Agent.View" Context="hosts">
+                    <a href="/hosts" class="text-sm font-medium text-muted-foreground hover:text-foreground">Hosts</a>
+                </AuthorizeView>
                 <AuthorizeView Policy="Audit.View" Context="audit">
                     <a href="/audit" class="text-sm font-medium text-muted-foreground hover:text-foreground">Audit</a>
                 </AuthorizeView>
