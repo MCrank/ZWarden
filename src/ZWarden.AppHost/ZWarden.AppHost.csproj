@@ -1,0 +1,58 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    ZWarden dev/test orchestration AppHost (#123, ADR 0031). DEV/TEST ONLY: this project models the
+    local inner-loop graph and hosts the integration-test boot. It is NOT a production artifact —
+    production packaging stays F34 (#53). See README.md and ADR 0031.
+
+    The Aspire.AppHost.Sdk MSBuild SDK version is pinned in global.json (msbuild-sdks); the Aspire.*
+    NuGet packages are pinned in Directory.Packages.props. Both are co-versioned at 13.5.3.
+  -->
+
+  <Sdk Name="Aspire.AppHost.Sdk" />
+
+  <PropertyGroup>
+    <!-- TargetFramework, Nullable, ImplicitUsings come from Directory.Build.props. -->
+    <OutputType>Exe</OutputType>
+    <IsAspireHost>true</IsAspireHost>
+    <UserSecretsId>zwarden-apphost-8f2c1d4a-6b0e-4a9f-9c3d-7e1a2b3c4d5e</UserSecretsId>
+
+    <!-- D-BUILDPOLICY (ADR 0031): keep build-policy relaxations scoped to this dev/test-only AppHost.
+         Resolve DCP + the Aspire dashboard from the restored NuGet packages (AspireUseCliBundle=false, the
+         SDK default) so a build machine WITHOUT the aspire CLI — i.e. CI before PR-3 wires the CLI in — still
+         restores and builds deterministically from the committed lockfile. `aspire run` / `dotnet run` work
+         either way (aspire.dev/diagnostics/aspire010). ASPIRE010 only nudges toward the CLI bundle, so it is
+         suppressed here rather than obeyed. -->
+    <AspireUseCliBundle>false</AspireUseCliBundle>
+    <NoWarn>$(NoWarn);ASPIRE010</NoWarn>
+
+    <!-- No packages.lock.json for this project (overrides the Directory.Build.props default). With
+         AspireUseCliBundle=false the Aspire SDK restores the dashboard + DCP as HOST-RID-specific
+         packages (Aspire.Dashboard.Sdk.RID, Aspire.Hosting.Orchestration.RID) chosen from the build
+         host's SDK RID, not from RuntimeIdentifiers — so a lockfile generated on Windows carries
+         win-x64 and fails a locked-mode restore on the linux CI runner (NU1004). A cross-platform lock
+         is not achievable here. This dev/test-only AppHost (ADR 0031) is exempt from PRD-55 reproducible
+         restore; every PRODUCTION project keeps its lockfile. The Aspire.* packages themselves are still
+         exact-pinned in Directory.Packages.props, so versions do not float. Applies equally to the PR-3
+         Aspire integration-test project. -->
+    <RestorePackagesWithLockFile>false</RestorePackagesWithLockFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Aspire orchestration, exact-pinned in Directory.Packages.props (13.5.3). -->
+    <PackageReference Include="Aspire.Hosting.AppHost" />
+    <PackageReference Include="Aspire.Hosting.PostgreSQL" />
+    <!-- Aspire.Hosting.AppHost 13.5.3 requires Microsoft.Extensions.Hosting >= 10.0.11, but the central
+         pin is 10.0.10 (the Agent's version). Rather than bump the shared production pin for a dev/test-only
+         package, scope the higher version to this AppHost via VersionOverride (ADR 0031: dev/test isolation).
+         Revisit when the central Hosting pin next moves. -->
+    <PackageReference Include="Microsoft.Extensions.Hosting" VersionOverride="10.0.11" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Outside-in reference so the Aspire source generator emits Projects.ZWarden_Web. This adds NO
+         code and NO Aspire dependency to the Web project itself (arch test enforced, ADR 0031). -->
+    <ProjectReference Include="..\ZWarden.Web\ZWarden.Web.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/ZWarden.Agent/ZWarden.Agent.csproj" />
+    <Project Path="src/ZWarden.AppHost/ZWarden.AppHost.csproj" />
     <Project Path="src/ZWarden.Application/ZWarden.Application.csproj" />
     <Project Path="src/ZWarden.Contracts/ZWarden.Contracts.csproj" />
     <Project Path="src/ZWarden.Diagnostics/ZWarden.Diagnostics.csproj" />
