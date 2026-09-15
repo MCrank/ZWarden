@@ -165,6 +165,60 @@ public class ComposeDistributionTests
     }
 
     [Test]
+    public async Task Postgres_overlay_adds_the_database_service_and_flips_the_provider()
+    {
+        string overlay = await File.ReadAllTextAsync(Path.Combine(ComposeDir(), "compose.postgres.yaml"));
+
+        // PostgreSQL mode is an override file (D-2), not a profile: it adds the postgres service and overrides
+        // only Web's provider + connection string.
+        await Assert.That(overlay).Contains("postgres:");
+        await Assert.That(overlay).Contains("ZWarden__Database__Provider=postgres");
+        // The Npgsql connection string points Web at the postgres service, sourcing the password from .env.
+        await Assert.That(overlay).Contains("Host=postgres");
+        await Assert.That(overlay).Contains("${POSTGRES_PASSWORD}");
+        // Web must wait for the database to be healthy, not merely started.
+        await Assert.That(overlay).Contains("condition: service_healthy");
+    }
+
+    [Test]
+    public async Task Postgres_overlay_keeps_the_database_off_the_public_internet()
+    {
+        string overlay = await File.ReadAllTextAsync(Path.Combine(ComposeDir(), "compose.postgres.yaml"));
+
+        // The database is never host-published, and it sits on an internal-only network.
+        await Assert.That(overlay).DoesNotContain("5432:5432");
+        await Assert.That(overlay).Contains("internal: true");
+        // A real readiness probe so the health-gated ordering means something.
+        await Assert.That(overlay).Contains("pg_isready");
+    }
+
+    [Test]
+    public async Task Deployment_guide_documents_both_database_modes_and_the_quick_start()
+    {
+        string guide = await DeploymentGuideAsync();
+
+        await Assert.That(guide).Contains("bootstrap-secrets");
+        await Assert.That(guide).Contains("docker compose up -d");
+        await Assert.That(guide).Contains("compose.postgres.yaml");
+        // The post-bring-up path: the operator finishes in the F33 wizard.
+        await Assert.That(guide).Contains("First-Run");
+    }
+
+    [Test]
+    public async Task Deployment_guide_documents_upgrades_and_private_mode_agent_ca_trust()
+    {
+        string guide = await DeploymentGuideAsync();
+
+        await Assert.That(guide).Contains("Upgrade");
+        // The one genuinely non-obvious gotcha (D-8): the co-located Agent must trust Caddy's CA in Private mode.
+        await Assert.That(guide).Contains("Private");
+        await Assert.That(guide).Contains("CA");
+    }
+
+    private static async Task<string> DeploymentGuideAsync() =>
+        await File.ReadAllTextAsync(Path.Combine(RepoRoot(), "docs", "deployment", "compose-reference.md"));
+
+    [Test]
     public async Task The_app_images_run_non_root()
     {
         string webDockerfile = await File.ReadAllTextAsync(Path.Combine(RepoRoot(), "src", "ZWarden.Web", "Dockerfile"));

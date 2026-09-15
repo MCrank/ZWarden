@@ -1,0 +1,53 @@
+# ZWarden — PostgreSQL mode overlay (F34, ADR 0037; D-2). Apply it ON TOP of the base compose.yaml:
+#
+#   docker compose -f compose.yaml -f compose.postgres.yaml up -d
+#
+# It adds a `postgres` service on an internal-only `backend` network and overrides ZWarden.Web's database
+# provider + connection string (ADR 0005). Everything else — Caddy, the Agent, wollomatic, the secrets, the
+# health ordering — is inherited from the base file unchanged. The password comes from .env
+# (run ./bootstrap-secrets.{sh,ps1}, which generates POSTGRES_PASSWORD).
+name: zwarden
+
+services:
+  postgres:
+    # Pinned to the same major the integration tests run against (PostgresFixture): postgres:18-alpine.
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=zwarden
+      - POSTGRES_USER=zwarden
+      # Fail loudly if the operator never ran the secrets bootstrap.
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env (run ./bootstrap-secrets.sh)}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U zwarden -d zwarden"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - backend
+
+  web:
+    # Wait for the database to be accepting connections, not merely started (D-5).
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Override the base SQLite wiring: drive the Postgres provider and point at the service.
+      - ZWarden__Database__Provider=postgres
+      - ConnectionStrings__ZWarden=Host=postgres;Port=5432;Database=zwarden;Username=zwarden;Password=${POSTGRES_PASSWORD}
+    # Web now needs both the ingress-facing network (from the base) and the database network.
+    networks:
+      - frontend
+      - backend
+
+networks:
+  # Web ↔ Postgres only. internal:true ⇒ the database has no route to the Internet and is never published.
+  backend:
+    driver: bridge
+    internal: true
+
+volumes:
+  postgres_data:
