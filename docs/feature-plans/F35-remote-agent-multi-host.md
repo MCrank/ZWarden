@@ -116,7 +116,8 @@ Two PRs, mirroring F34's shape.
 - **New transport, heartbeat, or reconnect engine** — already shipped in F9/F10; F35 verifies, does not rebuild.
 
 ## Progress
-- [ ] PR-A: host descriptor contract + entity + migration + Hello wiring + AgentSummary + /hosts page + nav
+- [x] PR-A ([#142](https://github.com/MCrank/ZWarden/pull/142), OPEN): host descriptor contract + entity +
+  migration (both providers) + Hello wiring + `IAgentInventory`/`HostSummary` + `/hosts` page + nav
 - [ ] PR-B: remote-agent compose + docs + WAN verification + ADR 0038
 
 ## Verification
