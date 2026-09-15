@@ -1,0 +1,29 @@
+# ZWarden — reference reverse-proxy ingress (F32, ADR 0035).
+#
+# Caddy 2.11.4 is the sole front door for a self-hosted ZWarden deployment: it terminates HTTPS, obtains and
+# renews certificates automatically, redirects HTTP to HTTPS, and forwards every request — including the
+# SignalR agent-hub WebSocket and the live-log/console streams — to ZWarden.Web. ZWarden.Web is never exposed
+# to the Internet directly (PRD §45).
+#
+# This is the PUBLIC mode (PRD §46): a public DNS hostname with a Let's Encrypt certificate via the HTTP-01
+# challenge. See docs/deployment/https-reference.md for the PRIVATE (`tls internal`) and EXISTING-REVERSE-PROXY
+# modes, for supplying an ACME contact e-mail, and for the port 80/443 prerequisites.
+#
+# Parameters (environment variables, with defaults for the Compose stack that F34 assembles):
+#   ZWARDEN_DOMAIN    the public hostname clients use, e.g. zwarden.example.com
+#   ZWARDEN_UPSTREAM  the ZWarden.Web address Caddy proxies to (default: the `web` Compose service on :8080)
+#
+# When ZWARDEN_DOMAIN is `localhost` (or an IP, or a *.localhost name) Caddy automatically issues an internally
+# trusted certificate instead of contacting a public CA — which is exactly how the F32 integration test and a
+# quick local smoke test exercise this file without ACME.
+
+{$ZWARDEN_DOMAIN} {
+	# HSTS is NOT emitted automatically by Caddy's automatic-HTTPS — it must be set explicitly (ADR 0035, D-5).
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+
+	# Forward everything to ZWarden.Web. Caddy v2 upgrades and tunnels WebSocket connections natively, so the
+	# SignalR agent hub (/agent/hub) and the log/console streams pass through with no special matcher or header
+	# plumbing. Caddy sets X-Forwarded-For/Proto/Host to the real client and, as the edge, ignores any inbound
+	# X-Forwarded-* (no `trusted_proxies` here by design); ZWarden.Web is what trusts Caddy — see the ADR.
+	reverse_proxy {$ZWARDEN_UPSTREAM:web:8080}
+}

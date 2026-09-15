@@ -25,6 +25,7 @@ using ZWarden.Web.Components.Operations;
 using ZWarden.Web.Components.Players;
 using ZWarden.Web.Components.Servers;
 using ZWarden.Web.Diagnostics;
+using ZWarden.Web.Hosting;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
@@ -69,8 +70,13 @@ builder.Services.AddZWardenDiagnostics(builder.Configuration); // F29: read-only
 builder.Services.AddAgentControlPlane();            // F10: Agent hub, handshake auth scheme, connection registry + monitor
 builder.Services.AddOperationDispatch();            // F11 PR-B: real operation dispatcher over the SignalR connection
 builder.Services.AddZWardenTelemetry(builder.Configuration, builder.Environment); // F16: OpenTelemetry baseline (opt-in OTLP)
+builder.Services.AddProxyForwardedHeaders();       // F32: trust the reference Caddy ingress' X-Forwarded-* (ADR 0035)
 
 WebApplication app = builder.Build();
+
+// F32: apply the forwarded scheme/host/client-IP FIRST, so the rest of the pipeline (host filtering, HTTPS
+// redirection, auth cookies) sees the request as the client made it to the TLS-terminating ingress (ADR 0035).
+app.UseForwardedHeaders();
 
 if (!app.Environment.IsDevelopment())
 {
