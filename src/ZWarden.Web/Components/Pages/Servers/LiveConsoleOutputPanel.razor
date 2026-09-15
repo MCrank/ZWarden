@@ -1,0 +1,119 @@
+@using ZWarden.Application.Console
+@using ZWarden.Domain.Ids
+@implements IDisposable
+@inject IConsoleOutputCache Output
+
+@* The live console-output island (F28): an interactive island embedded in the static server-detail page,
+   mirroring LivePlayerRosterPanel / LiveServerLogPanel. The parent did the authorized, tenant-filtered load and
+   the Console.Execute gate; this child carries no tenant context — which a circuit lacks — and only reads the
+   process-local, ownership-guarded output cache (keyed by ServerId + owning AgentId) by a monotonic sequence
+   cursor once per second, appending each command's observed reply and holding a bounded on-screen tail. Ids arrive
+   as strings so they cross the static→interactive boundary cleanly. Every reply is untrusted PZ output, bounded at
+   the Agent and rendered here as data (trust-boundaries.md §8). Output text is Chivo Mono (the data face). *@
+
+<div data-console-output>
+    <BbScrollArea Type="ScrollAreaType.Always" MaxHeight="24rem"
+                  Class="rounded-md border border-border bg-muted/30"
+                  ViewportClass="p-3 font-mono text-xs leading-relaxed">
+        @if (_entries.Count == 0)
+        {
+            <p class="text-muted-foreground" data-console-empty>@EmptyText</p>
+        }
+        else
+        {
+            @foreach (ConsoleOutputEntry entry in _entries)
+            {
+                <div class="mb-2 last:mb-0" data-console-entry>
+                    <div class="text-muted-foreground">@Time(entry.ObservedAt)</div>
+                    @if (entry.Output.Length == 0)
+                    {
+                        <div class="italic text-muted-foreground" data-console-noreply>(no output)</div>
+                    }
+                    else
+                    {
+                        <div class="whitespace-pre-wrap text-foreground" data-console-reply>@entry.Output</div>
+                    }
+                    @if (entry.Truncated)
+                    {
+                        <div class="text-muted-foreground" data-console-truncated>… output truncated</div>
+                    }
+                </div>
+            }
+        }
+    </BbScrollArea>
+</div>
+
+@code {
+    /// <summary>The Server, as its canonical string id (crosses the static→interactive boundary as a string).</summary>
+    [Parameter]
+    [EditorRequired]
+    public string ServerId { get; set; } = string.Empty;
+
+    /// <summary>The Server's owning Agent, as its canonical string id (the cache ownership-guard key).</summary>
+    [Parameter]
+    [EditorRequired]
+    public string AgentId { get; set; } = string.Empty;
+
+    private const int DisplayCap = 200;
+
+    private ZWarden.Domain.Ids.ServerId _server;
+    private ZWarden.Domain.Ids.AgentId _agent;
+    private bool _parsed;
+    private long _cursor;
+    private readonly List<ConsoleOutputEntry> _entries = [];
+    private PeriodicTimer? _timer;
+    private Task? _loop;
+
+    protected override void OnInitialized()
+    {
+        _parsed = ZWarden.Domain.Ids.ServerId.TryParse(ServerId, out _server)
+            & ZWarden.Domain.Ids.AgentId.TryParse(AgentId, out _agent);
+        Refresh();
+        _timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+        _loop = RunAsync();
+    }
+
+    private async Task RunAsync()
+    {
+        try
+        {
+            while (await _timer!.WaitForNextTickAsync().ConfigureAwait(false))
+            {
+                Refresh();
+                await InvokeAsync(StateHasChanged).ConfigureAwait(false);
+            }
+        }
+        catch (ObjectDisposedException)
+        {
+            // The panel was disposed while awaiting the next tick — expected on navigation away.
+        }
+    }
+
+    private void Refresh()
+    {
+        if (!_parsed)
+        {
+            return;
+        }
+
+        IReadOnlyList<ConsoleOutputEntry> next = Output.GetSince(_server, _agent, _cursor);
+        if (next.Count > 0)
+        {
+            _entries.AddRange(next);
+            _cursor = next[^1].Sequence;
+            if (_entries.Count > DisplayCap)
+            {
+                _entries.RemoveRange(0, _entries.Count - DisplayCap);
+            }
+        }
+    }
+
+    private string EmptyText => _parsed
+        ? "No output yet — run a command to see the server's reply here."
+        : "Console output is unavailable for this server.";
+
+    private static string Time(DateTimeOffset at) =>
+        at.UtcDateTime.ToString("HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture) + " UTC";
+
+    public void Dispose() => _timer?.Dispose();
+}
