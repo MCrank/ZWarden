@@ -14,7 +14,7 @@
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
     <LangVersion>14.0</LangVersion>
-    <TestingPlatformCommandLineArguments>--minimum-expected-tests 19</TestingPlatformCommandLineArguments>
+    <TestingPlatformCommandLineArguments>--minimum-expected-tests 20</TestingPlatformCommandLineArguments>
   </PropertyGroup>
 
   <ItemGroup>
@@ -22,8 +22,10 @@
   </ItemGroup>
 
   <!-- F20a seam rule only: reflect over the PzConfig public surface to prove Loretta never crosses it. -->
+  <!-- F30 D-1: prove the SupportPackage pipeline core pulls in no ZIP/HTTP assembly. -->
   <ItemGroup>
     <ProjectReference Include="..\..\src\ZWarden.PzConfig\ZWarden.PzConfig.csproj" />
+    <ProjectReference Include="..\..\src\ZWarden.Diagnostics\ZWarden.Diagnostics.csproj" />
   </ItemGroup>
 
 </Project>
