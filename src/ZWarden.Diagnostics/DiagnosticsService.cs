@@ -36,6 +36,7 @@ public sealed class DiagnosticsService : IDiagnosticsService
     private readonly IDiagnosticsDbProbe _database;
     private readonly IDiagnosticsTlsProbe _tls;
     private readonly IDiagnosticsAgentPresenceProbe _agents;
+    private readonly IDiagnosticsResultCache _cache;
     private readonly IAuditWriter _audit;
     private readonly TimeProvider _time;
     private readonly DiagnosticsOptions _options;
@@ -45,6 +46,7 @@ public sealed class DiagnosticsService : IDiagnosticsService
         IDiagnosticsDbProbe database,
         IDiagnosticsTlsProbe tls,
         IDiagnosticsAgentPresenceProbe agents,
+        IDiagnosticsResultCache cache,
         IAuditWriter audit,
         TimeProvider time,
         DiagnosticsOptions options)
@@ -53,6 +55,7 @@ public sealed class DiagnosticsService : IDiagnosticsService
         ArgumentNullException.ThrowIfNull(database);
         ArgumentNullException.ThrowIfNull(tls);
         ArgumentNullException.ThrowIfNull(agents);
+        ArgumentNullException.ThrowIfNull(cache);
         ArgumentNullException.ThrowIfNull(audit);
         ArgumentNullException.ThrowIfNull(time);
         ArgumentNullException.ThrowIfNull(options);
@@ -60,6 +63,7 @@ public sealed class DiagnosticsService : IDiagnosticsService
         _database = database;
         _tls = tls;
         _agents = agents;
+        _cache = cache;
         _audit = audit;
         _time = time;
         _options = options;
@@ -90,13 +94,35 @@ public sealed class DiagnosticsService : IDiagnosticsService
             AgentConnectivityDiagnostic.Evaluate(agentFacts, now, _options.AgentStaleWindow),
         ];
 
+        // Merge the latest host-level gather each connected Agent reported (F29 PR-B). The bundles are cached from
+        // GatherHostDiagnostics completions; a domain with no cached bundle yet falls back to a Skipped placeholder,
+        // so the report always covers every domain. Per-server domains (RCON, game port, SteamCMD, and the PR-C
+        // content domains) are surfaced by the per-server run.
+        HashSet<DiagnosticDomain> covered = [];
+        foreach (AgentPresenceFacts agent in agentFacts)
+        {
+            if (!agent.IsConnected || _cache.GetHost(agent.AgentId) is not { } bundle)
+            {
+                continue;
+            }
+
+            checks.AddRange(bundle.Checks);
+            foreach (DiagnosticCheck check in bundle.Checks)
+            {
+                covered.Add(check.Domain);
+            }
+        }
+
         foreach (DiagnosticDomain domain in PendingAgentDomains)
         {
-            checks.Add(DiagnosticCheck.Create(
-                domain,
-                DiagnosticStatus.Skipped,
-                "Not gathered in this run.",
-                "Agent-side diagnostics arrive in F29 PR-B/PR-C."));
+            if (!covered.Contains(domain))
+            {
+                checks.Add(DiagnosticCheck.Create(
+                    domain,
+                    DiagnosticStatus.Skipped,
+                    "Not gathered in this run.",
+                    "Trigger a diagnostics gather to fill this domain (F29)."));
+            }
         }
 
         DiagnosticReport report = new(checks, now);

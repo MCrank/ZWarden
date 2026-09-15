@@ -82,6 +82,19 @@ namespace ZWarden.Contracts.Protocol.Messages;
 /// no secret (the credential-reading commands are denied by policy — ADR 0032). Recorded against the Server the
 /// envelope's <c>ServerId</c> names.
 /// </param>
+/// <param name="HostDiagnostics">
+/// For a host diagnostics gather (<see cref="GatherHostDiagnostics"/>, F29), the host-level checks the Agent
+/// observed (Docker, SteamCMD, host filesystem). <c>null</c> for every other Operation. Additive and optional (ADR
+/// 0020); each check's detail is <b>untrusted</b> (trust-boundaries §8), bounded and carried verbatim for escaping
+/// at render. Recorded against the completion envelope's Agent.
+/// </param>
+/// <param name="ServerDiagnostics">
+/// For a per-server diagnostics gather (<see cref="GatherServerDiagnostics"/>, F29), the server-level checks the
+/// Agent observed (RCON, game port, filesystem; plus mods/config/compatibility in F29 PR-C). <c>null</c> for every
+/// other Operation. Additive and optional (ADR 0020); each check's detail is <b>untrusted</b> (trust-boundaries
+/// §8), bounded and carried verbatim for escaping at render. Recorded against the Server the envelope's
+/// <c>ServerId</c> names.
+/// </param>
 [ProtocolMessage("operation.completed")]
 public sealed record OperationCompleted(
     OperationOutcome Outcome,
@@ -96,7 +109,9 @@ public sealed record OperationCompleted(
     BackupResult? Backup = null,
     BackupDeletionResult? BackupDeletion = null,
     RestoreResult? Restore = null,
-    ConsoleCommandResult? ConsoleCommand = null) : AgentEvent;
+    ConsoleCommandResult? ConsoleCommand = null,
+    HostDiagnosticsResult? HostDiagnostics = null,
+    ServerDiagnosticsResult? ServerDiagnostics = null) : AgentEvent;
 
 /// <summary>The archive a successful <see cref="BackupServer"/> Operation wrote (F24): the compressed
 /// <c>.tar.gz</c> of the Server's world tree the Agent produced host-side under its <c>BackupRoot</c>. Carries the

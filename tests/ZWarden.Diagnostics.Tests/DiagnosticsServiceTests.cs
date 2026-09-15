@@ -24,12 +24,14 @@ public class DiagnosticsServiceTests
         IReadOnlyList<AgentPresenceFacts>? agents = null,
         FakeDbProbe? dbProbe = null,
         CapturingAuditWriter? audit = null,
+        IDiagnosticsResultCache? cache = null,
         DiagnosticsOptions? options = null) =>
         new(
             new FakePermissionChecker(allow),
             dbProbe ?? new FakeDbProbe(db ?? HealthyDb),
             new FakeTlsProbe(tls ?? HttpOnlyTls),
             new FakeAgentPresenceProbe(agents ?? []),
+            cache ?? new FakeDiagnosticsResultCache(),
             audit ?? new CapturingAuditWriter(),
             new FixedTimeProvider(Now),
             options ?? new DiagnosticsOptions());
@@ -122,6 +124,22 @@ public class DiagnosticsServiceTests
 
         DiagnosticCheck tls = report.Checks.Single(c => c.Domain == DiagnosticDomain.Tls);
         await Assert.That(tls.Status).IsEqualTo(DiagnosticStatus.Warn);
+    }
+
+    [Test]
+    public async Task A_connected_agents_cached_host_bundle_replaces_the_skipped_host_domain()
+    {
+        AgentId agent = AgentId.New();
+        FakeDiagnosticsResultCache cache = new();
+        cache.RecordHost(agent, new DiagnosticBundle(
+            [new DiagnosticCheck(DiagnosticDomain.Docker, DiagnosticStatus.Pass, "Docker is reachable.")], Now));
+        AgentPresenceFacts[] agents = [new AgentPresenceFacts(agent, null, IsEnabled: true, IsConnected: true, LastSeenAt: Now)];
+        DiagnosticsService sut = Service(allow: true, agents: agents, cache: cache);
+
+        DiagnosticReport report = (await sut.RunAsync(UserId.New())).Report!;
+
+        DiagnosticCheck docker = report.Checks.Single(c => c.Domain == DiagnosticDomain.Docker);
+        await Assert.That(docker.Status).IsEqualTo(DiagnosticStatus.Pass); // merged from the cache, not the Skipped placeholder
     }
 
     [Test]

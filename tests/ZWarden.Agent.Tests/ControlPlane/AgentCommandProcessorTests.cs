@@ -9,7 +9,9 @@ using ZWarden.Agent.Rcon;
 using ZWarden.Agent.ServerConfig;
 using ZWarden.Agent.SteamCmd;
 using ZWarden.Agent.Mods;
+using ZWarden.Agent.Diagnostics;
 using ZWarden.Agent.Tests.Console;
+using ZWarden.Agent.Tests.Diagnostics;
 using ZWarden.Agent.Tests.Docker;
 using ZWarden.Agent.Tests.Mods;
 using ZWarden.Agent.Tests.Players;
@@ -41,7 +43,9 @@ public class AgentCommandProcessorTests
         IPlayerAdministration? players = null,
         IConsoleAdministration? console = null,
         IServerConfigWriter? configWriter = null,
-        IModDiscovery? modDiscovery = null) =>
+        IModDiscovery? modDiscovery = null,
+        IHostDiagnosticsGatherer? hostDiagnostics = null,
+        IServerDiagnosticsGatherer? serverDiagnostics = null) =>
         new(
             TimeProvider.System,
             runtime ?? new FakeContainerRuntime(),
@@ -54,6 +58,8 @@ public class AgentCommandProcessorTests
             console ?? new FakeConsoleAdministration(),
             configWriter ?? new FakeServerConfigWriter(),
             modDiscovery ?? new FakeModDiscovery(),
+            hostDiagnostics ?? new FakeHostDiagnosticsGatherer(),
+            serverDiagnostics ?? new FakeServerDiagnosticsGatherer(),
             Options.Create(new AgentOptions
             {
                 PzImageReference = "zwarden/pzserver:pinned",
@@ -888,5 +894,69 @@ public class AgentCommandProcessorTests
 
         await Assert.That(second).IsNull();
         await Assert.That(writer.ApplyCount).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task A_host_diagnostics_gather_succeeds_and_carries_the_host_bundle()
+    {
+        FakeHostDiagnosticsGatherer gatherer = new()
+        {
+            Result = new HostDiagnosticsResult([new DiagnosticCheckFact(DiagnosticDomain.Docker, ProbeStatus.Pass, "ok", null)]),
+        };
+        AgentCommandProcessor sut = Processor(hostDiagnostics: gatherer);
+
+        Envelope<OperationCompleted>? reply = await sut
+            .ProcessAsync(Json(new GatherHostDiagnostics(), OperationId.New()), CancellationToken.None);
+
+        await Assert.That(reply!.Payload.Outcome).IsEqualTo(OperationOutcome.Succeeded);
+        await Assert.That(reply.Payload.HostDiagnostics!.Checks.Count).IsEqualTo(1);
+        await Assert.That(reply.Payload.ServerDiagnostics).IsNull();
+        await Assert.That(gatherer.Calls).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task A_server_diagnostics_gather_carries_the_server_bundle_and_target()
+    {
+        FakeServerDiagnosticsGatherer gatherer = new()
+        {
+            Result = new ServerDiagnosticsResult([new DiagnosticCheckFact(DiagnosticDomain.Rcon, ProbeStatus.Fail, "no rcon", "refused")]),
+        };
+        AgentCommandProcessor sut = Processor(serverDiagnostics: gatherer);
+        ServerId server = ServerId.New();
+
+        Envelope<OperationCompleted>? reply = await sut
+            .ProcessAsync(Json(new GatherServerDiagnostics(), OperationId.New(), server), CancellationToken.None);
+
+        await Assert.That(reply!.Payload.Outcome).IsEqualTo(OperationOutcome.Succeeded);
+        await Assert.That(reply.Payload.ServerDiagnostics!.Checks[0].Domain).IsEqualTo(DiagnosticDomain.Rcon);
+        await Assert.That(reply.ServerId).IsEqualTo(server);
+        await Assert.That(gatherer.LastServerId).IsEqualTo(server);
+    }
+
+    [Test]
+    public async Task A_server_diagnostics_gather_without_a_target_fails()
+    {
+        FakeServerDiagnosticsGatherer gatherer = new();
+        AgentCommandProcessor sut = Processor(serverDiagnostics: gatherer);
+
+        Envelope<OperationCompleted>? reply = await sut
+            .ProcessAsync(Json(new GatherServerDiagnostics(), OperationId.New()), CancellationToken.None);
+
+        await Assert.That(reply!.Payload.Outcome).IsEqualTo(OperationOutcome.Failed);
+        await Assert.That(gatherer.Calls).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task A_redelivered_host_gather_runs_once()
+    {
+        FakeHostDiagnosticsGatherer gatherer = new();
+        AgentCommandProcessor sut = Processor(hostDiagnostics: gatherer);
+        string json = Json(new GatherHostDiagnostics(), OperationId.New());
+
+        await sut.ProcessAsync(json, CancellationToken.None);
+        Envelope<OperationCompleted>? second = await sut.ProcessAsync(json, CancellationToken.None);
+
+        await Assert.That(second).IsNull();
+        await Assert.That(gatherer.Calls).IsEqualTo(1);
     }
 }
