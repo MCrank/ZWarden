@@ -50,9 +50,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Outside-in reference so the Aspire source generator emits Projects.ZWarden_Web. This adds NO
-         code and NO Aspire dependency to the Web project itself (arch test enforced, ADR 0031). -->
+    <!-- Outside-in references so the Aspire source generator emits Projects.ZWarden_Web / _Agent. This
+         adds NO code and NO Aspire dependency to those projects themselves (arch test enforced, ADR 0031). -->
     <ProjectReference Include="..\ZWarden.Web\ZWarden.Web.csproj" />
+    <ProjectReference Include="..\ZWarden.Agent\ZWarden.Agent.csproj" />
   </ItemGroup>
 
 </Project>
