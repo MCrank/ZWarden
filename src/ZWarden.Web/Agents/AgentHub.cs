@@ -4,6 +4,7 @@ using ZWarden.Application.Agents;
 using ZWarden.Application.Audit;
 using ZWarden.Application.Backups;
 using ZWarden.Application.Configuration;
+using ZWarden.Application.Console;
 using ZWarden.Application.Mods;
 using ZWarden.Application.Operations;
 using ZWarden.Application.Players;
@@ -38,6 +39,7 @@ public sealed partial class AgentHub : Hub
     private readonly IServerHealthCache _healthCache;
     private readonly IServerLogBuffer _logBuffer;
     private readonly IPlayerRosterCache _rosters;
+    private readonly IConsoleOutputCache _consoleOutput;
     private readonly IConfigurationRevisionRecorder _configRevisions;
     private readonly IModInventoryCache _mods;
     private readonly IBackupRecorder _backups;
@@ -54,6 +56,7 @@ public sealed partial class AgentHub : Hub
         IServerHealthCache healthCache,
         IServerLogBuffer logBuffer,
         IPlayerRosterCache rosters,
+        IConsoleOutputCache consoleOutput,
         IConfigurationRevisionRecorder configRevisions,
         IModInventoryCache mods,
         IBackupRecorder backups,
@@ -69,6 +72,7 @@ public sealed partial class AgentHub : Hub
         ArgumentNullException.ThrowIfNull(healthCache);
         ArgumentNullException.ThrowIfNull(logBuffer);
         ArgumentNullException.ThrowIfNull(rosters);
+        ArgumentNullException.ThrowIfNull(consoleOutput);
         ArgumentNullException.ThrowIfNull(configRevisions);
         ArgumentNullException.ThrowIfNull(mods);
         ArgumentNullException.ThrowIfNull(backups);
@@ -83,6 +87,7 @@ public sealed partial class AgentHub : Hub
         _healthCache = healthCache;
         _logBuffer = logBuffer;
         _rosters = rosters;
+        _consoleOutput = consoleOutput;
         _configRevisions = configRevisions;
         _mods = mods;
         _backups = backups;
@@ -346,6 +351,17 @@ public sealed partial class AgentHub : Hub
             {
                 _rosters.Record(new PlayerRoster(
                     rosterServerId, reportingAgent, roster.Count, roster.Players, completed.Timestamp));
+            }
+
+            // A successful console command carries the reply the Agent observed over RCON (F28); cache the newest
+            // outputs per Server for the live console pane, keyed by the reporting Agent (the ownership guard, §8).
+            // Transient display data — never persisted (the audit trail is the durable history). The output is
+            // untrusted and carried verbatim (escaped at render).
+            if (completed.Payload.ConsoleCommand is { } consoleResult && completed.ServerId is { } consoleServerId
+                && AgentClaims.TryGetAgentId(Context.User, out AgentId consoleAgent))
+            {
+                _consoleOutput.Record(
+                    consoleServerId, consoleAgent, operationId, consoleResult.Output, consoleResult.Truncated, completed.Timestamp);
             }
 
             // A successful configuration apply carries the revision the Agent recorded from the file after the

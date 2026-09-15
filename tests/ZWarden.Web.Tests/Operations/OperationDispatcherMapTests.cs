@@ -1,5 +1,6 @@
 using ZWarden.Application.Backups;
 using ZWarden.Application.Configuration;
+using ZWarden.Application.Console;
 using ZWarden.Application.Players;
 using ZWarden.Contracts.Protocol.Messages;
 using ZWarden.Domain.Configuration;
@@ -77,6 +78,22 @@ public class OperationDispatcherMapTests
     public async Task A_player_action_kind_without_a_payload_throws()
     {
         await Assert.That(() => OperationDispatcher.CommandFor(OperationKind.KickPlayer)).Throws<InvalidOperationException>();
+    }
+
+    [Test]
+    public async Task The_console_kind_reads_its_command_line_from_the_payload()
+    {
+        string json = new ConsoleCommandPayload("servermsg \"hello\"").ToJson();
+
+        var console = (ExecuteConsoleCommand)OperationDispatcher.CommandFor(OperationKind.ExecuteConsoleCommand, json);
+
+        await Assert.That(console.Input).IsEqualTo("servermsg \"hello\"");
+    }
+
+    [Test]
+    public async Task The_console_kind_without_a_payload_throws()
+    {
+        await Assert.That(() => OperationDispatcher.CommandFor(OperationKind.ExecuteConsoleCommand)).Throws<InvalidOperationException>();
     }
 
     [Test]

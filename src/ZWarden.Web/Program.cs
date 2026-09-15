@@ -4,6 +4,7 @@ using ZWarden.Infrastructure.Audit;
 using ZWarden.Infrastructure.Backups;
 using ZWarden.Infrastructure.Authorization;
 using ZWarden.Infrastructure.Configuration;
+using ZWarden.Infrastructure.Console;
 using ZWarden.Infrastructure.Identity;
 using ZWarden.Infrastructure.Mods;
 using ZWarden.Infrastructure.Operations;
@@ -18,6 +19,7 @@ using ZWarden.Web.Operations;
 using ZWarden.Web.Components;
 using ZWarden.Web.Components.Account;
 using ZWarden.Web.Components.Agents;
+using ZWarden.Web.Components.Console;
 using ZWarden.Web.Components.Operations;
 using ZWarden.Web.Components.Players;
 using ZWarden.Web.Components.Servers;
@@ -57,6 +59,7 @@ builder.Services.AddZWardenEnrollment();            // F9: enrollment issuance/e
 builder.Services.AddZWardenOperations();            // F11: operations engine — coordinator, store, per-server lock (PR-B adds dispatch)
 builder.Services.AddZWardenServers();               // F14: Server inventory + import, snapshot reconciler, discovery cache
 builder.Services.AddZWardenPlayers();               // F19: player management (kick/ban/unban/whitelist) — non-mutating RCON operations
+builder.Services.AddZWardenConsole();               // F28: remote administrative console — non-mutating arbitrary-RCON operations + output cache
 builder.Services.AddZWardenConfiguration();         // F20b: configuration revisions — repository + completion-time revision recorder
 builder.Services.AddZWardenMods();                  // F21: Workshop/mod discovery — inventory cache + discovery service (read-only)
 builder.Services.AddZWardenBackups();               // F24: backups — take/delete Operations, pre-op API seam, completion ingest, read surface
@@ -95,6 +98,7 @@ app.MapOperationEndpoints();
 // gated by Server.Register.
 app.MapServerEndpoints();
 app.MapPlayerEndpoints();
+app.MapConsoleEndpoints();
 
 // The SignalR Agent hub (F10) — Agents connect outbound here over WSS, authenticated by the "Agent" scheme.
 app.MapAgentHub();
