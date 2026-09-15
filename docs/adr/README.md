@@ -47,5 +47,6 @@ instead. New ADRs take the next number and follow [`TEMPLATE.md`](./TEMPLATE.md)
 | [0030](./0030-live-logs-stream-on-demand-sanitized-at-source-over-a-non-operation-channel.md) | Live logs stream on demand, are sanitized at the source, and ride a non-Operation subscription channel | #47 |
 | [0031](./0031-aspire-is-dev-test-orchestration-only.md) | Aspire is dev/test orchestration only and does not govern production | #123 |
 | [0032](./0032-remote-console-runs-policy-gated-rcon-under-an-elevated-permission.md) | The remote console runs arbitrary RCON under an elevated permission, governed by a denylist and audited | #48 |
+| [0033](./0033-diagnostics-is-an-aggregating-read-only-transient-sweep-over-ten-domains.md) | Diagnostics is an aggregating, read-only, transient sweep over ten domains producing one untrusted report | #49 |
 
 When you add an ADR, add its row here in the same commit.

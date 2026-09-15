@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Tier-1 offline unit tests (ADR 0002) for the F29 diagnostics engine. MTP test apps are
+    executables; the runner is selected in global.json. LangVersion is pinned for determinism
+    (ADR 0002 item 6) rather than inherited from TUnit.Engine.props.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <LangVersion>14.0</LangVersion>
+    <!-- Silent-drop floor (ADR 0002). Update when tests are added or removed. -->
+    <TestingPlatformCommandLineArguments>--minimum-expected-tests 37</TestingPlatformCommandLineArguments>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="TUnit" />
+    <PackageReference Include="TUnit.Mocks" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\ZWarden.Diagnostics\ZWarden.Diagnostics.csproj" />
+  </ItemGroup>
+
+</Project>
