@@ -91,8 +91,16 @@ deployment features by convenience.
    ASPIRE010 nudge.
 
 8. **CI placement.** (PR-3) The Aspire integration boot runs in the existing Docker-requiring tier
-   (ADR 0002), gated so the offline tier skips it. New `packages.lock.json` files are committed so
-   restore is deterministic.
+   (ADR 0002), gated so the offline tier skips it.
+
+9. **The AppHost (and the PR-3 Aspire test project) carry no `packages.lock.json`.** With
+   `AspireUseCliBundle=false` the Aspire SDK restores the dashboard + DCP as **host-RID-specific**
+   packages chosen from the build host's SDK RID (not from `RuntimeIdentifiers`), so a lockfile
+   generated on Windows carries `win-x64` and fails a locked-mode restore on the linux CI runner
+   (NU1004); a cross-platform lock is not achievable. These dev/test-only projects
+   (`RestorePackagesWithLockFile=false`) are therefore exempt from PRD-55 reproducible restore. Every
+   **production** project keeps its lockfile, and the Aspire packages are still exact-pinned in
+   `Directory.Packages.props`, so versions do not float.
 
 ## Alternatives considered
 

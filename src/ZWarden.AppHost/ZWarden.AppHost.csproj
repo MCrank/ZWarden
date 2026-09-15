@@ -25,6 +25,17 @@
          suppressed here rather than obeyed. -->
     <AspireUseCliBundle>false</AspireUseCliBundle>
     <NoWarn>$(NoWarn);ASPIRE010</NoWarn>
+
+    <!-- No packages.lock.json for this project (overrides the Directory.Build.props default). With
+         AspireUseCliBundle=false the Aspire SDK restores the dashboard + DCP as HOST-RID-specific
+         packages (Aspire.Dashboard.Sdk.RID, Aspire.Hosting.Orchestration.RID) chosen from the build
+         host's SDK RID, not from RuntimeIdentifiers — so a lockfile generated on Windows carries
+         win-x64 and fails a locked-mode restore on the linux CI runner (NU1004). A cross-platform lock
+         is not achievable here. This dev/test-only AppHost (ADR 0031) is exempt from PRD-55 reproducible
+         restore; every PRODUCTION project keeps its lockfile. The Aspire.* packages themselves are still
+         exact-pinned in Directory.Packages.props, so versions do not float. Applies equally to the PR-3
+         Aspire integration-test project. -->
+    <RestorePackagesWithLockFile>false</RestorePackagesWithLockFile>
   </PropertyGroup>
 
   <ItemGroup>
