@@ -20,7 +20,7 @@ public sealed class ComposeDistributionSmokeTests : IAsyncDisposable
 
     [Test]
     [Category("Networked")]
-    [Timeout(900_000)]
+    [Timeout(420_000)]
     public async Task The_web_image_boots_in_sqlite_mode_runs_non_root_and_serves_healthz(CancellationToken ct)
     {
         IContainer web = await StartWebImageAsync(ct);
@@ -56,6 +56,11 @@ public sealed class ComposeDistributionSmokeTests : IAsyncDisposable
             .WithEnvironment("ConnectionStrings__ZWarden", "Data Source=/data/zwarden.db")
             .WithEnvironment("ZW_SECRET_KEYS", $"k1:{Convert.ToBase64String(new byte[32])}")
             .WithEnvironment("ZW_SECRET_ACTIVE_KEY_ID", "k1")
+            // Host filtering (ADR 0006) rejects any Host not in this list; the readiness probe reaches the
+            // mapped port as 127.0.0.1, so both it and the localhost assertion below must be allowed. The
+            // real deployment sets its public domain here (compose.yaml) — a wildcard is forbidden.
+            .WithEnvironment("ZWarden__AllowedHosts__0", "localhost")
+            .WithEnvironment("ZWarden__AllowedHosts__1", "127.0.0.1")
             .WithPortBinding(8080, assignRandomHostPort: true)
             .WithWaitStrategy(Wait.ForUnixContainer()
                 .UntilHttpRequestIsSucceeded(r => r.ForPath("/healthz").ForPort(8080)))
