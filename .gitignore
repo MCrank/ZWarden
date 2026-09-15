@@ -73,3 +73,7 @@ secrets.json
 # CI (stale-css guard), so it is deliberately NOT ignored.
 node_modules/
 npm-debug.log*
+# Playwright CLI install + per-developer config (browser channel) and output (may contain credentials).
+# The playwright-cli SKILL.md is committed (dev/test tooling, ADR 0031); the local binary/config is not.
+.playwright/
+.playwright-cli/

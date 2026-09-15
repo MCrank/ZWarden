@@ -114,6 +114,16 @@ if (!string.IsNullOrWhiteSpace(adminEmail) && !string.IsNullOrWhiteSpace(adminPa
 // after the admin seed (so the account exists) and is idempotent; seeds roles even with no admin configured.
 await AuthorizationBootstrapper.EnsureSeededAsync(app.Services, adminEmail);
 
+// DEV ONLY (ADR 0031, #123): when the Aspire AppHost injects a dev enrollment secret in Development, seed
+// a well-known redeemable enrollment so the orchestrated Agent self-enrolls on boot with no manual step.
+// Fails closed if that secret is ever configured outside Development — the well-known credential is never
+// a production authentication path. No-op in production, where the key is unset.
+await DevEnrollmentBootstrapper.EnsureDevEnrollmentAsync(
+    app.Services,
+    app.Environment.IsDevelopment(),
+    builder.Configuration["ZWarden:Dev:EnrollmentSecret"],
+    lifetime: TimeSpan.FromHours(24));
+
 app.Run();
 
 /// <summary>

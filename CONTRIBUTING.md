@@ -28,6 +28,23 @@ Add a package by pinning its version in [`Directory.Packages.props`](./Directory
 referencing it **without a version** in the `.csproj` (central package management). A
 `<PackageReference>` with an inline `Version` is a build error.
 
+## One-command dev loop (Aspire)
+
+To run the whole distributed system locally — **Web + Agent + Postgres + the wollomatic proxy**, with a
+dashboard of correlated logs/traces/metrics and the Agent self-enrolled and Connected:
+
+```bash
+dotnet dev-certs https --trust    # one-time: the dashboard talks to the resource service over TLS
+aspire run                        # boots the graph; prints the dashboard URL + login token
+```
+
+Aspire is **dev/test orchestration only** — it does not deploy or govern production
+([ADR 0031](./docs/adr/0031-aspire-is-dev-test-orchestration-only.md); production packaging is F34). See
+[`src/ZWarden.AppHost/README.md`](./src/ZWarden.AppHost/README.md) for the dev-only secrets it injects,
+how to reset the persistent dev database volume, and the agent-skills boundary
+([`docs/agents/aspire.md`](./docs/agents/aspire.md)). The [`run-web`](./.claude/skills/run-web) skill
+remains the fast Web-only (SQLite) path when you don't need the Agent or Docker.
+
 ## Test-driven development is mandatory (PRD 2.2)
 
 Write the failing test first, make it pass, refactor. Tests are executable specifications.
