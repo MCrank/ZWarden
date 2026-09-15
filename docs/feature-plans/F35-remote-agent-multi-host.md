@@ -1,8 +1,9 @@
 # Feature 35 Mini-Plan — Remote Agent / Multi-Host Support
 
-**Status:** IN PROGRESS (2026-09-15) — load-bearing decisions **LOCKED as-recommended with the maintainer
-(2026-09-15)**: D-1 Agent reports host metadata; D-2 defer host-narrowing (gate on tenant-wide `Agent.*`);
-D-3 standalone remote-agent compose + docs; D-4 assignment = host-pick at register (no reassignment).
+**Status:** DONE (2026-09-15) — PR-A ([#142](https://github.com/MCrank/ZWarden/pull/142)) MERGED, PR-B open.
+Load-bearing decisions **LOCKED as-recommended with the maintainer (2026-09-15)**: D-1 Agent reports host
+metadata; D-2 defer host-narrowing (gate on tenant-wide `Agent.*`); D-3 standalone remote-agent compose +
+docs; D-4 assignment = host-pick at register (no reassignment).
 Roadmap issue: [F35 (#54)](https://github.com/MCrank/ZWarden/issues/54), **Track F — Deployment and
 release**. F35 is the feature that turns the already-built outbound-WSS control plane into a **legible,
 operable multi-host fleet**: a remote operator installs a ZWarden.Agent on a *second* host, sees every host
@@ -116,9 +117,12 @@ Two PRs, mirroring F34's shape.
 - **New transport, heartbeat, or reconnect engine** — already shipped in F9/F10; F35 verifies, does not rebuild.
 
 ## Progress
-- [x] PR-A ([#142](https://github.com/MCrank/ZWarden/pull/142), OPEN): host descriptor contract + entity +
+- [x] PR-A ([#142](https://github.com/MCrank/ZWarden/pull/142), MERGED): host descriptor contract + entity +
   migration (both providers) + Hello wiring + `IAgentInventory`/`HostSummary` + `/hosts` page + nav
-- [ ] PR-B: remote-agent compose + docs + WAN verification + ADR 0038
+- [x] PR-B: standalone `deploy/compose/remote-agent/` (Agent + wollomatic, outbound wss, own enrollment/trust
+  volume) + `bootstrap-env.{sh,ps1}` + `RemoteAgentDistributionTests` allowlist drift guard;
+  `docs/deployment/remote-agent.md`; WAN reconnect extracted to a public, tested `CappedBackoffRetryPolicy`
+  (retry-forever, capped-30s); **ADR 0038** + README index (also backfilled the missing 0037 row).
 
 ## Verification
 - Unit/arch/bUnit tests green (TDD); `AgentHello` round-trips with and without the descriptor.

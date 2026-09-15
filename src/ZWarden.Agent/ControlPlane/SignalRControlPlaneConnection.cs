@@ -290,15 +290,4 @@ public sealed partial class SignalRControlPlaneConnection : IAgentControlPlaneCo
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Observing server health for the connect snapshot failed; sending an empty snapshot.")]
     private partial void LogSnapshotObservationFailed(Exception ex);
-
-    // Reconnect forever with an exponential backoff capped at 30s — the Agent should keep trying to reach the
-    // control plane rather than give up (SignalR's default policy stops after ~30s).
-    private sealed class CappedBackoffRetryPolicy : IRetryPolicy
-    {
-        public TimeSpan? NextRetryDelay(RetryContext retryContext)
-        {
-            double seconds = Math.Min(30, Math.Pow(2, Math.Min(retryContext.PreviousRetryCount, 5)));
-            return TimeSpan.FromSeconds(seconds);
-        }
-    }
 }
