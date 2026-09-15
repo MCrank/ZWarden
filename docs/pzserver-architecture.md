@@ -162,7 +162,7 @@ yet.** Today they exist and PZ manages them; ZWarden has no config editor.
 | **Edit PZ config / sandbox settings** | F20a / F20b | ⛔ not built |
 | **Workshop / mods** | F21 / F22 | ⛔ not built |
 | **RCON client + health probe** | F18 | ✅ built (private-network transport, Agent-owned credential; ADR 0026) |
-| **RCON console** | F28 | 🚧 in progress — arbitrary RCON over F18, elevated `Console.Execute`, denylist + input safety, non-mutating audited Operations, untrusted bounded output (ADR 0032); UI is the final PR |
+| **RCON console** | F28 | ✅ built — arbitrary RCON over F18 on the server-detail page, elevated `Console.Execute`, denylist + input safety, non-mutating audited Operations, untrusted bounded output, live output pane (ADR 0032) |
 | **Destroy / deprovision a server** | (future) | ⛔ not built |
 
 ---
