@@ -3,12 +3,16 @@ using ZWarden.Agent.Configuration;
 using ZWarden.Agent.Diagnostics;
 using ZWarden.Agent.Docker;
 using ZWarden.Agent.Health;
+using ZWarden.Agent.Mods;
 using ZWarden.Agent.Rcon;
 using ZWarden.Agent.SteamCmd;
 using ZWarden.Agent.Tests.Docker;
+using ZWarden.Agent.Tests.Mods;
 using ZWarden.Contracts.Protocol;
 using ZWarden.Contracts.Protocol.Messages;
 using ZWarden.Domain.Ids;
+using ZWarden.PzConfig;
+using ZWarden.PzConfig.Validation;
 
 namespace ZWarden.Agent.Tests.Diagnostics;
 
@@ -136,6 +140,40 @@ public class DiagnosticsGathererTests
         await Assert.That(Check(absent.Checks, DiagnosticDomain.SteamCmd).Status).IsEqualTo(ProbeStatus.Warn);
     }
 
+    [Test]
+    public async Task Server_gather_fails_the_mod_domain_when_an_enabled_mod_is_missing()
+    {
+        FakeModDiscovery mods = new()
+        {
+            Result = new ModDiscoveryResult([], [], ["ghostmod"], [new ModCompatFinding(ModCompatKind.EnabledButMissing, "ghostmod", null)]),
+        };
+        ServerDiagnosticsResult result = await ServerGatherer(mods: mods).GatherAsync(ServerId.New(), CancellationToken.None);
+
+        await Assert.That(Check(result.Checks, DiagnosticDomain.Mod).Status).IsEqualTo(ProbeStatus.Fail);
+    }
+
+    [Test]
+    public async Task Server_gather_warns_the_compatibility_domain_on_a_duplicate_mod_id()
+    {
+        FakeModDiscovery mods = new()
+        {
+            Result = new ModDiscoveryResult([], [], ["dup"], [new ModCompatFinding(ModCompatKind.DuplicateModId, "dup", null)]),
+        };
+        ServerDiagnosticsResult result = await ServerGatherer(mods: mods).GatherAsync(ServerId.New(), CancellationToken.None);
+
+        await Assert.That(Check(result.Checks, DiagnosticDomain.Compatibility).Status).IsEqualTo(ProbeStatus.Warn);
+        await Assert.That(Check(result.Checks, DiagnosticDomain.Mod).Status).IsEqualTo(ProbeStatus.Pass);
+    }
+
+    [Test]
+    public async Task Server_gather_warns_the_config_domain_when_there_is_no_config_file()
+    {
+        // The stub data root has no servertest.ini, so the config check warns rather than failing.
+        ServerDiagnosticsResult result = await ServerGatherer().GatherAsync(ServerId.New(), CancellationToken.None);
+
+        await Assert.That(Check(result.Checks, DiagnosticDomain.Config).Status).IsEqualTo(ProbeStatus.Warn);
+    }
+
     // --- helpers ---
 
     private static readonly DiskUsage Healthy = new(UsedBytes: 10, CapacityBytes: 100);
@@ -158,13 +196,17 @@ public class DiagnosticsGathererTests
         RconHealthResult? rcon = null,
         FakeContainerRuntime? runtime = null,
         bool? portReachable = null,
-        string? buildId = null) =>
+        string? buildId = null,
+        IModDiscovery? mods = null) =>
         new(
             new StubRcon(rcon ?? new RconHealthResult(true, true, null)),
             runtime ?? new FakeContainerRuntime(),
             new StubNetwork(portReachable),
             new StubDisk(Healthy),
             new StubInstallPaths(buildId),
+            mods ?? new FakeModDiscovery(),
+            new PzConfigParser(),
+            new PzConfigValidator(),
             Opts(TempDir()));
 
     private static IOptions<AgentOptions> Opts(string dataRoot) => Options.Create(new AgentOptions

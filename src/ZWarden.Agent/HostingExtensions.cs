@@ -21,6 +21,7 @@ using ZWarden.Agent.ServerConfig;
 using ZWarden.Agent.SteamCmd;
 using ZWarden.Agent.Trust;
 using ZWarden.PzConfig;
+using ZWarden.PzConfig.Validation;
 using ZWarden.Rcon;
 
 namespace ZWarden.Agent;
@@ -126,6 +127,8 @@ public static class HostingExtensions
         // re-parses the live /pz/ file, fails closed on a drift from the recorded baseline (ADR 0011), and writes
         // BOM-less and atomically. The parser is stateless and thread-safe.
         services.AddSingleton<IPzConfigParser, PzConfigParser>();
+        // The read-only schema validator (F29 config diagnostics): reports Error/Info findings without mutating.
+        services.AddSingleton<IPzConfigValidator, PzConfigValidator>();
         services.AddSingleton<IServerConfigWriter, ServerConfigWriter>();
 
         // Workshop and mod discovery (F21): read-only, offline. Walks the Server's Workshop content subtree and

@@ -29,6 +29,15 @@ public sealed record DiagnosticsRunResult(bool Succeeded, DiagnosticReport? Repo
 /// </summary>
 public interface IDiagnosticsService
 {
-    /// <summary>Runs a tenant-wide diagnostics sweep for <paramref name="user"/>.</summary>
+    /// <summary>Runs a tenant-wide diagnostics sweep for <paramref name="user"/> — the platform domains (Web, DB,
+    /// TLS, Agent connectivity) plus each connected Agent's cached host domains.</summary>
     Task<DiagnosticsRunResult> RunAsync(UserId user, CancellationToken cancellationToken = default);
+
+    /// <summary>Assembles the per-server diagnostics report for <paramref name="serverId"/> — the server domains
+    /// (RCON, game port, filesystem, SteamCMD, mods, config, compatibility) from the Server's cached gather plus
+    /// the owning Agent's host domains (Docker, filesystem). <paramref name="owningAgentId"/> is the Server's true
+    /// owning Agent (the caller resolves the Server through the tenant filter first); it guards the cache read.
+    /// Read-only and transient; a domain with no cached gather yet is Skipped.</summary>
+    Task<DiagnosticsRunResult> RunForServerAsync(
+        UserId user, ServerId serverId, AgentId owningAgentId, CancellationToken cancellationToken = default);
 }
