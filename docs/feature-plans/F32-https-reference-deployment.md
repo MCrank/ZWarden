@@ -1,7 +1,7 @@
 # Feature 32 Mini-Plan — HTTPS Reference Deployment
 
-**Status:** PLANNED (2026-09-15) — load-bearing decisions **LOCKED as-recommended with the maintainer
-(2026-09-15)**. Roadmap
+**Status:** DONE (2026-09-15) — shipped in PR #137 (merged); issue #51 closed. Load-bearing decisions were
+**LOCKED as-recommended with the maintainer (2026-09-15)**. Roadmap
 issue: [F32 (#51)](https://github.com/MCrank/ZWarden/issues/51), **Track F — Deployment and release**. The
 feature that puts a **Caddy 2.11.4 reverse-proxy ingress** in front of ZWarden.Web so a self-hosted operator
 gets automatic HTTPS, an HTTP→HTTPS redirect, ACME/Let's Encrypt certificates, and transparent WebSocket
