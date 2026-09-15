@@ -108,6 +108,33 @@ public sealed class DiagnosticsEndpointsTests
         await Assert.That(gather.StatusCode).IsEqualTo(HttpStatusCode.NotFound);
     }
 
+    [Test]
+    public async Task Reading_diagnostics_for_an_unknown_server_is_not_found()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        await factory.CreateConfirmedUserAsync("op@zwarden.test", StrongPassword);
+        await AuthorizationBootstrapper.EnsureSeededAsync(factory.Services, "op@zwarden.test");
+        using HttpClient client = factory.CreateWebClient();
+        await LoginAsync(client, "op@zwarden.test", StrongPassword);
+
+        HttpResponseMessage read = await client.GetAsync(
+            new Uri($"/api/servers/{ServerId.New()}/diagnostics", UriKind.Relative));
+
+        await Assert.That(read.StatusCode).IsEqualTo(HttpStatusCode.NotFound);
+    }
+
+    [Test]
+    public async Task Anonymous_cannot_read_server_diagnostics()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        using HttpClient client = factory.CreateWebClient();
+
+        HttpResponseMessage read = await client.GetAsync(
+            new Uri($"/api/servers/{ServerId.New()}/diagnostics", UriKind.Relative));
+
+        await Assert.That(read.StatusCode).IsNotEqualTo(HttpStatusCode.OK);
+    }
+
     private static async Task LoginAsync(HttpClient client, string email, string password)
     {
         HttpResponseMessage page = await client.GetAsync(new Uri("/login", UriKind.Relative));

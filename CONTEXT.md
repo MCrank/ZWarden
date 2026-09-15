@@ -169,6 +169,15 @@ _Avoid_: registration (which means adding a Server), pairing, onboarding
 Two distinct identifiers that must never be conflated: a Steam Workshop item may contain several
 Project Zomboid mods.
 
+**Diagnostic Report**:
+The transient result of one diagnostics sweep — a set of **Diagnostic Checks** across the diagnostic
+**domains**. Read-only and not persisted; the durable, packaged form is a **Support Package**.
+_Avoid_: scan, audit (which means something else here)
+
+**Diagnostic Check**:
+One domain's verdict within a Diagnostic Report — a status (pass / warn / fail / skipped), a summary,
+and optional untrusted detail. A **domain** is one area checked (database, Docker, RCON, TLS, …).
+
 **Support Package**:
 A sanitized, redacted diagnostic bundle a user can share without leaking secrets.
 _Avoid_: log dump, diagnostic export

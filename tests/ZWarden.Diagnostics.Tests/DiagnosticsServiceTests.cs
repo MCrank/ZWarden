@@ -143,6 +143,53 @@ public class DiagnosticsServiceTests
     }
 
     [Test]
+    public async Task A_per_server_run_denies_an_unauthorized_caller()
+    {
+        DiagnosticsService sut = Service(allow: false);
+
+        DiagnosticsRunResult result = await sut.RunForServerAsync(UserId.New(), ServerId.New(), AgentId.New());
+
+        await Assert.That(result.Succeeded).IsFalse();
+        await Assert.That(result.Failure).IsEqualTo(DiagnosticsRunFailure.NotAuthorized);
+    }
+
+    [Test]
+    public async Task A_per_server_run_merges_the_cached_server_and_host_bundles()
+    {
+        ServerId server = ServerId.New();
+        AgentId owner = AgentId.New();
+        FakeDiagnosticsResultCache cache = new();
+        cache.RecordServer(server, owner, new DiagnosticBundle(
+            [new DiagnosticCheck(DiagnosticDomain.Rcon, DiagnosticStatus.Pass, "RCON ok")], Now));
+        cache.RecordHost(owner, new DiagnosticBundle(
+            [new DiagnosticCheck(DiagnosticDomain.Docker, DiagnosticStatus.Pass, "Docker ok")], Now));
+        DiagnosticsService sut = Service(allow: true, cache: cache);
+
+        DiagnosticReport report = (await sut.RunForServerAsync(UserId.New(), server, owner)).Report!;
+
+        await Assert.That(report.Checks.Single(c => c.Domain == DiagnosticDomain.Rcon).Status).IsEqualTo(DiagnosticStatus.Pass);
+        await Assert.That(report.Checks.Single(c => c.Domain == DiagnosticDomain.Docker).Status).IsEqualTo(DiagnosticStatus.Pass);
+        // A domain not gathered yet is Skipped, so the report still covers every server domain.
+        await Assert.That(report.Checks.Single(c => c.Domain == DiagnosticDomain.Config).Status).IsEqualTo(DiagnosticStatus.Skipped);
+    }
+
+    [Test]
+    public async Task A_per_server_run_ignores_a_bundle_reported_by_a_foreign_agent()
+    {
+        ServerId server = ServerId.New();
+        AgentId owner = AgentId.New();
+        FakeDiagnosticsResultCache cache = new();
+        cache.RecordServer(server, AgentId.New(), new DiagnosticBundle(
+            [new DiagnosticCheck(DiagnosticDomain.Rcon, DiagnosticStatus.Pass, "RCON ok")], Now));
+        DiagnosticsService sut = Service(allow: true, cache: cache);
+
+        DiagnosticReport report = (await sut.RunForServerAsync(UserId.New(), server, owner)).Report!;
+
+        // The ownership guard hides the foreign bundle, so RCON falls back to Skipped.
+        await Assert.That(report.Checks.Single(c => c.Domain == DiagnosticDomain.Rcon).Status).IsEqualTo(DiagnosticStatus.Skipped);
+    }
+
+    [Test]
     public async Task An_authorized_run_is_audited()
     {
         CapturingAuditWriter audit = new();

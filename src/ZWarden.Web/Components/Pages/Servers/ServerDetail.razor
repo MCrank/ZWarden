@@ -5,13 +5,16 @@
 @using ZWarden.Application.Backups
 @using ZWarden.Application.Configuration
 @using ZWarden.Application.Console
+@using ZWarden.Application.Diagnostics
 @using ZWarden.Application.Mods
+@using ZWarden.Application.Operations
 @using ZWarden.Application.Players
 @using ZWarden.Application.Servers
 @using ZWarden.Domain.Authorization
 @using ZWarden.Domain.Backups
 @using ZWarden.Domain.Configuration
 @using ZWarden.Domain.Ids
+@using ZWarden.Domain.Operations
 @inject IServerInventory Inventory
 @inject IServerBackup ServerBackups
 @inject IServerRestore ServerRestores
@@ -19,6 +22,7 @@
 @inject IPlayerManagement Players
 @inject IBanQuery Bans
 @inject IConsoleCommandService ConsoleService
+@inject IOperationCoordinator Operations
 @inject IServerConfigurationEditor ConfigEditor
 @inject IServerConfigurationHistory ConfigHistory
 @inject IModDiscoveryService ModDiscovery
@@ -154,6 +158,38 @@ else
                                             ServerId="@_server.Id.ToString()"
                                             AgentId="@_server.AgentId.ToString()" />
                 </div>
+            </div>
+        </BbCard>
+    }
+
+    @if (_canViewDiagnostics)
+    {
+        <BbCard Class="mt-6 p-5" data-diagnostics-card>
+            <h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Diagnostics</h2>
+            <p class="mt-1 text-xs text-muted-foreground">
+                Run a read-only diagnostics gather for this server — RCON, game port, filesystem, SteamCMD, mods,
+                configuration, and compatibility, plus the host's Docker and disk. Nothing is changed; results
+                appear below as they are gathered.
+            </p>
+
+            @if (_diagnosticsMessage is not null)
+            {
+                <div class="mt-3" data-diagnostics-message>
+                    <BbAlert Variant="@_diagnosticsAlert" AccentBorder>
+                        <BbAlertDescription>@_diagnosticsMessage</BbAlertDescription>
+                    </BbAlert>
+                </div>
+            }
+
+            <EditForm Model="_diagnosticsForm" FormName="diagnostics-gather" OnValidSubmit="DiagnosticsGatherAsync" class="mt-4">
+                <BbButton Variant="ButtonVariant.Secondary" Type="ButtonType.Submit" Size="ButtonSize.Small"
+                          data-action="run-diagnostics">Run diagnostics</BbButton>
+            </EditForm>
+
+            <div class="mt-4">
+                <LiveServerDiagnosticsPanel @rendermode="InteractiveServer"
+                                            ServerId="@_server.Id.ToString()"
+                                            AgentId="@_server.AgentId.ToString()" />
             </div>
         </BbCard>
     }
@@ -708,6 +744,9 @@ else
     [SupplyParameterFromForm(FormName = "console-command")]
     private ConsoleFormModel _consoleForm { get; set; } = default!;
 
+    [SupplyParameterFromForm(FormName = "diagnostics-gather")]
+    private DiagnosticsFormModel _diagnosticsForm { get; set; } = default!;
+
     [SupplyParameterFromForm(FormName = "server-config")]
     private ConfigFormModel _configForm { get; set; } = default!;
 
@@ -729,6 +768,9 @@ else
     private bool _canExecuteConsole;
     private string? _consoleMessage;
     private AlertVariant _consoleAlert = AlertVariant.Warning;
+    private bool _canViewDiagnostics;
+    private string? _diagnosticsMessage;
+    private AlertVariant _diagnosticsAlert = AlertVariant.Info;
     private bool _canViewMods;
     private string? _modMessage;
 
@@ -761,6 +803,7 @@ else
         _modForm ??= new ModDiscoveryModel();
         _modManageForm ??= new ModManageModel();
         _backupForm ??= new BackupManageModel();
+        _diagnosticsForm ??= new DiagnosticsFormModel();
         _configForm.File ??= nameof(PzConfigFile.Ini);
         _configForm.Kind ??= nameof(ConfigEditKind.Bool);
         _selectedFile = ParseFile(_configForm.File);
@@ -777,6 +820,8 @@ else
             await LoadPlayersAsync(user, serverId);
             _canViewLogs = (await PermissionChecker.EvaluateAsync(user, Permissions.ConsoleView, serverId)).IsAllowed;
             _canExecuteConsole = (await PermissionChecker.EvaluateAsync(user, Permissions.ConsoleExecute, serverId)).IsAllowed;
+            // Diagnostics.View is tenant-wide (not server-scoped), so it is evaluated without a Server.
+            _canViewDiagnostics = (await PermissionChecker.EvaluateAsync(user, Permissions.DiagnosticsView)).IsAllowed;
             _canViewMods = (await PermissionChecker.EvaluateAsync(user, Permissions.ModView, serverId)).IsAllowed;
             await LoadModManagementAsync(user, serverId);
             if (_perm.CanConfigEdit)
@@ -1061,6 +1106,26 @@ else
             ConsoleCommandFailure.Denied => result.Detail ?? "That command is not allowed from the console.",
             _ => "The command could not be run.",
         };
+    }
+
+    private async Task DiagnosticsGatherAsync()
+    {
+        if (_server is null || !ServerId.TryParse(Id, out ServerId serverId))
+        {
+            return;
+        }
+
+        // A read-only, non-mutating per-server gather (F29): it never claims the per-server lock, so it can run
+        // during other activity. The Agent reports the bundle, which lands in the live panel below.
+        UserId user = await CurrentUserAsync();
+        await Operations.EnqueueAsync(
+            new EnqueueOperationRequest(
+                _server.AgentId, OperationKind.GatherServerDiagnostics, IsMutating: false, Guid.NewGuid().ToString("N"),
+                ServerId: serverId),
+            user);
+
+        _diagnosticsAlert = AlertVariant.Info;
+        _diagnosticsMessage = "Diagnostics gather started. Results appear below as they are gathered.";
     }
 
     private async Task ConfigAsync()
@@ -1359,6 +1424,9 @@ else
         // The operator-authored RCON command line to run (validated + policy-checked in the service).
         public string? Input { get; set; }
     }
+
+    // The diagnostics gather is a parameterless action — the form carries no fields, only the submit.
+    private sealed class DiagnosticsFormModel;
 
     private sealed class ConfigFormModel
     {

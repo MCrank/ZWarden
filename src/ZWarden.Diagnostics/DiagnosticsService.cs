@@ -133,4 +133,65 @@ public sealed class DiagnosticsService : IDiagnosticsService
 
         return DiagnosticsRunResult.Success(report);
     }
+
+    // The domains a per-server report covers: the Server's own gather plus its owning Agent's host domains.
+    private static readonly DiagnosticDomain[] ServerReportDomains =
+    [
+        DiagnosticDomain.Docker,
+        DiagnosticDomain.Rcon,
+        DiagnosticDomain.GamePort,
+        DiagnosticDomain.Filesystem,
+        DiagnosticDomain.SteamCmd,
+        DiagnosticDomain.Mod,
+        DiagnosticDomain.Config,
+        DiagnosticDomain.Compatibility,
+    ];
+
+    /// <inheritdoc />
+    public async Task<DiagnosticsRunResult> RunForServerAsync(
+        UserId user, ServerId serverId, AgentId owningAgentId, CancellationToken cancellationToken = default)
+    {
+        AuthorizationDecision decision = await _permissions
+            .EvaluateAsync(user, Permissions.DiagnosticsView, server: null, cancellationToken).ConfigureAwait(false);
+        if (!decision.IsAllowed)
+        {
+            return DiagnosticsRunResult.Denied(DiagnosticsRunFailure.NotAuthorized);
+        }
+
+        DateTimeOffset now = _time.GetUtcNow();
+        List<DiagnosticCheck> checks = [];
+        HashSet<DiagnosticDomain> covered = [];
+
+        // The Server's own gather (RCON, game port, filesystem, SteamCMD, mods, config, compatibility).
+        if (_cache.GetServer(serverId, owningAgentId) is { } serverBundle)
+        {
+            Merge(checks, covered, serverBundle);
+        }
+
+        // The owning Agent's host gather (Docker, host filesystem) — the host the Server runs on.
+        if (_cache.GetHost(owningAgentId) is { } hostBundle)
+        {
+            Merge(checks, covered, hostBundle);
+        }
+
+        foreach (DiagnosticDomain domain in ServerReportDomains)
+        {
+            if (!covered.Contains(domain))
+            {
+                checks.Add(DiagnosticCheck.Create(
+                    domain, DiagnosticStatus.Skipped, "Not gathered yet.", "Trigger a diagnostics gather to fill this domain (F29)."));
+            }
+        }
+
+        return DiagnosticsRunResult.Success(new DiagnosticReport(checks, now));
+    }
+
+    private static void Merge(List<DiagnosticCheck> checks, HashSet<DiagnosticDomain> covered, DiagnosticBundle bundle)
+    {
+        checks.AddRange(bundle.Checks);
+        foreach (DiagnosticCheck check in bundle.Checks)
+        {
+            covered.Add(check.Domain);
+        }
+    }
 }
