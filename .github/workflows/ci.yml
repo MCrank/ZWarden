@@ -71,6 +71,7 @@ jobs:
           for proj in \
             tests/ZWarden.Domain.Tests/ZWarden.Domain.Tests.csproj \
             tests/ZWarden.Contracts.Tests/ZWarden.Contracts.Tests.csproj \
+            tests/ZWarden.Diagnostics.Tests/ZWarden.Diagnostics.Tests.csproj \
             tests/ZWarden.Infrastructure.Tests/ZWarden.Infrastructure.Tests.csproj \
             tests/ZWarden.Web.Tests/ZWarden.Web.Tests.csproj \
             tests/ZWarden.ArchitectureTests/ZWarden.ArchitectureTests.csproj \
@@ -127,7 +128,7 @@ jobs:
           # floor - proving the reflection switch is load-bearing. A floor below the source-gen
           # -discoverable count (the .cs tests) would pass even with the drop and defeat the guard.
           set +e
-          "$exe" --minimum-expected-tests 183 > guarded.log 2>&1
+          "$exe" --minimum-expected-tests 186 > guarded.log 2>&1
           guarded=$?
           set -e
           cat guarded.log

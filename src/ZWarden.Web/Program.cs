@@ -20,9 +20,11 @@ using ZWarden.Web.Components;
 using ZWarden.Web.Components.Account;
 using ZWarden.Web.Components.Agents;
 using ZWarden.Web.Components.Console;
+using ZWarden.Web.Components.Diagnostics;
 using ZWarden.Web.Components.Operations;
 using ZWarden.Web.Components.Players;
 using ZWarden.Web.Components.Servers;
+using ZWarden.Web.Diagnostics;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
@@ -63,6 +65,7 @@ builder.Services.AddZWardenConsole();               // F28: remote administrativ
 builder.Services.AddZWardenConfiguration();         // F20b: configuration revisions — repository + completion-time revision recorder
 builder.Services.AddZWardenMods();                  // F21: Workshop/mod discovery — inventory cache + discovery service (read-only)
 builder.Services.AddZWardenBackups();               // F24: backups — take/delete Operations, pre-op API seam, completion ingest, read surface
+builder.Services.AddZWardenDiagnostics(builder.Configuration); // F29: read-only diagnostics engine — in-process DB/TLS/Web/Agent domains (Agent-side domains land in PR-B/PR-C)
 builder.Services.AddAgentControlPlane();            // F10: Agent hub, handshake auth scheme, connection registry + monitor
 builder.Services.AddOperationDispatch();            // F11 PR-B: real operation dispatcher over the SignalR connection
 builder.Services.AddZWardenTelemetry(builder.Configuration, builder.Environment); // F16: OpenTelemetry baseline (opt-in OTLP)
@@ -99,6 +102,7 @@ app.MapOperationEndpoints();
 app.MapServerEndpoints();
 app.MapPlayerEndpoints();
 app.MapConsoleEndpoints();
+app.MapDiagnosticsEndpoints();
 
 // The SignalR Agent hub (F10) — Agents connect outbound here over WSS, authenticated by the "Agent" scheme.
 app.MapAgentHub();
