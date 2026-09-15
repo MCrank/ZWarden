@@ -1,6 +1,6 @@
 # Feature 40 Mini-Plan — Production Hardening and 1.0 Release Gate
 
-**Status:** IN PROGRESS (2026-09-15) — PR-A open. Load-bearing decision **LOCKED with the maintainer
+**Status:** IN PROGRESS (2026-09-15) — PR-A DONE (security spine); slices B–E remain. Load-bearing decision **LOCKED with the maintainer
 (2026-09-15):** the signed-release pipeline goes **full** — build and publish the three images to
 `ghcr.io/MCrank`, sign them with **cosign keyless (GitHub OIDC)**, attach SBOM attestations and
 `SHA256SUMS`, and pin digests in the reference Compose (slice C).
@@ -142,9 +142,13 @@ and is fixed to green).
 Each slice is its own PR and is independently verifiable (PRD 60). Reviews that find a real defect fix it
 inside the owning slice.
 
-- **PR-A — Threat-model attack suite + mini-plan + ADR 0039 (release gate).** This document; the §10
-  behavioral attack suite; completion/confirmation of the §9 architecture assertions; the fuzz/input tests.
-  The security spine, TDD red→green.
+- **PR-A — Threat-model attack suite + mini-plan + ADR 0039 (release gate). DONE.** This document; ADR 0039;
+  the §9 rule-3 closed-command-vocabulary guard (`ClosedCommandVocabularyTests` — the one real §9 gap, now
+  that every command has shipped); and the §10 behavioral attack suite — `AgentCredentialTheftAttackTests`
+  (#1), `TenantHintAttackTests` (#3), `ServerStateInferenceAttackTests` (#4). §10 #2 (label/assignment) and
+  #5 (untrusted-data escaped at render) were already fully covered and are cited in the gate checklist rather
+  than duplicated. Fuzz/input coverage for the config pre-check and redaction already exists (PzConfig.Tests,
+  Diagnostics.Tests) and is inventoried in slice E. The security spine, TDD red→green.
 - **PR-B — Supply-chain CI.** SBOM (CycloneDX/.NET + syft/images), `dependabot.yml`, gitleaks secret scan,
   trivy container scan, advisory-promotion promoted to a hard gate on the release path.
 - **PR-C — Signed, published release artifacts.** `release.yml` on version tags: build + push the three
