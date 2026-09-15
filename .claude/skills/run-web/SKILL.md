@@ -5,6 +5,12 @@ description: Launch and drive the ZWarden.Web app locally to see a change in the
 
 # Run ZWarden.Web locally
 
+> **Full graph vs. this skill.** For the whole distributed system — Web + Agent (self-enrolled and
+> Connected) + Postgres + the wollomatic proxy — with one command and a correlated dashboard, use
+> **`aspire run`** (ADR 0031; one-time `dotnet dev-certs https --trust` first; see
+> `src/ZWarden.AppHost/README.md` and `docs/agents/aspire.md`). This `run-web` skill stays the fast,
+> zero-dependency path for a **Web-only** SQLite boot + screenshot when you don't need the Agent/Docker.
+
 ZWarden.Web is a static-SSR Blazor app. Two things make "just `dotnet run`" fail, and both are
 handled by the launcher here:
 
