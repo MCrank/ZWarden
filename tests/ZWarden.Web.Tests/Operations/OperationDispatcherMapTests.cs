@@ -52,6 +52,13 @@ public class OperationDispatcherMapTests
     }
 
     [Test]
+    public async Task The_diagnostics_gather_kinds_map_to_their_gather_commands()
+    {
+        await Assert.That(OperationDispatcher.CommandFor(OperationKind.GatherHostDiagnostics)).IsTypeOf<GatherHostDiagnostics>();
+        await Assert.That(OperationDispatcher.CommandFor(OperationKind.GatherServerDiagnostics)).IsTypeOf<GatherServerDiagnostics>();
+    }
+
+    [Test]
     public async Task The_mod_discovery_kind_maps_to_the_discover_command()
     {
         await Assert.That(OperationDispatcher.CommandFor(OperationKind.ModDiscovery)).IsTypeOf<DiscoverMods>();

@@ -34,6 +34,10 @@ public static class DiagnosticsServiceCollectionExtensions
         services.AddScoped<IDiagnosticsAgentPresenceProbe, DiagnosticsAgentPresenceProbe>();
         services.AddSingleton<IDiagnosticsTlsProbe, DiagnosticsTlsProbe>();
 
+        // The latest-gather-per-Agent/Server cache (F29), beside the F16/F19 caches: an in-process singleton the
+        // AgentHub fills from completed gathers and the engine reads to fill the Agent-side domains. Never persisted.
+        services.AddSingleton<IDiagnosticsResultCache, DiagnosticsResultCache>();
+
         services.AddScoped<IDiagnosticsService, DiagnosticsService>();
 
         return services;

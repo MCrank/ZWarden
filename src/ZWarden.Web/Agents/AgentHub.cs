@@ -5,6 +5,7 @@ using ZWarden.Application.Audit;
 using ZWarden.Application.Backups;
 using ZWarden.Application.Configuration;
 using ZWarden.Application.Console;
+using ZWarden.Application.Diagnostics;
 using ZWarden.Application.Mods;
 using ZWarden.Application.Operations;
 using ZWarden.Application.Players;
@@ -14,6 +15,7 @@ using ZWarden.Contracts.Protocol.Messages;
 using ZWarden.Domain.Audit;
 using ZWarden.Domain.Ids;
 using ZWarden.Infrastructure.Agents;
+using ZWarden.Web.Diagnostics;
 using ZWarden.Web.Observability;
 using ZWarden.Web.Servers;
 
@@ -40,6 +42,7 @@ public sealed partial class AgentHub : Hub
     private readonly IServerLogBuffer _logBuffer;
     private readonly IPlayerRosterCache _rosters;
     private readonly IConsoleOutputCache _consoleOutput;
+    private readonly IDiagnosticsResultCache _diagnostics;
     private readonly IConfigurationRevisionRecorder _configRevisions;
     private readonly IModInventoryCache _mods;
     private readonly IBackupRecorder _backups;
@@ -57,6 +60,7 @@ public sealed partial class AgentHub : Hub
         IServerLogBuffer logBuffer,
         IPlayerRosterCache rosters,
         IConsoleOutputCache consoleOutput,
+        IDiagnosticsResultCache diagnostics,
         IConfigurationRevisionRecorder configRevisions,
         IModInventoryCache mods,
         IBackupRecorder backups,
@@ -73,6 +77,7 @@ public sealed partial class AgentHub : Hub
         ArgumentNullException.ThrowIfNull(logBuffer);
         ArgumentNullException.ThrowIfNull(rosters);
         ArgumentNullException.ThrowIfNull(consoleOutput);
+        ArgumentNullException.ThrowIfNull(diagnostics);
         ArgumentNullException.ThrowIfNull(configRevisions);
         ArgumentNullException.ThrowIfNull(mods);
         ArgumentNullException.ThrowIfNull(backups);
@@ -88,6 +93,7 @@ public sealed partial class AgentHub : Hub
         _logBuffer = logBuffer;
         _rosters = rosters;
         _consoleOutput = consoleOutput;
+        _diagnostics = diagnostics;
         _configRevisions = configRevisions;
         _mods = mods;
         _backups = backups;
@@ -362,6 +368,25 @@ public sealed partial class AgentHub : Hub
             {
                 _consoleOutput.Record(
                     consoleServerId, consoleAgent, operationId, consoleResult.Output, consoleResult.Truncated, completed.Timestamp);
+            }
+
+            // A successful host diagnostics gather carries the host-level checks the Agent observed (F29); cache the
+            // newest bundle keyed by the reporting Agent (the ownership key). Transient — never persisted (a run is
+            // transient, F29 D-2). Each check's detail is untrusted, carried verbatim (escaped at render).
+            if (completed.Payload.HostDiagnostics is { } hostDiagnostics
+                && AgentClaims.TryGetAgentId(Context.User, out AgentId hostAgent))
+            {
+                _diagnostics.RecordHost(
+                    hostAgent, new DiagnosticBundle(WireDiagnostics.ToChecks(hostDiagnostics.Checks), completed.Timestamp));
+            }
+
+            // A successful per-server diagnostics gather carries the server-level checks (F29); cache the newest
+            // bundle per Server, keyed by the reporting Agent (the ownership guard, §8). Transient — never persisted.
+            if (completed.Payload.ServerDiagnostics is { } serverDiagnostics && completed.ServerId is { } diagServerId
+                && AgentClaims.TryGetAgentId(Context.User, out AgentId diagAgent))
+            {
+                _diagnostics.RecordServer(
+                    diagServerId, diagAgent, new DiagnosticBundle(WireDiagnostics.ToChecks(serverDiagnostics.Checks), completed.Timestamp));
             }
 
             // A successful configuration apply carries the revision the Agent recorded from the file after the

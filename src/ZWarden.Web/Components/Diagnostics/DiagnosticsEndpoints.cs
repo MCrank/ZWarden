@@ -1,9 +1,12 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Identity;
 using ZWarden.Application.Diagnostics;
+using ZWarden.Application.Operations;
 using ZWarden.Domain.Authorization;
 using ZWarden.Domain.Ids;
+using ZWarden.Domain.Operations;
 using ZWarden.Infrastructure.Identity;
+using ZWarden.Infrastructure.Servers;
 
 namespace ZWarden.Web.Components.Diagnostics;
 
@@ -42,6 +45,66 @@ public static class DiagnosticsEndpoints
             }
 
             return Results.Ok(Project(result.Report!));
+        });
+
+        // Trigger a read-only host diagnostics gather on an Agent (F29). Non-mutating and host-level, so it takes
+        // no per-server lock and carries no ServerId; the Agent runs its host checks and reports the bundle, which
+        // the hub caches for the next report read.
+        api.MapPost("/agents/{id}/diagnostics/gather", async (
+            string id,
+            ClaimsPrincipal principal,
+            UserManager<ApplicationUser> users,
+            IOperationCoordinator coordinator,
+            CancellationToken cancellationToken) =>
+        {
+            if (!AgentId.TryParse(id, out AgentId agentId))
+            {
+                return Results.BadRequest();
+            }
+
+            Operation operation = await coordinator.EnqueueAsync(
+                new EnqueueOperationRequest(
+                    agentId, OperationKind.GatherHostDiagnostics, IsMutating: false, Guid.NewGuid().ToString("N")),
+                Actor(principal, users),
+                cancellationToken).ConfigureAwait(false);
+
+            return Results.Accepted(
+                $"/api/operations/{operation.Id}",
+                new { operationId = operation.Id.ToString(), state = operation.State.ToString() });
+        });
+
+        // Trigger a read-only per-server diagnostics gather (F29). Non-mutating and server-scoped, so it never
+        // claims the per-server lock. The Server is resolved through the tenant filter (foreign/unknown ⇒ 404); the
+        // gather is dispatched to the Server's owning Agent, which reports the bundle for the hub to cache.
+        api.MapPost("/servers/{id}/diagnostics/gather", async (
+            string id,
+            ClaimsPrincipal principal,
+            UserManager<ApplicationUser> users,
+            ServerRepository servers,
+            IOperationCoordinator coordinator,
+            CancellationToken cancellationToken) =>
+        {
+            if (!ServerId.TryParse(id, out ServerId serverId))
+            {
+                return Results.BadRequest();
+            }
+
+            var server = await servers.FindByIdAsync(serverId, cancellationToken).ConfigureAwait(false);
+            if (server is null)
+            {
+                return Results.NotFound();
+            }
+
+            Operation operation = await coordinator.EnqueueAsync(
+                new EnqueueOperationRequest(
+                    server.AgentId, OperationKind.GatherServerDiagnostics, IsMutating: false, Guid.NewGuid().ToString("N"),
+                    ServerId: serverId),
+                Actor(principal, users),
+                cancellationToken).ConfigureAwait(false);
+
+            return Results.Accepted(
+                $"/api/operations/{operation.Id}",
+                new { operationId = operation.Id.ToString(), state = operation.State.ToString() });
         });
 
         return endpoints;

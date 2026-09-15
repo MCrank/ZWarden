@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using ZWarden.Domain.Ids;
 using ZWarden.Infrastructure.Authorization;
 using ZWarden.Web.Tests.Account;
 
@@ -61,6 +62,50 @@ public sealed class DiagnosticsEndpointsTests
         JsonElement docker = body.RootElement.GetProperty("checks").EnumerateArray()
             .Single(c => c.GetProperty("domain").GetString() == "Docker");
         await Assert.That(docker.GetProperty("status").GetString()).IsEqualTo("Skipped");
+    }
+
+    [Test]
+    public async Task Anonymous_cannot_trigger_a_host_gather()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        using HttpClient client = factory.CreateWebClient();
+
+        HttpResponseMessage response = await client.PostAsync(
+            new Uri($"/api/agents/{AgentId.New()}/diagnostics/gather", UriKind.Relative), content: null);
+
+        await Assert.That(response.StatusCode).IsNotEqualTo(HttpStatusCode.Accepted);
+    }
+
+    [Test]
+    public async Task An_operator_triggers_a_host_gather()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        await factory.CreateConfirmedUserAsync("op@zwarden.test", StrongPassword);
+        await AuthorizationBootstrapper.EnsureSeededAsync(factory.Services, "op@zwarden.test");
+        using HttpClient client = factory.CreateWebClient();
+        await LoginAsync(client, "op@zwarden.test", StrongPassword);
+
+        HttpResponseMessage gather = await client.PostAsync(
+            new Uri($"/api/agents/{AgentId.New()}/diagnostics/gather", UriKind.Relative), content: null);
+
+        await Assert.That(gather.StatusCode).IsEqualTo(HttpStatusCode.Accepted);
+        using JsonDocument body = JsonDocument.Parse(await gather.Content.ReadAsStringAsync());
+        await Assert.That(body.RootElement.GetProperty("operationId").GetString()).StartsWith("op-");
+    }
+
+    [Test]
+    public async Task Triggering_a_server_gather_for_an_unknown_server_is_not_found()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        await factory.CreateConfirmedUserAsync("op@zwarden.test", StrongPassword);
+        await AuthorizationBootstrapper.EnsureSeededAsync(factory.Services, "op@zwarden.test");
+        using HttpClient client = factory.CreateWebClient();
+        await LoginAsync(client, "op@zwarden.test", StrongPassword);
+
+        HttpResponseMessage gather = await client.PostAsync(
+            new Uri($"/api/servers/{ServerId.New()}/diagnostics/gather", UriKind.Relative), content: null);
+
+        await Assert.That(gather.StatusCode).IsEqualTo(HttpStatusCode.NotFound);
     }
 
     private static async Task LoginAsync(HttpClient client, string email, string password)

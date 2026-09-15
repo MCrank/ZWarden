@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 using ZWarden.Agent.Backups;
 using ZWarden.Agent.Configuration;
 using ZWarden.Agent.Console;
+using ZWarden.Agent.Diagnostics;
 using ZWarden.Agent.Docker;
 using ZWarden.Agent.Mods;
 using ZWarden.Agent.Players;
@@ -38,6 +39,8 @@ public sealed class AgentCommandProcessor
     private readonly IConsoleAdministration _console;
     private readonly IServerConfigWriter _configWriter;
     private readonly IModDiscovery _modDiscovery;
+    private readonly IHostDiagnosticsGatherer _hostDiagnostics;
+    private readonly IServerDiagnosticsGatherer _serverDiagnostics;
     private readonly AgentOptions _options;
     private readonly ConcurrentDictionary<OperationId, byte> _handled = new();
 
@@ -53,6 +56,8 @@ public sealed class AgentCommandProcessor
         IConsoleAdministration console,
         IServerConfigWriter configWriter,
         IModDiscovery modDiscovery,
+        IHostDiagnosticsGatherer hostDiagnostics,
+        IServerDiagnosticsGatherer serverDiagnostics,
         IOptions<AgentOptions> options)
     {
         ArgumentNullException.ThrowIfNull(timeProvider);
@@ -66,6 +71,8 @@ public sealed class AgentCommandProcessor
         ArgumentNullException.ThrowIfNull(console);
         ArgumentNullException.ThrowIfNull(configWriter);
         ArgumentNullException.ThrowIfNull(modDiscovery);
+        ArgumentNullException.ThrowIfNull(hostDiagnostics);
+        ArgumentNullException.ThrowIfNull(serverDiagnostics);
         ArgumentNullException.ThrowIfNull(options);
         _timeProvider = timeProvider;
         _containerRuntime = containerRuntime;
@@ -78,6 +85,8 @@ public sealed class AgentCommandProcessor
         _console = console;
         _configWriter = configWriter;
         _modDiscovery = modDiscovery;
+        _hostDiagnostics = hostDiagnostics;
+        _serverDiagnostics = serverDiagnostics;
         _options = options.Value;
     }
 
@@ -119,6 +128,34 @@ public sealed class AgentCommandProcessor
                 return health.DaemonReachable
                     ? Completed(OperationOutcome.Succeeded, failureReason: null, operationId)
                     : Completed(OperationOutcome.Failed, health.Detail, operationId);
+
+            case GatherHostDiagnostics:
+                if (!_handled.TryAdd(operationId, 0))
+                {
+                    return null; // Already handled this operation — a redelivered command (PRD 20).
+                }
+
+                // Read-only host gather (F29): every domain is fail-soft inside the gatherer, so the Operation
+                // always succeeds and carries a full bundle — a failing domain is a Fail check, not a failed gather.
+                HostDiagnosticsResult hostBundle = await _hostDiagnostics.GatherAsync(cancellationToken).ConfigureAwait(false);
+                return Completed(OperationOutcome.Succeeded, failureReason: null, operationId, hostDiagnostics: hostBundle);
+
+            case GatherServerDiagnostics:
+                if (envelope.ServerId is not { } gatherServerId)
+                {
+                    // A per-server gather with no target Server is malformed — fail it explicitly.
+                    return Completed(OperationOutcome.Failed, "No target Server on the server diagnostics gather.", operationId);
+                }
+
+                if (!_handled.TryAdd(operationId, 0))
+                {
+                    return null; // Already handled this operation — a redelivered command (PRD 20).
+                }
+
+                ServerDiagnosticsResult serverBundle = await _serverDiagnostics
+                    .GatherAsync(gatherServerId, cancellationToken).ConfigureAwait(false);
+                return Completed(
+                    OperationOutcome.Succeeded, failureReason: null, operationId, serverId: gatherServerId, serverDiagnostics: serverBundle);
 
             case ProbeRconHealth:
                 if (envelope.ServerId is not { } rconServerId)
@@ -543,10 +580,13 @@ public sealed class AgentCommandProcessor
         BackupResult? backup = null,
         BackupDeletionResult? backupDeletion = null,
         RestoreResult? restore = null,
-        ConsoleCommandResult? console = null) =>
+        ConsoleCommandResult? console = null,
+        HostDiagnosticsResult? hostDiagnostics = null,
+        ServerDiagnosticsResult? serverDiagnostics = null) =>
         Envelope.Create(
             new OperationCompleted(
-                outcome, failureReason, provision, update, rcon, roster, playerAction, config, mods, backup, backupDeletion, restore, console),
+                outcome, failureReason, provision, update, rcon, roster, playerAction, config, mods, backup, backupDeletion, restore, console,
+                hostDiagnostics, serverDiagnostics),
             _timeProvider.GetUtcNow(),
             serverId: serverId,
             operationId: operationId);

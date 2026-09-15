@@ -55,6 +55,19 @@ internal sealed class FakeAgentPresenceProbe : IDiagnosticsAgentPresenceProbe
         Task.FromResult(_facts);
 }
 
+internal sealed class FakeDiagnosticsResultCache : IDiagnosticsResultCache
+{
+    private readonly Dictionary<AgentId, DiagnosticBundle> _host = [];
+
+    public void RecordHost(AgentId agentId, DiagnosticBundle bundle) => _host[agentId] = bundle;
+
+    public DiagnosticBundle? GetHost(AgentId agentId) => _host.TryGetValue(agentId, out DiagnosticBundle? b) ? b : null;
+
+    public void RecordServer(ServerId serverId, AgentId owningAgentId, DiagnosticBundle bundle) { }
+
+    public DiagnosticBundle? GetServer(ServerId serverId, AgentId owningAgentId) => null;
+}
+
 internal sealed class CapturingAuditWriter : IAuditWriter
 {
     public List<AuditEntry> Entries { get; } = [];

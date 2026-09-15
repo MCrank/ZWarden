@@ -41,17 +41,28 @@ internal sealed class FakeContainerRuntime : IContainerRuntime
 
     public string? StartedContainerId { get; private set; }
 
+    /// <summary>When set, <see cref="ProbeHealthAsync"/> throws it instead of returning <see cref="Health"/>.</summary>
+    public Exception? ProbeException { get; set; }
+
     public Task<DockerHealth> ProbeHealthAsync(CancellationToken cancellationToken)
     {
         ProbeCount++;
+        if (ProbeException is not null)
+        {
+            throw ProbeException;
+        }
+
         return Task.FromResult(Health);
     }
 
     public Task<IReadOnlyList<ManagedContainer>> ListManagedAsync(CancellationToken cancellationToken) =>
         throw new NotSupportedException();
 
+    /// <summary>The containers <see cref="InspectManagedAsync"/> returns (empty by default).</summary>
+    public IReadOnlyList<ObservedContainer> Observed { get; set; } = [];
+
     public Task<IReadOnlyList<ObservedContainer>> InspectManagedAsync(CancellationToken cancellationToken) =>
-        throw new NotSupportedException();
+        Task.FromResult(Observed);
 
     public Task<PortAllocation> AllocateNextPortsAsync(CancellationToken cancellationToken) =>
         Task.FromResult(NextPorts);
