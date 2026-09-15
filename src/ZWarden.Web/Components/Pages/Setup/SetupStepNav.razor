@@ -1,0 +1,47 @@
+@using ZWarden.Application.Setup
+@inject ISetupState SetupState
+@inject NavigationManager Nav
+
+@* Shared navigation for the guided-but-skippable setup steps (F33 PR-B). Every guided step can be skipped to
+   the next, and setup can be finished from any of them — because only the administrator and TLS mode are
+   mandatory (ADR 0036 D-1). "Finish setup" marks completion and lifts the gate. *@
+
+<div class="mt-8 flex items-center justify-between gap-3 border-t border-border pt-4">
+    @if (!IsLast && NextHref is not null)
+    {
+        <a href="@NextHref" class="text-sm text-muted-foreground hover:underline" data-setup-skip>Skip for now →</a>
+    }
+    else
+    {
+        <span></span>
+    }
+
+    <EditForm Model="_finish" FormName="setup-finish" OnValidSubmit="FinishAsync" method="post">
+        <BbButton Type="ButtonType.Submit" Variant="@(IsLast ? ButtonVariant.Default : ButtonVariant.Outline)" data-setup-finish>
+            Finish setup
+        </BbButton>
+    </EditForm>
+</div>
+
+@code {
+    /// <summary>Where "Skip for now" advances to. Ignored when <see cref="IsLast"/> is true.</summary>
+    [Parameter]
+    public string? NextHref { get; set; }
+
+    /// <summary>The last guided step: no skip, and "Finish setup" is the primary action.</summary>
+    [Parameter]
+    public bool IsLast { get; set; }
+
+    [SupplyParameterFromForm(FormName = "setup-finish")]
+    private FinishModel? _finish { get; set; }
+
+    protected override void OnInitialized() => _finish ??= new();
+
+    private async Task FinishAsync()
+    {
+        await SetupState.MarkSetupCompleteAsync();
+        Nav.NavigateTo("/");
+    }
+
+    private sealed class FinishModel;
+}

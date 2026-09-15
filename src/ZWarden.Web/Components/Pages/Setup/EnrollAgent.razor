@@ -1,0 +1,124 @@
+@page "/setup/enroll"
+@layout SetupLayout
+@attribute [Authorize]
+@using System.Security.Claims
+@using ZWarden.Application.Agents
+@using ZWarden.Application.Setup
+@using ZWarden.Domain.Ids
+@inject IEnrollmentService Enrollment
+@inject ISetupState SetupState
+@inject UserManager<ApplicationUser> Users
+@inject NavigationManager Nav
+
+@* Step 3 (skippable): mint a one-time enrollment token so a host's Agent can connect (F9; the F9 code
+   deferred this guided UI to F33). The secret is shown exactly once, here, over HTTPS — it is never stored
+   raw. IEnrollmentService authorizes Tenant.Enrollment.Manage and audits (the first admin holds it as Tenant
+   Owner). Static-rendered. ADR 0036. *@
+
+<PageTitle>Set up ZWarden · Enroll an Agent</PageTitle>
+
+<SetupStepIndicator Current="3" />
+
+<h1 class="text-lg font-semibold text-foreground">Enroll your first Agent</h1>
+<p class="mt-1 text-sm text-muted-foreground">
+    Generate a one-time enrollment token, then run the ZWarden.Agent on a host with it. You can also do this
+    later — this step is optional.
+</p>
+
+@if (_secret is not null)
+{
+    <div class="mt-4" data-enrollment-secret>
+        <BbAlert Variant="AlertVariant.Success" AccentBorder>
+            <BbAlertDescription>
+                <p class="font-medium">Enrollment token created. Copy it now — it is shown only once.</p>
+                <code class="mt-2 block break-all rounded bg-muted px-2 py-1 font-mono text-xs">@_secret</code>
+                <p class="mt-2 text-xs text-muted-foreground">Expires @_expiresAt?.UtcDateTime.ToString("yyyy-MM-dd HH:mm") UTC.</p>
+            </BbAlertDescription>
+        </BbAlert>
+    </div>
+}
+
+<EditForm class="mt-5 flex flex-wrap items-end gap-3" Model="Input" method="post" OnValidSubmit="IssueAsync" FormName="setup-enroll">
+    <DataAnnotationsValidator />
+    <div class="flex flex-col text-sm">
+        <BbLabel For="label" Class="mb-1 text-muted-foreground">Label (optional)</BbLabel>
+        <BbInput Id="label" @bind-Value="Input.Label" Placeholder="e.g. host-alpha" />
+    </div>
+    <BbButton Type="ButtonType.Submit">Generate token</BbButton>
+</EditForm>
+
+@if (_enrollments.Count > 0)
+{
+    <div class="mt-6 block overflow-x-auto">
+        <table class="w-full border-collapse text-left text-sm">
+            <thead>
+                <tr class="border-b border-border text-muted-foreground">
+                    <th class="py-2 pr-4 font-medium">Label</th>
+                    <th class="py-2 pr-4 font-medium">Status</th>
+                    <th class="py-2 pr-4 font-medium">Expires (UTC)</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (EnrollmentSummary e in _enrollments)
+                {
+                    <tr class="border-b border-border" data-enrollment-row>
+                        <td class="py-2 pr-4">@(string.IsNullOrWhiteSpace(e.Label) ? "—" : e.Label)</td>
+                        <td class="py-2 pr-4 text-muted-foreground">@e.Status</td>
+                        <td class="py-2 pr-4 tabular-nums text-muted-foreground">@e.ExpiresAt.UtcDateTime.ToString("yyyy-MM-dd HH:mm")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+<SetupStepNav NextHref="/setup/servers" />
+
+@code {
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthState { get; set; }
+
+    [SupplyParameterFromForm(FormName = "setup-enroll")]
+    private InputModel Input { get; set; } = default!;
+
+    private IReadOnlyList<EnrollmentSummary> _enrollments = [];
+    private string? _secret;
+    private DateTimeOffset? _expiresAt;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Input ??= new();
+
+        if (await SetupState.IsSetupCompleteAsync())
+        {
+            Nav.NavigateTo("/");
+            return;
+        }
+
+        _enrollments = await Enrollment.ListAsync(await CurrentUserAsync());
+    }
+
+    private async Task IssueAsync()
+    {
+        UserId actor = await CurrentUserAsync();
+        string? label = string.IsNullOrWhiteSpace(Input.Label) ? null : Input.Label.Trim();
+        EnrollmentTokenResult result = await Enrollment.IssueAsync(actor, lifetime: null, label);
+
+        _secret = result.Secret.Reveal(); // shown once — never persisted raw, never logged.
+        _expiresAt = result.ExpiresAt;
+        _enrollments = await Enrollment.ListAsync(actor);
+    }
+
+    private async Task<UserId> CurrentUserAsync()
+    {
+        ClaimsPrincipal principal = (await AuthState!).User;
+        return Guid.TryParse(Users.GetUserId(principal), out Guid id)
+            ? UserId.FromGuid(id)
+            : throw new InvalidOperationException("Authenticated request carries no user id claim.");
+    }
+
+    private sealed class InputModel
+    {
+        public string? Label { get; set; }
+    }
+}
