@@ -330,7 +330,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Trivy filesystem scan (the .NET dependency graph + config)
-        uses: aquasecurity/trivy-action@v0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scan-ref: .
@@ -350,7 +350,7 @@ jobs:
       - name: Build the canonical PZServer image
         run: docker build -t zwarden-pzserver:scan src/ZWarden.PZServer
       - name: Trivy image scan (PRD §55 container vulnerability scanning)
-        uses: aquasecurity/trivy-action@v0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: image
           image-ref: zwarden-pzserver:scan
