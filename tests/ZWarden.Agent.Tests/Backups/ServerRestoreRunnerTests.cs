@@ -201,6 +201,96 @@ public class ServerRestoreRunnerTests
         await Assert.That(File.Exists(Path.Combine(temp.DataMountRoot, "escape.bin"))).IsFalse();
     }
 
+    // ---------------------------------------------------------------------------------------------------
+    // F40 release gate — the disaster-recovery drill (PRD §59). The individual mechanics are covered above;
+    // these compose the real F24 backup runner with the real F25 restore runner end to end: back up a live
+    // world, destroy it, restore it, and prove the recovery is exact and integrity-checked.
+    // ---------------------------------------------------------------------------------------------------
+
+    [Test]
+    public async Task DR_backup_then_wipe_then_restore_recovers_the_world_byte_for_byte()
+    {
+        using var temp = new TempRoot();
+        ServerId serverId = ServerId.New();
+        string world = WorldDir(temp, serverId);
+
+        // A realistic world tree: files at the root and nested under subdirectories.
+        Directory.CreateDirectory(Path.Combine(world, "Sandbox", "map"));
+        File.WriteAllText(Path.Combine(world, "players.db"), "player-state-0xDEADBEEF");
+        File.WriteAllText(Path.Combine(world, "Sandbox", "options.ini"), "PVP=false\nZombies=insane");
+        File.WriteAllText(Path.Combine(world, "Sandbox", "map", "chunk_0_0.bin"), "world-chunk-payload");
+        Dictionary<string, string> original = SnapshotTree(world);
+
+        // Back up the live world through the real runner (F24).
+        ServerBackupOutcome backup = await BackupRunner(temp).RunAsync(serverId, OperationId.New(), CancellationToken.None);
+        await Assert.That(backup.Succeeded).IsTrue();
+
+        // Disaster: the entire world tree is destroyed.
+        Directory.Delete(world, recursive: true);
+
+        // Restore from the backup through the real runner (F25).
+        ServerRestoreOutcome outcome = await Runner(temp).RunAsync(
+            serverId, OperationId.New(), backup.ArchiveName!, backup.Sha256!, NullOperationProgressReporter.Instance, CancellationToken.None);
+        await Assert.That(outcome.Succeeded).IsTrue();
+
+        // The recovered world is byte-for-byte identical to the original — same files, same content, nothing extra.
+        Dictionary<string, string> recovered = SnapshotTree(world);
+        await Assert.That(recovered.Count).IsEqualTo(original.Count);
+        foreach ((string relativePath, string hash) in original)
+        {
+            await Assert.That(recovered.ContainsKey(relativePath)).IsTrue();
+            await Assert.That(recovered[relativePath]).IsEqualTo(hash);
+        }
+    }
+
+    [Test]
+    public async Task DR_restore_from_a_corrupted_backup_is_refused_and_the_live_world_survives()
+    {
+        using var temp = new TempRoot();
+        ServerId serverId = ServerId.New();
+        string world = WorldDir(temp, serverId);
+        Directory.CreateDirectory(world);
+        File.WriteAllText(Path.Combine(world, "players.db"), "live-and-precious");
+
+        ServerBackupOutcome backup = await BackupRunner(temp).RunAsync(serverId, OperationId.New(), CancellationToken.None);
+        await Assert.That(backup.Succeeded).IsTrue();
+
+        // Bit-rot / tampering after the checksum was recorded: flip a byte in the stored archive.
+        string archivePath = Path.Combine(temp.BackupRoot, serverId.ToString(), backup.ArchiveName!);
+        byte[] bytes = await File.ReadAllBytesAsync(archivePath);
+        bytes[^1] ^= 0xFF;
+        await File.WriteAllBytesAsync(archivePath, bytes);
+
+        // Restoring with the originally-recorded checksum must refuse before touching the world.
+        ServerRestoreOutcome outcome = await Runner(temp).RunAsync(
+            serverId, OperationId.New(), backup.ArchiveName!, backup.Sha256!, NullOperationProgressReporter.Instance, CancellationToken.None);
+
+        await Assert.That(outcome.Succeeded).IsFalse();
+        await Assert.That(outcome.FailureReason!).Contains("checksum");
+        await Assert.That(File.ReadAllText(Path.Combine(world, "players.db"))).IsEqualTo("live-and-precious");
+    }
+
+    private static ServerBackupRunner BackupRunner(TempRoot temp) =>
+        new(
+            new TarGzBackupArchiver(),
+            Options.Create(new AgentOptions { DataMountRoot = temp.DataMountRoot, BackupRoot = temp.BackupRoot }),
+            TimeProvider.System,
+            NullLogger<ServerBackupRunner>.Instance);
+
+    // A content fingerprint of a world tree: each file's path relative to the tree root, mapped to the
+    // lowercase-hex SHA-256 of its bytes. Two trees with the same map are byte-for-byte identical.
+    private static Dictionary<string, string> SnapshotTree(string root)
+    {
+        Dictionary<string, string> map = new(StringComparer.Ordinal);
+        foreach (string path in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+        {
+            string relative = Path.GetRelativePath(root, path).Replace('\\', '/');
+            map[relative] = Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(path)));
+        }
+
+        return map;
+    }
+
     private static ServerRestoreRunner Runner(TempRoot temp, IContainerRuntime? runtime = null) =>
         new(
             runtime ?? new StubContainerRuntime(),

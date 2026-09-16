@@ -164,7 +164,16 @@ inside the owning slice.
   `docs/deployment/compose-reference.md`. `ReleasePipelineTests` is the offline drift guard. The publish/sign
   itself only runs on a tag (needs GHCR + OIDC), so CI here proves the guard; the maintainer cuts the first
   tag to exercise it.
-- **PR-D — DR / migration-upgrade / fresh-install tests.** The three reliability drills above.
+- **PR-D — DR / migration-upgrade / fresh-install tests. DONE.** Three offline, PR-verifiable drills:
+  **DR** (`ServerRestoreRunnerTests` DR_*) composes the real F24 backup + F25 restore end to end — back up a
+  populated world, wipe it, restore, assert byte-for-byte recovery; and a corrupted-archive restore is refused
+  with the live world intact. **Migration** (`MigrationDriftTests`) — `HasPendingModelChanges` is false for
+  **both** providers (offline, no connection), the full SQLite chain applies to an empty database, and the
+  latest SQLite migration rolls back and forward. **Fresh-install** (`FreshInstallDrillTests`) — a clean install
+  migrates the empty DB to head on boot, serves `/healthz`, and gates the root to `/setup`. Floors: Agent.Tests
+  378→380, Infrastructure.Tests 351→355 (+ a Postgres-migrations project ref for the offline drift check),
+  Web.Tests 227→229. The Postgres chain applying against a live server is covered on the networked tier
+  (PostgresTenantTests et al.); the SQLite container fresh-install by F34's compose smoke.
 - **PR-E — Assessments + doc review + gate checklist.** Run the PRD 62 verification gate for OWASP Top
   10:2025 and ASVS 5.0.0 against authoritative sources, then the two assessment docs (each control → cited
   evidence), the documentation review, and `docs/release-gate.md` (the checklist/runbook). Closes #55 when

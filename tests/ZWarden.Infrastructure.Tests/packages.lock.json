@@ -356,6 +356,12 @@
           "ZWarden.PzConfig": "[1.0.0, )"
         }
       },
+      "zwarden.migrations.postgres": {
+        "type": "Project",
+        "dependencies": {
+          "ZWarden.Infrastructure": "[1.0.0, )"
+        }
+      },
       "zwarden.migrations.sqlite": {
         "type": "Project",
         "dependencies": {
