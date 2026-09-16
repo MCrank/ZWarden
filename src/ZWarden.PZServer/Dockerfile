@@ -15,10 +15,14 @@ ARG PZ_GID=10000
 # check, and curl/ca-certificates to fetch the SteamCMD tarball.
 RUN dpkg --add-architecture i386 \
  && apt-get update \
+ && apt-get -y upgrade \
  && apt-get install -y --no-install-recommends \
       ca-certificates curl tini procps \
       lib32gcc-s1 lib32stdc++6 \
  && rm -rf /var/lib/apt/lists/*
+# `apt-get upgrade` pulls the base layer's packages up to current Debian security patches at build
+# time (F40 container-scan gate, ADR 0039): debian:bookworm-slim ships a stale libpcre2 among others,
+# and the reference deployment rebuilds/repins the digest to carry the fixes forward.
 
 # Non-root runtime (PRD 24): a dedicated user owns the whole /pz tree.
 RUN groupadd -g "${PZ_GID}" pzserver \
