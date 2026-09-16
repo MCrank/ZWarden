@@ -1,6 +1,7 @@
 # Feature 40 Mini-Plan — Production Hardening and 1.0 Release Gate
 
-**Status:** IN PROGRESS (2026-09-15) — PR-A DONE (security spine); slices B–E remain. Load-bearing decision **LOCKED with the maintainer
+**Status:** DONE (2026-09-16) — all five slices merged/open: PR-A #144 ✓, PR-B #145 ✓, PR-C #147 ✓,
+PR-D #149 ✓, PR-E (this) closes #55. Load-bearing decision **LOCKED with the maintainer
 (2026-09-15):** the signed-release pipeline goes **full** — build and publish the three images to
 `ghcr.io/MCrank`, sign them with **cosign keyless (GitHub OIDC)**, attach SBOM attestations and
 `SHA256SUMS`, and pin digests in the reference Compose (slice C).
@@ -174,10 +175,14 @@ inside the owning slice.
   378→380, Infrastructure.Tests 351→355 (+ a Postgres-migrations project ref for the offline drift check),
   Web.Tests 227→229. The Postgres chain applying against a live server is covered on the networked tier
   (PostgresTenantTests et al.); the SQLite container fresh-install by F34's compose smoke.
-- **PR-E — Assessments + doc review + gate checklist.** Run the PRD 62 verification gate for OWASP Top
-  10:2025 and ASVS 5.0.0 against authoritative sources, then the two assessment docs (each control → cited
-  evidence), the documentation review, and `docs/release-gate.md` (the checklist/runbook). Closes #55 when
-  every gate is green.
+- **PR-E — Assessments + doc review + gate checklist. DONE (closes #55).** PRD 62 verification run against
+  owasp.org (2026-09-16): OWASP Top 10:2025 (A03 supply-chain + A10 exceptional-conditions confirmed new) and
+  ASVS 5.0.0 (May 2025, 17 chapters). Deliverables: `docs/security/owasp-top-10-2025.md` (every A01–A10 →
+  control + cited test/ADR), `docs/security/asvs-5.0.0.md` (Level 2 self-assessment, V1–V17), and
+  `docs/release-gate.md` (the executable checklist mapping every gate to its enforcing job/test, the named
+  residual risks, the manual pre-release checklist, and the release-cut steps). `ReleaseGateDocsTests` guards
+  the docs against drift/deletion (ArchTests floor 65→68). The single accepted residual is Agent
+  possession-of-key (mTLS → v1.1, ADR 0007), recorded openly.
 
 ## Diagnostics
 
