@@ -155,9 +155,15 @@ inside the owning slice.
   (trivy image over the canonical PZServer image); `SupplyChainCiTests` guards that these controls stay
   declared. Image SBOM (syft) attaches to the published images and the advisory-gate hard-blocker both land
   on the release path in **PR-C** (that is the release path they gate).
-- **PR-C — Signed, published release artifacts.** `release.yml` on version tags: build + push the three
-  images to `ghcr.io/MCrank`, cosign keyless signing (GH OIDC), SBOM attestation, `SHA256SUMS`, digest
-  pinning in the reference Compose. (The outward-facing slice; publishes public images.)
+- **PR-C — Signed, published release artifacts. DONE (executes on the first `v*` tag).** `release.yml`:
+  an `advisory-gate` job (the NuGet advisory gate promoted to a hard blocker via `PromoteNuGetAudit=true`),
+  then build + push the three images to `ghcr.io/<owner>` (web/agent/pzserver), **cosign keyless** signing by
+  digest, a CycloneDX **SBOM per image attached as a cosign attestation**, a generated digest-pinned
+  `compose.release.yaml`, `image-digests.txt`, and `SHA256SUMS`, published as a GitHub Release. Consumer
+  verification (`cosign verify` / `verify-attestation`, checksum, pinned Compose) documented in
+  `docs/deployment/compose-reference.md`. `ReleasePipelineTests` is the offline drift guard. The publish/sign
+  itself only runs on a tag (needs GHCR + OIDC), so CI here proves the guard; the maintainer cuts the first
+  tag to exercise it.
 - **PR-D — DR / migration-upgrade / fresh-install tests.** The three reliability drills above.
 - **PR-E — Assessments + doc review + gate checklist.** Run the PRD 62 verification gate for OWASP Top
   10:2025 and ASVS 5.0.0 against authoritative sources, then the two assessment docs (each control → cited
