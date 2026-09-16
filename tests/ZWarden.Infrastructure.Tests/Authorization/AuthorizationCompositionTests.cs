@@ -72,4 +72,53 @@ public class AuthorizationCompositionTests
             try { File.Delete(file); } catch (IOException) { /* best effort */ }
         }
     }
+
+    [Test]
+    public async Task Concurrent_permission_checks_do_not_collide_on_a_shared_dbcontext()
+    {
+        // Regression for the interactive Blazor Server crash: a layout's permission-gated nav, an
+        // AuthorizeView, and a page's own checks all evaluate in one render batch, concurrently. Before
+        // ScopedPermissionChecker gave each check its own scope, they shared the circuit's ZWardenDbContext
+        // and EF Core threw "A second operation was started on this context instance…".
+        string file = Path.Combine(Path.GetTempPath(), $"zw-{Guid.NewGuid():N}.db");
+        KeyRing ring = KeyRingLoader.Load($"k1:{Convert.ToBase64String(new byte[KeyRing.KeySizeBytes])}", "k1");
+        const string adminEmail = "admin@zwarden.test";
+
+        ServiceCollection services = new();
+        services.AddLogging();
+        services.AddDataProtection();
+        services.AddHttpContextAccessor();
+        services.AddSecurityFoundation(ring);
+        services.AddSessionTenantContext();
+        services.AddTenantFoundation();
+        services.AddZWardenPersistence(ZWardenDbProvider.Sqlite, $"Data Source={file};Pooling=False");
+        services.AddZWardenAuthentication(["localhost"]);
+        services.AddZWardenAuthorization();
+
+        await using ServiceProvider root = services.BuildServiceProvider();
+        try
+        {
+            await root.MigrateAndBootstrapDefaultTenantAsync();
+            await AdminBootstrapper.EnsureAdminAsync(root, adminEmail, "HostAdminPass123");
+            await AuthorizationBootstrapper.EnsureSeededAsync(root, adminEmail);
+
+            using IServiceScope scope = root.CreateScope();
+            UserManager<ApplicationUser> users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            ApplicationUser admin = (await users.FindByEmailAsync(adminEmail))!;
+
+            // One checker instance, hit concurrently — exactly what a render batch does.
+            IPermissionChecker checker = scope.ServiceProvider.GetRequiredService<IPermissionChecker>();
+            Task<bool>[] checks = [.. Enumerable.Range(0, 32).Select(async _ =>
+                (await checker.EvaluateAsync(admin.UserId, Permissions.RoleManage)).IsAllowed)];
+
+            bool[] results = await Task.WhenAll(checks);
+
+            await Assert.That(results.Length).IsEqualTo(32);
+            await Assert.That(results.All(allowed => allowed)).IsTrue();
+        }
+        finally
+        {
+            try { File.Delete(file); } catch (IOException) { /* best effort */ }
+        }
+    }
 }

@@ -25,11 +25,19 @@ public static class AuthorizationServiceCollectionExtensions
         // The dynamic provider turns any catalogue permission name into a policy on demand.
         services.AddSingleton<IAuthorizationPolicyProvider, PermissionPolicyProvider>();
 
-        // The decision service, explicit about its safety-rule set (empty unless a rule is registered).
-        services.AddScoped<IPermissionChecker>(sp => new PermissionChecker(
+        // The decision service, explicit about its safety-rule set (empty unless a rule is registered). It is
+        // resolved through ScopedPermissionChecker (below), which runs each check in its own scope — so the
+        // concrete PermissionChecker binds a fresh, non-shared ZWardenDbContext per evaluation.
+        services.AddScoped(sp => new PermissionChecker(
             sp.GetRequiredService<ZWardenDbContext>(),
             sp.GetRequiredService<ITenantContext>(),
             sp.GetServices<IAuthorizationSafetyRule>()));
+
+        // IPermissionChecker isolates each evaluation in its own DI scope. Authorization runs during Blazor
+        // rendering, where concurrent checks would otherwise collide on the one circuit-scoped DbContext
+        // ("A second operation was started on this context…").
+        services.AddScoped<IPermissionChecker>(sp =>
+            new ScopedPermissionChecker(sp.GetRequiredService<IServiceScopeFactory>()));
 
         services.AddScoped<RoleAdministrationService>();
 
