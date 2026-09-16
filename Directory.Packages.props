@@ -14,9 +14,9 @@
 
   <ItemGroup>
     <!-- Test stack - exact pins (ADR 0002). -->
-    <PackageVersion Include="TUnit" Version="1.66.27" />
-    <PackageVersion Include="TUnit.Mocks" Version="1.66.27" />
-    <PackageVersion Include="bunit" Version="2.10.3" />
+    <PackageVersion Include="TUnit" Version="1.68.0" />
+    <PackageVersion Include="TUnit.Mocks" Version="1.68.0" />
+    <PackageVersion Include="bunit" Version="2.11.3" />
     <PackageVersion Include="Testcontainers.PostgreSql" Version="4.15.0" />
     <!-- Core Testcontainers, for the F13 Docker-runtime integration tier: seed labelled containers and run the
          wollomatic socket-proxy allowlist drift test (ADR 0008). Same band as Testcontainers.PostgreSql. -->
@@ -36,9 +36,9 @@
 
   <ItemGroup>
     <!-- Runtime host packages. -->
-    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.10" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.12" />
     <!-- Options binding + startup validation for AgentOptions (F8). -->
-    <PackageVersion Include="Microsoft.Extensions.Options.DataAnnotations" Version="10.0.10" />
+    <PackageVersion Include="Microsoft.Extensions.Options.DataAnnotations" Version="10.0.12" />
   </ItemGroup>
 
   <ItemGroup>
@@ -89,7 +89,7 @@
   <ItemGroup>
     <!-- Server-side authenticator QR rendering (F4 UI, #63). Only the managed SvgQRCode path is used, so
          the static-rendered enrolment page needs no JS interop and no outbound internet. Exact pin. -->
-    <PackageVersion Include="QRCoder" Version="1.6.0" />
+    <PackageVersion Include="QRCoder" Version="1.8.0" />
   </ItemGroup>
 
   <ItemGroup>
@@ -97,8 +97,8 @@
          src/ZWarden.AppHost (and, from PR-3, the Aspire integration-test project) — an architecture test
          forbids them in any production src/ project. Co-versioned at 13.5.3 to match the locally installed
          aspire CLI and the Aspire.AppHost.Sdk pinned in global.json. Exact pins (ADR 0002 discipline). -->
-    <PackageVersion Include="Aspire.Hosting.AppHost" Version="13.5.3" />
-    <PackageVersion Include="Aspire.Hosting.PostgreSQL" Version="13.5.3" />
+    <PackageVersion Include="Aspire.Hosting.AppHost" Version="13.5.4" />
+    <PackageVersion Include="Aspire.Hosting.PostgreSQL" Version="13.5.4" />
   </ItemGroup>
 
   <ItemGroup>
