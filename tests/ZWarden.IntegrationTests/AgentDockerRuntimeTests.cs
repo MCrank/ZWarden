@@ -157,10 +157,13 @@ public sealed class AgentDockerRuntimeTests : IAsyncDisposable
         _containers.Add(id);
         await runtime.StartAsync(id, ct);
 
-        // The F16 metrics read (GET /containers/{id}/stats?stream=false) round-trips through the amended
-        // allowlist while the container is running.
-        ContainerStatsSnapshot stats = await new DockerDotNetEngine(proxied).StatsAsync(id, ct);
-        await Assert.That(stats.MemoryLimit).IsGreaterThan(0UL);
+        // The F16 metrics read (GET /containers/{id}/stats?stream=false) is an allowlisted verb, so it
+        // round-trips through the proxy without being refused — that is the point of the eleventh allowlist
+        // entry (a refusal throws DockerApiException). Assert on the round-trip, not on any counter: a single
+        // non-streaming read on a cgroup-v2 host (GitHub's runners) legitimately reports an all-zero snapshot
+        // (memory unlimited → 0, and CPU % needs two samples), so no field is reliably non-zero (#127). This
+        // is the allow-side companion to the denied-verb (405) assertion below.
+        await Assert.That(async () => await new DockerDotNetEngine(proxied).StatsAsync(id, ct)).ThrowsNothing();
 
         await runtime.StopAsync(id, ct);
 

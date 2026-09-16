@@ -122,23 +122,38 @@ public class AgentCredentialTheftAttackTests
 
     private static async Task<string> RotateCredentialAsync(ZWardenWebAppFactory factory, AgentId agentId)
     {
+        // Generating the secret and its hash needs no database; the write itself goes through the retrying
+        // mutation helper below.
         using IServiceScope scope = factory.Services.CreateScope();
         ICredentialHasher hasher = scope.ServiceProvider.GetRequiredService<ICredentialHasher>();
-        ZWardenDbContext context = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
-
         Domain.Security.SecretString fresh = hasher.Generate("zwa");
-        Agent agent = await context.Set<Agent>().FirstAsync(a => a.Id == agentId);
-        agent.RotateCredential(hasher.Hash(fresh), DateTimeOffset.UtcNow);
-        await context.SaveChangesAsync();
+        string hash = hasher.Hash(fresh);
+
+        await MutateAgentAsync(factory, agentId, agent => agent.RotateCredential(hash, DateTimeOffset.UtcNow));
         return fresh.Reveal();
     }
 
     private static async Task MutateAgentAsync(ZWardenWebAppFactory factory, AgentId agentId, Action<Agent> mutate)
     {
-        using IServiceScope scope = factory.Services.CreateScope();
-        ZWardenDbContext context = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
-        Agent agent = await context.Set<Agent>().FirstAsync(a => a.Id == agentId);
-        mutate(agent);
-        await context.SaveChangesAsync();
+        // The Agent row carries an optimistic-concurrency token, and the hub's connection tracking writes it
+        // too (a disconnect persisting just after StopAsync, say). So a load-mutate-save can lose the race and
+        // throw DbUpdateConcurrencyException ("affected 0 rows"). Reload the current row and re-apply until it
+        // sticks — each mutation here (revoke/rotate/disable) is idempotent, so re-applying is safe.
+        for (int attempt = 0; ; attempt++)
+        {
+            using IServiceScope scope = factory.Services.CreateScope();
+            ZWardenDbContext context = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
+            Agent agent = await context.Set<Agent>().FirstAsync(a => a.Id == agentId);
+            mutate(agent);
+            try
+            {
+                await context.SaveChangesAsync();
+                return;
+            }
+            catch (DbUpdateConcurrencyException) when (attempt < 20)
+            {
+                await Task.Delay(25);
+            }
+        }
     }
 }
