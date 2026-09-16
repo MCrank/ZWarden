@@ -170,6 +170,47 @@ In PostgreSQL mode, add `-f compose.yaml -f compose.postgres.yaml` to each comma
 boot, roll forward one version at a time and keep the pre-upgrade backup until you have confirmed the new
 version is healthy. To roll back you restore the backup and redeploy the previous image tags.
 
+## Running signed release images
+
+The Compose above builds the app images from source. A tagged release also **publishes** them to GHCR, signed
+and with a full bill of materials (F40 / ADR 0039), so you can run vendor-built images and verify their
+provenance instead of building your own. Each release (`v*`) carries these assets:
+
+- `image-digests.txt` — the exact `@sha256:` digest of each of the three images (`zwarden-web`,
+  `zwarden-agent`, `zwarden-pzserver`).
+- `compose.release.yaml` — a self-contained Compose file already **pinned to those digests** (no `build:`).
+- `sbom-*.cdx.json` — a CycloneDX SBOM per image (also attached to each image as a cosign attestation).
+- `SHA256SUMS` — checksums over the assets above.
+
+**Verify before you run.** Every image is signed with cosign keyless, so the signature's identity is this
+repository's release workflow — there is no key to distribute or trust out of band:
+
+```bash
+# 1. Confirm the asset bundle is intact.
+sha256sum -c SHA256SUMS
+
+# 2. Verify each image's signature (identity = the release workflow, issuer = GitHub's OIDC).
+cosign verify \
+  --certificate-identity-regexp "https://github.com/MCrank/ZWarden/.github/workflows/release.yml@.*" \
+  --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+  ghcr.io/mcrank/zwarden-web:vX.Y.Z
+
+# 3. (Optional) Inspect the attested SBOM.
+cosign verify-attestation --type cyclonedx \
+  --certificate-identity-regexp "https://github.com/MCrank/ZWarden/.github/workflows/release.yml@.*" \
+  --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+  ghcr.io/mcrank/zwarden-web:vX.Y.Z
+```
+
+Then run the pinned Compose (still supply your `.env`, and add the Postgres overlay if you use it):
+
+```bash
+docker compose -f compose.release.yaml up -d
+```
+
+Because the services are pinned by digest, `docker compose up` pulls the exact signed images — an upgrade is a
+new release's `compose.release.yaml`, not a local rebuild.
+
 ## Health & troubleshooting
 
 - `docker compose ps` shows health. Web is healthy once `/healthz` answers 200; Caddy and the Agent wait for
