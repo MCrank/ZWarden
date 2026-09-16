@@ -18,3 +18,10 @@ paths = [
   # A feature-plan document: a high-entropy example string in narrative prose, not a live credential.
   '''docs/feature-plans/F20a-configuration-read-and-model\.md''',
 ]
+
+# Value-scoped allowlist for a false positive in production source (kept narrow — the file itself is still
+# scanned). RconServerConfig's PasswordAlphabet is the base62 character set fed to RandomNumberGenerator to
+# *generate* RCON passwords; it is a charset, not a secret.
+regexes = [
+  '''ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789''',
+]
