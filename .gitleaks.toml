@@ -1,0 +1,20 @@
+# gitleaks configuration (F40 supply-chain gate, ADR 0039). Extends the default ruleset — production code,
+# configuration, and deployment files are scanned unchanged. The allowlist below covers only synthetic,
+# non-deployed artifacts a full-history scan flags as false positives: unit-test fixtures and narrative docs.
+# Nothing here is a real credential; adding a genuine secret to src/, deploy/, or config still fails the scan.
+title = "ZWarden gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Synthetic secrets in test fixtures and documentation (never deployed)."
+paths = [
+  # The test corpus for ZWarden's OWN secret scanner (F30) — it must contain secret-shaped strings by design
+  # (a canonical example JWT, a placeholder RSA key) to prove detection works.
+  '''tests/ZWarden\.Diagnostics\.Tests/SupportPackage/SecretScannerTests\.cs''',
+  # Identity account-recovery tests: fixed, obviously-fake test passwords ("RecoverPass12345", …).
+  '''tests/ZWarden\.Infrastructure\.Tests/Identity/AccountRecoveryTests\.cs''',
+  # A feature-plan document: a high-entropy example string in narrative prose, not a live credential.
+  '''docs/feature-plans/F20a-configuration-read-and-model\.md''',
+]

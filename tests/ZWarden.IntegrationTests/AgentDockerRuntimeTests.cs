@@ -158,12 +158,13 @@ public sealed class AgentDockerRuntimeTests : IAsyncDisposable
         await runtime.StartAsync(id, ct);
 
         // The F16 metrics read (GET /containers/{id}/stats?stream=false) round-trips through the amended
-        // allowlist while the container is running. Assert on the reported usage, not the limit: an unlimited
-        // container on a cgroup-v2 host (GitHub's runners) reports memory_stats.limit as 0 (#127), whereas
-        // memory_stats.usage is populated on both cgroup versions — so a positive usage proves the read
-        // genuinely returned this container's stats through the proxy, which is what this test is about.
+        // allowlist while the container is running — a refusal would throw here, which is the point of the
+        // eleventh allowlist entry. Assert only that a populated snapshot came back, not a specific counter:
+        // an unlimited container on a cgroup-v2 host (GitHub's runners) reports memory_stats *both usage and
+        // limit* as 0 (#127), so any memory-value assertion is environment-dependent. A non-default snapshot
+        // (the CPU counters are always populated) proves the read returned this container's real stats.
         ContainerStatsSnapshot stats = await new DockerDotNetEngine(proxied).StatsAsync(id, ct);
-        await Assert.That(stats.MemoryUsage).IsGreaterThan(0UL);
+        await Assert.That(stats).IsNotEqualTo(default(ContainerStatsSnapshot));
 
         await runtime.StopAsync(id, ct);
 
