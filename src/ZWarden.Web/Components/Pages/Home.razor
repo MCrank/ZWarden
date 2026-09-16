@@ -1,25 +1,13 @@
 @page "/"
-@* This page uses an interactive Blueprint primitive (BbButton), so it opts into a
-   Server circuit. The Account auth pages deliberately do NOT - they stay static. *@
-@rendermode InteractiveServer
+@inject NavigationManager Nav
+
+@* The application entry point. Operators land on the fleet dashboard; when signed out, the /servers
+   authorization redirects on to /login, so opening the app always leads somewhere real. Static SSR:
+   NavigateTo during OnInitialized issues a redirect response before anything renders. (This replaced the
+   Feature 0 UI-pipeline scaffolding, whose Blueprint/Tailwind wiring is now proven by the real pages.) *@
 
 <PageTitle>ZWarden</PageTitle>
 
-<h1 class="text-2xl font-semibold tracking-tight">ZWarden</h1>
-<p class="mt-1 text-muted-foreground">
-    Feature 0 engineering foundation - the UI pipeline is wired: Blazor Blueprint under
-    ZWarden-owned components over Tailwind utilities.
-</p>
-
-@* Tailwind utilities (grid-cols-*, gap-*, sm:*) are the ones generated ONLY by running
-   the Tailwind build over this markup - the exact classes the stale-app.css guard exists
-   to protect. *@
-<div class="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
-    <StatusBadge State="ZWarden.Domain.Servers.ServerRunState.Running" />
-    <StatusBadge State="ZWarden.Domain.Servers.ServerRunState.Starting" />
-    <StatusBadge State="ZWarden.Domain.Servers.ServerRunState.Failed" />
-</div>
-
-<div class="mt-6">
-    <BbButton>A Blueprint primitive, under the seam</BbButton>
-</div>
+@code {
+    protected override void OnInitialized() => Nav.NavigateTo("/servers");
+}
