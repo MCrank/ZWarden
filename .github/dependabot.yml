@@ -1,0 +1,39 @@
+# Dependabot keeps the supply chain current (F40 / ADR 0039, PRD §55). Grouped, weekly, and low-noise:
+# security updates always come through, and routine bumps are batched so they do not swamp review.
+version: 2
+updates:
+  # The .NET dependency graph. Central Package Management (Directory.Packages.props) means one manifest at the
+  # root drives every project, so a single nuget entry covers the whole solution.
+  - package-ecosystem: "nuget"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    groups:
+      nuget-minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # The GitHub Actions used by the CI and release workflows (pinned actions still need bumping).
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      actions:
+        patterns:
+          - "*"
+
+  # The container base images the three components build from.
+  - package-ecosystem: "docker"
+    directories:
+      - "/src/ZWarden.Web"
+      - "/src/ZWarden.Agent"
+      - "/src/ZWarden.PZServer"
+    schedule:
+      interval: "weekly"
+    groups:
+      base-images:
+        patterns:
+          - "*"

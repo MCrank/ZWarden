@@ -281,6 +281,84 @@ jobs:
             --body "The scheduled advisory-promotion build failed: a dependency now carries a published NuGet advisory (NU19xx). On PR/main this is only a warning (ADR 0013), but it must be triaged and is a hard blocker at the F40 gate. See the failing run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
   # ---------------------------------------------------------------------------
+  # Supply-chain gate (F40 / ADR 0039, PRD §55). SBOM plus secret, dependency,
+  # and container scanning run on every PR. Signing and publishing the images
+  # (and promoting the NuGet advisory gate above to a hard blocker) land on the
+  # release path in F40 PR-C. Scans gate on severity, not on mere presence;
+  # ignore-unfixed keeps the gate to findings a maintainer can actually act on.
+  # ---------------------------------------------------------------------------
+  sbom:
+    name: sbom
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+      - name: Restore in locked mode
+        run: dotnet restore ZWarden.slnx --locked-mode
+      - name: Generate a CycloneDX SBOM for the whole solution
+        run: |
+          dotnet tool install --global CycloneDX
+          export PATH="$PATH:$HOME/.dotnet/tools"
+          dotnet CycloneDX ZWarden.slnx --output sbom --json
+          test -s sbom/bom.json || { echo "::error::SBOM (sbom/bom.json) was not generated"; exit 1; }
+      - name: Upload the SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom/bom.json
+
+  secret-scan:
+    name: secret-scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # gitleaks scans the full history, not just the tip
+      - name: Scan the repository and history for committed secrets
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+  dependency-scan:
+    name: dependency-scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Trivy filesystem scan (the .NET dependency graph + config)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+  container-scan:
+    name: container-scan
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build the canonical PZServer image
+        run: docker build -t zwarden-pzserver:scan src/ZWarden.PZServer
+      - name: Trivy image scan (PRD §55 container vulnerability scanning)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: image
+          image-ref: zwarden-pzserver:scan
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+  # ---------------------------------------------------------------------------
   # ZWarden.PZServer (Feature 12). The bats suite is the always-on offline tier
   # (no network); the image build needs general network but never Steam; the real
   # 6.72 GiB PZ install + boot is scheduled (ADR 0009).

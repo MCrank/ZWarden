@@ -149,8 +149,12 @@ inside the owning slice.
   #5 (untrusted-data escaped at render) were already fully covered and are cited in the gate checklist rather
   than duplicated. Fuzz/input coverage for the config pre-check and redaction already exists (PzConfig.Tests,
   Diagnostics.Tests) and is inventoried in slice E. The security spine, TDD red→green.
-- **PR-B — Supply-chain CI.** SBOM (CycloneDX/.NET + syft/images), `dependabot.yml`, gitleaks secret scan,
-  trivy container scan, advisory-promotion promoted to a hard gate on the release path.
+- **PR-B — Supply-chain CI. DONE.** `dependabot.yml` (nuget + github-actions + docker); CI jobs `sbom`
+  (CycloneDX for the .NET graph, uploaded as an artifact), `secret-scan` (gitleaks over full history),
+  `dependency-scan` (trivy fs — vuln/secret/misconfig, HIGH+CRITICAL, ignore-unfixed) and `container-scan`
+  (trivy image over the canonical PZServer image); `SupplyChainCiTests` guards that these controls stay
+  declared. Image SBOM (syft) attaches to the published images and the advisory-gate hard-blocker both land
+  on the release path in **PR-C** (that is the release path they gate).
 - **PR-C — Signed, published release artifacts.** `release.yml` on version tags: build + push the three
   images to `ghcr.io/MCrank`, cosign keyless signing (GH OIDC), SBOM attestation, `SHA256SUMS`, digest
   pinning in the reference Compose. (The outward-facing slice; publishes public images.)
