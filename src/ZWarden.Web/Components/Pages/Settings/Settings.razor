@@ -1,0 +1,16 @@
+@page "/settings"
+@attribute [Authorize]
+
+@* Control-plane Settings landing (renamed from "Config", epic #156). This is a placeholder shell so the
+   nav link resolves; the real sections (General, Security & TLS, Enrollment, Backups, Users) arrive with
+   #160. Static-rendered like the other operator pages, and gated per PRD 12 (real gating set by #160). *@
+
+<PageTitle>Settings · ZWarden</PageTitle>
+
+<h1 class="text-xl font-bold tracking-tight text-foreground">Settings</h1>
+<p class="mt-1 text-sm text-muted-foreground">Control-plane configuration.</p>
+
+<div class="mt-6 rounded border border-border bg-card p-6 text-sm text-muted-foreground" data-settings-placeholder>
+    Settings sections are coming in a follow-up (#160): instance identity, security &amp; TLS,
+    agent enrollment, backups, and users &amp; roles.
+</div>

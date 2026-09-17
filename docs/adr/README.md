@@ -54,5 +54,6 @@ instead. New ADRs take the next number and follow [`TEMPLATE.md`](./TEMPLATE.md)
 | [0037](./0037-reference-docker-compose-distribution.md) | The reference deployment is a hand-authored Docker Compose distribution, SQLite-base with a Postgres overlay | #53 |
 | [0038](./0038-remote-agents-are-the-same-outbound-agent-on-another-host.md) | A remote Agent is the same outbound-WSS Agent on another host; Hosts self-describe; host-scoped permissions wait for v1.1 | #54 |
 | [0039](./0039-the-release-gate-is-executable-and-artifacts-are-signed.md) | The 1.0 release gate is executable CI + one checklist; SBOM, scanning, and cosign-keyless signed images published to ghcr.io | #55 |
+| [0040](./0040-the-app-shell-is-static-ssr-chrome.md) | The app shell is static-SSR chrome (NavLink + AuthorizeView + a little JS), not an interactive island — no per-page circuit; an ADR 0003 exception | #157 |
 
 When you add an ADR, add its row here in the same commit.

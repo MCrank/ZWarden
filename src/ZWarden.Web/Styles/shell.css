@@ -1,0 +1,150 @@
+/* ============================================================================
+ * ZWarden app shell — the "Signal" sidebar-09 chrome (#157, ADR 0040).
+ *
+ * Static-SSR chrome: no interactive Bb components, no circuit. These `zw-*`
+ * classes are a faithful port of the design prototype and read the Signal tokens
+ * (zwarden.css), so light/dark come for free. Behaviour (menus, mobile drawer,
+ * .dark toggle) is wired by wwwroot/js/shell.js against the data-* hooks below.
+ * Built into wwwroot/app.css by `npm run build:css` (imported from
+ * app.tailwind.css) and CI-diffed (ADR 0003).
+ * ========================================================================== */
+
+/* ---- icons -------------------------------------------------------------- */
+.zw-ico { width: 16px; height: 16px; flex: none; }
+/* Theme glyph: show the sun in dark mode (tap to go light), the moon in light. */
+.zw-ico-moon { display: none; }
+html:not(.dark) .zw-ico-sun { display: none; }
+html:not(.dark) .zw-ico-moon { display: inline-block; }
+
+/* ---- frame -------------------------------------------------------------- */
+.zw-shell { display: flex; min-height: 100vh; min-height: 100dvh; }
+
+/* ---- sidebar ------------------------------------------------------------ */
+.zw-side {
+  width: 248px; flex: none; background: var(--card); border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; position: sticky; top: 0;
+  height: 100vh; height: 100dvh; z-index: 30;
+}
+.zw-side-hd, .zw-side-ft { padding: 10px; }
+.zw-side-hd { border-bottom: 1px solid var(--border); }
+.zw-side-ft { border-top: 1px solid var(--border); position: relative; }
+.zw-side-ct { flex: 1; overflow-y: auto; padding: 6px 10px; }
+
+.zw-trigger {
+  width: 100%; display: flex; align-items: center; gap: 10px; padding: 8px;
+  border-radius: var(--radius); border: 0; background: transparent; color: var(--foreground);
+  cursor: pointer; text-align: left; font: inherit;
+}
+.zw-trigger:hover { background: var(--accent); color: var(--accent-foreground); }
+.zw-stack { display: flex; flex-direction: column; min-width: 0; flex: 1; line-height: 1.25; }
+.zw-t1 { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.zw-t2 { font-size: 10.5px; color: var(--muted-foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.zw-chev { color: var(--muted-foreground); }
+
+.zw-mark {
+  width: 30px; height: 30px; flex: none; border-radius: var(--radius);
+  background: var(--primary); color: var(--primary-foreground);
+  display: grid; place-items: center; font-weight: 800; font-size: 15px; letter-spacing: -.04em;
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--primary) 40%, transparent),
+              0 0 14px -2px var(--primary);
+}
+.zw-mark-sm { width: 26px; height: 26px; font-size: 13px; box-shadow: none; }
+.zw-avatar {
+  width: 30px; height: 30px; flex: none; border-radius: 999px;
+  background: var(--secondary); color: var(--secondary-foreground);
+  display: grid; place-items: center; font-size: 11.5px; font-weight: 700; border: 1px solid var(--border);
+}
+
+/* ---- nav ---------------------------------------------------------------- */
+.zw-grp {
+  font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted-foreground);
+  padding: 14px 8px 4px; font-weight: 600;
+}
+.zw-navitem {
+  width: 100%; display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+  border-radius: var(--radius); color: var(--muted-foreground); font-size: 13.5px; font-weight: 500;
+  text-decoration: none;
+}
+.zw-navitem:hover { background: var(--accent); color: var(--accent-foreground); }
+.zw-navitem.active { background: var(--accent); color: var(--accent-foreground); font-weight: 600; }
+.zw-navitem.active .zw-ico { color: var(--primary); }
+
+/* ---- menus (workspace + account) --------------------------------------- */
+.zw-menu-wrap { position: relative; }
+.zw-menu {
+  position: absolute; left: 0; right: 0; z-index: 40;
+  background: var(--popover); color: var(--popover-foreground);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: 0 16px 40px -14px rgba(0, 0, 0, .55); padding: 5px;
+}
+.zw-menu-above { bottom: calc(100% + 6px); }
+.zw-menu-below { top: calc(100% + 6px); }
+.zw-menu[hidden] { display: none; }
+.zw-menu-label { font-size: 11px; color: var(--muted-foreground); padding: 6px 8px 4px; font-weight: 600; }
+.zw-menu-hd { display: flex; align-items: center; gap: 9px; padding: 8px 8px 9px; }
+.zw-mi {
+  width: 100%; display: flex; align-items: center; gap: 10px; padding: 8px;
+  border-radius: calc(var(--radius) * .8); border: 0; background: transparent; color: inherit;
+  font: inherit; font-size: 13px; cursor: pointer; text-align: left; text-decoration: none;
+}
+.zw-mi:hover { background: var(--accent); color: var(--accent-foreground); }
+.zw-mi-danger { color: var(--destructive); }
+.zw-mi-current { cursor: default; }
+.zw-mi-current:hover { background: transparent; }
+.zw-msep { height: 1px; background: var(--border); margin: 5px 2px; }
+.zw-logout { margin: 0; }
+
+/* ---- inset + top bar ---------------------------------------------------- */
+.zw-inset { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.zw-topbar {
+  position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 12px;
+  padding: 0 16px; height: 56px; background: var(--card); border-bottom: 1px solid var(--border);
+}
+.zw-icobtn {
+  width: 32px; height: 32px; display: grid; place-items: center; border-radius: var(--radius);
+  border: 1px solid transparent; background: transparent; color: var(--muted-foreground); cursor: pointer;
+}
+.zw-icobtn:hover { background: var(--accent); color: var(--accent-foreground); }
+.zw-sb-trigger { display: none; }
+.zw-crumbs { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted-foreground); }
+.zw-crumbs b { color: var(--foreground); font-weight: 600; }
+.zw-spacer { flex: 1; }
+.zw-search {
+  display: flex; align-items: center; gap: 8px; padding: 6px 10px; min-width: 120px; max-width: 280px; flex: 1;
+  background: var(--background); border: 1px solid var(--border); border-radius: var(--radius);
+  color: var(--muted-foreground); font-size: 12.5px;
+}
+.zw-search .zw-ico { width: 15px; height: 15px; }
+.zw-search-ph { flex: 1; }
+.zw-kbd {
+  font-family: var(--font-mono, "Chivo Mono", ui-monospace, monospace); font-size: 11px;
+  border: 1px solid var(--border); border-radius: calc(var(--radius) * .8); padding: 1px 6px; color: var(--muted-foreground);
+}
+.zw-envpill {
+  font-size: 10px; letter-spacing: .08em; text-transform: uppercase; padding: 4px 9px;
+  border-radius: var(--radius); border: 1px solid var(--border); color: var(--muted-foreground);
+  background: var(--muted); font-family: var(--font-mono, "Chivo Mono", ui-monospace, monospace); white-space: nowrap;
+}
+
+/* ---- content ------------------------------------------------------------ */
+.zw-content { padding: 20px 24px 44px; width: 100%; max-width: 1400px; }
+.zw-content-plain { margin-inline: auto; max-width: 64rem; }
+
+/* ---- mobile drawer ------------------------------------------------------ */
+.zw-scrim { display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, .5); z-index: 25; border: 0; }
+
+@media (max-width: 760px) {
+  .zw-side {
+    position: fixed; left: 0; top: 0; transform: translateX(-100%);
+    transition: transform .2s ease; box-shadow: 0 0 60px rgba(0, 0, 0, .4);
+  }
+  html.zw-nav-open .zw-side { transform: translateX(0); }
+  html.zw-nav-open .zw-scrim { display: block; }
+  .zw-sb-trigger { display: grid; }
+  .zw-envpill { display: none; }
+  .zw-content { padding: 16px 16px 40px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .zw-side { transition: none; }
+}

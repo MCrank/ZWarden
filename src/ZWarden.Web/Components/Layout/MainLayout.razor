@@ -1,38 +1,172 @@
 @inherits LayoutComponentBase
+@inject NavigationManager Nav
 
-<div class="min-h-screen">
-    @* The app shell (F14, the first UI feature). Nav links are visibility convenience only — every
-       endpoint and page re-authorizes server-side (PRD 12). Servers is shown to any authenticated
-       operator: the inventory self-filters to the Servers the caller may view (a server-scoped
-       Server.View policy checked with no resource would deny outright, ADR 0018), so gating the link
-       on it would wrongly hide the page from server-scoped operators. Audit is tenant-wide, so it
-       gates cleanly. *@
-    <AuthorizeView>
-        <header class="border-b border-border">
-            <nav class="mx-auto flex max-w-5xl items-center gap-6 px-6 py-4">
-                <a href="/" class="text-sm font-semibold tracking-tight text-primary">ZWarden</a>
-                <a href="/servers" class="text-sm font-medium text-muted-foreground hover:text-foreground">Servers</a>
-                @* Hosts (F35) is tenant-wide (Agent.View), so — like Audit — it gates cleanly on the policy. *@
-                <AuthorizeView Policy="Agent.View" Context="hosts">
-                    <a href="/hosts" class="text-sm font-medium text-muted-foreground hover:text-foreground">Hosts</a>
-                </AuthorizeView>
-                <AuthorizeView Policy="Audit.View" Context="audit">
-                    <a href="/audit" class="text-sm font-medium text-muted-foreground hover:text-foreground">Audit</a>
-                </AuthorizeView>
-            </nav>
-        </header>
-    </AuthorizeView>
-    <main class="mx-auto max-w-5xl p-6">
-        @Body
-    </main>
-</div>
+@* The app shell — the "Signal" sidebar-09 chrome (#157). It is deliberately STATIC SSR (ADR 0040):
+   NavLink for nav, AuthorizeView for visibility (enforcement stays server-side, PRD 12), a static
+   antiforgery-protected /logout form, and one small wwwroot/js/shell.js for the menus, mobile drawer and
+   the .dark toggle. No interactive Bb components, so the shell opens no Blazor Server circuit — the
+   scale-safe posture for the eventual SaaS. Fleet is shown to any authenticated operator (the inventory
+   self-filters, ADR 0018); Hosts/Audit gate cleanly on their tenant-wide policies. *@
 
-@* Overlay host, toast and dialog providers (BbPortalHost / BbToastProvider /
-   BbDialogProvider) are added by the first feature that needs an overlay - their
-   API is version-sensitive and Feature 0 uses no overlays. *@
+<AuthorizeView>
+    <Authorized Context="auth">
+        <div class="zw-shell">
+            <aside class="zw-side" aria-label="Primary navigation" data-shell-nav>
+                <div class="zw-side-hd">
+                    @* Workspace switcher — a single "ZWarden / Self-hosted" entry today; the menu shell is
+                       here so a tenant switcher drops in for the v1.1 SaaS with no chrome change. *@
+                    <div class="zw-menu-wrap">
+                        <button type="button" class="zw-trigger" data-shell-menu-trigger="workspace"
+                                aria-haspopup="menu" aria-expanded="false" aria-controls="zw-workspace-menu">
+                            <span class="zw-mark">Z</span>
+                            <span class="zw-stack">
+                                <span class="zw-t1">ZWarden</span>
+                                <span class="zw-t2">Self-hosted</span>
+                            </span>
+                            <ShellIcon Name="chevrons-up-down" Class="zw-chev" />
+                        </button>
+                        <div class="zw-menu zw-menu-below" id="zw-workspace-menu" role="menu"
+                             data-shell-menu="workspace" hidden>
+                            <div class="zw-menu-label">Workspace</div>
+                            <div class="zw-msep"></div>
+                            <div class="zw-mi zw-mi-current" role="menuitemradio" aria-checked="true">
+                                <span class="zw-mark zw-mark-sm">Z</span>
+                                <span class="zw-stack">
+                                    <span class="zw-t1">ZWarden</span>
+                                    <span class="zw-t2">Self-hosted</span>
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <nav class="zw-side-ct">
+                    <div class="zw-grp">Operate</div>
+                    <NavLink class="zw-navitem" href="/servers" data-nav="fleet">
+                        <ShellIcon Name="layout-grid" /><span>Fleet</span>
+                    </NavLink>
+                    @* Hosts (F35) is tenant-wide (Agent.View), so — like Audit — it gates cleanly. *@
+                    <AuthorizeView Policy="Agent.View" Context="hostsNav">
+                        <NavLink class="zw-navitem" href="/hosts" data-nav="hosts">
+                            <ShellIcon Name="server" /><span>Hosts</span>
+                        </NavLink>
+                    </AuthorizeView>
+
+                    <div class="zw-grp">System</div>
+                    @* Settings (renamed from Config, #156) — shown to all for now; #160 sets its real gating. *@
+                    <NavLink class="zw-navitem" href="/settings" data-nav="settings">
+                        <ShellIcon Name="settings" /><span>Settings</span>
+                    </NavLink>
+                    <AuthorizeView Policy="Audit.View" Context="auditNav">
+                        <NavLink class="zw-navitem" href="/audit" data-nav="audit">
+                            <ShellIcon Name="scroll-text" /><span>Audit</span>
+                        </NavLink>
+                    </AuthorizeView>
+                </nav>
+
+                <div class="zw-side-ft">
+                    <div class="zw-menu-wrap">
+                        <button type="button" class="zw-trigger" data-shell-menu-trigger="account"
+                                aria-haspopup="menu" aria-expanded="false" aria-controls="zw-account-menu">
+                            <span class="zw-avatar">@Initials(auth)</span>
+                            <span class="zw-stack">
+                                <span class="zw-t1">@DisplayName(auth)</span>
+                                <span class="zw-t2">@auth.User.Identity?.Name</span>
+                            </span>
+                            <ShellIcon Name="chevrons-up-down" Class="zw-chev" />
+                        </button>
+                        <div class="zw-menu zw-menu-above" id="zw-account-menu" role="menu"
+                             data-shell-menu="account" hidden>
+                            <div class="zw-menu-hd">
+                                <span class="zw-avatar">@Initials(auth)</span>
+                                <span class="zw-stack">
+                                    <span class="zw-t1">@DisplayName(auth)</span>
+                                    <span class="zw-t2">@auth.User.Identity?.Name</span>
+                                </span>
+                            </div>
+                            <div class="zw-msep"></div>
+                            <a class="zw-mi" role="menuitem" href="/account/manage">
+                                <ShellIcon Name="user" />Account &amp; 2FA
+                            </a>
+                            <button type="button" class="zw-mi" role="menuitem" data-shell-theme-toggle>
+                                <ShellIcon Name="sun" Class="zw-ico-sun" /><ShellIcon Name="moon" Class="zw-ico-moon" />Toggle theme
+                            </button>
+                            <div class="zw-msep"></div>
+                            @* Log out is a static POST to the /logout endpoint (ADR 0040) — the control that
+                               was missing from the stopgap nav. Antiforgery-protected like every mutation. *@
+                            <form method="post" action="/logout" class="zw-logout">
+                                <AntiforgeryToken />
+                                <input type="hidden" name="returnUrl" value="/login" />
+                                <button type="submit" class="zw-mi zw-mi-danger" role="menuitem">
+                                    <ShellIcon Name="log-out" />Log out
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+
+            <div class="zw-inset">
+                <header class="zw-topbar">
+                    <button type="button" class="zw-icobtn zw-sb-trigger" data-shell-drawer-toggle
+                            aria-label="Toggle navigation" aria-controls="zw-side">
+                        <ShellIcon Name="panel-left" />
+                    </button>
+                    <div class="zw-crumbs"><b>@ShellNavigation.SectionLabelFor(CurrentPath)</b></div>
+                    <div class="zw-spacer"></div>
+                    @* Search affordance is visual-only for now — no global search backend yet (#158+). *@
+                    <div class="zw-search" aria-hidden="true" title="Search — coming soon">
+                        <ShellIcon Name="search" />
+                        <span class="zw-search-ph">Search…</span>
+                        <span class="zw-kbd">⌘K</span>
+                    </div>
+                    <span class="zw-envpill">Self-hosted</span>
+                    <button type="button" class="zw-icobtn" data-shell-theme-toggle aria-label="Toggle theme">
+                        <ShellIcon Name="sun" Class="zw-ico-sun" /><ShellIcon Name="moon" Class="zw-ico-moon" />
+                    </button>
+                </header>
+
+                <main class="zw-content">
+                    @Body
+                </main>
+            </div>
+
+            <button type="button" class="zw-scrim" data-shell-drawer-close aria-label="Close navigation"></button>
+        </div>
+    </Authorized>
+    <NotAuthorized>
+        @* Anonymous requests to a MainLayout page are redirected at the endpoint (Routes.razor); this
+           bare branch is the belt-and-braces path and renders the page without the operator chrome. *@
+        <main class="zw-content zw-content-plain">@Body</main>
+    </NotAuthorized>
+</AuthorizeView>
 
 <div id="blazor-error-ui" data-nosnippet>
     An unhandled error has occurred.
     <a href="." class="reload">Reload</a>
     <span class="dismiss">🗙</span>
 </div>
+
+@code {
+    private string CurrentPath => new Uri(Nav.Uri).AbsolutePath;
+
+    // Best-effort display name + initials from the sign-in identity (the email). A real display name can
+    // replace these once the profile carries one; the shell only needs a friendly label + avatar glyph.
+    private static string DisplayName(AuthenticationState auth)
+    {
+        string name = auth.User.Identity?.Name ?? "Operator";
+        string local = name.Contains('@', StringComparison.Ordinal) ? name.Split('@')[0] : name;
+        return local.Length == 0 ? "Operator" : char.ToUpperInvariant(local[0]) + local[1..];
+    }
+
+    private static string Initials(AuthenticationState auth)
+    {
+        string name = auth.User.Identity?.Name ?? "";
+        string local = name.Contains('@', StringComparison.Ordinal) ? name.Split('@')[0] : name;
+        string[] parts = local.Split(new[] { '.', '_', '-', '+' }, StringSplitOptions.RemoveEmptyEntries);
+        string initials = parts.Length >= 2
+            ? $"{parts[0][0]}{parts[1][0]}"
+            : (local.Length >= 2 ? local[..2] : (local.Length == 1 ? local : "ZW"));
+        return initials.ToUpperInvariant();
+    }
+}
