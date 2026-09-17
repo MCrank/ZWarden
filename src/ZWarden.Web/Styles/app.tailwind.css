@@ -7,6 +7,10 @@
    both read the same CSS variables. Authoritative source: docs/style-guide/. */
 @import "./zwarden.css";
 
+/* The app-shell chrome (#157, ADR 0040) — static-SSR `zw-*` classes that read the
+   Signal tokens above. Imported here so the same build emits it into wwwroot/app.css. */
+@import "./shell.css";
+
 /* Self-hosted Chivo / Chivo Mono (OFL, see wwwroot/fonts/OFL.txt). No CDN in
    production (style-guide.md); latin subset, normal style, only the weights the
    UI uses. `font-display: swap` so text paints immediately on the fallback. */
