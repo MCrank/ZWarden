@@ -508,6 +508,123 @@ html:not(.dark) .zw-ico-moon {
   max-width: 64rem;
 }
 
+/* ---- server detail: sticky header + grouped vertical rail (#162) -------- */
+
+.zw-srvhead {
+  position: sticky;
+  top: 56px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 8px 0;
+  background: var(--background);
+  border-bottom: 1px solid var(--border);
+}
+
+.zw-lifebtns {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.zw-srvlayout {
+  display: grid;
+  grid-template-columns: 176px 1fr;
+  gap: 16px;
+  align-items: start;
+}
+
+.zw-secbody {
+  min-width: 0;
+}
+
+.zw-rail {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+}
+
+.zw-railgrp {
+  font-size: 9.5px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+  padding: 11px 8px 4px;
+  font-weight: 600;
+}
+
+.zw-railitem {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 9px;
+  border-radius: var(--radius);
+  color: var(--muted-foreground);
+  font-size: 12.5px;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.zw-railitem:hover {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+
+.zw-railitem.active {
+  background: var(--accent);
+  color: var(--accent-foreground);
+  font-weight: 600;
+}
+
+.zw-railitem.active .zw-ico {
+  color: var(--primary);
+}
+
+.zw-railitem-soon {
+  cursor: default;
+  opacity: .7;
+}
+
+.zw-railitem-soon:hover {
+  background: transparent;
+  color: var(--muted-foreground);
+}
+
+.zw-rail-soon {
+  margin-left: auto;
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--primary) 18%, var(--card));
+  color: var(--primary);
+}
+
+/* Phone width: the rail collapses to a wrapping icon strip; content goes full-width. */
+
+@media (max-width: 960px) {
+  .zw-srvlayout {
+    grid-template-columns: 1fr;
+  }
+
+  .zw-rail {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .zw-railgrp {
+    width: 100%;
+  }
+}
+
 /* ---- mobile drawer ------------------------------------------------------ */
 
 .zw-scrim {
