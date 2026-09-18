@@ -54,6 +54,7 @@ public sealed class ServerConfigurationEditor : IServerConfigurationEditor
         ServerId server,
         PzConfigFile file,
         IReadOnlyList<ConfigApplyEdit> edits,
+        string? expectedBaselineHash = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(edits);
@@ -83,7 +84,8 @@ public sealed class ServerConfigurationEditor : IServerConfigurationEditor
             return ServerConfigurationResult.Denied(ServerConfigurationFailure.InvalidInput, "An edit has an empty configuration path.");
         }
 
-        return await EnqueueAsync(user, resolved, file, edits, ConfigurationAuditActions.Applied, cancellationToken)
+        return await EnqueueAsync(
+            user, resolved, file, edits, ConfigurationAuditActions.Applied, expectedBaselineHash, cancellationToken)
             .ConfigureAwait(false);
     }
 
@@ -138,22 +140,27 @@ public sealed class ServerConfigurationEditor : IServerConfigurationEditor
         }
 
         List<ConfigApplyEdit> edits = [.. plan.Edits.Select(e => new ConfigApplyEdit(e.Path, KindOf(e.Value), WireValueOf(e.Value)))];
-        return await EnqueueAsync(user, resolved, file, edits, ConfigurationAuditActions.Restored, cancellationToken)
+        // Restore's baseline is the current recorded state it planned against, so it supplies none and the enqueuer
+        // uses the recorded revision (a restore is not an interactive live-read edit).
+        return await EnqueueAsync(
+            user, resolved, file, edits, ConfigurationAuditActions.Restored, expectedBaselineHash: null, cancellationToken)
             .ConfigureAwait(false);
     }
 
     // The shared enqueue half of apply and restore: capture the drift baseline, size-check the payload, enqueue a
     // mutating server-scoped Operation, and audit. Delegates to the enqueuer F22's mod manager also reuses; the
-    // audit subject preserves the "{file}, {n} edit(s)" detail. The caller has already resolved and authorized.
+    // audit subject preserves the "{file}, {n} edit(s)" detail. The caller has already resolved and authorized. A
+    // non-null expectedBaselineHash is the interactive editor's live-read baseline (F20c, ADR 0042).
     private Task<ServerConfigurationResult> EnqueueAsync(
         UserId user,
         Server resolved,
         PzConfigFile file,
         IReadOnlyList<ConfigApplyEdit> edits,
         string auditAction,
+        string? expectedBaselineHash,
         CancellationToken cancellationToken)
         => _enqueuer.EnqueueAsync(
-            user, resolved, file, edits, auditAction, $"{file}, {edits.Count} edit(s)", cancellationToken);
+            user, resolved, file, edits, auditAction, $"{file}, {edits.Count} edit(s)", expectedBaselineHash, cancellationToken);
 
     private static ConfigEditKind KindOf(PzValue value) => value switch
     {

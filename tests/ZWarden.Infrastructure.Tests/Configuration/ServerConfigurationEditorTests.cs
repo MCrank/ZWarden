@@ -110,6 +110,53 @@ public class ServerConfigurationEditorTests
     }
 
     [Test]
+    public async Task Apply_uses_the_supplied_live_read_baseline_over_the_recorded_revision()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            ServerId serverId = await SeedServerAsync(options, AgentId.New());
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ServerConfigurationEdit);
+            // A recorded revision exists, but the interactive editor drift-checks against what the operator
+            // actually saw (the live read), not the last write — so the supplied baseline wins (F20c, ADR 0042).
+            await SeedRevisionAsync(options, serverId, PzConfigFile.SandboxVars, "recorded-revision-hash");
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            RecordingCoordinator coordinator = new();
+            ServerConfigurationEditor sut = Editor(db, coordinator, new CapturingAuditWriter());
+
+            ServerConfigurationResult result = await sut.ApplyAsync(
+                user, serverId, PzConfigFile.SandboxVars, Edits, expectedBaselineHash: "live-read-hash");
+
+            await Assert.That(result.Succeeded).IsTrue();
+            ConfigApplyPayload payload = ConfigApplyPayload.FromJson(coordinator.LastRequest!.CommandPayload!);
+            await Assert.That(payload.BaselineHash).IsEqualTo("live-read-hash");
+        });
+    }
+
+    [Test]
+    public async Task Apply_falls_back_to_the_recorded_revision_when_no_live_read_baseline_is_supplied()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            ServerId serverId = await SeedServerAsync(options, AgentId.New());
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ServerConfigurationEdit);
+            await SeedRevisionAsync(options, serverId, PzConfigFile.SandboxVars, "recorded-revision-hash");
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            RecordingCoordinator coordinator = new();
+            ServerConfigurationEditor sut = Editor(db, coordinator, new CapturingAuditWriter());
+
+            // A non-interactive caller (e.g. the mod manager) supplies no baseline — the recorded revision stands.
+            await sut.ApplyAsync(user, serverId, PzConfigFile.SandboxVars, Edits);
+
+            ConfigApplyPayload payload = ConfigApplyPayload.FromJson(coordinator.LastRequest!.CommandPayload!);
+            await Assert.That(payload.BaselineHash).IsEqualTo("recorded-revision-hash");
+        });
+    }
+
+    [Test]
     public async Task Apply_denies_without_the_server_scoped_config_edit_permission()
     {
         await WithSqlite(async options =>

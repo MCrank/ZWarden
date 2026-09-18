@@ -45,12 +45,21 @@ internal sealed class ConfigApplyEnqueuer
         IReadOnlyList<ConfigApplyEdit> edits,
         string auditAction,
         string auditSubject,
+        string? expectedBaselineHash,
         CancellationToken cancellationToken)
     {
-        // The drift baseline: the last recorded revision's hash for this file, or null when none exists (the
-        // Agent then treats it as the first write — no baseline to drift from, ADR 0011).
-        ConfigurationRevision? baseline = await _revisions.FindLatestAsync(resolved.Id, file, cancellationToken).ConfigureAwait(false);
-        string payload = new ConfigApplyPayload(file, baseline?.SnapshotHash, edits).ToJson();
+        // The drift baseline the Agent re-checks (ADR 0011). When the caller supplies one — the interactive
+        // editor's live-read baseline (F20c, ADR 0042) — it wins, so the write is checked against the state the
+        // operator actually saw. Otherwise fall back to the last recorded revision's hash, or null when none
+        // exists (the Agent then treats it as the first write — no baseline to drift from).
+        string? baselineHash = expectedBaselineHash;
+        if (baselineHash is null)
+        {
+            ConfigurationRevision? baseline = await _revisions.FindLatestAsync(resolved.Id, file, cancellationToken).ConfigureAwait(false);
+            baselineHash = baseline?.SnapshotHash;
+        }
+
+        string payload = new ConfigApplyPayload(file, baselineHash, edits).ToJson();
         if (payload.Length > Operation.MaxCommandPayloadLength)
         {
             return ServerConfigurationResult.Denied(
