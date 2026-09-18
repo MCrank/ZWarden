@@ -1,0 +1,47 @@
+@using ZWarden.Domain.Audit
+@* The audit-outcome badge (#161), the sibling of StatusBadge for the audit trail: on a security log the
+   OUTCOME is the signal, so it carries the status-token colour rather than plain text. Succeeded and Failed
+   are outline chips against the token ramp; Denied — a fail-closed authorization refusal — is filled with the
+   unhealthy hue so a denial reads at a glance down a dense table (acceptance criterion: denied actions are
+   visually distinct). The label ink stays --foreground (or the on-fill ink for Denied) so it clears 4.5:1 in
+   both themes. Class strings are full literals so the Tailwind content scan emits them (ADR 0003 condition 2). *@
+
+<span class="@ClassString">
+    <span class="inline-block h-2 w-2 rounded-full @DotClass"></span>
+    @Label
+</span>
+
+@code {
+    /// <summary>The audited occurrence's outcome (F6).</summary>
+    [Parameter]
+    [EditorRequired]
+    public AuditOutcome Outcome { get; set; }
+
+    // "OK" reads faster than "Succeeded" in a dense column; Failed/Denied stay explicit.
+    private string Label => Outcome switch
+    {
+        AuditOutcome.Succeeded => "OK",
+        AuditOutcome.Failed => "FAILED",
+        AuditOutcome.Denied => "DENIED",
+        _ => Outcome.ToString().ToUpperInvariant(),
+    };
+
+    private const string Base = "inline-flex items-center gap-1.5 rounded-sm px-2 py-0.5 text-xs font-medium";
+
+    // Succeeded → green outline, Failed → amber ("busy") outline, Denied → filled red so it stands out.
+    private string ClassString => Outcome switch
+    {
+        AuditOutcome.Succeeded => $"{Base} border border-status-running text-foreground",
+        AuditOutcome.Failed => $"{Base} border border-status-busy text-foreground",
+        AuditOutcome.Denied => $"{Base} border border-status-unhealthy bg-status-unhealthy text-white",
+        _ => $"{Base} border border-status-unknown text-foreground",
+    };
+
+    private string DotClass => Outcome switch
+    {
+        AuditOutcome.Succeeded => "bg-status-running",
+        AuditOutcome.Failed => "bg-status-busy",
+        AuditOutcome.Denied => "bg-white",
+        _ => "bg-status-unknown",
+    };
+}

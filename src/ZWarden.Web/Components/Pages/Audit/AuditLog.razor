@@ -1,87 +1,127 @@
 @page "/audit"
+@using System.Security.Claims
+@using Microsoft.EntityFrameworkCore
 @using ZWarden.Application.Audit
 @using ZWarden.Domain.Audit
+@using ZWarden.Domain.Ids
+@using ZWarden.Web.Components.Audit
 @attribute [Authorize(Policy = "Audit.View")]
 @inject IAuditQuery Audit
+@inject IServerInventory Servers
+@inject UserManager<ApplicationUser> Users
+@inject AuthenticationStateProvider AuthProvider
 
-@* Static server render (no @rendermode): the page runs per request with a live HttpContext, so the
-   session-derived tenant resolves and the read is tenant-filtered server-side. The Audit.View policy
-   gates the endpoint itself — this is enforcement, not UI visibility (PRD 12). Filters are GET query
-   parameters, so a filtered view is bookmarkable. *@
+@* The audit viewer (#161), re-skinned from the F6 raw-HTML table into the Signal filter-bar + dense BbDataGrid
+   (ADR 0003 — Bb over raw HTML for tables). Static server render (no @rendermode): the page runs per request with
+   a live HttpContext, so the session-derived tenant resolves and every read is tenant-filtered server-side. The
+   Audit.View policy gates the endpoint itself — enforcement, not UI visibility (PRD 12). Filters and paging are
+   GET query parameters, so a filtered/paged view is bookmarkable, and the Export button reuses the exact same
+   parameters against the /audit/export endpoint (same authorization). Actor/Target ids are resolved to friendly
+   names for the operator (email, server name) with the canonical id as the fallback and title; all audit text is
+   rendered as data. Paging is server-side (one page loaded at a time), which is what scales to a large log —
+   BbDataGrid's own pagination is off and the page's prev/next links carry the filter. *@
 
 <PageTitle>Audit — ZWarden</PageTitle>
 
-<h1 class="text-2xl font-semibold tracking-tight">Audit</h1>
+<div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+    <h1 class="text-2xl font-semibold tracking-tight">Audit</h1>
+    <p class="text-sm text-muted-foreground" data-audit-total>@_total @(_total == 1 ? "event" : "events")</p>
+</div>
 <p class="mt-1 text-sm text-muted-foreground">
     The durable, tenant-scoped record of security and administration events, gated by the
     <code>Audit.View</code> permission and always filtered to your tenant.
 </p>
 
-@* Blueprint form primitives over the seam (ADR 0003; issue #84). This is a GET form (bookmarkable filters,
-   bound via [SupplyParameterFromQuery]), not an EditForm — so the controls carry an explicit Name (the query
-   key) and Value (the current filter), not @bind. The SSR-safe subset renders real named controls, so the
-   GET submit still builds ?action=&outcome=&correlation= as before. *@
-<form method="get" class="mt-6 flex flex-wrap items-end gap-3">
+@* Filter bar (Signal): a GET form (bookmarkable filters, bound via [SupplyParameterFromQuery]), not an EditForm —
+   so the controls carry an explicit Name (the query key) and Value (the current filter), not @bind. The SSR-safe
+   Blueprint subset renders real named controls (issue #84), so the GET submit builds the same query string. *@
+<form method="get" class="mt-6 flex flex-wrap items-end gap-3 rounded border border-border bg-card p-3" data-audit-filter>
     <div class="flex flex-col text-sm">
         <BbLabel For="filter-action" Class="mb-1 text-muted-foreground">Action</BbLabel>
-        <BbInput Id="filter-action" Name="action" Value="@Action" />
-    </div>
-    <div class="flex flex-col text-sm">
-        <BbLabel For="filter-outcome" Class="mb-1 text-muted-foreground">Outcome</BbLabel>
-        <BbNativeSelect TValue="string" Id="filter-outcome" Name="outcome" Value="@(Outcome ?? string.Empty)">
-            <option value="">Any</option>
-            @foreach (AuditOutcome value in Enum.GetValues<AuditOutcome>())
+        <BbNativeSelect TValue="string" Id="filter-action" Name="action" Value="@(Action ?? string.Empty)">
+            <option value="">Any action</option>
+            @foreach (string action in _actions)
             {
-                <option value="@value">@value</option>
+                <option value="@action" selected="@(action == Action)">@action</option>
             }
         </BbNativeSelect>
+    </div>
+    <div class="flex flex-col text-sm">
+        <BbLabel For="filter-outcome" Class="mb-1 text-muted-foreground">Result</BbLabel>
+        <BbNativeSelect TValue="string" Id="filter-outcome" Name="outcome" Value="@(Outcome ?? string.Empty)">
+            <option value="">Any result</option>
+            @foreach (AuditOutcome value in Enum.GetValues<AuditOutcome>())
+            {
+                <option value="@value" selected="@(value.ToString() == Outcome)">@value</option>
+            }
+        </BbNativeSelect>
+    </div>
+    <div class="flex flex-col text-sm">
+        <BbLabel For="filter-from" Class="mb-1 text-muted-foreground">From (UTC)</BbLabel>
+        <BbInput Id="filter-from" Name="from" Type="InputType.Date" Value="@From" />
+    </div>
+    <div class="flex flex-col text-sm">
+        <BbLabel For="filter-to" Class="mb-1 text-muted-foreground">To (UTC)</BbLabel>
+        <BbInput Id="filter-to" Name="to" Type="InputType.Date" Value="@To" />
     </div>
     <div class="flex flex-col text-sm">
         <BbLabel For="filter-correlation" Class="mb-1 text-muted-foreground">Correlation id</BbLabel>
         <BbInput Id="filter-correlation" Name="correlation" Value="@Correlation" />
     </div>
     <BbButton Type="ButtonType.Submit" Variant="ButtonVariant.Outline">Filter</BbButton>
+    @* Export streams the current filtered view as CSV via /audit/export (same Audit.View gate). It is a link that
+       carries the applied filters, so it exports exactly what is shown (all pages, not just the current one). *@
+    <a href="@ExportUrl()"
+       class="inline-flex items-center gap-1.5 rounded border border-border px-3 py-1.5 text-sm font-medium text-foreground hover:bg-muted"
+       data-audit-export>
+        Export CSV
+    </a>
 </form>
 
-<p class="mt-4 text-sm text-muted-foreground" data-audit-total>@_total event(s)</p>
-
-<div class="mt-2 overflow-x-auto">
-    <table class="w-full border-collapse text-left text-sm">
-        <thead>
-            <tr class="border-b text-muted-foreground">
-                <th class="py-2 pr-4 font-medium">When (UTC)</th>
-                <th class="py-2 pr-4 font-medium">Action</th>
-                <th class="py-2 pr-4 font-medium">Outcome</th>
-                <th class="py-2 pr-4 font-medium">Actor</th>
-                <th class="py-2 pr-4 font-medium">Server</th>
-                <th class="py-2 pr-4 font-medium">Correlation</th>
-                <th class="py-2 pr-4 font-medium">Detail</th>
-            </tr>
-        </thead>
-        <tbody>
-            @if (_events.Count == 0)
-            {
-                <tr>
-                    <td colspan="7" class="py-4 text-muted-foreground">No audit events match.</td>
-                </tr>
-            }
-            @foreach (AuditEventView entry in _events)
-            {
-                <tr class="border-b" data-audit-row>
-                    <td class="py-2 pr-4 tabular-nums">@entry.OccurredAt.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss")</td>
-                    <td class="py-2 pr-4 font-medium">@entry.Action</td>
-                    <td class="py-2 pr-4">@entry.Outcome</td>
-                    <td class="py-2 pr-4">@(entry.ActorUserId?.ToString() ?? "—")</td>
-                    <td class="py-2 pr-4">@(entry.ServerId?.ToString() ?? "—")</td>
-                    <td class="py-2 pr-4">@(entry.CorrelationId ?? "—")</td>
-                    <td class="py-2 pr-4">@(entry.Detail ?? "—")</td>
-                </tr>
-            }
-        </tbody>
-    </table>
+@* The table scrolls in its own container on narrow screens (acceptance criterion). It is the page's one
+   interactive island (BbDataGrid renders under an interactive render mode, not pure static SSR), reading only the
+   rows projected below — no tenant-scoped service in the circuit (ADR 0040). It prerenders with the rows so the
+   first paint is server-rendered. Its own pagination is off — the page's prev/next links below do server-side
+   paging, which is what scales to a large log. The rows are handed over as a concrete List (not an array): an
+   array behind the IReadOnlyList parameter does not round-trip through the interactive-component parameter
+   serialization and desyncs the island's circuit from its prerender ("The list of component operations is not
+   valid"), exactly as the Fleet board passes a List. *@
+<div class="mt-4 overflow-x-auto" data-audit-table>
+    <AuditTable @rendermode="InteractiveServer" Rows="_rows" />
 </div>
 
+@* Server-side pager: bookmarkable prev/next that carry the current filter (large logs load one page at a time). *@
+@if (_total > 0)
+{
+    <div class="mt-3 flex items-center justify-between gap-3 text-sm text-muted-foreground" data-audit-pager>
+        <span data-audit-range>Showing @(_rangeFrom)–@(_rangeTo) of @_total</span>
+        <div class="flex items-center gap-2">
+            @if (_skip > 0)
+            {
+                <a href="@PageUrl(Math.Max(0, _skip - PageSize))"
+                   class="rounded border border-border px-2.5 py-1 text-foreground hover:bg-muted" data-audit-prev>Previous</a>
+            }
+            else
+            {
+                <span class="rounded border border-border px-2.5 py-1 opacity-40" aria-disabled="true">Previous</span>
+            }
+            @if (_skip + PageSize < _total)
+            {
+                <a href="@PageUrl(_skip + PageSize)"
+                   class="rounded border border-border px-2.5 py-1 text-foreground hover:bg-muted" data-audit-next>Next</a>
+            }
+            else
+            {
+                <span class="rounded border border-border px-2.5 py-1 opacity-40" aria-disabled="true">Next</span>
+            }
+        </div>
+    </div>
+}
+
 @code {
+    /// <summary>The page size for server-side paging.</summary>
+    private const int PageSize = 50;
+
     /// <summary>Filter by exact action name (GET <c>?action=</c>).</summary>
     [SupplyParameterFromQuery(Name = "action")]
     public string? Action { get; set; }
@@ -94,18 +134,124 @@
     [SupplyParameterFromQuery(Name = "correlation")]
     public string? Correlation { get; set; }
 
-    private IReadOnlyList<AuditEventView> _events = [];
+    /// <summary>Filter from this UTC day, inclusive (GET <c>?from=</c>, <c>yyyy-MM-dd</c>).</summary>
+    [SupplyParameterFromQuery(Name = "from")]
+    public string? From { get; set; }
+
+    /// <summary>Filter to this UTC day, inclusive (GET <c>?to=</c>, <c>yyyy-MM-dd</c>).</summary>
+    [SupplyParameterFromQuery(Name = "to")]
+    public string? To { get; set; }
+
+    /// <summary>How many matching events to skip (GET <c>?skip=</c>) — server-side paging.</summary>
+    [SupplyParameterFromQuery(Name = "skip")]
+    public int Skip { get; set; }
+
+    // A concrete List, not IReadOnlyList — the value handed to the interactive island must be a type its parameter
+    // serialization round-trips (see the island's comment); an array does not.
+    private List<AuditRow> _rows = [];
+    private IReadOnlyList<string> _actions = [];
     private int _total;
+    private int _skip;
+    private int _rangeFrom;
+    private int _rangeTo;
 
     protected override async Task OnInitializedAsync()
     {
-        AuditQuery query = new(
-            Action: string.IsNullOrWhiteSpace(Action) ? null : Action,
-            Outcome: Enum.TryParse(Outcome, out AuditOutcome outcome) ? outcome : null,
-            CorrelationId: string.IsNullOrWhiteSpace(Correlation) ? null : Correlation,
-            Take: 100);
+        _skip = Skip < 0 ? 0 : Skip;
 
-        _events = await Audit.QueryAsync(query);
+        AuditQuery query = AuditFilter.Build(Action, Outcome, Correlation, From, To, _skip, PageSize);
+
+        IReadOnlyList<AuditEventView> events = await Audit.QueryAsync(query);
         _total = await Audit.CountAsync(query);
+        _actions = await Audit.ListActionsAsync();
+
+        _rangeFrom = events.Count == 0 ? 0 : _skip + 1;
+        _rangeTo = _skip + events.Count;
+
+        _rows = await ProjectAsync(events);
+    }
+
+    // Project the page's events into serializable rows for the interactive island, resolving ids to friendly names
+    // in as few round-trips as possible: one query for the actors present on the page, one visible-server read for
+    // the targets. Both are tenant-scoped; an id that cannot be resolved (a deleted user, a server outside the
+    // viewer's scope) falls back to its canonical typed id.
+    private async Task<List<AuditRow>> ProjectAsync(IReadOnlyList<AuditEventView> events)
+    {
+        Dictionary<Guid, string> actorNames = [];
+        List<Guid> actorIds = events
+            .Where(e => e.ActorUserId is not null)
+            .Select(e => e.ActorUserId!.Value.Value)
+            .Distinct()
+            .ToList();
+
+        if (actorIds.Count > 0)
+        {
+            actorNames = await Users.Users
+                .Where(u => actorIds.Contains(u.Id))
+                .Select(u => new { u.Id, Name = u.Email ?? u.UserName })
+                .Where(u => u.Name != null)
+                .ToDictionaryAsync(u => u.Id, u => u.Name!);
+        }
+
+        Dictionary<ServerId, string> serverNames = [];
+        if (events.Any(e => e.ServerId is not null))
+        {
+            UserId user = await CurrentUserAsync();
+            serverNames = (await Servers.ListVisibleAsync(user)).ToDictionary(s => s.Id, s => s.Name);
+        }
+
+        return events.Select(e => new AuditRow(
+            Time: e.OccurredAt.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss"),
+            Actor: e.ActorUserId is { } a
+                ? actorNames.TryGetValue(a.Value, out string? an) ? an : a.ToString()
+                : null,
+            ActorId: e.ActorUserId?.ToString(),
+            Action: e.Action,
+            Detail: e.Detail,
+            Target: e.ServerId is { } s
+                ? serverNames.TryGetValue(s, out string? sn) ? sn : s.ToString()
+                : null,
+            TargetId: e.ServerId?.ToString(),
+            Outcome: e.Outcome,
+            Correlation: e.CorrelationId)).ToList();
+    }
+
+    private async Task<UserId> CurrentUserAsync()
+    {
+        ClaimsPrincipal principal = (await AuthProvider.GetAuthenticationStateAsync()).User;
+        return Guid.TryParse(Users.GetUserId(principal), out Guid id)
+            ? UserId.FromGuid(id)
+            : throw new InvalidOperationException("Authenticated request carries no user id claim.");
+    }
+
+    // Builds a bookmarkable URL that carries the current filter and the given skip (the pager) or none (export).
+    private string PageUrl(int skip) => BuildUrl(skip);
+
+    private string ExportUrl() => "/audit/export" + QueryString(skip: null);
+
+    private string BuildUrl(int skip) => "/audit" + QueryString(skip);
+
+    private string QueryString(int? skip)
+    {
+        List<string> parts = [];
+        Add(parts, "action", Action);
+        Add(parts, "outcome", Outcome);
+        Add(parts, "correlation", Correlation);
+        Add(parts, "from", From);
+        Add(parts, "to", To);
+        if (skip is { } s && s > 0)
+        {
+            parts.Add($"skip={s}");
+        }
+
+        return parts.Count == 0 ? string.Empty : "?" + string.Join("&", parts);
+    }
+
+    private static void Add(List<string> parts, string key, string? value)
+    {
+        if (!string.IsNullOrWhiteSpace(value))
+        {
+            parts.Add($"{key}={Uri.EscapeDataString(value)}");
+        }
     }
 }
