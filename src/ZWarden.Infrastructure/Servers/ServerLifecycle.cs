@@ -52,8 +52,11 @@ public sealed class ServerLifecycle : IServerLifecycle
         => RunAsync(user, server, Permissions.ServerStop, OperationKind.StopServer, ServerAuditActions.Stopped, cancellationToken);
 
     /// <inheritdoc />
-    public Task<ServerLifecycleResult> RestartAsync(UserId user, ServerId server, CancellationToken cancellationToken = default)
-        => RunAsync(user, server, Permissions.ServerRestart, OperationKind.RestartServer, ServerAuditActions.Restarted, cancellationToken);
+    public Task<ServerLifecycleResult> RestartAsync(
+        UserId user, ServerId server, GracefulRestartPayload? plan = null, CancellationToken cancellationToken = default)
+        => RunAsync(
+            user, server, Permissions.ServerRestart, OperationKind.RestartServer, ServerAuditActions.Restarted,
+            cancellationToken, commandPayload: plan?.ToJson());
 
     /// <inheritdoc />
     public Task<ServerLifecycleResult> UpdateAsync(UserId user, ServerId server, CancellationToken cancellationToken = default)
@@ -65,7 +68,8 @@ public sealed class ServerLifecycle : IServerLifecycle
         PermissionDefinition permission,
         OperationKind kind,
         string auditAction,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? commandPayload = null)
     {
         // Resolve first, through the tenant filter: an unknown or foreign-tenant Server is ServerNotFound, and
         // gives the server-scoped authorization a concrete resource to check.
@@ -88,7 +92,8 @@ public sealed class ServerLifecycle : IServerLifecycle
             // intent, so the idempotency key is fresh; the per-server lock refuses a second in-flight mutation.
             Operation operation = await _operations.EnqueueAsync(
                 new EnqueueOperationRequest(
-                    server.AgentId, kind, IsMutating: true, Guid.NewGuid().ToString("N"), ServerId: serverId),
+                    server.AgentId, kind, IsMutating: true, Guid.NewGuid().ToString("N"),
+                    ServerId: serverId, CommandPayload: commandPayload),
                 user,
                 cancellationToken).ConfigureAwait(false);
 

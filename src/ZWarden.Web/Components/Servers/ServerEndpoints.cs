@@ -114,7 +114,7 @@ public static class ServerEndpoints
 
         lifecycle.MapPost("/{id}/restart", (string id, ClaimsPrincipal principal, UserManager<ApplicationUser> users,
             IServerLifecycle svc, CancellationToken ct) =>
-            RunLifecycleAsync(id, principal, users, (u, s) => svc.RestartAsync(u, s, ct)));
+            RunLifecycleAsync(id, principal, users, (u, s) => svc.RestartAsync(u, s, cancellationToken: ct)));
 
         // Update (F17): install/validate the PZ install via anonymous SteamCMD — a long, progress-reporting
         // mutating Operation. Same fail-closed server-scoped gate (Server.Update); poll /api/operations/{id}.

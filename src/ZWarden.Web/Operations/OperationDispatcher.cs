@@ -7,6 +7,7 @@ using ZWarden.Application.Configuration;
 using ZWarden.Application.Console;
 using ZWarden.Application.Operations;
 using ZWarden.Application.Players;
+using ZWarden.Application.Servers;
 using ZWarden.Contracts.Protocol;
 using ZWarden.Contracts.Protocol.Messages;
 using ZWarden.Domain.Audit;
@@ -106,7 +107,7 @@ public sealed class OperationDispatcher : IOperationDispatcher
         OperationKind.ProvisionServer => new CreateServer(),
         OperationKind.StartServer => new StartServer(),
         OperationKind.StopServer => new StopServer(),
-        OperationKind.RestartServer => new RestartServer(),
+        OperationKind.RestartServer => RestartCommand(commandPayload),
         OperationKind.UpdateServer => new UpdateServer(),
         OperationKind.RconHealthProbe => new ProbeRconHealth(),
         OperationKind.GatherHostDiagnostics => new GatherHostDiagnostics(),
@@ -137,6 +138,20 @@ public sealed class OperationDispatcher : IOperationDispatcher
         RestoreCommandPayload payload = RestoreCommandPayload.FromJson(
             commandPayload ?? throw new InvalidOperationException("A restore Operation was dispatched with no command payload."));
         return new RestoreServer(payload.ArchiveName, payload.Sha256);
+    }
+
+    // Builds the RestartServer wire command from the optional graceful-restart payload the enqueueing service wrote
+    // (#114). No payload ⇒ the Agent applies its default warning schedule; a payload carries the operator's chosen
+    // countdown (empty = restart immediately, no warning) and message.
+    private static RestartServer RestartCommand(string? commandPayload)
+    {
+        if (commandPayload is null)
+        {
+            return new RestartServer();
+        }
+
+        GracefulRestartPayload payload = GracefulRestartPayload.FromJson(commandPayload);
+        return new RestartServer(new GracefulRestartPlan(payload.WarningLeadSeconds, payload.Reason));
     }
 
     private static PlayerCommandPayload Payload(string? commandPayload) => PlayerCommandPayload.FromJson(
