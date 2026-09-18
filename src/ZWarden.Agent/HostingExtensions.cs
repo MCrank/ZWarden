@@ -18,6 +18,7 @@ using ZWarden.Agent.Observability;
 using ZWarden.Agent.Players;
 using ZWarden.Agent.Rcon;
 using ZWarden.Agent.ServerConfig;
+using ZWarden.Agent.Servers;
 using ZWarden.Agent.SteamCmd;
 using ZWarden.Agent.Trust;
 using ZWarden.PzConfig;
@@ -117,6 +118,11 @@ public static class HostingExtensions
         // the Agent-owned RCON connection, building and quoting the admin commands (ADR 0026 deferred quoting to
         // F19) and parsing PZ's untrusted replies into typed results.
         services.AddSingleton<IPlayerAdministration, PlayerAdministration>();
+
+        // Graceful restart (#114): broadcasts a servermsg countdown to connected players before a restart-causing
+        // Operation takes the server down, then runs the F15 safe restart. Best-effort — an RCON failure never
+        // blocks the restart. Shared by the F15 RestartServer command and F17's SteamCMD update.
+        services.AddSingleton<IServerRestartCoordinator, ServerRestartCoordinator>();
 
         // Remote administrative console (F28): runs one operator-authored RCON line over the Agent-owned
         // connection, re-checking the F28 input-safety + command policy (ADR 0032) before sending and bounding the

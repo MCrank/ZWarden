@@ -2,6 +2,7 @@ using ZWarden.Application.Backups;
 using ZWarden.Application.Configuration;
 using ZWarden.Application.Console;
 using ZWarden.Application.Players;
+using ZWarden.Application.Servers;
 using ZWarden.Contracts.Protocol.Messages;
 using ZWarden.Domain.Configuration;
 using ZWarden.Domain.Operations;
@@ -17,6 +18,8 @@ namespace ZWarden.Web.Tests.Operations;
 /// </summary>
 public class OperationDispatcherMapTests
 {
+    private static readonly int[] GracefulLeads = [60, 10];
+
     [Test]
     public async Task Diagnostic_and_provisioning_kinds_map_to_their_commands()
     {
@@ -31,6 +34,27 @@ public class OperationDispatcherMapTests
         await Assert.That(OperationDispatcher.CommandFor(OperationKind.StartServer)).IsTypeOf<StartServer>();
         await Assert.That(OperationDispatcher.CommandFor(OperationKind.StopServer)).IsTypeOf<StopServer>();
         await Assert.That(OperationDispatcher.CommandFor(OperationKind.RestartServer)).IsTypeOf<RestartServer>();
+    }
+
+    [Test]
+    public async Task A_plain_restart_carries_no_graceful_plan()
+    {
+        // #114: no payload ⇒ the Agent applies its default warning schedule.
+        var command = (RestartServer)OperationDispatcher.CommandFor(OperationKind.RestartServer);
+        await Assert.That(command.Plan).IsNull();
+    }
+
+    [Test]
+    public async Task A_restart_payload_maps_to_the_graceful_plan()
+    {
+        // #114: an operator-chosen countdown/message rides the command payload onto the wire command.
+        string payload = new GracefulRestartPayload(GracefulLeads, "Applying mod changes.").ToJson();
+
+        var command = (RestartServer)OperationDispatcher.CommandFor(OperationKind.RestartServer, payload);
+
+        await Assert.That(command.Plan).IsNotNull();
+        await Assert.That(command.Plan!.WarningLeadSeconds).IsEquivalentTo(GracefulLeads);
+        await Assert.That(command.Plan!.Reason).IsEqualTo("Applying mod changes.");
     }
 
     [Test]

@@ -59,6 +59,16 @@ public sealed class AgentOptionsValidator : IValidateOptions<AgentOptions>
             failures.Add($"{AgentOptions.SectionName}:{nameof(AgentOptions.StopTimeoutSeconds)} must be a positive number of seconds.");
         }
 
+        if (Domain.Servers.GracefulRestartRules.ValidateSchedule(options.RestartWarningLeadSeconds) is { } scheduleError)
+        {
+            failures.Add($"{AgentOptions.SectionName}:{nameof(AgentOptions.RestartWarningLeadSeconds)} {scheduleError}");
+        }
+
+        if (Domain.Servers.GracefulRestartRules.ValidateReason(options.RestartWarningReason) is { } reasonError)
+        {
+            failures.Add($"{AgentOptions.SectionName}:{nameof(AgentOptions.RestartWarningReason)} {reasonError}");
+        }
+
         if (options.HeartbeatInterval <= TimeSpan.Zero)
         {
             failures.Add($"{AgentOptions.SectionName}:{nameof(AgentOptions.HeartbeatInterval)} must be positive.");

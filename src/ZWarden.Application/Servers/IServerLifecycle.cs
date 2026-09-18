@@ -20,8 +20,12 @@ public interface IServerLifecycle
     /// <summary>Stops the Server safely, authorized by the server-scoped <c>Server.Stop</c>.</summary>
     Task<ServerLifecycleResult> StopAsync(UserId user, ServerId server, CancellationToken cancellationToken = default);
 
-    /// <summary>Restarts the Server safely, authorized by the server-scoped <c>Server.Restart</c>.</summary>
-    Task<ServerLifecycleResult> RestartAsync(UserId user, ServerId server, CancellationToken cancellationToken = default);
+    /// <summary>Restarts the Server safely, authorized by the server-scoped <c>Server.Restart</c>. When
+    /// <paramref name="plan"/> is supplied the restart is <b>graceful</b> (#114): the Agent broadcasts a
+    /// <c>servermsg</c> countdown to connected players before the stop (an empty schedule restarts immediately). A
+    /// <c>null</c> plan restarts with the Agent's default warning schedule.</summary>
+    Task<ServerLifecycleResult> RestartAsync(
+        UserId user, ServerId server, GracefulRestartPayload? plan = null, CancellationToken cancellationToken = default);
 
     /// <summary>Updates (install/validate) the Server's Project Zomboid install via anonymous SteamCMD (F17),
     /// authorized by the server-scoped <c>Server.Update</c>. Install/update/validate are one SteamCMD verb, so a

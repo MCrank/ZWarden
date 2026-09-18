@@ -8,6 +8,7 @@ using ZWarden.Agent.Diagnostics;
 using ZWarden.Agent.Docker;
 using ZWarden.Agent.Mods;
 using ZWarden.Agent.Players;
+using ZWarden.Agent.Servers;
 using ZWarden.Agent.Rcon;
 using ZWarden.Agent.ServerConfig;
 using ZWarden.Agent.SteamCmd;
@@ -36,6 +37,7 @@ public sealed class AgentCommandProcessor
     private readonly IRconHealthProbe _rconProbe;
     private readonly IRconServerConfig _rconConfig;
     private readonly IPlayerAdministration _players;
+    private readonly IServerRestartCoordinator _restartCoordinator;
     private readonly IConsoleAdministration _console;
     private readonly IServerConfigWriter _configWriter;
     private readonly IServerConfigRawEditStaging _rawStaging;
@@ -54,6 +56,7 @@ public sealed class AgentCommandProcessor
         IRconHealthProbe rconProbe,
         IRconServerConfig rconConfig,
         IPlayerAdministration players,
+        IServerRestartCoordinator restartCoordinator,
         IConsoleAdministration console,
         IServerConfigWriter configWriter,
         IServerConfigRawEditStaging rawStaging,
@@ -70,6 +73,7 @@ public sealed class AgentCommandProcessor
         ArgumentNullException.ThrowIfNull(rconProbe);
         ArgumentNullException.ThrowIfNull(rconConfig);
         ArgumentNullException.ThrowIfNull(players);
+        ArgumentNullException.ThrowIfNull(restartCoordinator);
         ArgumentNullException.ThrowIfNull(console);
         ArgumentNullException.ThrowIfNull(configWriter);
         ArgumentNullException.ThrowIfNull(rawStaging);
@@ -85,6 +89,7 @@ public sealed class AgentCommandProcessor
         _rconProbe = rconProbe;
         _rconConfig = rconConfig;
         _players = players;
+        _restartCoordinator = restartCoordinator;
         _console = console;
         _configWriter = configWriter;
         _rawStaging = rawStaging;
@@ -203,9 +208,17 @@ public sealed class AgentCommandProcessor
                 return await LifecycleAsync(
                     envelope, operationId, "stop", _containerRuntime.StopAsync, cancellationToken).ConfigureAwait(false);
 
-            case RestartServer:
+            case RestartServer restart:
+                // Graceful restart (#114): the coordinator broadcasts a servermsg countdown to players (best-effort,
+                // never blocking) and then runs the F15 safe restart, so the same LifecycleAsync fault handling wraps
+                // the container half.
                 return await LifecycleAsync(
-                    envelope, operationId, "restart", _containerRuntime.RestartAsync, cancellationToken).ConfigureAwait(false);
+                    envelope,
+                    operationId,
+                    "restart",
+                    (server, ct) => _restartCoordinator.RestartAsync(
+                        server, restart.Plan, operationId, progress ?? NullOperationProgressReporter.Instance, ct),
+                    cancellationToken).ConfigureAwait(false);
 
             case UpdateServer:
                 if (envelope.ServerId is not { } updateServerId)

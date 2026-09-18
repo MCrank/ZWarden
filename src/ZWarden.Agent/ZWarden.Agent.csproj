@@ -28,6 +28,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The graceful-restart coordinator (#114) exposes an internal delay seam so a multi-minute countdown runs
+         instantly and deterministically under test. -->
+    <InternalsVisibleTo Include="ZWarden.Agent.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\ZWarden.Contracts\ZWarden.Contracts.csproj" />
     <ProjectReference Include="..\ZWarden.Rcon\ZWarden.Rcon.csproj" />
     <!-- F20b PR3: the parse-only PZ config seam (ADR 0010). The Agent is the tier that reads and writes the
