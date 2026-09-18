@@ -173,6 +173,25 @@ and stripped of PZ's UI rich-text markup, else none. Comment-sourced text is loc
 attacker-influenced output — rendered as data, never markup (PRD 38).
 _Avoid_: description (unqualified), help text, hint
 
+**Drift Confirm-and-Override**:
+The interactive reconciliation an operator runs when a configuration write is refused because the
+file changed on disk since they loaded it (F20c, ADR 0042): the editor re-reads the live file,
+refreshes the baseline, and lets the operator reapply on top of the current state. It is **not** a
+fail-open force-write — the Agent's fail-closed drift check (ADR 0011) still gates the write against
+the live file; "override" means reconciling against reality, not skipping the check. The editor
+applies against the operator's live-read baseline (the hash it showed), not the last recorded
+**Configuration Revision**.
+_Avoid_: force write, force apply, override drift (unqualified), ignore drift
+
+**Raw Configuration Edit**:
+A whole-file, operator-authored text write to one of a Server's config files (F20c, ADR 0042) — the
+escape hatch past the structured editor, and the only way to edit the positional spawn files. The text
+is staged to the Agent over its own transport channel, then a small `ConfigApplyRaw` Operation applies
+it under the same safety envelope as a surgical apply (parse-validate, pre-check, drift-check, BOM-less
+atomic write). Gated by an explicit in-form acknowledgement on `ServerConfigurationEdit`, because a bad
+edit can stop the server on start.
+_Avoid_: raw save, file overwrite, direct edit
+
 **Backup**:
 A verifiable copy of a Server's data, created by an Operation and restorable through one.
 

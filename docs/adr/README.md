@@ -56,5 +56,6 @@ instead. New ADRs take the next number and follow [`TEMPLATE.md`](./TEMPLATE.md)
 | [0039](./0039-the-release-gate-is-executable-and-artifacts-are-signed.md) | The 1.0 release gate is executable CI + one checklist; SBOM, scanning, and cosign-keyless signed images published to ghcr.io | #55 |
 | [0040](./0040-the-app-shell-is-static-ssr-chrome.md) | The app shell is static-SSR chrome (NavLink + AuthorizeView + a little JS), not an interactive island — no per-page circuit; an ADR 0003 exception | #157 |
 | [0041](./0041-live-configuration-read-rides-a-non-operation-request-reply-channel.md) | Live configuration read rides an on-demand, read-only, non-Operation chunked request/reply channel; the Agent is the single parser; the reply is transient and accepted only from the owning Agent | #108 |
+| [0042](./0042-interactive-config-apply-drifts-against-the-live-read-and-raw-edit-stages-then-operates.md) | Interactive config apply drifts against the operator's live-read baseline (confirm-and-override re-reads, never fail-open); raw whole-file edit stages its text then rides a small `ConfigApplyRaw` Operation, keeping the lock/audit/revision and the closed-command-vocabulary boundary | #108 |
 
 When you add an ADR, add its row here in the same commit.

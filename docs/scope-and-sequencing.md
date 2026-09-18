@@ -343,9 +343,14 @@ cap cannot carry a ~45 KB file; a schema-driven structured editor **pre-filled w
 tooltips sourced primarily from the file's own `--` comments** (harvested at read, sanitized of PZ UI
 markup) supplemented by schema metadata; an advanced **raw view**; and an interactive drift
 **confirm-and-override** (re-read, refresh baseline, reapply) the F20b write could only refuse.
-**Not:** raw *edit* (a gated later slice — arbitrary-text write bypasses the surgical/drift envelope);
-structured spawn-file editing; live application of sandbox settings (unchanged from F20b — edit-then-
-restart; the INI stays live-reloadable); filling the full ~275-key schema (mechanical follow-up).
+PR-D (**ADR 0042**) then adds the gated **raw whole-file edit** (operator-authored text, staged to the
+Agent over a transport channel then applied by a small `ConfigApplyRaw` Operation so it keeps the lock,
+audit, and revision the 2 KB Operation cap would otherwise forbid) and makes the interactive apply drift
+against the operator's **live-read baseline** (the false-positive drift after an in-game edit is gone).
+**Not:** structured spawn-file editing (raw edit is the only spawn-file path for now); live application of
+sandbox settings (unchanged from F20b — edit-then-restart; the INI stays live-reloadable); filling the
+full ~275-key schema (mechanical follow-up); a separate raw-edit permission (gated in-form on
+`Server.Configuration.Edit`).
 **Why the read is not an Operation:** it observes and persists nothing (ADR 0011), so it carries no
 per-server lock, audit row, or revision — it rides its own channel, authorized fail-closed on
 `Server.Configuration.Edit` (ADR 0018). The turns-a-blind-editor-legible half PRD 32 named.
