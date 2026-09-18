@@ -1441,6 +1441,10 @@ html {
   margin-left: 0.25rem;
 }
 
+.ml-2 {
+  margin-left: 0.5rem;
+}
+
 .mt-0\.5 {
   margin-top: 0.125rem;
 }

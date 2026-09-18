@@ -243,10 +243,16 @@ public sealed partial class AgentHub : Hub
                 change.Payload.ServerId,
                 health,
                 Context.ConnectionAborted).ConfigureAwait(false);
-            // Also cache the live rollup + reason so the interactive detail panel can show it without a
-            // tenant-scoped read. The reason is untrusted (trust-boundaries.md §8), stored as data.
+            // Also cache the live rollup + reason + probe breakdown so the interactive detail panel can show it
+            // without a tenant-scoped read. The reason and every probe detail are untrusted (trust-boundaries.md
+            // §8), stored as data; the breakdown is transient like the rest of the cache (never persisted).
             _healthCache.Record(new ServerLiveHealth(
-                agentId, change.Payload.ServerId, health, change.Payload.Reason, change.Timestamp));
+                agentId,
+                change.Payload.ServerId,
+                health,
+                change.Payload.Reason,
+                change.Timestamp,
+                WireHealthBreakdown.ToLive(change.Payload.Breakdown)));
             _telemetry.RecordHealthTransition(change.Payload.Health);
         }
     }

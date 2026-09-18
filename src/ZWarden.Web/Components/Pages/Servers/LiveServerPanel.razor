@@ -22,6 +22,29 @@
         <p class="mt-1 text-xs text-muted-foreground" data-live-reason>@Reason</p>
     }
 
+    @if (_health?.Breakdown is { } b)
+    {
+        @* The four probe verdicts behind the rollup (#93), so an operator sees which probe degraded the Server,
+           not only that it did. Status renders as a plain text label and the detail as escaped, untrusted Agent
+           data (trust-boundaries.md §8) — no --status-* colour token here (StatusBadge/MeterBar are the only
+           sanctioned consumers, style-guide.md line 25). *@
+        <dl class="mt-4 space-y-1 border-t border-border pt-3" data-live-probes>
+            @foreach ((string key, string label, ProbeVerdict probe) in Probes(b))
+            {
+                <div class="flex items-center justify-between gap-4" data-live-probe="@key">
+                    <dt class="text-sm text-muted-foreground">@label</dt>
+                    <dd class="min-w-0 text-right">
+                        <span class="text-sm text-foreground" data-live-probe-status>@probe.Status</span>
+                        @if (!string.IsNullOrWhiteSpace(probe.Detail))
+                        {
+                            <span class="ml-2 font-mono text-xs text-muted-foreground" data-live-probe-detail>@probe.Detail</span>
+                        }
+                    </dd>
+                </div>
+            }
+        </dl>
+    }
+
     @if (_metrics is { } m)
     {
         <dl class="mt-4 space-y-3">
@@ -110,6 +133,16 @@
     private string HealthLabel => _health?.Health.ToString() ?? InitialHealth ?? "Unknown";
 
     private string? Reason => _health?.Reason;
+
+    // The four probes in a fixed operator-facing order (container → process → startup → network), each with a
+    // stable key for the row marker. Rendered as data; no colour token (style-guide.md line 25).
+    private static IEnumerable<(string Key, string Label, ProbeVerdict Probe)> Probes(LiveHealthBreakdown b)
+    {
+        yield return ("container", "Container", b.Container);
+        yield return ("process", "Process", b.Process);
+        yield return ("startup", "Startup", b.Startup);
+        yield return ("network", "Network", b.Network);
+    }
 
     // Health carries no colour token here (StatusBadge/MeterBar are the only sanctioned --status-*/--meter-*
     // consumers, style-guide.md line 25); the panel leans on the meters for colour and states health as text,
