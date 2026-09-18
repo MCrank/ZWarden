@@ -14,12 +14,35 @@ namespace ZWarden.Application.Servers;
 /// <param name="Health">The rolled-up health.</param>
 /// <param name="Reason">A short, untrusted human-readable summary (trust-boundaries.md §8).</param>
 /// <param name="ReportedAt">When the Agent reported it (UTC).</param>
+/// <param name="Breakdown">The four probe verdicts behind the rollup, so the panel can show <i>which</i> probe
+/// degraded the Server (F16, #93). Transient like the rest of this record — never persisted (ADR 0023).</param>
 public sealed record ServerLiveHealth(
     AgentId AgentId,
     ServerId ServerId,
     ServerHealth Health,
     string Reason,
-    DateTimeOffset ReportedAt);
+    DateTimeOffset ReportedAt,
+    LiveHealthBreakdown Breakdown);
+
+/// <summary>
+/// The four probe verdicts behind a <see cref="ServerLiveHealth"/> rollup (F16, #93), the live-cache sibling of
+/// the wire <c>HealthBreakdown</c> — container, process, startup, network. Application cannot reference Contracts,
+/// so ZWarden.Web maps the wire breakdown onto this. Transient telemetry, never persisted.
+/// </summary>
+/// <param name="Container">Is the container running?</param>
+/// <param name="Process">Is the game process alive and past its own HEALTHCHECK?</param>
+/// <param name="Startup">Is the Server inside or past its startup window?</param>
+/// <param name="Network">Are the published game/query UDP ports reachable on the host?</param>
+public sealed record LiveHealthBreakdown(
+    ProbeVerdict Container,
+    ProbeVerdict Process,
+    ProbeVerdict Startup,
+    ProbeVerdict Network);
+
+/// <summary>One probe's verdict within a <see cref="LiveHealthBreakdown"/> (F16, #93).</summary>
+/// <param name="Status">The probe's outcome.</param>
+/// <param name="Detail">An optional, <b>untrusted</b> human-readable note (trust-boundaries.md §8); may be null.</param>
+public sealed record ProbeVerdict(ProbeStatus Status, string? Detail = null);
 
 /// <summary>
 /// The in-memory latest-health-per-Server store (F16): a singleton beside <see cref="IServerMetricsCache"/>,

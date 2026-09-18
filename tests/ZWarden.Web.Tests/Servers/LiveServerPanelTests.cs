@@ -25,7 +25,12 @@ public class LiveServerPanelTests
         ServerMetricsCache metrics = new();
         metrics.Record([new ServerMetrics(agent, server, 42, 2_000_000_000, 4_000_000_000, 10_000_000_000, 50_000_000_000, null, At)]);
         ServerHealthCache health = new();
-        health.Record(new ServerLiveHealth(agent, server, ServerHealth.Degraded, "a port is unreachable", At));
+        health.Record(new ServerLiveHealth(agent, server, ServerHealth.Degraded, "a port is unreachable", At,
+            new LiveHealthBreakdown(
+                new ProbeVerdict(ProbeStatus.Pass),
+                new ProbeVerdict(ProbeStatus.Pass),
+                new ProbeVerdict(ProbeStatus.Skipped),
+                new ProbeVerdict(ProbeStatus.Fail, "query port 16261/udp unreachable"))));
 
         using BunitContext ctx = new();
         ctx.Services.AddSingleton<IServerMetricsCache>(metrics);
@@ -41,6 +46,56 @@ public class LiveServerPanelTests
         // 42% CPU and 50% memory both land in the nominal band; the meter track + fill render.
         await Assert.That(markup).Contains("bg-meter-track");
         await Assert.That(markup).Contains("bg-meter-nominal");
+    }
+
+    [Test]
+    public async Task It_renders_the_four_probe_verdicts_with_status_and_untrusted_detail()
+    {
+        AgentId agent = AgentId.New();
+        ServerId server = ServerId.New();
+        ServerHealthCache health = new();
+        health.Record(new ServerLiveHealth(agent, server, ServerHealth.Degraded, "a port is unreachable", At,
+            new LiveHealthBreakdown(
+                new ProbeVerdict(ProbeStatus.Pass),
+                new ProbeVerdict(ProbeStatus.Warn, "restarted twice in 5m"),
+                new ProbeVerdict(ProbeStatus.Skipped),
+                new ProbeVerdict(ProbeStatus.Fail, "query port 16261/udp unreachable"))));
+
+        using BunitContext ctx = new();
+        ctx.Services.AddSingleton<IServerMetricsCache>(new ServerMetricsCache());
+        ctx.Services.AddSingleton<IServerHealthCache>(health);
+
+        var cut = ctx.Render<LiveServerPanel>(p => p
+            .Add(c => c.ServerId, server.ToString())
+            .Add(c => c.AgentId, agent.ToString()));
+
+        string markup = cut.Markup;
+        // One row per probe, keyed for the marker, each showing its status label.
+        await Assert.That(markup).Contains("data-live-probe=\"container\"");
+        await Assert.That(markup).Contains("data-live-probe=\"process\"");
+        await Assert.That(markup).Contains("data-live-probe=\"startup\"");
+        await Assert.That(markup).Contains("data-live-probe=\"network\"");
+        await Assert.That(markup).Contains("Warn");
+        await Assert.That(markup).Contains("Skipped");
+        await Assert.That(markup).Contains("Fail");
+        // The untrusted probe details render as data.
+        await Assert.That(markup).Contains("restarted twice in 5m");
+        await Assert.That(markup).Contains("query port 16261/udp unreachable");
+    }
+
+    [Test]
+    public async Task It_omits_the_probe_grid_when_no_health_is_cached()
+    {
+        using BunitContext ctx = new();
+        ctx.Services.AddSingleton<IServerMetricsCache>(new ServerMetricsCache());
+        ctx.Services.AddSingleton<IServerHealthCache>(new ServerHealthCache());
+
+        var cut = ctx.Render<LiveServerPanel>(p => p
+            .Add(c => c.ServerId, ServerId.New().ToString())
+            .Add(c => c.AgentId, AgentId.New().ToString())
+            .Add(c => c.InitialHealth, "Stopped"));
+
+        await Assert.That(cut.Markup).DoesNotContain("data-live-probes");
     }
 
     [Test]
