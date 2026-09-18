@@ -1,0 +1,97 @@
+@using ZWarden.Domain.Servers
+@using ZWarden.Web.Components.Ui
+@inject NavigationManager Nav
+
+@* The Fleet board table (#158) — the one interactive island on the otherwise static-SSR /servers page. The
+   parent does the authorized, tenant-filtered load and hands the already-projected rows in (a static snapshot;
+   this island adds sort + row-click, not live refresh). It touches no tenant-scoped service — safe in a circuit,
+   which has no HttpContext (ADR 0040 posture) — it only renders the rows it was given. Row-click navigates to
+   Server Detail; the Server cell is also a real <a> so it works without JS and the URL is in the prerendered
+   HTML. Bb-over-raw-HTML (ADR 0003): BbDataGrid is the sanctioned fleet table. CPU/Memory show the snapshot
+   MeterBar when a sample was cached, else —; Players/Uptime/Tick have no v1.0 data and render —. All row text is
+   untrusted Agent-reported data, rendered as data (trust-boundaries §3/§8). *@
+
+<div data-fleet-board>
+    <BbDataGrid TData="FleetRow"
+                Items="Rows"
+                ShowPagination="false"
+                StickyHeader="true"
+                OnRowClick="Navigate"
+                AriaLabel="Fleet servers"
+                Class="text-sm">
+        <EmptyTemplate>
+            <div class="py-10 text-center text-sm text-muted-foreground" data-servers-empty>
+                No servers yet. Register a new server or import a discovered container below to bring one under
+                management.
+            </div>
+        </EmptyTemplate>
+        <Columns>
+            <BbDataGridTemplateColumn TData="FleetRow" Title="Server" Sortable="true" SortBy="@(r => (object)r.Name)">
+                <ChildContent Context="r">
+                    <a href="@($"/servers/{r.Id}")" class="font-medium text-foreground hover:underline" data-server-link>@r.Name</a>
+                    <span class="block font-mono text-xs text-muted-foreground">@r.Host</span>
+                    @if (!string.IsNullOrWhiteSpace(r.Description))
+                    {
+                        <span class="block text-xs text-muted-foreground">@r.Description</span>
+                    }
+                </ChildContent>
+            </BbDataGridTemplateColumn>
+
+            <BbDataGridTemplateColumn TData="FleetRow" Title="Status" Sortable="true" SortBy="@(r => (object)(int)r.RunState)">
+                <ChildContent Context="r"><StatusBadge State="r.RunState" /></ChildContent>
+            </BbDataGridTemplateColumn>
+
+            @* Players has no continuous v1.0 backing data (PlayerCount is always null; the roster is on-demand). *@
+            <BbDataGridTemplateColumn TData="FleetRow" Title="Players">
+                <ChildContent Context="r"><span class="font-mono text-xs tabular-nums text-muted-foreground">—</span></ChildContent>
+            </BbDataGridTemplateColumn>
+
+            <BbDataGridTemplateColumn TData="FleetRow" Title="CPU">
+                <ChildContent Context="r">
+                    @if (r.CpuPercent is { } cpu)
+                    {
+                        <MeterBar Value="cpu" Max="100" Label="CPU" />
+                    }
+                    else
+                    {
+                        <span class="font-mono text-xs text-muted-foreground">—</span>
+                    }
+                </ChildContent>
+            </BbDataGridTemplateColumn>
+
+            <BbDataGridTemplateColumn TData="FleetRow" Title="Memory">
+                <ChildContent Context="r">
+                    @if (r.MemoryUsedBytes is { } used && r.MemoryLimitBytes is { } limit && limit > 0)
+                    {
+                        <MeterBar Value="used" Max="@limit" Label="Memory" />
+                    }
+                    else
+                    {
+                        <span class="font-mono text-xs text-muted-foreground">—</span>
+                    }
+                </ChildContent>
+            </BbDataGridTemplateColumn>
+
+            @* Uptime and Tick have no v1.0 backing fields yet. *@
+            <BbDataGridTemplateColumn TData="FleetRow" Title="Uptime">
+                <ChildContent Context="r"><span class="font-mono text-xs tabular-nums text-muted-foreground">—</span></ChildContent>
+            </BbDataGridTemplateColumn>
+            <BbDataGridTemplateColumn TData="FleetRow" Title="Tick">
+                <ChildContent Context="r"><span class="font-mono text-xs tabular-nums text-muted-foreground">—</span></ChildContent>
+            </BbDataGridTemplateColumn>
+
+            <BbDataGridTemplateColumn TData="FleetRow" Title="Version" Sortable="true" SortBy="@(r => (object)r.Version)">
+                <ChildContent Context="r"><span class="font-mono text-xs tabular-nums text-muted-foreground">@r.Version</span></ChildContent>
+            </BbDataGridTemplateColumn>
+        </Columns>
+    </BbDataGrid>
+</div>
+
+@code {
+    /// <summary>The projected rows to show — the caller has already authorized and tenant-filtered them.</summary>
+    [Parameter]
+    [EditorRequired]
+    public IReadOnlyList<FleetRow> Rows { get; set; } = [];
+
+    private void Navigate(FleetRow row) => Nav.NavigateTo($"/servers/{row.Id}");
+}

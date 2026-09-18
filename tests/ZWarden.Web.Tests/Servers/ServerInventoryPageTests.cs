@@ -15,9 +15,11 @@ using ZWarden.Web.Tests.Account;
 namespace ZWarden.Web.Tests.Servers;
 
 /// <summary>
-/// F14 S6: the <c>/servers</c> inventory dashboard. It is authenticated (not gated by a server-scoped
-/// Server.View policy, which would deny at the page level), renders on the static server, and shows the
-/// Servers the caller may view. Exercised over the real host.
+/// The <c>/servers</c> Fleet board (#158): the redesigned landing/fleet view. It is authenticated (not gated by
+/// a server-scoped Server.View policy, which would deny at the page level), renders on the static server, and
+/// self-filters to the Servers the caller may view (ADR 0018). The KPI strip, degraded banner and Register/
+/// Import forms are static SSR; the fleet table is an interactive island (FleetBoard) that prerenders with the
+/// rows. Exercised over the real host.
 /// </summary>
 public sealed class ServerInventoryPageTests
 {
@@ -37,7 +39,7 @@ public sealed class ServerInventoryPageTests
     }
 
     [Test]
-    public async Task An_operator_sees_the_inventory_with_the_empty_state()
+    public async Task An_operator_sees_the_fleet_board_with_the_empty_state()
     {
         await using ZWardenWebAppFactory factory = new();
         HttpClient client = await SignedInOperatorAsync(factory);
@@ -46,13 +48,31 @@ public sealed class ServerInventoryPageTests
         string html = await response.Content.ReadAsStringAsync();
 
         await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
-        await Assert.That(html).Contains("Servers");
+        await Assert.That(html).Contains("Fleet");
+        await Assert.That(html).Contains("data-fleet-board");
+        // The interactive island prerenders its empty template server-side.
         await Assert.That(html).Contains("data-servers-empty");
         client.Dispose();
     }
 
     [Test]
-    public async Task An_imported_server_appears_on_the_dashboard()
+    public async Task The_kpi_strip_shows_the_four_fleet_metrics()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+
+        string html = await (await client.GetAsync(new Uri("/servers", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        await Assert.That(html).Contains("data-kpi-strip");
+        await Assert.That(html).Contains("data-kpi=\"running\"");
+        await Assert.That(html).Contains("data-kpi=\"needs-attention\"");
+        await Assert.That(html).Contains("data-kpi=\"players\"");
+        await Assert.That(html).Contains("data-kpi=\"hosts\"");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task An_imported_server_appears_on_the_fleet_board()
     {
         await using ZWardenWebAppFactory factory = new();
         HttpClient client = await SignedInOperatorAsync(factory);
@@ -68,7 +88,7 @@ public sealed class ServerInventoryPageTests
 
         string html = await (await client.GetAsync(new Uri("/servers", UriKind.Relative))).Content.ReadAsStringAsync();
         await Assert.That(html).Contains("dashboard-shown");
-        await Assert.That(html).Contains("data-server-row");
+        await Assert.That(html).Contains("data-server-link");
         client.Dispose();
     }
 
@@ -102,30 +122,10 @@ public sealed class ServerInventoryPageTests
         };
         await client.PostAsync(new Uri("/servers", UriKind.Relative), new FormUrlEncodedContent(form));
 
-        // The adopted server (named from the form) now shows on the dashboard — the POST bound end to end.
+        // The adopted server (named from the form) now shows on the board — the POST bound end to end.
         string after = await (await client.GetAsync(new Uri("/servers", UriKind.Relative))).Content.ReadAsStringAsync();
         await Assert.That(after).Contains("via-form");
-        await Assert.That(after).Contains("data-server-row");
-        client.Dispose();
-    }
-
-    [Test]
-    public async Task The_dashboard_shows_lifecycle_actions_for_a_permitted_operator()
-    {
-        await using ZWardenWebAppFactory factory = new();
-        HttpClient client = await SignedInOperatorAsync(factory);
-        await SeedServerAsync(factory, "controllable");
-
-        string html = await (await client.GetAsync(new Uri("/servers", UriKind.Relative))).Content.ReadAsStringAsync();
-
-        await Assert.That(html).Contains("controllable");
-        await Assert.That(html).Contains("data-lifecycle-actions");
-        await Assert.That(html).Contains("data-action=\"start\"");
-        await Assert.That(html).Contains("data-action=\"stop\"");
-        await Assert.That(html).Contains("data-action=\"restart\"");
-        await Assert.That(html).Contains("data-action=\"update\"");
-        await Assert.That(html).Contains("data-action=\"rcon-health\""); // F18: Server.Diagnostics granted to Operator
-        await Assert.That(html).Contains("data-server-build");
+        await Assert.That(after).Contains("data-server-link");
         client.Dispose();
     }
 
@@ -147,7 +147,7 @@ public sealed class ServerInventoryPageTests
     }
 
     [Test]
-    public async Task The_fleet_table_links_each_row_to_its_detail_page()
+    public async Task The_fleet_board_links_each_row_to_its_detail_page()
     {
         await using ZWardenWebAppFactory factory = new();
         HttpClient client = await SignedInOperatorAsync(factory);
@@ -155,37 +155,47 @@ public sealed class ServerInventoryPageTests
 
         string html = await (await client.GetAsync(new Uri("/servers", UriKind.Relative))).Content.ReadAsStringAsync();
 
+        // The Server cell is a real <a> (works without JS; URL is in the prerendered HTML), and whole-row click
+        // navigates in the interactive island.
         await Assert.That(html).Contains($"/servers/{serverId}");
-        await Assert.That(html).Contains("data-server-health");
+        await Assert.That(html).Contains("data-server-link");
         client.Dispose();
     }
 
     [Test]
-    public async Task The_lifecycle_form_posts_and_enqueues_an_operation()
+    public async Task The_fleet_board_shows_a_cpu_and_memory_meter_from_the_cached_sample()
     {
         await using ZWardenWebAppFactory factory = new();
         HttpClient client = await SignedInOperatorAsync(factory);
-        ServerId serverId = await SeedServerAsync(factory, "startable");
 
-        string page = await (await client.GetAsync(new Uri("/servers", UriKind.Relative))).Content.ReadAsStringAsync();
-        string token = ParseHiddenInputs(page)["__RequestVerificationToken"];
+        // Seed a Server and a live metrics sample for it, keyed by its true owning Agent (the cache's
+        // ownership guard). The static load reads the snapshot and the island prerenders a MeterBar.
+        (ServerId serverId, AgentId agentId) = await SeedServerWithAgentAsync(factory, "metered");
+        factory.Services.GetRequiredService<IServerMetricsCache>().Record(
+        [
+            new ServerMetrics(agentId, serverId, CpuPercent: 42, MemoryUsedBytes: 512L * 1024 * 1024,
+                MemoryLimitBytes: 1024L * 1024 * 1024, DiskUsedBytes: null, DiskCapacityBytes: null,
+                PlayerCount: null, SampledAt: DateTimeOffset.UtcNow),
+        ]);
 
-        // A submit button carries "{serverId}|{verb}" as the single bound Target — post it as the browser would.
-        Dictionary<string, string> form = new(StringComparer.Ordinal)
-        {
-            ["__RequestVerificationToken"] = token,
-            ["_handler"] = "server-lifecycle",
-            ["_lifecycleForm.Target"] = $"{serverId}|start",
-        };
-        HttpResponseMessage post = await client.PostAsync(new Uri("/servers", UriKind.Relative), new FormUrlEncodedContent(form));
+        string html = await (await client.GetAsync(new Uri("/servers", UriKind.Relative))).Content.ReadAsStringAsync();
 
-        // The static POST bound end to end: a StartServer operation was enqueued for this Server.
-        await Assert.That((int)post.StatusCode).IsLessThan(400);
-        using IServiceScope scope = factory.Services.CreateScope();
-        ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
-        bool enqueued = db.Set<Domain.Operations.Operation>()
-            .Any(o => o.ServerId == serverId && o.Kind == Domain.Operations.OperationKind.StartServer);
-        await Assert.That(enqueued).IsTrue();
+        await Assert.That(html).Contains("metered");
+        await Assert.That(html).Contains("role=\"meter\"");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task The_degraded_banner_shows_when_a_visible_servers_agent_is_unreachable()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        // A seeded Server's owning Agent has no live connection in the registry, so the fleet is degraded.
+        await SeedServerAsync(factory, "orphaned");
+
+        string html = await (await client.GetAsync(new Uri("/servers", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        await Assert.That(html).Contains("data-degraded-banner");
         client.Dispose();
     }
 
@@ -212,12 +222,19 @@ public sealed class ServerInventoryPageTests
 
     private static async Task<ServerId> SeedServerAsync(ZWardenWebAppFactory factory, string name)
     {
+        (ServerId serverId, _) = await SeedServerWithAgentAsync(factory, name);
+        return serverId;
+    }
+
+    private static async Task<(ServerId ServerId, AgentId AgentId)> SeedServerWithAgentAsync(ZWardenWebAppFactory factory, string name)
+    {
         using IServiceScope scope = factory.Services.CreateScope();
         ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
-        Server server = Server.Import(AgentId.New(), ServerId.New(), name, DateTimeOffset.UtcNow);
+        AgentId agentId = AgentId.New();
+        Server server = Server.Import(agentId, ServerId.New(), name, DateTimeOffset.UtcNow);
         db.Set<Server>().Add(server);
         await db.SaveChangesAsync();
-        return server.Id;
+        return (server.Id, agentId);
     }
 
     private static async Task<AgentId> SeedAgentAsync(ZWardenWebAppFactory factory)
