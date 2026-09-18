@@ -43,6 +43,7 @@ public class AgentCommandProcessorTests
         IPlayerAdministration? players = null,
         IConsoleAdministration? console = null,
         IServerConfigWriter? configWriter = null,
+        IServerConfigRawEditStaging? rawStaging = null,
         IModDiscovery? modDiscovery = null,
         IHostDiagnosticsGatherer? hostDiagnostics = null,
         IServerDiagnosticsGatherer? serverDiagnostics = null) =>
@@ -57,6 +58,7 @@ public class AgentCommandProcessorTests
             players ?? new FakePlayerAdministration(),
             console ?? new FakeConsoleAdministration(),
             configWriter ?? new FakeServerConfigWriter(),
+            rawStaging ?? new ServerConfigRawEditStaging(TimeProvider.System),
             modDiscovery ?? new FakeModDiscovery(),
             hostDiagnostics ?? new FakeHostDiagnosticsGatherer(),
             serverDiagnostics ?? new FakeServerDiagnosticsGatherer(),
@@ -894,6 +896,63 @@ public class AgentCommandProcessorTests
 
         await Assert.That(second).IsNull();
         await Assert.That(writer.ApplyCount).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task Config_apply_raw_takes_the_staged_text_and_carries_the_recorded_revision()
+    {
+        // Stage the operator's whole-file text first (as the transport channel would), then run the Operation.
+        var staging = new ServerConfigRawEditStaging(TimeProvider.System);
+        const string rawText = "VERSION = 1,\nSandboxVars = {\n    Zombies = 2,\n}\n";
+        foreach (ServerConfigRawEditChunk chunk in ServerConfigRawEditCodec.Encode("corr-raw", rawText))
+        {
+            staging.Accept(chunk);
+        }
+
+        var writer = new FakeServerConfigWriter { RawOutcome = ConfigApplyOutcome.Applied("[[\"Zombies\",\"n:2:i\"]]", "hash-raw", 1) };
+        ServerId server = ServerId.New();
+        OperationId operationId = OperationId.New();
+        var command = new ConfigApplyRaw(PzConfigFile.SandboxVars, "base-1", "corr-raw");
+
+        Envelope<OperationCompleted>? reply = await Processor(configWriter: writer, rawStaging: staging)
+            .ProcessAsync(Json(command, operationId, server), CancellationToken.None);
+
+        await Assert.That(reply!.Payload.Outcome).IsEqualTo(OperationOutcome.Succeeded);
+        await Assert.That(reply.Payload.Config!.SnapshotHash).IsEqualTo("hash-raw");
+        await Assert.That(reply.Payload.Config!.File).IsEqualTo(PzConfigFile.SandboxVars);
+        // The reassembled text and the baseline reached the writer's raw path unchanged.
+        await Assert.That(writer.ApplyRawCount).IsEqualTo(1);
+        await Assert.That(writer.LastRawContent).IsEqualTo(rawText);
+        await Assert.That(writer.LastBaselineHash).IsEqualTo("base-1");
+        // The staged text is one-shot — a redelivery finds nothing to take.
+        await Assert.That(staging.TryTake("corr-raw", out _)).IsFalse();
+    }
+
+    [Test]
+    public async Task Config_apply_raw_fails_when_no_text_was_staged()
+    {
+        var writer = new FakeServerConfigWriter();
+
+        Envelope<OperationCompleted>? reply = await Processor(configWriter: writer)
+            .ProcessAsync(
+                Json(new ConfigApplyRaw(PzConfigFile.Ini, "base-1", "corr-missing"), OperationId.New(), ServerId.New()),
+                CancellationToken.None);
+
+        await Assert.That(reply!.Payload.Outcome).IsEqualTo(OperationOutcome.Failed);
+        await Assert.That(reply.Payload.FailureReason).Contains("not received");
+        await Assert.That(writer.ApplyRawCount).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task Config_apply_raw_without_a_target_server_fails_and_does_not_write()
+    {
+        var writer = new FakeServerConfigWriter();
+
+        Envelope<OperationCompleted>? reply = await Processor(configWriter: writer)
+            .ProcessAsync(Json(new ConfigApplyRaw(PzConfigFile.Ini, null, "corr-x"), OperationId.New()), CancellationToken.None);
+
+        await Assert.That(reply!.Payload.Outcome).IsEqualTo(OperationOutcome.Failed);
+        await Assert.That(writer.ApplyRawCount).IsEqualTo(0);
     }
 
     [Test]

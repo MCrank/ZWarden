@@ -242,6 +242,121 @@ public class ServerConfigWriterTests
         }
     }
 
+    [Test]
+    public async Task ApplyRawAsync_overwrites_the_whole_file_with_valid_text_and_reports_the_snapshot()
+    {
+        string root = NewRoot();
+        try
+        {
+            ServerId server = ServerId.New();
+            string path = Seed(root, server, "servertest_SandboxVars.lua", SandboxSrc);
+            const string edited = "SandboxVars = {\n    VERSION = 6,\n    Zombies = 1,\n    XpMultiplier = 2.0,\n}\n";
+
+            ConfigApplyOutcome outcome = await WriterOver(root).ApplyRawAsync(
+                server, PzConfigFile.SandboxVars, BaselineHash(PzConfigKind.SandboxVars, SandboxSrc), edited, CancellationToken.None);
+
+            await Assert.That(outcome.Succeeded).IsTrue();
+            // The operator's literal text is written verbatim (raw edit is byte-authoritative, not a re-emit).
+            await Assert.That(await File.ReadAllTextAsync(path)).IsEqualTo(edited);
+            await Assert.That(outcome.SnapshotHash).IsEqualTo(BaselineHash(PzConfigKind.SandboxVars, edited));
+            // Zombies 4→1 and XpMultiplier 1.0→2.0 changed; Map was removed — a non-zero value diff.
+            await Assert.That(outcome.ChangedCount).IsGreaterThan(0);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Test]
+    public async Task ApplyRawAsync_refuses_text_that_does_not_parse_and_leaves_the_file_untouched()
+    {
+        string root = NewRoot();
+        try
+        {
+            ServerId server = ServerId.New();
+            string path = Seed(root, server, "servertest_SandboxVars.lua", SandboxSrc);
+
+            // A syntax error (unterminated table) must never be written — it would stop the server on start.
+            ConfigApplyOutcome outcome = await WriterOver(root).ApplyRawAsync(
+                server, PzConfigFile.SandboxVars, baselineHash: null, "SandboxVars = {\n    Zombies = 1,\n", CancellationToken.None);
+
+            await Assert.That(outcome.Succeeded).IsFalse();
+            await Assert.That(outcome.Drifted).IsFalse();
+            await Assert.That(outcome.FailureReason).Contains("did not parse");
+            await Assert.That(await File.ReadAllTextAsync(path)).IsEqualTo(SandboxSrc);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Test]
+    public async Task ApplyRawAsync_fails_closed_when_the_live_file_drifted_from_the_baseline()
+    {
+        string root = NewRoot();
+        try
+        {
+            ServerId server = ServerId.New();
+            string path = Seed(root, server, "servertest_SandboxVars.lua", SandboxSrc);
+
+            ConfigApplyOutcome outcome = await WriterOver(root).ApplyRawAsync(
+                server, PzConfigFile.SandboxVars, baselineHash: "not-the-current-hash",
+                "SandboxVars = {\n    Zombies = 1,\n}\n", CancellationToken.None);
+
+            await Assert.That(outcome.Succeeded).IsFalse();
+            await Assert.That(outcome.Drifted).IsTrue();
+            await Assert.That(await File.ReadAllTextAsync(path)).IsEqualTo(SandboxSrc);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Test]
+    public async Task ApplyRawAsync_writes_bom_less_even_when_the_edited_text_carries_one()
+    {
+        string root = NewRoot();
+        try
+        {
+            ServerId server = ServerId.New();
+            string path = Seed(root, server, "servertest_SandboxVars.lua", SandboxSrc);
+
+            // The operator's editor prepended a BOM; the write must strip it (a BOM is fatal to PZ's lexer).
+            ConfigApplyOutcome outcome = await WriterOver(root).ApplyRawAsync(
+                server, PzConfigFile.SandboxVars, baselineHash: null, "﻿SandboxVars = {\n    Zombies = 2,\n}\n", CancellationToken.None);
+
+            await Assert.That(outcome.Succeeded).IsTrue();
+            byte[] written = await File.ReadAllBytesAsync(path);
+            bool hasBom = written.Length >= 3 && written[0] == 0xEF && written[1] == 0xBB && written[2] == 0xBF;
+            await Assert.That(hasBom).IsFalse();
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Test]
+    public async Task ApplyRawAsync_fails_when_the_file_is_absent()
+    {
+        string root = NewRoot();
+        try
+        {
+            ConfigApplyOutcome outcome = await WriterOver(root).ApplyRawAsync(
+                ServerId.New(), PzConfigFile.SandboxVars, baselineHash: null, "SandboxVars = {}\n", CancellationToken.None);
+
+            await Assert.That(outcome.Succeeded).IsFalse();
+            await Assert.That(outcome.FailureReason).Contains("does not exist");
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
     private static void TryDelete(string root)
     {
         try

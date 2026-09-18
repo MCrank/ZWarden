@@ -133,6 +133,10 @@ public static class HostingExtensions
         // Live configuration read (F20c, ADR 0041): the read sibling of the writer, over the same parser seam. The
         // reply rides the non-Operation read channel, wired in the control-plane connection below.
         services.AddSingleton<IServerConfigReader, ServerConfigReader>();
+        // Raw whole-file edit staging (F20c PR-D, ADR 0042): the process-level, bounded, transient buffer that
+        // reassembles the operator's staged text (received on the connection) for the ConfigApplyRaw Operation to
+        // take. A singleton so it survives a reconnect between the stage and the Operation.
+        services.AddSingleton<IServerConfigRawEditStaging, ServerConfigRawEditStaging>();
 
         // Workshop and mod discovery (F21): read-only, offline. Walks the Server's Workshop content subtree and
         // reconciles it against the config's WorkshopItems=/Mods= lists (via the parser above) into the mapping and
