@@ -44,6 +44,22 @@ public sealed record PzSchemaEntry
     /// <summary>The game default, if recorded — a reference for F20b's reset/apply, not used to validate.</summary>
     public PzValue? Default { get; init; }
 
+    /// <summary>A short operator-facing name for the setting (e.g. <c>"Population"</c>), or null to fall back to the path.</summary>
+    public string? Label { get; init; }
+
+    /// <summary>The group a config editor files this setting under (e.g. <c>"World &amp; Map"</c>), or null when ungrouped.</summary>
+    public string? Section { get; init; }
+
+    /// <summary>
+    /// An authored tooltip that overrides the file's own comment. Usually null — F20c prefers the file
+    /// comment (research §2.1) and reserves this for the few keys whose generated comment is unhelpful.
+    /// </summary>
+    public string? Description { get; init; }
+
+    /// <summary>Returns a copy with display metadata set; leaves type, range and default untouched.</summary>
+    public PzSchemaEntry Display(string section, string label, string? description = null) =>
+        this with { Section = section, Label = label, Description = description };
+
     /// <summary>A boolean rule.</summary>
     public static PzSchemaEntry Bool(string path, bool? @default = null) =>
         new() { Path = path, Type = PzValueType.Boolean, Default = @default is bool b ? new PzBoolean(b) : null };
@@ -105,36 +121,42 @@ public sealed class PzSchema
     public static PzSchema SandboxVars { get; } = new(
     [
         PzSchemaEntry.Whole("VERSION", min: 1),
-        PzSchemaEntry.Whole("Zombies", min: 1, max: 6, @default: 4),
-        PzSchemaEntry.Whole("Distribution", min: 1, max: 2, @default: 1),
-        PzSchemaEntry.Bool("ZombieVoronoiNoise"),
+
+        PzSchemaEntry.Whole("Zombies", min: 1, max: 6, @default: 4).Display("Zombies", "Population"),
+        PzSchemaEntry.Whole("Distribution", min: 1, max: 2, @default: 1).Display("Zombies", "Distribution"),
+        PzSchemaEntry.Bool("ZombieVoronoiNoise").Display("Zombies", "Voronoi noise"),
 
         PzSchemaEntry.Table("Basement"),
-        PzSchemaEntry.Whole("Basement.SpawnFrequency", min: 1, max: 7, @default: 4),
+        PzSchemaEntry.Whole("Basement.SpawnFrequency", min: 1, max: 7, @default: 4).Display("Basements", "Spawn frequency"),
 
         PzSchemaEntry.Table("Map"),
-        PzSchemaEntry.Bool("Map.AllowMiniMap", @default: false),
-        PzSchemaEntry.Bool("Map.AllowWorldMap", @default: true),
+        PzSchemaEntry.Bool("Map.AllowMiniMap", @default: false).Display("World & Map", "Allow mini-map"),
+        PzSchemaEntry.Bool("Map.AllowWorldMap", @default: true).Display("World & Map", "Allow world map"),
+        PzSchemaEntry.Whole("DayLength", min: 1, max: 7, @default: 3).Display("World & Map", "Day length"),
+        PzSchemaEntry.Whole("WaterShutModifier", min: -1, max: 24000, @default: 14).Display("World & Map", "Water shutoff"),
 
         PzSchemaEntry.Table("ZombieLore"),
         PzSchemaEntry.Table("ZombieConfig"),
+
         PzSchemaEntry.Table("MultiplierConfig"),
+        PzSchemaEntry.Num("MultiplierConfig.Glassmaking", min: 0, max: 1000).Display("Multipliers", "Glassmaking XP"),
+        PzSchemaEntry.Num("RollsMultiplier", min: 0).Display("Multipliers", "Loot rolls multiplier"),
     ]);
 
     /// <summary>A representative slice of the <c>&lt;name&gt;.ini</c> schema — the common server keys.</summary>
     public static PzSchema Ini { get; } = new(
     [
-        PzSchemaEntry.Bool("PVP", @default: true),
-        PzSchemaEntry.Bool("Open", @default: true),
-        PzSchemaEntry.Bool("Public", @default: false),
-        PzSchemaEntry.Bool("PauseEmpty", @default: true),
-        PzSchemaEntry.Bool("GlobalChat", @default: true),
-        PzSchemaEntry.Text("PublicName"),
-        PzSchemaEntry.Text("ServerWelcomeMessage"),
-        PzSchemaEntry.Whole("MaxPlayers", min: 1, max: 100, @default: 32),
-        PzSchemaEntry.Whole("DefaultPort", min: 0, max: 65535, @default: 16261),
-        PzSchemaEntry.Whole("UDPPort", min: 0, max: 65535, @default: 16262),
-        PzSchemaEntry.Whole("RCONPort", min: 0, max: 65535, @default: 27015),
-        PzSchemaEntry.Text("RCONPassword"),
+        PzSchemaEntry.Bool("PVP", @default: true).Display("Access", "PVP"),
+        PzSchemaEntry.Bool("Open", @default: true).Display("Access", "Open server"),
+        PzSchemaEntry.Bool("Public", @default: false).Display("Access", "List publicly"),
+        PzSchemaEntry.Bool("PauseEmpty", @default: true).Display("Access", "Pause when empty"),
+        PzSchemaEntry.Bool("GlobalChat", @default: true).Display("Access", "Global chat"),
+        PzSchemaEntry.Text("PublicName").Display("Access", "Public name"),
+        PzSchemaEntry.Text("ServerWelcomeMessage").Display("Access", "Welcome message"),
+        PzSchemaEntry.Whole("MaxPlayers", min: 1, max: 100, @default: 32).Display("Access", "Max players"),
+        PzSchemaEntry.Whole("DefaultPort", min: 0, max: 65535, @default: 16261).Display("Networking", "Game port"),
+        PzSchemaEntry.Whole("UDPPort", min: 0, max: 65535, @default: 16262).Display("Networking", "UDP port"),
+        PzSchemaEntry.Whole("RCONPort", min: 0, max: 65535, @default: 27015).Display("Networking", "RCON port"),
+        PzSchemaEntry.Text("RCONPassword").Display("Networking", "RCON password"),
     ]);
 }
