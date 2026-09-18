@@ -1,9 +1,9 @@
 # Feature #114 Mini-Plan — Graceful Restart (player broadcast + countdown)
 
-**Status:** in progress. Branch `feat/f114-graceful-restart` (closes
-[#114](https://github.com/MCrank/ZWarden/issues/114)), one commit per slice across **2 PRs**
-(PR-A the broadcast primitive + Agent-side graceful-restart orchestration; PR-B the control-plane
-wiring, operator surface, and adoption across restart paths). Cross-cutting follow-up surfaced by
+**Status:** delivered on branch `feat/f114-graceful-restart` (closes
+[#114](https://github.com/MCrank/ZWarden/issues/114)), one commit per slice. PR-A = the broadcast
+primitive + Agent-side graceful-restart orchestration + F17 adoption; PR-B = the control-plane wiring,
+operator surface, and ADR 0043. Delivered as one branch/PR rather than two. Cross-cutting follow-up surfaced by
 **F22 (#44)** — mods load only on boot, so every mod apply ends in a restart and an operator asked
 whether active players can be warned first. The answer belongs here because **every** restart path
 wants it.
