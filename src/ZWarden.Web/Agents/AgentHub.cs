@@ -40,6 +40,7 @@ public sealed partial class AgentHub : Hub
     private readonly IServerMetricsCache _metrics;
     private readonly IServerHealthCache _healthCache;
     private readonly IServerLogBuffer _logBuffer;
+    private readonly ServerConfigReadCoordinator _configReads;
     private readonly IPlayerRosterCache _rosters;
     private readonly IConsoleOutputCache _consoleOutput;
     private readonly IDiagnosticsResultCache _diagnostics;
@@ -58,6 +59,7 @@ public sealed partial class AgentHub : Hub
         IServerMetricsCache metrics,
         IServerHealthCache healthCache,
         IServerLogBuffer logBuffer,
+        ServerConfigReadCoordinator configReads,
         IPlayerRosterCache rosters,
         IConsoleOutputCache consoleOutput,
         IDiagnosticsResultCache diagnostics,
@@ -75,6 +77,7 @@ public sealed partial class AgentHub : Hub
         ArgumentNullException.ThrowIfNull(metrics);
         ArgumentNullException.ThrowIfNull(healthCache);
         ArgumentNullException.ThrowIfNull(logBuffer);
+        ArgumentNullException.ThrowIfNull(configReads);
         ArgumentNullException.ThrowIfNull(rosters);
         ArgumentNullException.ThrowIfNull(consoleOutput);
         ArgumentNullException.ThrowIfNull(diagnostics);
@@ -91,6 +94,7 @@ public sealed partial class AgentHub : Hub
         _metrics = metrics;
         _healthCache = healthCache;
         _logBuffer = logBuffer;
+        _configReads = configReads;
         _rosters = rosters;
         _consoleOutput = consoleOutput;
         _diagnostics = diagnostics;
@@ -303,6 +307,23 @@ public sealed partial class AgentHub : Hub
                     l.Sequence, l.Timestamp, l.Stream == LogStreamKind.Stderr, l.Text, l.Truncated))
                 .ToList();
             _logBuffer.Append(agentId, batch.Payload.ServerId, lines, batch.Payload.Dropped);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// The Agent's reply chunk to a live configuration read (F20c, ADR 0041). Handed to the read coordinator to be
+    /// reassembled against its pending request. The chunk is stamped with the reporting Agent (trusted off the
+    /// connection principal) so the coordinator accepts it only for a read routed to that Agent — a reply forged for
+    /// another Agent's read is dropped (trust-boundaries.md §8). Transient: nothing is persisted or audited.
+    /// </summary>
+    public Task ServerConfigContent(Envelope<ServerConfigContent> content)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        if (AgentClaims.TryGetAgentId(Context.User, out AgentId agentId))
+        {
+            _configReads.AcceptChunk(agentId, content);
         }
 
         return Task.CompletedTask;
