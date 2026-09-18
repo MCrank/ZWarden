@@ -1,16 +1,180 @@
 @page "/settings"
-@attribute [Authorize]
+@using Microsoft.AspNetCore.Builder
+@using Microsoft.AspNetCore.HttpOverrides
+@using Microsoft.Extensions.Options
+@using ZWarden.Application.Setup
+@using ZWarden.Domain.Setup
+@using ZWarden.Infrastructure.Identity
+@using ZWarden.Web.Configuration
+@attribute [Authorize(Policy = "User.Manage")]
+@inject IOptions<InstanceOptions> Instance
+@inject IOptions<ForwardedHeadersOptions> Forwarded
+@inject ISetupState SetupState
 
-@* Control-plane Settings landing (renamed from "Config", epic #156). This is a placeholder shell so the
-   nav link resolves; the real sections (General, Security & TLS, Enrollment, Backups, Users) arrive with
-   #160. Static-rendered like the other operator pages, and gated per PRD 12 (real gating set by #160). *@
+@* Control-plane Settings landing (#160, renamed from "Config" — per-server config stays inside Server Detail).
+   Static server render like the other operator pages: it runs per request with a live HttpContext so the
+   session-derived tenant resolves. Gated on User.Manage, which exactly the tenant-administrator tier holds
+   (Tenant Owner + Administrator) and no operational or read-only role does — that is the "Owner/Admin" gate the
+   ticket asks for; enforcement is server-side (PRD 12), the shell nav merely mirrors it. General and Security
+   are wired to the real, deploy-time configured values (config-as-truth: instance name, forwarded-header trust
+   and session lifetime are all fixed at boot, so they are shown as status, not editable toggles). The Owner-only
+   Enrollment section is gated a second time on Tenant.Enrollment.Manage so an Administrator sees the page but not
+   that control; Users & roles is gated on Role.Manage. Enrollment/Backups/Users link out to where the work
+   already lives rather than duplicating it here. *@
 
 <PageTitle>Settings · ZWarden</PageTitle>
 
-<h1 class="text-xl font-bold tracking-tight text-foreground">Settings</h1>
-<p class="mt-1 text-sm text-muted-foreground">Control-plane configuration.</p>
+<div data-settings-page>
+    <h1 class="text-2xl font-semibold tracking-tight">Settings</h1>
+    <p class="mt-1 text-sm text-muted-foreground">
+        Control-plane configuration for this ZWarden instance. Per-server settings live inside each server.
+    </p>
 
-<div class="mt-6 rounded border border-border bg-card p-6 text-sm text-muted-foreground" data-settings-placeholder>
-    Settings sections are coming in a follow-up (#160): instance identity, security &amp; TLS,
-    agent enrollment, backups, and users &amp; roles.
+    <div class="mt-6 flex max-w-3xl flex-col gap-6">
+        @* General — instance identity. Instance name is deploy-time config (ZWarden:Instance:Name); the
+           default new-server host has no control-plane default yet — it is chosen at registration time. *@
+        <BbCard data-settings-general>
+            <BbCardHeader>
+                <BbCardTitle>General</BbCardTitle>
+                <BbCardDescription>How this instance identifies itself.</BbCardDescription>
+            </BbCardHeader>
+            <BbCardContent>
+                <dl class="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-[12rem_1fr]">
+                    <dt class="text-sm text-muted-foreground">Instance name</dt>
+                    <dd class="text-sm text-foreground" data-settings-instance-name>@Instance.Value.Name</dd>
+
+                    <dt class="text-sm text-muted-foreground">Default new-server host</dt>
+                    <dd class="text-sm text-muted-foreground">
+                        Chosen per registration — <a href="/hosts" class="text-foreground underline hover:no-underline">manage hosts</a>.
+                    </dd>
+                </dl>
+                <p class="mt-4 text-xs text-muted-foreground">
+                    Set the instance name with <code class="rounded bg-muted px-1 py-0.5 font-mono">ZWarden:Instance:Name</code>
+                    in configuration.
+                </p>
+            </BbCardContent>
+        </BbCard>
+
+        @* Security & TLS — read-only status of the boot-time security posture (F32/ADR 0035, F33, PRD 11). *@
+        <BbCard data-settings-security>
+            <BbCardHeader>
+                <BbCardTitle>Security &amp; TLS</BbCardTitle>
+                <BbCardDescription>The ingress, forwarded-header trust, and session posture.</BbCardDescription>
+            </BbCardHeader>
+            <BbCardContent>
+                <dl class="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-[12rem_1fr]">
+                    <dt class="text-sm text-muted-foreground">TLS deployment mode</dt>
+                    <dd class="text-sm text-foreground" data-settings-tls-mode>@TlsModeLabel(_tlsMode)</dd>
+
+                    <dt class="text-sm text-muted-foreground">Trust <code class="font-mono">X-Forwarded-*</code></dt>
+                    <dd class="text-sm text-foreground" data-settings-forwarded>@ForwardedSummary()</dd>
+
+                    <dt class="text-sm text-muted-foreground">Session timeout</dt>
+                    <dd class="text-sm text-foreground" data-settings-session>@SessionSummary()</dd>
+                </dl>
+                <p class="mt-4 text-xs text-muted-foreground">
+                    ZWarden does not terminate TLS itself; these reflect the deploy-time configuration and are
+                    changed with the deployment, not here.
+                </p>
+            </BbCardContent>
+        </BbCard>
+
+        @* Agent enrollment — Owner-only (Tenant.Enrollment.Manage). Links to the existing enrollment surface
+           rather than duplicating token issuance here. *@
+        <AuthorizeView Policy="Tenant.Enrollment.Manage" Context="enroll">
+            <BbCard data-settings-enrollment>
+                <BbCardHeader>
+                    <BbCardTitle>Agent enrollment</BbCardTitle>
+                    <BbCardDescription>Bring a host under management by enrolling its Agent.</BbCardDescription>
+                </BbCardHeader>
+                <BbCardContent>
+                    <p class="text-sm text-muted-foreground">
+                        Generate a one-time enrollment token and manage trusted hosts.
+                    </p>
+                    <a href="/setup/enroll"
+                       class="mt-4 inline-flex items-center gap-1.5 rounded bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90"
+                       data-settings-enrollment-link>
+                        Manage enrollment
+                    </a>
+                </BbCardContent>
+            </BbCard>
+        </AuthorizeView>
+
+        @* Backups — the backup root is Agent-side, per-host config (F24); the control plane has no single
+           backup path to edit, so this points at the hosts that own theirs. *@
+        <BbCard data-settings-backups>
+            <BbCardHeader>
+                <BbCardTitle>Backups</BbCardTitle>
+                <BbCardDescription>Where each host stores its world backups.</BbCardDescription>
+            </BbCardHeader>
+            <BbCardContent>
+                <p class="text-sm text-muted-foreground">
+                    The backup root is configured per host on its Agent. Manage backups from each
+                    <a href="/hosts" class="text-foreground underline hover:no-underline">host</a> or server.
+                </p>
+            </BbCardContent>
+        </BbCard>
+
+        @* Users & roles — Owner+Admin (Role.Manage). The role/user administration backend exists (F5) but has
+           no dedicated UI yet; this is the reserved entry. *@
+        <AuthorizeView Policy="Role.Manage" Context="roles">
+            <BbCard data-settings-users>
+                <BbCardHeader>
+                    <BbCardTitle>Users &amp; roles</BbCardTitle>
+                    <BbCardDescription>Who can operate this instance, and what they can do.</BbCardDescription>
+                </BbCardHeader>
+                <BbCardContent>
+                    <p class="text-sm text-muted-foreground">
+                        Built-in roles (Owner, Administrator, Operator, Moderator, Viewer, Support) are seeded per
+                        tenant. A dedicated user &amp; role management screen is coming in a later release.
+                    </p>
+                </BbCardContent>
+            </BbCard>
+        </AuthorizeView>
+    </div>
 </div>
+
+@code {
+    private TlsMode? _tlsMode;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _tlsMode = await SetupState.GetTlsModeAsync();
+    }
+
+    private static string TlsModeLabel(TlsMode? mode) => mode switch
+    {
+        TlsMode.Public => "Public (Let's Encrypt at the ingress)",
+        TlsMode.Private => "Private (internal CA)",
+        TlsMode.ExistingReverseProxy => "Existing reverse proxy (TLS terminated upstream)",
+        _ => "Not declared",
+    };
+
+    // The forwarded-headers posture is fixed at boot (F32/ADR 0035): the reference ingress terminates TLS and
+    // the middleware honours the X-Forwarded-* it sends. An empty known-proxy allowlist means any upstream is
+    // trusted — safe because only the ingress can reach Web (PRD §45).
+    private string ForwardedSummary()
+    {
+        ForwardedHeadersOptions options = Forwarded.Value;
+        bool honoursProto = options.ForwardedHeaders.HasFlag(ForwardedHeaders.XForwardedProto);
+        if (!honoursProto)
+        {
+            return "Not trusted";
+        }
+
+        bool trustsAnyUpstream = options.KnownProxies.Count == 0 && options.KnownIPNetworks.Count == 0;
+        return trustsAnyUpstream
+            ? "Trusted from the ingress (Proto, Host, For)"
+            : "Trusted from configured proxies (Proto, Host, For)";
+    }
+
+    // The application session cookie's bounded, sliding lifetime (PRD 11), read from the single source of truth.
+    private static string SessionSummary()
+    {
+        TimeSpan lifetime = IdentityAuthenticationServiceCollectionExtensions.SessionLifetime;
+        string hours = lifetime.TotalHours is var h && h == Math.Floor(h)
+            ? $"{(int)h} hour{((int)h == 1 ? "" : "s")}"
+            : $"{lifetime.TotalHours:0.#} hours";
+        return $"{hours} (sliding)";
+    }
+}

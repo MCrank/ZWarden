@@ -40,11 +40,12 @@ public sealed class AppShellTests
 
         string html = await GetStringAsync(client, "/servers");
 
-        // Fleet is always shown (inventory self-filters, ADR 0018); Settings is shown to all for now (#160).
+        // Fleet is always shown (inventory self-filters, ADR 0018).
         await Assert.That(html).Contains("data-nav=\"fleet\"");
-        await Assert.That(html).Contains("data-nav=\"settings\"");
-        // Hosts (Agent.View) and Audit (Audit.View) gate cleanly and must be hidden without the policy.
+        // Hosts (Agent.View), Settings (User.Manage, #160) and Audit (Audit.View) gate cleanly and must be
+        // hidden without the policy — a role-less operator holds none of them.
         await Assert.That(html).DoesNotContain("data-nav=\"hosts\"");
+        await Assert.That(html).DoesNotContain("data-nav=\"settings\"");
         await Assert.That(html).DoesNotContain("data-nav=\"audit\"");
         client.Dispose();
     }
