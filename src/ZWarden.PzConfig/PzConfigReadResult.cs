@@ -10,11 +10,19 @@ namespace ZWarden.PzConfig;
 /// </summary>
 public sealed class PzConfigReadResult
 {
-    private PzConfigReadResult(bool parsed, IPzConfigDocument? document, IReadOnlyList<PzConfigDiagnostic> diagnostics)
+    private static readonly IReadOnlyDictionary<string, string> NoComments =
+        new ReadOnlyDictionary<string, string>(new Dictionary<string, string>(0));
+
+    private PzConfigReadResult(
+        bool parsed,
+        IPzConfigDocument? document,
+        IReadOnlyList<PzConfigDiagnostic> diagnostics,
+        IReadOnlyDictionary<string, string> comments)
     {
         Parsed = parsed;
         Document = document;
         Diagnostics = diagnostics;
+        Comments = comments;
     }
 
     /// <summary><see langword="true"/> when the file parsed and <see cref="Document"/> is non-null.</summary>
@@ -31,14 +39,29 @@ public sealed class PzConfigReadResult
     /// </summary>
     public IReadOnlyList<PzConfigDiagnostic> Diagnostics { get; }
 
-    /// <summary>A successful open, optionally carrying non-fatal read-phase diagnostics.</summary>
-    public static PzConfigReadResult Success(IPzConfigDocument document, IReadOnlyList<PzConfigDiagnostic>? diagnostics = null)
+    /// <summary>
+    /// Each setting's leading comment, keyed by dotted path (e.g. <c>"Map.AllowMiniMap"</c>), with the
+    /// <c>--</c> / <c>#</c> markers stripped and consecutive lines joined by newlines. In a Project
+    /// Zomboid sandbox file this comment block <em>is</em> the setting's in-game tooltip (research
+    /// §2.1). Deliberately a side-map, not a field on the value model: comments are locale-generated
+    /// output, never content — they are outside the revision snapshot, diff and drift check (ADR 0011).
+    /// Empty (never <see langword="null"/>) when the file carries none. The raw text here is turned
+    /// into display help by the comment sanitizer.
+    /// </summary>
+    public IReadOnlyDictionary<string, string> Comments { get; }
+
+    /// <summary>A successful open, optionally carrying non-fatal read-phase diagnostics and comments.</summary>
+    public static PzConfigReadResult Success(
+        IPzConfigDocument document,
+        IReadOnlyList<PzConfigDiagnostic>? diagnostics = null,
+        IReadOnlyDictionary<string, string>? comments = null)
     {
         ArgumentNullException.ThrowIfNull(document);
         return new PzConfigReadResult(
             parsed: true,
             document,
-            diagnostics is { Count: > 0 } ? [.. diagnostics] : ReadOnlyCollection<PzConfigDiagnostic>.Empty);
+            diagnostics is { Count: > 0 } ? [.. diagnostics] : ReadOnlyCollection<PzConfigDiagnostic>.Empty,
+            comments is { Count: > 0 } ? new ReadOnlyDictionary<string, string>(new Dictionary<string, string>(comments, StringComparer.Ordinal)) : NoComments);
     }
 
     /// <summary>A failed open carrying the fatal diagnostics.</summary>
@@ -50,6 +73,6 @@ public sealed class PzConfigReadResult
             throw new ArgumentException("A failed read must carry at least one diagnostic.", nameof(diagnostics));
         }
 
-        return new PzConfigReadResult(parsed: false, document: null, [.. diagnostics]);
+        return new PzConfigReadResult(parsed: false, document: null, [.. diagnostics], NoComments);
     }
 }

@@ -29,7 +29,158 @@ internal static class LuaConfigReader
         // The document retains the parse (an internal Loretta tree) so it can edit a value in place and
         // re-emit the file byte-for-byte (F20b). No Loretta type crosses the public surface.
         var backing = new LuaEditBacking(kind, text, parse, maxDepth);
-        return PzConfigReadResult.Success(new PzConfigDocument(kind, backing));
+
+        // Harvest each keyed setting's leading comment for the tooltip side-map (F20c). Best-effort and
+        // off the value model: comments are locale-generated output, never content (ADR 0011).
+        Dictionary<string, string> comments = HarvestComments(parse.RootTable, maxDepth);
+        return PzConfigReadResult.Success(new PzConfigDocument(kind, backing), diagnostics: null, comments);
+    }
+
+    // Walks the tree once (explicit stack, never recursing over attacker depth — trust-boundaries §8)
+    // collecting each keyed setting's leading '--' comment against its dotted path. Positional entries
+    // (spawn sequences) have no dotted path and are skipped; only keyed tables are descended, which is
+    // exactly the set a schema/editor can address. The model build already validated the shape, so this
+    // is deliberately forgiving: an unrecognised field simply carries no comment.
+    internal static Dictionary<string, string> HarvestComments(TableConstructorExpressionSyntax rootTable, int maxDepth)
+    {
+        var comments = new Dictionary<string, string>(StringComparer.Ordinal);
+        var stack = new Stack<HarvestFrame>();
+        stack.Push(new HarvestFrame(rootTable.Fields, prefix: string.Empty));
+
+        while (stack.Count > 0)
+        {
+            HarvestFrame frame = stack.Peek();
+            if (frame.Cursor >= frame.Fields.Count || stack.Count > maxDepth + 1)
+            {
+                stack.Pop();
+                continue;
+            }
+
+            TableFieldSyntax field = frame.Fields[frame.Cursor];
+            frame.Cursor++;
+
+            string? key = KeyName(field);
+            if (key is null)
+            {
+                continue;
+            }
+
+            string path = frame.Prefix.Length == 0 ? key : $"{frame.Prefix}.{key}";
+
+            string? comment = ExtractComment(field.GetLeadingTrivia());
+            if (comment is not null)
+            {
+                comments[path] = comment;
+            }
+
+            if (ValueOf(field) is TableConstructorExpressionSyntax child)
+            {
+                stack.Push(new HarvestFrame(child.Fields, path));
+            }
+        }
+
+        return comments;
+    }
+
+    private static string? KeyName(TableFieldSyntax field) => field switch
+    {
+        IdentifierKeyedTableFieldSyntax identifier => identifier.Identifier.Text,
+        ExpressionKeyedTableFieldSyntax expressionKeyed
+            when expressionKeyed.Key is LiteralExpressionSyntax literal
+                && literal.Token.RawKind == (int)SyntaxKind.StringLiteralToken => literal.Token.ValueText,
+        _ => null,
+    };
+
+    private static ExpressionSyntax? ValueOf(TableFieldSyntax field) => field switch
+    {
+        IdentifierKeyedTableFieldSyntax identifier => identifier.Value,
+        UnkeyedTableFieldSyntax unkeyed => unkeyed.Value,
+        ExpressionKeyedTableFieldSyntax expressionKeyed => expressionKeyed.Value,
+        _ => null,
+    };
+
+    // Collects the comment trivia leading a field into clean lines (markers removed, each line trimmed,
+    // empty lines dropped), joined by '\n'. Returns null when the field has no comment. PZ UI rich-text
+    // markup (<BHC>, <RGB:…>, [!]) is left intact here — stripping it is the sanitizer's job (slice 2).
+    private static string? ExtractComment(SyntaxTriviaList leading)
+    {
+        List<string>? lines = null;
+
+        foreach (SyntaxTrivia trivia in leading)
+        {
+            switch (trivia.RawKind)
+            {
+                case (int)SyntaxKind.SingleLineCommentTrivia:
+                    AddLine(ref lines, StripLineComment(trivia.ToString()));
+                    break;
+
+                case (int)SyntaxKind.MultiLineCommentTrivia:
+                    foreach (string inner in StripBlockComment(trivia.ToString()).Split('\n'))
+                    {
+                        AddLine(ref lines, inner.Trim());
+                    }
+
+                    break;
+            }
+        }
+
+        return lines is { Count: > 0 } ? string.Join('\n', lines) : null;
+
+        static void AddLine(ref List<string>? acc, string line)
+        {
+            if (line.Length > 0)
+            {
+                (acc ??= []).Add(line);
+            }
+        }
+    }
+
+    private static string StripLineComment(string raw)
+    {
+        string s = raw.TrimStart();
+        if (s.StartsWith("--", StringComparison.Ordinal))
+        {
+            s = s[2..];
+        }
+
+        return s.Trim();
+    }
+
+    // Strips the opening --[=*[ and closing ]=*] of a Lua long-bracket block comment, leaving its body.
+    private static string StripBlockComment(string raw)
+    {
+        string s = raw.Trim();
+        int start = s.StartsWith("--", StringComparison.Ordinal) ? 2 : 0;
+        if (start < s.Length && s[start] == '[')
+        {
+            start++;
+            while (start < s.Length && s[start] == '=')
+            {
+                start++;
+            }
+
+            if (start < s.Length && s[start] == '[')
+            {
+                start++;
+            }
+        }
+
+        int end = s.Length;
+        if (end > start && s[end - 1] == ']')
+        {
+            end--;
+            while (end > start && s[end - 1] == '=')
+            {
+                end--;
+            }
+
+            if (end > start && s[end - 1] == ']')
+            {
+                end--;
+            }
+        }
+
+        return start <= end ? s[start..end] : string.Empty;
     }
 
     // Parses text into a tree + the kind's root table + the value model, or reports the fatal
@@ -388,6 +539,16 @@ internal static class LuaConfigReader
         public PzKey? PendingKey { get; } = pendingKey;
 
         public List<PzTableEntry> Entries { get; } = [];
+
+        public int Cursor { get; set; }
+    }
+
+    // One in-progress comment-harvest table, carrying the dotted-path prefix its keyed children extend.
+    private sealed class HarvestFrame(SeparatedSyntaxList<TableFieldSyntax> fields, string prefix)
+    {
+        public SeparatedSyntaxList<TableFieldSyntax> Fields { get; } = fields;
+
+        public string Prefix { get; } = prefix;
 
         public int Cursor { get; set; }
     }

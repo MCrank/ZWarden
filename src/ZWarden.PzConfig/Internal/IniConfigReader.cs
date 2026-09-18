@@ -17,6 +17,53 @@ internal static class IniConfigReader
         // surgical edits (F20b), and the recoverable-line diagnostics.
         var backing = new IniEditBacking(text);
         var document = new PzConfigDocument(PzConfigKind.Ini, backing);
-        return PzConfigReadResult.Success(document, backing.Diagnostics);
+        return PzConfigReadResult.Success(document, backing.Diagnostics, HarvestComments(text));
+    }
+
+    // Harvests the '#' comment block sitting directly above each KEY=value line, keyed by the key
+    // (first occurrence, matching PzTable.TryGet). A blank line detaches a comment from a later key —
+    // it describes nothing directly below it — and a key line resets the pending block. Markers are
+    // stripped and consecutive lines joined, mirroring the Lua harvest (F20c).
+    private static Dictionary<string, string> HarvestComments(string text)
+    {
+        var comments = new Dictionary<string, string>(StringComparer.Ordinal);
+        var pending = new List<string>();
+
+        foreach (string rawLine in text.Split('\n'))
+        {
+            string line = rawLine.EndsWith('\r') ? rawLine[..^1] : rawLine;
+            string trimmed = line.TrimStart();
+
+            if (trimmed.Length == 0)
+            {
+                pending.Clear();
+                continue;
+            }
+
+            if (trimmed[0] == '#')
+            {
+                string body = trimmed[1..].Trim();
+                if (body.Length > 0)
+                {
+                    pending.Add(body);
+                }
+
+                continue;
+            }
+
+            int equals = line.IndexOf('=');
+            if (equals > 0)
+            {
+                string key = line[..equals].Trim();
+                if (key.Length > 0 && pending.Count > 0 && !comments.ContainsKey(key))
+                {
+                    comments[key] = string.Join('\n', pending);
+                }
+            }
+
+            pending.Clear();
+        }
+
+        return comments;
     }
 }
