@@ -94,4 +94,16 @@ public static class AgentHubProtocol
     /// ZWarden.Web, bounded and transient (ADR 0041). The Server is the envelope's <c>ServerId</c>.
     /// </summary>
     public const string ServerConfigContent = "ServerConfigContent";
+
+    /// <summary>
+    /// The client method ZWarden.Web invokes on the Agent to <b>stage</b> one chunk of an operator-authored
+    /// whole-file configuration edit before enqueuing the <c>ConfigApplyRaw</c> Operation that applies it (F20c
+    /// PR-D, ADR 0042). Its four bare arguments are a <see cref="ServerConfigRawEditChunk"/>'s correlation id, chunk
+    /// index, chunk count, and Base64 slice — the reverse-direction sibling of <see cref="RequestServerConfigRead"/>.
+    /// Like the read request this is deliberately <b>transport plumbing</b>, not a protocol message: it is neither an
+    /// <c>AgentCommand</c> nor an <c>AgentEvent</c>, so the closed-vocabulary guard (ADR 0020) is unaffected and the
+    /// arbitrary file text never rides a command. The Agent reassembles the chunks by correlation id into a bounded,
+    /// transient buffer and applies them when the matching Operation runs.
+    /// </summary>
+    public const string StageServerConfigRawEdit = "StageServerConfigRawEdit";
 }
