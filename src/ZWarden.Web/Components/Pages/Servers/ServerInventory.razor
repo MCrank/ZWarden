@@ -1,153 +1,94 @@
 @page "/servers"
 @attribute [Authorize]
 @using System.Security.Claims
+@using ZWarden.Application.Agents
 @using ZWarden.Application.Authorization
 @using ZWarden.Domain.Authorization
 @using ZWarden.Domain.Ids
 @inject IServerInventory Inventory
-@inject IServerLifecycle Lifecycle
-@inject IServerDiagnostics Diagnostics
+@inject IServerMetricsCache Metrics
+@inject IAgentConnectionRegistry Connections
 @inject IServerDiscoveryCache Discovery
 @inject IPermissionChecker PermissionChecker
 @inject UserManager<ApplicationUser> Users
 @inject NavigationManager Nav
 
-@* Static server render (no @rendermode), like /audit: the page runs per request with a live HttpContext so
-   the session-derived tenant resolves and the read is tenant-filtered. It is gated by [Authorize]
-   (authenticated) rather than a Server.View policy, because Server.View is server-scoped and a policy check
-   with no resource denies outright (ADR 0018) — instead the inventory self-filters to the Servers the caller
-   may view, fail-closed. Import is shown only to holders of the tenant-wide Server.Register. The live,
-   virtualized BbDataGrid fleet view (ADR 0003) arrives with F16 telemetry / F36, when the view goes
-   interactive; F14 shows last-reported state over a plain server-rendered table. All Agent-reported text is
-   untrusted and rendered as data (trust-boundaries.md §3). *@
+@* The Fleet board (#158; /servers, where / resolves). Static server render (no @rendermode on the page) like
+   /audit: it runs per request with a live HttpContext so the session-derived tenant resolves and the read is
+   tenant-filtered. Gated by [Authorize] (authenticated) rather than a server-scoped Server.View policy, which
+   with no resource denies outright (ADR 0018) — the inventory self-filters to the Servers the caller may view,
+   fail-closed. The KPI strip, degraded banner and the Register/Import forms are static SSR; only the fleet
+   TABLE is an interactive island (FleetBoard) for sort + row-click. CPU/Memory are a point-in-time snapshot of
+   the ownership-guarded metrics cache read here (this render has the owning AgentId); the board does not live-
+   refresh (static-snapshot posture). Lifecycle controls moved to Server Detail with the redesign (#162); this
+   board is display + navigate + deploy. All Agent-reported text is untrusted and rendered as data (§3/§8). *@
 
-<PageTitle>Servers — ZWarden</PageTitle>
+<PageTitle>Fleet — ZWarden</PageTitle>
 
-<h1 class="text-2xl font-semibold tracking-tight">Servers</h1>
+<div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+    <h1 class="text-2xl font-semibold tracking-tight">Fleet</h1>
+    <p class="text-sm text-muted-foreground">
+        @_servers.Count @(_servers.Count == 1 ? "server" : "servers") · @_hostsTotal @(_hostsTotal == 1 ? "host" : "hosts")
+    </p>
+</div>
 <p class="mt-1 text-sm text-muted-foreground">
-    Your fleet of managed Project Zomboid servers, filtered to those you may view. State is the last the
-    managing Agent reported.
+    Your fleet of managed Project Zomboid servers, filtered to those you may view. State is the last the managing
+    Agent reported.
 </p>
 
-@* KPI tiles on the Blueprint BbCard surface (ADR 0003 seam) — the card chrome (border, radius, shadow,
-   bg-card) comes from the component; only the compact stat layout is ZWarden's. *@
-<div class="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-    <BbCard Class="p-4">
-        <div class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Running</div>
-        <div class="mt-1 font-mono text-2xl tabular-nums text-status-running">@_running</div>
-    </BbCard>
-    <BbCard Class="p-4">
-        <div class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Needs attention</div>
-        <div class="mt-1 font-mono text-2xl tabular-nums text-status-unhealthy">@_needsAttention</div>
-    </BbCard>
-    <BbCard Class="p-4">
-        <div class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Total</div>
-        <div class="mt-1 font-mono text-2xl tabular-nums text-foreground">@_servers.Count</div>
-    </BbCard>
-    <BbCard Class="p-4">
-        <div class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Hosts</div>
-        <div class="mt-1 font-mono text-2xl tabular-nums text-foreground">@_hosts</div>
-    </BbCard>
-</div>
-
-@if (_lifecycleMessage is not null)
+@if (_offlineHosts.Count > 0)
 {
-    <div class="mt-4" data-lifecycle-message>
+    @* Degraded banner — driven by the live F10 connection registry over the owning Agents of the visible fleet
+       (no Agent.View needed; derived from Servers the caller can already see). *@
+    <div class="mt-4" data-degraded-banner>
         <BbAlert Variant="AlertVariant.Warning" AccentBorder>
-            <BbAlertDescription>@_lifecycleMessage</BbAlertDescription>
+            <BbAlertDescription>
+                @if (_offlineHosts.Count == 1)
+                {
+                    <text>ZWarden.Agent on <span class="font-mono">@_offlineHosts[0]</span> is unreachable — its servers show their last-known state while it reconnects.</text>
+                }
+                else
+                {
+                    <text>@_offlineHosts.Count Agents are unreachable — their servers show their last-known state while they reconnect.</text>
+                }
+            </BbAlertDescription>
         </BbAlert>
     </div>
 }
 
-@* One EditForm wraps the fleet table so each row's Start/Stop/Restart is a static-SSR submit (no circuit,
-   D6). A submit button carries "{serverId}|{verb}" as the bound Target — a button submits a single
-   name/value pair, so both the target and the verb ride one value. The action is authorized server-by-server
-   in the service (fail-closed, ADR 0018); the per-row buttons only show for permissions the caller actually
-   holds, and disabling by last-reported state is a hint, never the gate (trust-boundaries §3). *@
-<EditForm Model="_lifecycleForm" FormName="server-lifecycle" OnValidSubmit="LifecycleAsync" class="mt-6 block overflow-x-auto">
-    <table class="w-full border-collapse text-left text-sm">
-        <thead>
-            <tr class="border-b border-border text-muted-foreground">
-                <th class="py-2 pr-4 font-medium">Name</th>
-                <th class="py-2 pr-4 font-medium">Status</th>
-                <th class="py-2 pr-4 font-medium">Health</th>
-                <th class="py-2 pr-4 font-medium">Host</th>
-                <th class="py-2 pr-4 font-medium">Ports</th>
-                <th class="py-2 pr-4 font-medium">Build</th>
-                <th class="py-2 pr-4 font-medium">Last reported (UTC)</th>
-                <th class="py-2 pr-4 font-medium">Actions</th>
-            </tr>
-        </thead>
-        <tbody>
-            @if (_servers.Count == 0)
-            {
-                <tr>
-                    <td colspan="8" class="py-4 text-muted-foreground" data-servers-empty>
-                        No servers yet. Import a discovered container below to bring one under management.
-                    </td>
-                </tr>
-            }
-            @foreach (ServerSummary server in _servers)
-            {
-                <tr class="border-b border-border" data-server-row>
-                    <td class="py-2 pr-4 font-medium">
-                        <a href="@($"/servers/{server.Id}")" class="hover:underline" data-server-link>@server.Name</a>
-                        @if (!string.IsNullOrWhiteSpace(server.Description))
-                        {
-                            <span class="block text-xs text-muted-foreground">@server.Description</span>
-                        }
-                    </td>
-                    <td class="py-2 pr-4"><StatusBadge State="server.LastRunState" /></td>
-                    <td class="py-2 pr-4 text-muted-foreground" data-server-health>@(server.LastHealth?.ToString() ?? "—")</td>
-                    <td class="py-2 pr-4 font-mono text-xs text-muted-foreground">@server.AgentId</td>
-                    <td class="py-2 pr-4 font-mono tabular-nums text-xs">@Ports(server)</td>
-                    <td class="py-2 pr-4 font-mono tabular-nums text-xs text-muted-foreground" data-server-build>@(string.IsNullOrWhiteSpace(server.InstalledBuildId) ? "—" : server.InstalledBuildId)</td>
-                    <td class="py-2 pr-4 tabular-nums text-muted-foreground">@Reported(server)</td>
-                    <td class="py-2 pr-4" data-lifecycle-actions>
-                        @{ LifecyclePermissions perm = PermissionsFor(server.Id); }
-                        <div class="flex flex-wrap gap-2">
-                            @* Blueprint form primitives over the seam (ADR 0003): BbButton splats name/value/
-                               data-* to the underlying <button>, so the "{serverId}|{verb}" static-SSR submit
-                               works while keeping the app's cohesive button styling. Disabled is a hint from the
-                               last-reported state, never the gate (the service re-checks server-side). *@
-                            @if (perm.CanStart)
-                            {
-                                <BbButton Type="ButtonType.Submit" Variant="ButtonVariant.Outline" Size="ButtonSize.Small"
-                                          Disabled="@(server.LastRunState == ServerRunState.Running)"
-                                          name="_lifecycleForm.Target" value="@($"{server.Id}|start")" data-action="start">Start</BbButton>
-                            }
-                            @if (perm.CanStop)
-                            {
-                                <BbButton Type="ButtonType.Submit" Variant="ButtonVariant.Outline" Size="ButtonSize.Small"
-                                          Disabled="@(server.LastRunState == ServerRunState.Stopped)"
-                                          name="_lifecycleForm.Target" value="@($"{server.Id}|stop")" data-action="stop">Stop</BbButton>
-                            }
-                            @if (perm.CanRestart)
-                            {
-                                <BbButton Type="ButtonType.Submit" Variant="ButtonVariant.Outline" Size="ButtonSize.Small"
-                                          name="_lifecycleForm.Target" value="@($"{server.Id}|restart")" data-action="restart">Restart</BbButton>
-                            }
-                            @if (perm.CanUpdate)
-                            {
-                                <BbButton Type="ButtonType.Submit" Variant="ButtonVariant.Outline" Size="ButtonSize.Small"
-                                          name="_lifecycleForm.Target" value="@($"{server.Id}|update")" data-action="update">Update</BbButton>
-                            }
-                            @if (perm.CanDiagnostics)
-                            {
-                                <BbButton Type="ButtonType.Submit" Variant="ButtonVariant.Outline" Size="ButtonSize.Small"
-                                          name="_lifecycleForm.Target" value="@($"{server.Id}|rcon-health")" data-action="rcon-health">Check RCON</BbButton>
-                            }
-                            @if (!perm.CanStart && !perm.CanStop && !perm.CanRestart && !perm.CanUpdate && !perm.CanDiagnostics)
-                            {
-                                <span class="text-xs text-muted-foreground">—</span>
-                            }
-                        </div>
-                    </td>
-                </tr>
-            }
-        </tbody>
-    </table>
-</EditForm>
+@* KPI strip on the Blueprint BbCard surface (ADR 0003 seam): the card chrome (border, radius, bg-card) comes
+   from the component; only the compact stat layout is ZWarden's. Reflows 2-up on narrow, 4-up from sm. *@
+<div class="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4" data-kpi-strip>
+    <BbCard Class="p-4" data-kpi="running">
+        <div class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Running</div>
+        <div class="mt-1 font-mono text-2xl tabular-nums text-status-running">@_running</div>
+        <div class="mt-0.5 text-xs text-muted-foreground">of @_servers.Count @(_servers.Count == 1 ? "server" : "servers")</div>
+    </BbCard>
+    <BbCard Class="p-4" data-kpi="needs-attention">
+        <div class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Needs attention</div>
+        <div class="mt-1 font-mono text-2xl tabular-nums @(_needsAttention > 0 ? "text-status-unhealthy" : "text-foreground")">@_needsAttention</div>
+        <div class="mt-0.5 truncate text-xs text-muted-foreground">
+            @(_needsAttention == 0 ? "all healthy" : (_attentionName is { Length: > 0 } name ? $"{name} · unhealthy" : "unhealthy"))
+        </div>
+    </BbCard>
+    <BbCard Class="p-4" data-kpi="players">
+        <div class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Players online</div>
+        <div class="mt-1 font-mono text-2xl tabular-nums text-foreground">—</div>
+        <div class="mt-0.5 text-xs text-muted-foreground">across the fleet</div>
+    </BbCard>
+    <BbCard Class="p-4" data-kpi="hosts">
+        <div class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Hosts</div>
+        <div class="mt-1 font-mono text-2xl tabular-nums text-foreground">@_hostsOnline<span class="text-muted-foreground">/@_hostsTotal</span></div>
+        <div class="mt-0.5 text-xs text-muted-foreground">@(_offlineHosts.Count == 0 ? "all connected" : $"{_offlineHosts.Count} unreachable")</div>
+    </BbCard>
+</div>
+
+@* The fleet table is the page's one interactive island (sort + row-click), reading only the rows projected
+   above — no tenant-scoped service in the circuit (ADR 0040). Prerenders with the rows so the URLs and first
+   paint are server-rendered. *@
+<div class="mt-6">
+    <FleetBoard @rendermode="InteractiveServer" Rows="_rows" />
+</div>
 
 @if (_canRegister)
 {
@@ -179,7 +120,7 @@
                 <DataAnnotationsValidator />
                 <div class="flex flex-col text-sm">
                     <BbLabel For="register-host" Class="mb-1 text-muted-foreground">Host</BbLabel>
-                    @* Explicit Name for static-SSR binding — see the import form above (issue #84). *@
+                    @* Explicit Name for static-SSR binding — see the import form below (issue #84). *@
                     <BbNativeSelect TValue="string" Id="register-host" Name="_registerForm.AgentId" @bind-Value="_registerForm!.AgentId" Placeholder="Select…">
                         @foreach (AgentId agent in _knownAgents)
                         {
@@ -191,7 +132,7 @@
                     <BbLabel For="register-name" Class="mb-1 text-muted-foreground">Name</BbLabel>
                     <BbInput Id="register-name" @bind-Value="_registerForm!.Name" />
                 </div>
-                <BbButton Type="ButtonType.Submit">Register</BbButton>
+                <BbButton Type="ButtonType.Submit">Deploy server</BbButton>
             </EditForm>
         }
     </section>
@@ -255,45 +196,65 @@
     [SupplyParameterFromForm(FormName = "register-server")]
     private RegisterModel? _registerForm { get; set; }
 
-    [SupplyParameterFromForm(FormName = "server-lifecycle")]
-    private LifecycleModel? _lifecycleForm { get; set; }
-
     private IReadOnlyList<ServerSummary> _servers = [];
+    private IReadOnlyList<FleetRow> _rows = [];
     private IReadOnlyList<DiscoveredServerOnAgent> _discovered = [];
     private IReadOnlyList<AgentId> _knownAgents = [];
-    private readonly Dictionary<ServerId, LifecyclePermissions> _permissions = [];
+    private IReadOnlyList<AgentId> _offlineHosts = [];
     private bool _canRegister;
     private int _running;
     private int _needsAttention;
-    private int _hosts;
+    private string? _attentionName;
+    private int _hostsTotal;
+    private int _hostsOnline;
     private string? _importMessage;
     private string? _registerMessage;
-    private string? _lifecycleMessage;
 
     protected override async Task OnInitializedAsync()
     {
         _form ??= new ImportModel();
         _registerForm ??= new RegisterModel();
-        _lifecycleForm ??= new LifecycleModel();
         UserId user = await CurrentUserAsync();
 
         _servers = await Inventory.ListVisibleAsync(user);
-        _running = _servers.Count(s => s.LastRunState == ServerRunState.Running);
-        _needsAttention = _servers.Count(s => s.LastRunState == ServerRunState.Failed);
-        _hosts = _servers.Select(s => s.AgentId).Distinct().Count();
 
-        // Per-server lifecycle permissions (fail-closed): a button shows only where the caller holds the
-        // matching server-scoped permission on that Server. The service re-checks server-side on submit.
-        _permissions.Clear();
+        // Project each Server into a serializable row, overlaying a point-in-time snapshot of the ownership-
+        // guarded metrics cache (keyed by the Server's owning Agent, which this authorized load knows). A
+        // missing sample renders as — in the island; the board is a snapshot, not a live feed.
+        List<FleetRow> rows = new(_servers.Count);
         foreach (ServerSummary server in _servers)
         {
-            _permissions[server.Id] = new LifecyclePermissions(
-                CanStart: (await PermissionChecker.EvaluateAsync(user, Permissions.ServerStart, server.Id)).IsAllowed,
-                CanStop: (await PermissionChecker.EvaluateAsync(user, Permissions.ServerStop, server.Id)).IsAllowed,
-                CanRestart: (await PermissionChecker.EvaluateAsync(user, Permissions.ServerRestart, server.Id)).IsAllowed,
-                CanUpdate: (await PermissionChecker.EvaluateAsync(user, Permissions.ServerUpdate, server.Id)).IsAllowed,
-                CanDiagnostics: (await PermissionChecker.EvaluateAsync(user, Permissions.ServerDiagnostics, server.Id)).IsAllowed);
+            ServerMetrics? sample = Metrics.GetLatest(server.Id, server.AgentId);
+            rows.Add(new FleetRow(
+                server.Id.ToString(),
+                server.Name,
+                server.Description,
+                server.AgentId.ToString(),
+                server.LastRunState,
+                string.IsNullOrWhiteSpace(server.InstalledBuildId) ? "—" : server.InstalledBuildId!,
+                sample?.CpuPercent,
+                sample?.MemoryUsedBytes,
+                sample?.MemoryLimitBytes));
         }
+
+        _rows = rows;
+
+        _running = _servers.Count(s => s.LastRunState == ServerRunState.Running);
+
+        // Needs attention: a fatal/impaired health rollup, or a failed run-state — the servers an operator
+        // should look at first. The KPI names the first such server (untrusted data, rendered as data).
+        List<ServerSummary> attention = _servers
+            .Where(s => s.LastHealth is ServerHealth.Failed or ServerHealth.Degraded || s.LastRunState == ServerRunState.Failed)
+            .ToList();
+        _needsAttention = attention.Count;
+        _attentionName = attention.Count > 0 ? attention[0].Name : null;
+
+        // Hosts (online/total): the distinct owning Agents of the visible fleet, "online" per the live F10
+        // registry. Deriving from visible Servers keeps this fail-closed and needs no Agent.View (ADR 0018).
+        List<AgentId> agents = _servers.Select(s => s.AgentId).Distinct().ToList();
+        _hostsTotal = agents.Count;
+        _offlineHosts = agents.Where(a => !Connections.IsConnected(a)).ToList();
+        _hostsOnline = _hostsTotal - _offlineHosts.Count;
 
         _canRegister = (await PermissionChecker.EvaluateAsync(user, Permissions.ServerRegister)).IsAllowed;
         if (_canRegister)
@@ -301,62 +262,6 @@
             _discovered = await Inventory.ListAllDiscoveredUnregisteredAsync();
             _knownAgents = [.. Discovery.KnownAgents()];
         }
-    }
-
-    private LifecyclePermissions PermissionsFor(ServerId server)
-        => _permissions.TryGetValue(server, out LifecyclePermissions perm) ? perm : default;
-
-    private async Task LifecycleAsync()
-    {
-        LifecycleModel form = _lifecycleForm ?? new LifecycleModel();
-        if (string.IsNullOrWhiteSpace(form.Target))
-        {
-            _lifecycleMessage = "Choose an action.";
-            return;
-        }
-
-        string[] parts = form.Target.Split('|');
-        if (parts.Length != 2 || !ServerId.TryParse(parts[0], out ServerId serverId))
-        {
-            _lifecycleMessage = "That action is no longer valid.";
-            return;
-        }
-
-        UserId user = await CurrentUserAsync();
-        string verb = parts[1];
-        ServerLifecycleResult result = verb switch
-        {
-            "start" => await Lifecycle.StartAsync(user, serverId),
-            "stop" => await Lifecycle.StopAsync(user, serverId),
-            "restart" => await Lifecycle.RestartAsync(user, serverId),
-            "update" => await Lifecycle.UpdateAsync(user, serverId),
-            "rcon-health" => await Diagnostics.CheckRconHealthAsync(user, serverId),
-            _ => ServerLifecycleResult.Denied(ServerLifecycleFailure.NotAuthorized),
-        };
-
-        if (result.Succeeded)
-        {
-            if (verb == "rcon-health")
-            {
-                // A read-only probe with no persisted server-state change: report that it started and where the
-                // result lands, rather than redirecting (the reachable/authenticated outcome arrives on the
-                // operation asynchronously — read it at /api/operations/{id}; the rich console view is F28).
-                _lifecycleMessage = $"RCON health check started (operation {result.Operation}). The result appears on that operation shortly.";
-                return;
-            }
-
-            // Redirect after post so a refresh does not re-submit; the enqueued operation runs asynchronously.
-            Nav.NavigateTo("/servers");
-            return;
-        }
-
-        _lifecycleMessage = result.Failure switch
-        {
-            ServerLifecycleFailure.NotAuthorized => "You are not permitted to perform that action on this server.",
-            ServerLifecycleFailure.ServerNotFound => "That server is no longer available.",
-            ServerLifecycleFailure.ServerBusy => "That server is busy with another operation. Try again once it finishes.",
-            _ => "The action could not be completed.",
-        };
     }
 
     private async Task ImportAsync()
@@ -436,12 +341,6 @@
             : throw new InvalidOperationException("Authenticated request carries no user id claim.");
     }
 
-    private static string Ports(ServerSummary s)
-        => s.GamePort is int game && s.QueryPort is int query ? $"{game} / {query}" : "—";
-
-    private static string Reported(ServerSummary s)
-        => s.LastStateReportedAt?.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss") ?? "—";
-
     private sealed class ImportModel
     {
         public string? Target { get; set; }
@@ -455,12 +354,4 @@
 
         public string? Name { get; set; }
     }
-
-    private sealed class LifecycleModel
-    {
-        // "{serverId}|{verb}" — a single value carrying both, since a submit button posts one name/value pair.
-        public string? Target { get; set; }
-    }
-
-    private readonly record struct LifecyclePermissions(bool CanStart, bool CanStop, bool CanRestart, bool CanUpdate, bool CanDiagnostics);
 }
