@@ -1292,6 +1292,10 @@ html {
   position: static;
 }
 
+.fixed {
+  position: fixed;
+}
+
 .absolute {
   position: absolute;
 }
@@ -1452,6 +1456,10 @@ html {
   min-width: 10rem;
 }
 
+.max-w-3xl {
+  max-width: 48rem;
+}
+
 .max-w-md {
   max-width: 28rem;
 }
@@ -1569,6 +1577,10 @@ html {
 
 .gap-y-2 {
   row-gap: 0.5rem;
+}
+
+.gap-y-4 {
+  row-gap: 1rem;
 }
 
 .space-y-1 > :not([hidden]) ~ :not([hidden]) {
@@ -1769,6 +1781,11 @@ html {
 
 .p-6 {
   padding: 1.5rem;
+}
+
+.px-1 {
+  padding-left: 0.25rem;
+  padding-right: 0.25rem;
 }
 
 .px-2 {
@@ -1975,6 +1992,10 @@ html {
   color: var(--status-unhealthy);
 }
 
+.underline {
+  text-decoration-line: underline;
+}
+
 .filter {
   filter: var(--tw-blur) var(--tw-brightness) var(--tw-contrast) var(--tw-grayscale) var(--tw-hue-rotate) var(--tw-invert) var(--tw-saturate) var(--tw-sepia) var(--tw-drop-shadow);
 }
@@ -1991,6 +2012,10 @@ html {
   text-decoration-line: underline;
 }
 
+.hover\:no-underline:hover {
+  text-decoration-line: none;
+}
+
 .hover\:opacity-90:hover {
   opacity: 0.9;
 }
@@ -2002,6 +2027,10 @@ html {
 
   .sm\:grid-cols-4 {
     grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .sm\:grid-cols-\[12rem_1fr\] {
+    grid-template-columns: 12rem 1fr;
   }
 
   .sm\:flex-row {

@@ -1,5 +1,8 @@
 @inherits LayoutComponentBase
+@using Microsoft.Extensions.Options
+@using ZWarden.Web.Configuration
 @inject NavigationManager Nav
+@inject IOptions<InstanceOptions> Instance
 
 @* The app shell — the "Signal" sidebar-09 chrome (#157). It is deliberately STATIC SSR (ADR 0040):
    NavLink for nav, AuthorizeView for visibility (enforcement stays server-side, PRD 12), a static
@@ -20,7 +23,7 @@
                                 aria-haspopup="menu" aria-expanded="false" aria-controls="zw-workspace-menu">
                             <span class="zw-mark">Z</span>
                             <span class="zw-stack">
-                                <span class="zw-t1">ZWarden</span>
+                                <span class="zw-t1">@InstanceName</span>
                                 <span class="zw-t2">Self-hosted</span>
                             </span>
                             <ShellIcon Name="chevrons-up-down" Class="zw-chev" />
@@ -32,7 +35,7 @@
                             <div class="zw-mi zw-mi-current" role="menuitemradio" aria-checked="true">
                                 <span class="zw-mark zw-mark-sm">Z</span>
                                 <span class="zw-stack">
-                                    <span class="zw-t1">ZWarden</span>
+                                    <span class="zw-t1">@InstanceName</span>
                                     <span class="zw-t2">Self-hosted</span>
                                 </span>
                             </div>
@@ -53,10 +56,14 @@
                     </AuthorizeView>
 
                     <div class="zw-grp">System</div>
-                    @* Settings (renamed from Config, #156) — shown to all for now; #160 sets its real gating. *@
-                    <NavLink class="zw-navitem" href="/settings" data-nav="settings">
-                        <ShellIcon Name="settings" /><span>Settings</span>
-                    </NavLink>
+                    @* Settings (renamed from Config, #156) — the control-plane admin surface, gated on User.Manage
+                       so only the tenant-administrator tier (Owner/Admin) sees it (#160). Enforcement is
+                       server-side on the page; this link only mirrors it. *@
+                    <AuthorizeView Policy="User.Manage" Context="settingsNav">
+                        <NavLink class="zw-navitem" href="/settings" data-nav="settings">
+                            <ShellIcon Name="settings" /><span>Settings</span>
+                        </NavLink>
+                    </AuthorizeView>
                     <AuthorizeView Policy="Audit.View" Context="auditNav">
                         <NavLink class="zw-navitem" href="/audit" data-nav="audit">
                             <ShellIcon Name="scroll-text" /><span>Audit</span>
@@ -149,6 +156,10 @@
 
 @code {
     private string CurrentPath => new Uri(Nav.Uri).AbsolutePath;
+
+    // The instance's display name (#160) — deploy-time config, defaulting to "ZWarden". Shown in the workspace
+    // switcher so an operator running several instances can tell them apart.
+    private string InstanceName => Instance.Value.Name;
 
     // Best-effort display name + initials from the sign-in identity (the email). A real display name can
     // replace these once the profile carries one; the shell only needs a friendly label + avatar glyph.

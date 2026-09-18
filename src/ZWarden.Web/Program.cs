@@ -52,6 +52,11 @@ ZWardenDbProvider provider = ZWardenDbProviderExtensions.ParseProvider(
 string connectionString = builder.Configuration.GetConnectionString("ZWarden") ?? "Data Source=zwarden.db";
 string[] allowedHosts = builder.Configuration.GetSection("ZWarden:AllowedHosts").Get<string[]>() ?? ["localhost"];
 
+// #160: the instance's display name — deploy-time config (ZWarden:Instance:Name), read by the shell chrome
+// and the Settings page. Bound with its default when the section is absent, so a stock install shows "ZWarden".
+builder.Services.Configure<ZWarden.Web.Configuration.InstanceOptions>(
+    builder.Configuration.GetSection(ZWarden.Web.Configuration.InstanceOptions.SectionName));
+
 builder.Services.AddSecurityFoundation();          // key ring from the environment (fail-closed, ADR 0015)
 builder.Services.AddSessionTenantContext();        // wins over the single-tenant default (S5)
 builder.Services.AddTenantFoundation();
