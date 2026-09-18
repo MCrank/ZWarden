@@ -1,8 +1,10 @@
 # Feature 20c Mini-Plan — Live Configuration Read, Schema Editor, and Tooltips
 
-**Status:** planned (not started). Track D. The third F20 split — [#108](https://github.com/MCrank/ZWarden/issues/108),
+**Status:** delivered. Track D. The third F20 split — [#108](https://github.com/MCrank/ZWarden/issues/108),
 "F20b follow-up: live config read → full schema editor + raw view/edit" (`ready-for-agent`). Delivered
-across **~3–4 PRs**, one commit per TDD slice, on branches under `feat/f20c-*`.
+across four PRs, one commit per TDD slice, on branches under `feat/f20c-*`: PR-A library (comment
+harvest + schema metadata), PR-B read path (ADR 0041), PR-C schema editor UI, and PR-D drift
+confirm-and-override + gated raw whole-file edit (ADR 0042) — this PR closes #108.
 
 **Format:** PRD 60. **Written against:** PRD 32 (structured configuration editing — the *live-read and
 present* half F20a/F20b deferred), PRD 2.2 (TDD mandatory), PRD 2.3 (supportability — a blind editor and a
