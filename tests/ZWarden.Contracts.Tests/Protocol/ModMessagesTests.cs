@@ -82,6 +82,74 @@ public class ModMessagesTests
     }
 
     [Test]
+    public async Task DiscoveredMod_round_trips_its_optional_workshop_metadata()
+    {
+        // #110: mod.info's version/dependency/compat fields (research §6 — pzversion, versionMin, version, require,
+        // incompatible, tags) ride the same discovery result as additive-optional data, escaped only at render.
+        DiscoveredMod mod = new(
+            "Authentic Z - Current", "Authentic Z",
+            Version: "42", PzVersion: "41", VersionMin: "41.78",
+            Requires: ["RV_Interior_MP"],
+            Incompatible: ["\\AuthenticZLite", "\\AuthenticZBackpacks+"],
+            Tags: ["Realistic", "Overhaul"]);
+
+        ModDiscoveryResult result = new(
+            InstalledItems: [new DiscoveredWorkshopItem("2857548524", [mod])],
+            ConfiguredWorkshopIds: ["2857548524"],
+            EnabledModIds: ["Authentic Z - Current"],
+            Findings: []);
+
+        Envelope<OperationCompleted> back = ProtocolJson.Deserialize<OperationCompleted>(ProtocolJson.Serialize(
+            Envelope.Create(new OperationCompleted(OperationOutcome.Succeeded, Mods: result), At, operationId: OperationId.New())));
+
+        DiscoveredMod round = back.Payload.Mods!.InstalledItems[0].Mods[0];
+        await Assert.That(round.Version).IsEqualTo("42");
+        await Assert.That(round.PzVersion).IsEqualTo("41");
+        await Assert.That(round.VersionMin).IsEqualTo("41.78");
+        string[] requires = ["RV_Interior_MP"];
+        string[] incompatible = ["\\AuthenticZLite", "\\AuthenticZBackpacks+"];
+        string[] tags = ["Realistic", "Overhaul"];
+        await Assert.That(round.Requires).IsEquivalentTo(requires);
+        await Assert.That(round.Incompatible).IsEquivalentTo(incompatible);
+        await Assert.That(round.Tags).IsEquivalentTo(tags);
+    }
+
+    [Test]
+    public async Task A_mod_with_no_metadata_defaults_its_lists_empty_and_scalars_null()
+    {
+        DiscoveredMod mod = new("Plain", null);
+
+        await Assert.That(mod.Version).IsNull();
+        await Assert.That(mod.PzVersion).IsNull();
+        await Assert.That(mod.VersionMin).IsNull();
+        await Assert.That(mod.Requires).IsNotNull();
+        await Assert.That(mod.Requires).IsEmpty();
+        await Assert.That(mod.Incompatible).IsEmpty();
+        await Assert.That(mod.Tags).IsEmpty();
+    }
+
+    [Test]
+    public async Task OperationCompleted_round_trips_the_new_dependency_and_compat_findings()
+    {
+        ModDiscoveryResult result = new(
+            InstalledItems: [],
+            ConfiguredWorkshopIds: [],
+            EnabledModIds: [],
+            Findings:
+            [
+                new ModCompatFinding(ModCompatKind.RequiresMissing, "NeedsThis", "required by AuthenticZ but not installed"),
+                new ModCompatFinding(ModCompatKind.IncompatiblePresent, "AuthenticZLite", "declared incompatible with AuthenticZ"),
+            ]);
+
+        Envelope<OperationCompleted> back = ProtocolJson.Deserialize<OperationCompleted>(ProtocolJson.Serialize(
+            Envelope.Create(new OperationCompleted(OperationOutcome.Succeeded, Mods: result), At, operationId: OperationId.New())));
+
+        IReadOnlyList<ModCompatFinding> findings = back.Payload.Mods!.Findings;
+        await Assert.That(findings[0].Kind).IsEqualTo(ModCompatKind.RequiresMissing);
+        await Assert.That(findings[1].Kind).IsEqualTo(ModCompatKind.IncompatiblePresent);
+    }
+
+    [Test]
     public async Task OperationCompleted_without_a_mod_result_stays_null()
     {
         Envelope<OperationCompleted> original = Envelope.Create(

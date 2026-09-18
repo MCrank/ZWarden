@@ -259,11 +259,39 @@ public sealed record ModDiscoveryResult(
 public sealed record DiscoveredWorkshopItem(string WorkshopId, IReadOnlyList<DiscoveredMod> Mods);
 
 /// <summary>A mod declared by a <c>mod.info</c> (F21): its Mod id (the <c>id=</c> value, the token used in the
-/// config's <c>Mods=</c> line) and the display name (<c>name=</c>) when present. Both are untrusted, bounded, and
-/// carried verbatim for escaping at render.</summary>
+/// config's <c>Mods=</c> line), the display name (<c>name=</c>), and (#110) the optional version, dependency, and
+/// compatibility metadata the file declares — read from the version-appropriate <c>mod.info</c> (the B42 <c>42/</c>
+/// file when present, research §6). Every field is untrusted PZ output (trust-boundaries.md §8), bounded, and carried
+/// verbatim for escaping at render; the metadata is additive-optional so <see cref="ProtocolVersion"/> stays 1
+/// (ADR 0020). List fields default to empty, never <c>null</c>.</summary>
 /// <param name="ModId">The PZ Mod id from <c>mod.info</c>'s <c>id=</c>.</param>
 /// <param name="Name">The mod's declared display name (<c>name=</c>), or <c>null</c> when it declares none.</param>
-public sealed record DiscoveredMod(string ModId, string? Name);
+/// <param name="Version">The mod's own version (<c>version=</c>), or <c>null</c>.</param>
+/// <param name="PzVersion">The declared Project Zomboid version (<c>pzversion=</c>), or <c>null</c>.</param>
+/// <param name="VersionMin">The declared minimum PZ version (<c>versionMin=</c>), or <c>null</c>.</param>
+/// <param name="Requires">The Mod ids this mod depends on (<c>require=</c>), verbatim; empty when none.</param>
+/// <param name="Incompatible">The Mod ids this mod declares incompatible (<c>incompatible=</c>), verbatim (values may
+/// carry PZ's leading <c>\</c> and trailing <c>+</c>/<c>-</c> markers); empty when none.</param>
+/// <param name="Tags">The mod's declared tags (<c>tags=</c>); empty when none.</param>
+public sealed record DiscoveredMod(
+    string ModId,
+    string? Name,
+    string? Version = null,
+    string? PzVersion = null,
+    string? VersionMin = null,
+    IReadOnlyList<string>? Requires = null,
+    IReadOnlyList<string>? Incompatible = null,
+    IReadOnlyList<string>? Tags = null)
+{
+    /// <summary>The Mod ids this mod depends on (<c>require=</c>); empty when none.</summary>
+    public IReadOnlyList<string> Requires { get; init; } = Requires ?? [];
+
+    /// <summary>The Mod ids this mod declares incompatible (<c>incompatible=</c>); empty when none.</summary>
+    public IReadOnlyList<string> Incompatible { get; init; } = Incompatible ?? [];
+
+    /// <summary>The mod's declared tags (<c>tags=</c>); empty when none.</summary>
+    public IReadOnlyList<string> Tags { get; init; } = Tags ?? [];
+}
 
 /// <summary>A compatibility problem F21 found by reconciling the on-disk mods against the config lists. All four
 /// kinds are derived locally, with no Steam call.</summary>
@@ -283,6 +311,14 @@ public enum ModCompatKind
 
     /// <summary>The same Mod id is provided by more than one installed Workshop item — a load conflict.</summary>
     DuplicateModId,
+
+    /// <summary>A mod's <c>require=</c> names a Mod id that no installed <c>mod.info</c> provides — a missing
+    /// dependency the server will fail to satisfy (#110). The <c>Subject</c> is the required (missing) id.</summary>
+    RequiresMissing,
+
+    /// <summary>A mod's <c>incompatible=</c> names a Mod id that is also installed — a declared conflict (#110).
+    /// The <c>Subject</c> is the incompatible id that is present.</summary>
+    IncompatiblePresent,
 }
 
 /// <summary>One compatibility finding (F21): its <see cref="Kind"/>, the offending id (a Mod id or Workshop id,
