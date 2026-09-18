@@ -157,6 +157,22 @@ A recorded before-and-after state of a Server's configuration, captured as parse
 than file bytes.
 _Avoid_: version, snapshot, backup (which means something else here)
 
+**Configuration View**:
+The transient, structured, tooltip-carrying result of a **live read** of a Server's config file (F20c):
+its current settings grouped into sections, each with value, kind, schema metadata, and a **Setting
+Tooltip**, plus the raw file text and the drift baseline hash. Read behind `IServerConfigurationReader`
+over the non-Operation read channel (ADR 0041); the Agent parses, the control plane overlays the schema.
+Nothing is persisted — distinct from a **Configuration Revision** (`cfg-`, recorded) and a
+**Configuration Document** (F20a's parsed model behind `IPzConfigDocument`).
+_Avoid_: config snapshot, config revision, config document
+
+**Setting Tooltip**:
+The sanitized help string shown for one configuration setting, resolved by precedence: the ZWarden
+schema's authored description if present, else the setting's own `--` comment harvested from the file
+and stripped of PZ's UI rich-text markup, else none. Comment-sourced text is locale-generated,
+attacker-influenced output — rendered as data, never markup (PRD 38).
+_Avoid_: description (unqualified), help text, hint
+
 **Backup**:
 A verifiable copy of a Server's data, created by an Operation and restorable through one.
 

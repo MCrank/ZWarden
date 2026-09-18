@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using ZWarden.Application.Agents;
+using ZWarden.Application.Configuration;
 using ZWarden.Application.Servers;
 using ZWarden.Contracts.Protocol;
 using ZWarden.Contracts.Protocol.Messages;
@@ -211,6 +212,51 @@ public class AgentHubIntegrationTests
         await Assert.That(slice.Lines[0].IsStderr).IsTrue();
         // Ownership guard: another Agent cannot read this Server's lines.
         await Assert.That(buffer.Read(serverId, AgentId.New(), 0).Lines).IsEmpty();
+
+        await connection.StopAsync();
+    }
+
+    [Test]
+    public async Task A_live_config_read_round_trips_from_request_to_reassembled_view()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        (AgentId agentId, string credential) = await SeedTrustedAgentAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, agentId);
+        await using HubConnection connection = BuildConnection(factory, credential);
+
+        // The agent side answers a read request by encoding a known view and sending its chunks back up.
+        connection.On<string, string, string>(
+            AgentHubProtocol.RequestServerConfigRead,
+            async (_, _, correlationId) =>
+            {
+                ConfigReadPayload payload = new(
+                    serverId, Domain.Configuration.PzConfigFile.SandboxVars, ConfigReadStatus.Read,
+                    [new ConfigSettingValue("Zombies", ConfigValueKind.Number, "3", "How fast the zombies move.")],
+                    "SandboxVars = {}\n", "hash-e2e", []);
+                foreach (ServerConfigContent chunk in ServerConfigContentCodec.Encode(correlationId, payload))
+                {
+                    await connection.SendAsync(
+                        AgentHubProtocol.ServerConfigContent, Envelope.Create(chunk, Now, agentId, serverId));
+                }
+            });
+
+        await connection.StartAsync();
+        await connection.InvokeAsync<ProtocolNegotiationResult>(
+            AgentHubProtocol.Hello, Hello(agentId, ProtocolVersion.Current));
+
+        IAgentConnectionRegistry registry = factory.Services.GetRequiredService<IAgentConnectionRegistry>();
+        await WaitUntilAsync(() => Task.FromResult(registry.IsConnected(agentId)));
+
+        IServerConfigReadChannel channel = factory.Services.GetRequiredService<IServerConfigReadChannel>();
+        ConfigReadTransfer transfer = await channel.ReadAsync(
+            serverId, agentId, Domain.Configuration.PzConfigFile.SandboxVars);
+
+        await Assert.That(transfer.Status).IsEqualTo(ConfigTransferStatus.Read);
+        await Assert.That(transfer.RawText).IsEqualTo("SandboxVars = {}\n");
+        await Assert.That(transfer.BaselineHash).IsEqualTo("hash-e2e");
+        await Assert.That(transfer.Settings.Single().Path).IsEqualTo("Zombies");
+        await Assert.That(transfer.Settings.Single().Value).IsEqualTo("3");
+        await Assert.That(transfer.Settings.Single().Comment).IsEqualTo("How fast the zombies move.");
 
         await connection.StopAsync();
     }

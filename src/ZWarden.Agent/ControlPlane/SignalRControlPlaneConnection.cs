@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 using ZWarden.Agent.Configuration;
 using ZWarden.Agent.Health;
 using ZWarden.Agent.LogStreaming;
+using ZWarden.Agent.ServerConfig;
 using ZWarden.Agent.Trust;
 using ZWarden.Contracts.Protocol;
 using ZWarden.Contracts.Protocol.Messages;
@@ -25,6 +26,7 @@ public sealed partial class SignalRControlPlaneConnection : IAgentControlPlaneCo
     private readonly AgentCommandProcessor _commands;
     private readonly IServerHealthObserver _health;
     private readonly IServerLogSubscriptionService _logSubscriptions;
+    private readonly IServerConfigReader _configReader;
     private readonly AgentOptions _options;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<SignalRControlPlaneConnection> _logger;
@@ -35,6 +37,7 @@ public sealed partial class SignalRControlPlaneConnection : IAgentControlPlaneCo
         AgentCommandProcessor commands,
         IServerHealthObserver health,
         IServerLogSubscriptionService logSubscriptions,
+        IServerConfigReader configReader,
         IOptions<AgentOptions> options,
         TimeProvider timeProvider,
         ILogger<SignalRControlPlaneConnection> logger)
@@ -43,6 +46,7 @@ public sealed partial class SignalRControlPlaneConnection : IAgentControlPlaneCo
         ArgumentNullException.ThrowIfNull(commands);
         ArgumentNullException.ThrowIfNull(health);
         ArgumentNullException.ThrowIfNull(logSubscriptions);
+        ArgumentNullException.ThrowIfNull(configReader);
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(timeProvider);
         ArgumentNullException.ThrowIfNull(logger);
@@ -50,6 +54,7 @@ public sealed partial class SignalRControlPlaneConnection : IAgentControlPlaneCo
         _commands = commands;
         _health = health;
         _logSubscriptions = logSubscriptions;
+        _configReader = configReader;
         _options = options.Value;
         _timeProvider = timeProvider;
         _logger = logger;
@@ -204,6 +209,37 @@ public sealed partial class SignalRControlPlaneConnection : IAgentControlPlaneCo
             }
         });
 
+        // Live configuration read (F20c): Web asks for the current contents of one of a Server's config files, with
+        // an opaque correlation id it echoes on the reply. This is transport plumbing, not a command — no OperationId,
+        // no lock, no audit, no revision (ADR 0041); the read observes and persists nothing. A failed read must not
+        // tear the connection down. The emitter is built over this live connection (like the log emitter).
+        connection.On<string, string, string>(
+            AgentHubProtocol.RequestServerConfigRead,
+            async (serverIdText, fileText, correlationId) =>
+            {
+                try
+                {
+                    if (string.IsNullOrEmpty(correlationId)
+                        || !ServerId.TryParse(serverIdText, out ServerId serverId)
+                        || !Enum.TryParse(fileText, ignoreCase: false, out Domain.Configuration.PzConfigFile file)
+                        || !Enum.IsDefined(file))
+                    {
+                        return;
+                    }
+
+                    ConfigReadPayload payload =
+                        await _configReader.ReadAsync(serverId, file, CancellationToken.None).ConfigureAwait(false);
+                    ServerConfigContentEmitter emitter = new(connection, _timeProvider);
+                    await emitter.EmitAsync(correlationId, payload, CancellationToken.None).ConfigureAwait(false);
+                }
+#pragma warning disable CA1031 // A bad or failed read must not crash the connection; Web times the request out.
+                catch (Exception ex)
+                {
+                    LogConfigReadFailed(ex);
+                }
+#pragma warning restore CA1031
+            });
+
         // A terminal close (auto-reconnect gave up, or an explicit stop) tears down every follow, so none lingers
         // against a dead connection; a transient drop keeps them — auto-reconnect reuses this same connection and
         // the emitter resumes once it is Connected again.
@@ -287,6 +323,9 @@ public sealed partial class SignalRControlPlaneConnection : IAgentControlPlaneCo
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Handling a dispatched command failed; the operation's lease will reap it.")]
     private partial void LogCommandFailed(Exception ex);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Handling a live configuration read request failed; the control plane will time it out.")]
+    private partial void LogConfigReadFailed(Exception ex);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Observing server health for the connect snapshot failed; sending an empty snapshot.")]
     private partial void LogSnapshotObservationFailed(Exception ex);

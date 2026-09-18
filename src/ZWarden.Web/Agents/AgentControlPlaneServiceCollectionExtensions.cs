@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authentication;
 using ZWarden.Application.Agents;
+using ZWarden.Application.Configuration;
 using ZWarden.Contracts.Protocol;
 
 namespace ZWarden.Web.Agents;
@@ -25,6 +26,12 @@ public static class AgentControlPlaneServiceCollectionExtensions
         // The live-log viewer ref-count (F27): drives the owning Agent's on-demand follow on/off through the hub.
         // A singleton, beside the registry it routes through.
         services.AddSingleton<IServerLogSubscriptionCoordinator, ServerLogSubscriptionCoordinator>();
+
+        // The live configuration read coordinator (F20c, ADR 0041): correlates a read request with its chunked
+        // reply. A singleton — the AgentHub feeds reply chunks into the same instance ReadAsync awaits. It is the
+        // IServerConfigReadChannel the Infrastructure reader (registered in AddZWardenConfiguration) depends on.
+        services.AddSingleton<ServerConfigReadCoordinator>();
+        services.AddSingleton<IServerConfigReadChannel>(sp => sp.GetRequiredService<ServerConfigReadCoordinator>());
 
         // The bearer-credential handshake scheme. Added alongside the cookie schemes without changing the
         // application's default scheme; the hub opts into it explicitly via [Authorize].

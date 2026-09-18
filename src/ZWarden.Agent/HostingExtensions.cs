@@ -130,6 +130,9 @@ public static class HostingExtensions
         // The read-only schema validator (F29 config diagnostics): reports Error/Info findings without mutating.
         services.AddSingleton<IPzConfigValidator, PzConfigValidator>();
         services.AddSingleton<IServerConfigWriter, ServerConfigWriter>();
+        // Live configuration read (F20c, ADR 0041): the read sibling of the writer, over the same parser seam. The
+        // reply rides the non-Operation read channel, wired in the control-plane connection below.
+        services.AddSingleton<IServerConfigReader, ServerConfigReader>();
 
         // Workshop and mod discovery (F21): read-only, offline. Walks the Server's Workshop content subtree and
         // reconciles it against the config's WorkshopItems=/Mods= lists (via the parser above) into the mapping and

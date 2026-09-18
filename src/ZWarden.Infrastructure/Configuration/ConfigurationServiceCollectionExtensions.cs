@@ -20,6 +20,9 @@ public static class ConfigurationServiceCollectionExtensions
         services.AddScoped<IConfigurationRevisionRecorder, ConfigurationRevisionRecorder>();
         services.AddScoped<IServerConfigurationEditor, ServerConfigurationEditor>();
         services.AddScoped<IServerConfigurationHistory, ConfigurationHistoryService>();
+        // Live Configuration View reader (F20c, ADR 0041). It depends on IServerConfigReadChannel, which
+        // ZWarden.Web supplies (the tier that owns the Agent hub connection).
+        services.AddScoped<IServerConfigurationReader, ServerConfigurationReader>();
 
         return services;
     }
