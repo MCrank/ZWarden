@@ -54,52 +54,165 @@
 }
 else
 {
-    <div class="mt-2 flex items-center gap-3">
+    @* Sticky server header (name + status + lifecycle), above the rail and content. The lifecycle controls
+       (F15) render for whoever holds the matching Server.Start/Stop/Restart and are disabled by the last
+       observed run-state; the service re-checks fail-closed on submit. *@
+    <div class="zw-srvhead mt-2">
         <h1 class="text-2xl font-semibold tracking-tight">@_server.Name</h1>
         <StatusBadge State="_server.LastRunState" />
+        <span class="zw-spacer"></span>
+        @if (_canStart || _canStop || _canRestartServer)
+        {
+            <EditForm Model="_lifecycleForm" FormName="server-lifecycle" OnValidSubmit="LifecycleAsync" class="zw-lifebtns">
+                @if (_canStart)
+                {
+                    <BbButton Variant="ButtonVariant.Outline" Type="ButtonType.Submit" Size="ButtonSize.Small"
+                              Disabled="@(!StartEnabled)" name="_lifecycleForm.Command" value="start" data-action="server-start">
+                        <ShellIcon Name="play" /><span class="ml-1">Start</span>
+                    </BbButton>
+                }
+                @if (_canStop)
+                {
+                    <BbButton Variant="ButtonVariant.Outline" Type="ButtonType.Submit" Size="ButtonSize.Small"
+                              Disabled="@(!StopEnabled)" name="_lifecycleForm.Command" value="stop" data-action="server-stop">
+                        <ShellIcon Name="square" /><span class="ml-1">Stop</span>
+                    </BbButton>
+                }
+                @if (_canRestartServer)
+                {
+                    <BbButton Variant="ButtonVariant.Outline" Type="ButtonType.Submit" Size="ButtonSize.Small"
+                              Disabled="@(!RestartEnabled)" name="_lifecycleForm.Command" value="restart" data-action="server-restart">
+                        <ShellIcon Name="rotate-cw" /><span class="ml-1">Restart</span>
+                    </BbButton>
+                }
+            </EditForm>
+        }
     </div>
     @if (!string.IsNullOrWhiteSpace(_server.Description))
     {
         <p class="mt-1 text-sm text-muted-foreground">@_server.Description</p>
     }
-
-    <div class="mt-6 grid gap-6 sm:grid-cols-2">
-        <BbCard Class="p-5">
-            <h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Details</h2>
-            <dl class="mt-3 space-y-2 text-sm">
-                <div class="flex justify-between gap-4">
-                    <dt class="text-muted-foreground">Host</dt>
-                    <dd class="font-mono text-xs">@_server.AgentId</dd>
-                </div>
-                <div class="flex justify-between gap-4">
-                    <dt class="text-muted-foreground">Ports</dt>
-                    <dd class="font-mono tabular-nums text-xs">@Ports()</dd>
-                </div>
-                <div class="flex justify-between gap-4">
-                    <dt class="text-muted-foreground">Last-reported health</dt>
-                    <dd data-last-health>@(_server.LastHealth?.ToString() ?? "—")</dd>
-                </div>
-                <div class="flex justify-between gap-4">
-                    <dt class="text-muted-foreground">Health reported (UTC)</dt>
-                    <dd class="tabular-nums">@Reported(_server.LastHealthReportedAt)</dd>
-                </div>
-            </dl>
-        </BbCard>
-
-        <BbCard Class="p-5">
-            <h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Live telemetry</h2>
-            <div class="mt-3">
-                <LiveServerPanel @rendermode="InteractiveServer"
-                                 ServerId="@_server.Id.ToString()"
-                                 AgentId="@_server.AgentId.ToString()"
-                                 InitialHealth="@(_server.LastHealth?.ToString())" />
-            </div>
-        </BbCard>
-    </div>
-
-    @if (_canViewLogs)
+    @if (_lifecycleMessage is not null)
     {
-        <BbCard Class="mt-6 p-5" data-logs-card>
+        <div class="mt-3" data-lifecycle-message>
+            <BbAlert Variant="_lifecycleAlert" AccentBorder>
+                <BbAlertDescription>@_lifecycleMessage</BbAlertDescription>
+            </BbAlert>
+        </div>
+    }
+
+    <div class="zw-srvlayout mt-6">
+        @* Grouped vertical rail (#162). Each item links to its ?section= (static SSR, bookmarkable), so only
+           the selected section — and its one Live* island — renders. A section appears only where the operator
+           holds its per-server permission; the reserved Mod Browser slot is a disabled placeholder. *@
+        <nav class="zw-rail" aria-label="Server sections" data-server-rail>
+            <a class="zw-railitem @Active("overview")" href="@SectionHref("overview")" data-rail-item="overview">
+                <ShellIcon Name="layout-dashboard" /><span>Overview</span>
+            </a>
+
+            @if (_perm.CanAny || _canExecuteConsole || _canViewLogs)
+            {
+                <div class="zw-railgrp">Operate</div>
+                @if (_perm.CanAny)
+                {
+                    <a class="zw-railitem @Active("players")" href="@SectionHref("players")" data-rail-item="players">
+                        <ShellIcon Name="users" /><span>Players</span>
+                    </a>
+                }
+                @if (_canExecuteConsole)
+                {
+                    <a class="zw-railitem @Active("console")" href="@SectionHref("console")" data-rail-item="console">
+                        <ShellIcon Name="terminal" /><span>Console</span>
+                    </a>
+                }
+                @if (_canViewLogs)
+                {
+                    <a class="zw-railitem @Active("logs")" href="@SectionHref("logs")" data-rail-item="logs">
+                        <ShellIcon Name="scroll-text" /><span>Logs</span>
+                    </a>
+                }
+            }
+
+            @if (_perm.CanConfigEdit || _canViewMods)
+            {
+                <div class="zw-railgrp">Configure</div>
+                @if (_perm.CanConfigEdit)
+                {
+                    <a class="zw-railitem @Active("config")" href="@SectionHref("config")" data-rail-item="config">
+                        <ShellIcon Name="sliders" /><span>Config</span>
+                    </a>
+                }
+                @if (_canViewMods)
+                {
+                    <a class="zw-railitem @Active("mods")" href="@SectionHref("mods")" data-rail-item="mods">
+                        <ShellIcon Name="package" /><span>Mods</span>
+                    </a>
+                }
+                @* Reserved for a future Mod Browser / Installer (#110) — disabled placeholder, not yet a section. *@
+                <span class="zw-railitem zw-railitem-soon" data-rail-item="modbrowser" data-rail-soon aria-disabled="true">
+                    <ShellIcon Name="search" /><span>Mod Browser</span><span class="zw-rail-soon">soon</span>
+                </span>
+            }
+
+            @if (_backupPerm.CanView || _canViewDiagnostics)
+            {
+                <div class="zw-railgrp">Maintain</div>
+                @if (_backupPerm.CanView)
+                {
+                    <a class="zw-railitem @Active("backups")" href="@SectionHref("backups")" data-rail-item="backups">
+                        <ShellIcon Name="archive" /><span>Backups</span>
+                    </a>
+                }
+                @if (_canViewDiagnostics)
+                {
+                    <a class="zw-railitem @Active("diagnostics")" href="@SectionHref("diagnostics")" data-rail-item="diagnostics">
+                        <ShellIcon Name="activity" /><span>Diagnostics</span>
+                    </a>
+                }
+            }
+        </nav>
+
+        <div class="zw-secbody" data-section="@_activeSection">
+    @if (_activeSection == "overview")
+    {
+        <div class="grid gap-6 sm:grid-cols-2" data-overview>
+            <BbCard Class="p-5">
+                <h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Details</h2>
+                <dl class="mt-3 space-y-2 text-sm">
+                    <div class="flex justify-between gap-4">
+                        <dt class="text-muted-foreground">Host</dt>
+                        <dd class="font-mono text-xs">@_server.AgentId</dd>
+                    </div>
+                    <div class="flex justify-between gap-4">
+                        <dt class="text-muted-foreground">Ports</dt>
+                        <dd class="font-mono tabular-nums text-xs">@Ports()</dd>
+                    </div>
+                    <div class="flex justify-between gap-4">
+                        <dt class="text-muted-foreground">Last-reported health</dt>
+                        <dd data-last-health>@(_server.LastHealth?.ToString() ?? "—")</dd>
+                    </div>
+                    <div class="flex justify-between gap-4">
+                        <dt class="text-muted-foreground">Health reported (UTC)</dt>
+                        <dd class="tabular-nums">@Reported(_server.LastHealthReportedAt)</dd>
+                    </div>
+                </dl>
+            </BbCard>
+
+            <BbCard Class="p-5">
+                <h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Live telemetry</h2>
+                <div class="mt-3">
+                    <LiveServerPanel @rendermode="InteractiveServer"
+                                     ServerId="@_server.Id.ToString()"
+                                     AgentId="@_server.AgentId.ToString()"
+                                     InitialHealth="@(_server.LastHealth?.ToString())" />
+                </div>
+            </BbCard>
+        </div>
+    }
+
+    @if (_activeSection == "logs")
+    {
+        <BbCard Class="p-5" data-logs-card>
             <h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Live logs</h2>
             <p class="mt-1 text-xs text-muted-foreground">
                 The server's live console output (stdout and stderr), streamed from the host only while this panel is
@@ -113,9 +226,9 @@ else
         </BbCard>
     }
 
-    @if (_canExecuteConsole)
+    @if (_activeSection == "console")
     {
-        <BbCard Class="mt-6 p-5" data-console-card>
+        <BbCard Class="p-5" data-console-card>
             <h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Console</h2>
             <p class="mt-1 text-xs text-muted-foreground">
                 Run an admin RCON command against the running server. Quote multi-word arguments
@@ -162,9 +275,9 @@ else
         </BbCard>
     }
 
-    @if (_canViewDiagnostics)
+    @if (_activeSection == "diagnostics")
     {
-        <BbCard Class="mt-6 p-5" data-diagnostics-card>
+        <BbCard Class="p-5" data-diagnostics-card>
             <h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Diagnostics</h2>
             <p class="mt-1 text-xs text-muted-foreground">
                 Run a read-only diagnostics gather for this server — RCON, game port, filesystem, SteamCMD, mods,
@@ -207,9 +320,9 @@ else
         </BbCard>
     }
 
-    @if (_perm.CanAny)
+    @if (_activeSection == "players")
     {
-        <BbCard Class="mt-6 p-5" data-players-card>
+        <BbCard Class="p-5" data-players-card>
             <h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Players</h2>
 
             @if (_playerMessage is not null)
@@ -348,9 +461,9 @@ else
         </BbCard>
     }
 
-    @if (_canViewMods)
+    @if (_activeSection == "mods")
     {
-        <BbCard Class="mt-6 p-5" data-mods-card>
+        <BbCard Class="p-5" data-mods-card>
             <h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Mods</h2>
             <p class="mt-1 text-xs text-muted-foreground">
                 The Workshop content this server has on disk and the mods each item provides, reconciled against the
@@ -536,9 +649,9 @@ else
         </BbCard>
     }
 
-    @if (_perm.CanConfigEdit)
+    @if (_activeSection == "config")
     {
-        <BbCard Class="mt-6 p-5" data-config-card>
+        <BbCard Class="p-5" data-config-card>
             <h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Configuration</h2>
             <p class="mt-1 text-xs text-muted-foreground">
                 Change a single setting's value in one of this server's four configuration files. Each edit is
@@ -663,9 +776,9 @@ else
         </BbCard>
     }
 
-    @if (_backupPerm.CanView)
+    @if (_activeSection == "backups")
     {
-        <BbCard Class="mt-6 p-5" data-backups-card>
+        <BbCard Class="p-5" data-backups-card>
             <h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Backups</h2>
             <p class="mt-1 text-xs text-muted-foreground">
                 A backup is a verifiable <span class="font-mono">.tar.gz</span> copy of this server's world data,
@@ -739,14 +852,23 @@ else
             </EditForm>
         </BbCard>
     }
+        </div>
+    </div>
 }
 
 @code {
     [Parameter]
     public string Id { get; set; } = string.Empty;
 
+    // Which rail section to render (#162). Absent, unknown, or unauthorized falls back to overview (fail-closed).
+    [SupplyParameterFromQuery]
+    public string? Section { get; set; }
+
     [CascadingParameter]
     private Task<AuthenticationState>? AuthState { get; set; }
+
+    [SupplyParameterFromForm(FormName = "server-lifecycle")]
+    private LifecycleModel _lifecycleForm { get; set; } = default!;
 
     [SupplyParameterFromForm(FormName = "player-action")]
     private PlayerActionModel _actionForm { get; set; } = default!;
@@ -776,6 +898,12 @@ else
     private BackupManageModel _backupForm { get; set; } = default!;
 
     private ServerSummary? _server;
+    private string _activeSection = "overview";
+    private bool _canStart;
+    private bool _canStop;
+    private bool _canRestartServer;
+    private string? _lifecycleMessage;
+    private AlertVariant _lifecycleAlert = AlertVariant.Warning;
     private PlayerPermissions _perm;
     private bool _canViewLogs;
     private bool _canExecuteConsole;
@@ -818,6 +946,7 @@ else
         _modManageForm ??= new ModManageModel();
         _backupForm ??= new BackupManageModel();
         _diagnosticsForm ??= new DiagnosticsFormModel();
+        _lifecycleForm ??= new LifecycleModel();
         _configForm.File ??= nameof(PzConfigFile.Ini);
         _configForm.Kind ??= nameof(ConfigEditKind.Bool);
         _selectedFile = ParseFile(_configForm.File);
@@ -838,6 +967,9 @@ else
             _canViewDiagnostics = (await PermissionChecker.EvaluateAsync(user, Permissions.DiagnosticsView)).IsAllowed;
             _canExportDiagnostics = (await PermissionChecker.EvaluateAsync(user, Permissions.DiagnosticsExport)).IsAllowed;
             _canViewMods = (await PermissionChecker.EvaluateAsync(user, Permissions.ModView, serverId)).IsAllowed;
+            _canStart = (await PermissionChecker.EvaluateAsync(user, Permissions.ServerStart, serverId)).IsAllowed;
+            _canStop = (await PermissionChecker.EvaluateAsync(user, Permissions.ServerStop, serverId)).IsAllowed;
+            _canRestartServer = (await PermissionChecker.EvaluateAsync(user, Permissions.ServerRestart, serverId)).IsAllowed;
             await LoadModManagementAsync(user, serverId);
             if (_perm.CanConfigEdit)
             {
@@ -845,7 +977,88 @@ else
             }
 
             await LoadBackupsAsync(user, serverId);
+
+            // Resolve the active section only after the per-section gates are known, so an unknown or
+            // unauthorized ?section= fails closed to the always-available overview.
+            _activeSection = ResolveSection(Section);
         }
+    }
+
+    // The rail is fail-closed: a section is selectable only where the operator holds its per-server permission.
+    private string ResolveSection(string? requested) => requested switch
+    {
+        "players" when _perm.CanAny => "players",
+        "console" when _canExecuteConsole => "console",
+        "logs" when _canViewLogs => "logs",
+        "config" when _perm.CanConfigEdit => "config",
+        "mods" when _canViewMods => "mods",
+        "backups" when _backupPerm.CanView => "backups",
+        "diagnostics" when _canViewDiagnostics => "diagnostics",
+        _ => "overview",
+    };
+
+    private string Active(string section) => _activeSection == section ? "active" : string.Empty;
+
+    private string SectionHref(string section) => section == "overview"
+        ? $"/servers/{Id}"
+        : $"/servers/{Id}?section={section}";
+
+    // Lifecycle buttons are enabled by the last observed run-state; the service still re-checks on submit.
+    private bool StartEnabled => _server is { LastRunState: ServerRunState.Stopped or ServerRunState.Failed or ServerRunState.Unknown };
+    private bool StopEnabled => _server is { LastRunState: ServerRunState.Running or ServerRunState.Starting };
+    private bool RestartEnabled => _server is { LastRunState: ServerRunState.Running };
+
+    private async Task LifecycleAsync()
+    {
+        if (_server is null || !ServerId.TryParse(Id, out ServerId serverId))
+        {
+            return;
+        }
+
+        UserId user = await CurrentUserAsync();
+        string command = _lifecycleForm?.Command ?? string.Empty;
+        ServerLifecycleResult? result = command switch
+        {
+            "start" => await Lifecycle.StartAsync(user, serverId),
+            "stop" => await Lifecycle.StopAsync(user, serverId),
+            "restart" => await Lifecycle.RestartAsync(user, serverId),
+            _ => null,
+        };
+
+        SetLifecycleResult(command, result);
+    }
+
+    private void SetLifecycleResult(string command, ServerLifecycleResult? result)
+    {
+        if (result is null)
+        {
+            _lifecycleAlert = AlertVariant.Warning;
+            _lifecycleMessage = "Choose a lifecycle action.";
+            return;
+        }
+
+        if (result.Succeeded)
+        {
+            string what = command switch
+            {
+                "start" => "Start",
+                "stop" => "Stop",
+                "restart" => "Restart",
+                _ => "Action",
+            };
+            _lifecycleAlert = AlertVariant.Success;
+            _lifecycleMessage = $"{what} enqueued (operation {result.Operation}). The run-state updates once the server reports it.";
+            return;
+        }
+
+        _lifecycleAlert = AlertVariant.Warning;
+        _lifecycleMessage = result.Failure switch
+        {
+            ServerLifecycleFailure.NotAuthorized => "You are not permitted to perform that action on this server.",
+            ServerLifecycleFailure.ServerNotFound => "That server is no longer available.",
+            ServerLifecycleFailure.ServerBusy => "The server is busy with another operation; try again once it finishes.",
+            _ => "The action could not be started.",
+        };
     }
 
     private async Task LoadModManagementAsync(UserId user, ServerId serverId)
@@ -1498,6 +1711,12 @@ else
     private sealed class BackupManageModel
     {
         // The submit button's command token: "create", or "delete|{backupId}" for a per-row delete.
+        public string? Command { get; set; }
+    }
+
+    private sealed class LifecycleModel
+    {
+        // The header lifecycle button's verb: "start" / "stop" / "restart".
         public string? Command { get; set; }
     }
 

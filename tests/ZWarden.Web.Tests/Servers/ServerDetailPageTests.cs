@@ -31,7 +31,7 @@ public sealed class ServerDetailPageTests
         HttpClient client = await SignedInOperatorAsync(factory);
         ServerId serverId = await SeedServerAsync(factory, "player-managed");
 
-        string html = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+        string html = await (await client.GetAsync(new Uri($"/servers/{serverId}?section=players", UriKind.Relative))).Content.ReadAsStringAsync();
 
         await Assert.That(html).Contains("data-players-card");
         await Assert.That(html).Contains("data-action=\"refresh\"");
@@ -55,14 +55,14 @@ public sealed class ServerDetailPageTests
         HttpClient client = await SignedInOperatorAsync(factory);
         ServerId serverId = await SeedServerAsync(factory, "enumerable");
 
-        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}?section=players", UriKind.Relative))).Content.ReadAsStringAsync();
         Dictionary<string, string> form = new(StringComparer.Ordinal)
         {
             ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
             ["_handler"] = "player-action",
             ["_actionForm.Target"] = "refresh",
         };
-        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}", UriKind.Relative), new FormUrlEncodedContent(form));
+        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}?section=players", UriKind.Relative), new FormUrlEncodedContent(form));
 
         await Assert.That((int)post.StatusCode).IsLessThan(400);
         await Assert.That(EnqueuedKind(factory, serverId, OperationKind.ListPlayers)).IsTrue();
@@ -76,7 +76,7 @@ public sealed class ServerDetailPageTests
         HttpClient client = await SignedInOperatorAsync(factory);
         ServerId serverId = await SeedServerAsync(factory, "kickable");
 
-        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}?section=players", UriKind.Relative))).Content.ReadAsStringAsync();
         Dictionary<string, string> form = new(StringComparer.Ordinal)
         {
             ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
@@ -84,7 +84,7 @@ public sealed class ServerDetailPageTests
             ["_actionForm.Target"] = "kick",
             ["_actionForm.Username"] = "Bob",
         };
-        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}", UriKind.Relative), new FormUrlEncodedContent(form));
+        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}?section=players", UriKind.Relative), new FormUrlEncodedContent(form));
 
         await Assert.That((int)post.StatusCode).IsLessThan(400);
         using IServiceScope scope = factory.Services.CreateScope();
@@ -103,7 +103,7 @@ public sealed class ServerDetailPageTests
         HttpClient client = await SignedInOperatorAsync(factory);
         ServerId serverId = await SeedServerAsync(factory, "exportable");
 
-        string html = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+        string html = await (await client.GetAsync(new Uri($"/servers/{serverId}?section=diagnostics", UriKind.Relative))).Content.ReadAsStringAsync();
 
         await Assert.That(html).Contains("data-diagnostics-card");
         await Assert.That(html).Contains("data-action=\"export-support-package\"");
@@ -119,7 +119,7 @@ public sealed class ServerDetailPageTests
         HttpClient client = await SignedInOperatorAsync(factory);
         ServerId serverId = await SeedServerAsync(factory, "configurable");
 
-        string html = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+        string html = await (await client.GetAsync(new Uri($"/servers/{serverId}?section=config", UriKind.Relative))).Content.ReadAsStringAsync();
 
         await Assert.That(html).Contains("data-config-card");
         await Assert.That(html).Contains("data-action=\"config-apply\"");
@@ -136,7 +136,7 @@ public sealed class ServerDetailPageTests
         HttpClient client = await SignedInOperatorAsync(factory);
         ServerId serverId = await SeedServerAsync(factory, "editable");
 
-        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}?section=config", UriKind.Relative))).Content.ReadAsStringAsync();
         Dictionary<string, string> form = new(StringComparer.Ordinal)
         {
             ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
@@ -147,7 +147,7 @@ public sealed class ServerDetailPageTests
             ["_configForm.Value"] = "1",
             ["_configForm.Target"] = "apply",
         };
-        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}", UriKind.Relative), new FormUrlEncodedContent(form));
+        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}?section=config", UriKind.Relative), new FormUrlEncodedContent(form));
 
         await Assert.That((int)post.StatusCode).IsLessThan(400);
         using IServiceScope scope = factory.Services.CreateScope();
@@ -167,7 +167,7 @@ public sealed class ServerDetailPageTests
         ServerId serverId = await SeedServerAsync(factory, "with-history");
         await SeedRevisionAsync(factory, serverId, PzConfigFile.Ini, "[[\"PublicName\",\"s:First\"]]", DateTimeOffset.UtcNow);
 
-        string html = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+        string html = await (await client.GetAsync(new Uri($"/servers/{serverId}?section=config", UriKind.Relative))).Content.ReadAsStringAsync();
 
         await Assert.That(html).Contains("data-revisions-table");
         await Assert.That(html).Contains("data-revision-row");
@@ -185,14 +185,14 @@ public sealed class ServerDetailPageTests
         ConfigurationRevisionId older = await SeedRevisionAsync(factory, serverId, PzConfigFile.Ini, "[[\"PublicName\",\"s:First\"]]", t0);
         await SeedRevisionAsync(factory, serverId, PzConfigFile.Ini, "[[\"PublicName\",\"s:Second\"]]", t0.AddMinutes(5));
 
-        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}?section=config", UriKind.Relative))).Content.ReadAsStringAsync();
         Dictionary<string, string> form = new(StringComparer.Ordinal)
         {
             ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
             ["_handler"] = "config-restore",
             ["_restoreForm.Target"] = $"{PzConfigFile.Ini}|{older}",
         };
-        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}", UriKind.Relative), new FormUrlEncodedContent(form));
+        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}?section=config", UriKind.Relative), new FormUrlEncodedContent(form));
 
         await Assert.That((int)post.StatusCode).IsLessThan(400);
         using IServiceScope scope = factory.Services.CreateScope();
@@ -222,7 +222,7 @@ public sealed class ServerDetailPageTests
         HttpClient client = await SignedInOperatorAsync(factory);
         ServerId serverId = await SeedServerAsync(factory, "mod-managed");
 
-        string html = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+        string html = await (await client.GetAsync(new Uri($"/servers/{serverId}?section=mods", UriKind.Relative))).Content.ReadAsStringAsync();
 
         await Assert.That(html).Contains("data-mods-card");
         await Assert.That(html).Contains("data-action=\"mod-refresh\"");
@@ -238,13 +238,13 @@ public sealed class ServerDetailPageTests
         HttpClient client = await SignedInOperatorAsync(factory);
         ServerId serverId = await SeedServerAsync(factory, "discoverable");
 
-        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}?section=mods", UriKind.Relative))).Content.ReadAsStringAsync();
         Dictionary<string, string> form = new(StringComparer.Ordinal)
         {
             ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
             ["_handler"] = "mod-discovery",
         };
-        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}", UriKind.Relative), new FormUrlEncodedContent(form));
+        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}?section=mods", UriKind.Relative), new FormUrlEncodedContent(form));
 
         await Assert.That((int)post.StatusCode).IsLessThan(400);
         await Assert.That(EnqueuedKind(factory, serverId, OperationKind.ModDiscovery)).IsTrue();
@@ -258,7 +258,7 @@ public sealed class ServerDetailPageTests
         HttpClient client = await SignedInOperatorAsync(factory);
         ServerId serverId = await SeedServerAsync(factory, "manageable");
 
-        string html = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+        string html = await (await client.GetAsync(new Uri($"/servers/{serverId}?section=mods", UriKind.Relative))).Content.ReadAsStringAsync();
 
         await Assert.That(html).Contains("data-mod-manage");
         // No inventory observed yet, so the actionable controls are withheld until discovery runs.
@@ -282,7 +282,7 @@ public sealed class ServerDetailPageTests
             workshop: ["100", "200"],
             enabled: ["ModA"]);
 
-        string html = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+        string html = await (await client.GetAsync(new Uri($"/servers/{serverId}?section=mods", UriKind.Relative))).Content.ReadAsStringAsync();
 
         await Assert.That(html).DoesNotContain("data-mod-manage-awaiting");
         await Assert.That(html).Contains("data-action=\"mod-add\"");
@@ -306,7 +306,7 @@ public sealed class ServerDetailPageTests
         (ServerId serverId, AgentId agent) = await SeedServerAndAgentAsync(factory, "addable");
         SeedInventory(factory, serverId, agent, installed: [], workshop: ["100"], enabled: []);
 
-        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}?section=mods", UriKind.Relative))).Content.ReadAsStringAsync();
         Dictionary<string, string> form = new(StringComparer.Ordinal)
         {
             ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
@@ -314,7 +314,7 @@ public sealed class ServerDetailPageTests
             ["_modManageForm.WorkshopId"] = "200",
             ["_modManageForm.Command"] = "add",
         };
-        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}", UriKind.Relative), new FormUrlEncodedContent(form));
+        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}?section=mods", UriKind.Relative), new FormUrlEncodedContent(form));
 
         await Assert.That((int)post.StatusCode).IsLessThan(400);
         Operation? op = FirstOperation(factory, serverId, OperationKind.ConfigApply);
@@ -337,7 +337,7 @@ public sealed class ServerDetailPageTests
             workshop: ["100"],
             enabled: []);
 
-        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}?section=mods", UriKind.Relative))).Content.ReadAsStringAsync();
         Dictionary<string, string> form = new(StringComparer.Ordinal)
         {
             ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
@@ -345,7 +345,7 @@ public sealed class ServerDetailPageTests
             ["_modManageForm.EnableModId"] = "ModB",
             ["_modManageForm.Command"] = "enable",
         };
-        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}", UriKind.Relative), new FormUrlEncodedContent(form));
+        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}?section=mods", UriKind.Relative), new FormUrlEncodedContent(form));
 
         await Assert.That((int)post.StatusCode).IsLessThan(400);
         Operation? op = FirstOperation(factory, serverId, OperationKind.ConfigApply);
@@ -367,14 +367,14 @@ public sealed class ServerDetailPageTests
             workshop: ["100"],
             enabled: ["ModA", "ModB"]);
 
-        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}?section=mods", UriKind.Relative))).Content.ReadAsStringAsync();
         Dictionary<string, string> form = new(StringComparer.Ordinal)
         {
             ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
             ["_handler"] = "mod-manage",
             ["_modManageForm.Command"] = "disable|ModB",
         };
-        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}", UriKind.Relative), new FormUrlEncodedContent(form));
+        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}?section=mods", UriKind.Relative), new FormUrlEncodedContent(form));
 
         await Assert.That((int)post.StatusCode).IsLessThan(400);
         Operation? op = FirstOperation(factory, serverId, OperationKind.ConfigApply);
@@ -391,14 +391,14 @@ public sealed class ServerDetailPageTests
         (ServerId serverId, AgentId agent) = await SeedServerAndAgentAsync(factory, "updatable");
         SeedInventory(factory, serverId, agent, installed: [], workshop: ["100"], enabled: []);
 
-        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}?section=mods", UriKind.Relative))).Content.ReadAsStringAsync();
         Dictionary<string, string> form = new(StringComparer.Ordinal)
         {
             ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
             ["_handler"] = "mod-manage",
             ["_modManageForm.Command"] = "update",
         };
-        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}", UriKind.Relative), new FormUrlEncodedContent(form));
+        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}?section=mods", UriKind.Relative), new FormUrlEncodedContent(form));
 
         await Assert.That((int)post.StatusCode).IsLessThan(400);
         await Assert.That(EnqueuedKind(factory, serverId, OperationKind.UpdateServer)).IsTrue();
@@ -413,14 +413,14 @@ public sealed class ServerDetailPageTests
         (ServerId serverId, AgentId agent) = await SeedServerAndAgentAsync(factory, "restartable-mods");
         SeedInventory(factory, serverId, agent, installed: [], workshop: ["100"], enabled: []);
 
-        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}?section=mods", UriKind.Relative))).Content.ReadAsStringAsync();
         Dictionary<string, string> form = new(StringComparer.Ordinal)
         {
             ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
             ["_handler"] = "mod-manage",
             ["_modManageForm.Command"] = "restart",
         };
-        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}", UriKind.Relative), new FormUrlEncodedContent(form));
+        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}?section=mods", UriKind.Relative), new FormUrlEncodedContent(form));
 
         await Assert.That((int)post.StatusCode).IsLessThan(400);
         await Assert.That(EnqueuedKind(factory, serverId, OperationKind.RestartServer)).IsTrue();
@@ -434,7 +434,7 @@ public sealed class ServerDetailPageTests
         HttpClient client = await SignedInOperatorAsync(factory);
         ServerId serverId = await SeedServerAsync(factory, "log-viewable");
 
-        string html = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+        string html = await (await client.GetAsync(new Uri($"/servers/{serverId}?section=logs", UriKind.Relative))).Content.ReadAsStringAsync();
 
         await Assert.That(html).Contains("data-logs-card");
         await Assert.That(html).Contains("data-live-logs");
@@ -450,7 +450,7 @@ public sealed class ServerDetailPageTests
         HttpClient client = await SignedInOperatorAsync(factory);
         ServerId serverId = await SeedServerAsync(factory, "console-runnable");
 
-        string html = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+        string html = await (await client.GetAsync(new Uri($"/servers/{serverId}?section=console", UriKind.Relative))).Content.ReadAsStringAsync();
 
         await Assert.That(html).Contains("data-console-card");
         await Assert.That(html).Contains("data-action=\"run-console\"");
@@ -468,14 +468,14 @@ public sealed class ServerDetailPageTests
         HttpClient client = await SignedInOperatorAsync(factory);
         ServerId serverId = await SeedServerAsync(factory, "console-enqueue");
 
-        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}?section=console", UriKind.Relative))).Content.ReadAsStringAsync();
         Dictionary<string, string> form = new(StringComparer.Ordinal)
         {
             ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
             ["_handler"] = "console-command",
             ["_consoleForm.Input"] = "servermsg \"hello\"",
         };
-        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}", UriKind.Relative), new FormUrlEncodedContent(form));
+        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}?section=console", UriKind.Relative), new FormUrlEncodedContent(form));
 
         await Assert.That((int)post.StatusCode).IsLessThan(400);
         using IServiceScope scope = factory.Services.CreateScope();
@@ -494,14 +494,14 @@ public sealed class ServerDetailPageTests
         HttpClient client = await SignedInOperatorAsync(factory);
         ServerId serverId = await SeedServerAsync(factory, "console-denied");
 
-        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}?section=console", UriKind.Relative))).Content.ReadAsStringAsync();
         Dictionary<string, string> form = new(StringComparer.Ordinal)
         {
             ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
             ["_handler"] = "console-command",
             ["_consoleForm.Input"] = "setpassword \"bob\" \"pw\"",
         };
-        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}", UriKind.Relative), new FormUrlEncodedContent(form));
+        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}?section=console", UriKind.Relative), new FormUrlEncodedContent(form));
 
         await Assert.That((int)post.StatusCode).IsLessThan(400);
         using IServiceScope scope = factory.Services.CreateScope();
@@ -518,7 +518,7 @@ public sealed class ServerDetailPageTests
         HttpClient client = await SignedInOperatorAsync(factory);
         ServerId serverId = await SeedServerAsync(factory, "backup-viewable");
 
-        string html = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+        string html = await (await client.GetAsync(new Uri($"/servers/{serverId}?section=backups", UriKind.Relative))).Content.ReadAsStringAsync();
 
         await Assert.That(html).Contains("data-backups-card");
         await Assert.That(html).Contains("data-action=\"backup-create\"");
@@ -533,14 +533,14 @@ public sealed class ServerDetailPageTests
         HttpClient client = await SignedInOperatorAsync(factory);
         ServerId serverId = await SeedServerAsync(factory, "backup-takeable");
 
-        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}?section=backups", UriKind.Relative))).Content.ReadAsStringAsync();
         Dictionary<string, string> form = new(StringComparer.Ordinal)
         {
             ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
             ["_handler"] = "backup-manage",
             ["_backupForm.Command"] = "create",
         };
-        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}", UriKind.Relative), new FormUrlEncodedContent(form));
+        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}?section=backups", UriKind.Relative), new FormUrlEncodedContent(form));
 
         await Assert.That((int)post.StatusCode).IsLessThan(400);
         Operation? op = FirstOperation(factory, serverId, OperationKind.Backup);
@@ -558,7 +558,7 @@ public sealed class ServerDetailPageTests
         (ServerId serverId, AgentId agent) = await SeedServerAndAgentAsync(factory, "backup-deletable");
         BackupId backupId = await SeedBackupAsync(factory, serverId, agent, "world-1.tar.gz");
 
-        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}?section=backups", UriKind.Relative))).Content.ReadAsStringAsync();
         await Assert.That(page).Contains("data-backup-row");
         Dictionary<string, string> form = new(StringComparer.Ordinal)
         {
@@ -566,7 +566,7 @@ public sealed class ServerDetailPageTests
             ["_handler"] = "backup-manage",
             ["_backupForm.Command"] = $"delete|{backupId}",
         };
-        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}", UriKind.Relative), new FormUrlEncodedContent(form));
+        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}?section=backups", UriKind.Relative), new FormUrlEncodedContent(form));
 
         await Assert.That((int)post.StatusCode).IsLessThan(400);
         Operation? op = FirstOperation(factory, serverId, OperationKind.DeleteBackup);
@@ -584,7 +584,7 @@ public sealed class ServerDetailPageTests
         (ServerId serverId, AgentId agent) = await SeedServerAndAgentAsync(factory, "backup-restorable");
         BackupId backupId = await SeedBackupAsync(factory, serverId, agent, "world-1.tar.gz");
 
-        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}?section=backups", UriKind.Relative))).Content.ReadAsStringAsync();
         await Assert.That(page).Contains("data-action=\"backup-restore\"");
         Dictionary<string, string> form = new(StringComparer.Ordinal)
         {
@@ -592,7 +592,7 @@ public sealed class ServerDetailPageTests
             ["_handler"] = "backup-manage",
             ["_backupForm.Command"] = $"restore|{backupId}",
         };
-        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}", UriKind.Relative), new FormUrlEncodedContent(form));
+        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}?section=backups", UriKind.Relative), new FormUrlEncodedContent(form));
 
         await Assert.That((int)post.StatusCode).IsLessThan(400);
         Operation? op = FirstOperation(factory, serverId, OperationKind.Restore);
