@@ -44,10 +44,6 @@ public interface IServerConfigWriter
 /// </summary>
 public sealed class ServerConfigWriter : IServerConfigWriter
 {
-    // ZWarden provisions with the default PZ server name; the four config files share this prefix (see
-    // RconServerConfig and the container launch -servername).
-    private const string ServerName = "servertest";
-
     private readonly IPzConfigParser _parser;
     private readonly AgentOptions _options;
 
@@ -69,11 +65,11 @@ public sealed class ServerConfigWriter : IServerConfigWriter
     {
         ArgumentNullException.ThrowIfNull(edits);
 
-        string path = ConfigPath(serverId, file);
+        string path = ServerConfigFiles.PathFor(_options.DataMountRoot, serverId, file);
         if (!File.Exists(path))
         {
             return ConfigApplyOutcome.Failed(
-                $"The {FileName(file)} configuration file does not exist for this server yet.");
+                $"The {ServerConfigFiles.FileName(file)} configuration file does not exist for this server yet.");
         }
 
         byte[] bytes;
@@ -86,7 +82,7 @@ public sealed class ServerConfigWriter : IServerConfigWriter
             return ConfigApplyOutcome.Failed($"Could not read the configuration file: {ex.Message}");
         }
 
-        PzConfigReadResult read = _parser.Open(ToKind(file), bytes);
+        PzConfigReadResult read = _parser.Open(ServerConfigFiles.ToKind(file), bytes);
         if (!read.Parsed || read.Document is not { } document)
         {
             string detail = read.Diagnostics.Count > 0 ? read.Diagnostics[0].Message : "unknown error";
@@ -133,27 +129,6 @@ public sealed class ServerConfigWriter : IServerConfigWriter
         PzValueSnapshot snapshot = PzValueSnapshot.Of(document);
         return ConfigApplyOutcome.Applied(snapshot.CanonicalText, snapshot.Hash, applied);
     }
-
-    private string ConfigPath(ServerId serverId, PzConfigFile file) =>
-        Path.Combine(_options.DataMountRoot, serverId.ToString(), "Server", FileName(file));
-
-    private static string FileName(PzConfigFile file) => file switch
-    {
-        PzConfigFile.Ini => $"{ServerName}.ini",
-        PzConfigFile.SandboxVars => $"{ServerName}_SandboxVars.lua",
-        PzConfigFile.SpawnRegions => $"{ServerName}_spawnregions.lua",
-        PzConfigFile.SpawnPoints => $"{ServerName}_spawnpoints.lua",
-        _ => throw new ArgumentOutOfRangeException(nameof(file), file, "Unknown configuration file."),
-    };
-
-    private static PzConfigKind ToKind(PzConfigFile file) => file switch
-    {
-        PzConfigFile.Ini => PzConfigKind.Ini,
-        PzConfigFile.SandboxVars => PzConfigKind.SandboxVars,
-        PzConfigFile.SpawnRegions => PzConfigKind.SpawnRegions,
-        PzConfigFile.SpawnPoints => PzConfigKind.SpawnPoints,
-        _ => throw new ArgumentOutOfRangeException(nameof(file), file, "Unknown configuration file."),
-    };
 
     // Reconstructs the parser's value node from the wire edit. The command is control-plane input, but the Agent
     // re-validates it defensively before writing (a malformed number or boolean is an actionable failure, never
