@@ -44,6 +44,16 @@ public sealed class AuditEventRepository : TenantScopedRepository<AuditEvent>
         return Filter(query).CountAsync(cancellationToken);
     }
 
+    /// <summary>The ambient tenant's distinct audit action names, ordered alphabetically (for the viewer's
+    /// action filter). Reads through the tenant-filtered root, so it never leaks another tenant's vocabulary.</summary>
+    public async Task<IReadOnlyList<string>> ListDistinctActionsAsync(CancellationToken cancellationToken = default)
+        => await Entities
+            .Select(a => a.Action)
+            .Distinct()
+            .OrderBy(a => a)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
     private IQueryable<AuditEvent> Filter(AuditQuery query)
     {
         IQueryable<AuditEvent> events = Entities;

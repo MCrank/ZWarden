@@ -1,0 +1,78 @@
+@* The audit table (#161) — the one interactive island on the otherwise static-SSR /audit page, for the same
+   reason as the Fleet board (#158): BbDataGrid renders inside an interactive render mode, not under pure static
+   SSR. The parent does the authorized, tenant-filtered load, resolves ids to display names, and hands the
+   already-projected rows in (a static snapshot of the current server-fetched page; the page's own prev/next links
+   do the server-side paging that scales to a large log). This island touches no tenant-scoped service — safe in a
+   circuit, which has no HttpContext (ADR 0040 posture) — it only renders the rows it was given. Bb-over-raw-HTML
+   (ADR 0003): BbDataGrid is the sanctioned dense table. All row text is untrusted audit data, rendered as data. *@
+
+<div data-audit-board>
+    <BbDataGrid TData="AuditRow"
+                Items="Rows"
+                ShowPagination="false"
+                StickyHeader="true"
+                AriaLabel="Audit events"
+                Class="text-sm">
+        <EmptyTemplate>
+            <div class="py-10 text-center text-sm text-muted-foreground" data-audit-empty>
+                No audit events match.
+            </div>
+        </EmptyTemplate>
+        <Columns>
+            <BbDataGridTemplateColumn TData="AuditRow" Title="Time (UTC)" Sortable="true" SortBy="@(r => (object)r.Time)">
+                <ChildContent Context="r"><span class="font-mono text-xs tabular-nums text-foreground" data-audit-row>@r.Time</span></ChildContent>
+            </BbDataGridTemplateColumn>
+
+            <BbDataGridTemplateColumn TData="AuditRow" Title="Actor" Sortable="true" SortBy="@(r => (object)(r.Actor ?? string.Empty))">
+                <ChildContent Context="r">
+                    @if (r.Actor is { } actor)
+                    {
+                        <span class="text-foreground" title="@r.ActorId">@actor</span>
+                    }
+                    else
+                    {
+                        <span class="text-muted-foreground">system</span>
+                    }
+                </ChildContent>
+            </BbDataGridTemplateColumn>
+
+            <BbDataGridTemplateColumn TData="AuditRow" Title="Action" Sortable="true" SortBy="@(r => (object)r.Action)">
+                <ChildContent Context="r">
+                    <span class="inline-block rounded-sm border border-border px-1.5 py-0.5 font-mono text-xs text-foreground">@r.Action</span>
+                    @if (!string.IsNullOrWhiteSpace(r.Detail))
+                    {
+                        <span class="mt-1 block max-w-xs truncate text-xs text-muted-foreground" title="@r.Detail">@r.Detail</span>
+                    }
+                </ChildContent>
+            </BbDataGridTemplateColumn>
+
+            <BbDataGridTemplateColumn TData="AuditRow" Title="Target">
+                <ChildContent Context="r">
+                    @if (r.Target is { } target)
+                    {
+                        <span class="text-foreground" title="@r.TargetId">@target</span>
+                    }
+                    else
+                    {
+                        <span class="text-muted-foreground">—</span>
+                    }
+                </ChildContent>
+            </BbDataGridTemplateColumn>
+
+            <BbDataGridTemplateColumn TData="AuditRow" Title="Result" Sortable="true" SortBy="@(r => (object)(int)r.Outcome)">
+                <ChildContent Context="r"><OutcomeBadge Outcome="r.Outcome" /></ChildContent>
+            </BbDataGridTemplateColumn>
+
+            <BbDataGridTemplateColumn TData="AuditRow" Title="Correlation">
+                <ChildContent Context="r"><span class="font-mono text-xs text-muted-foreground">@(r.Correlation ?? "—")</span></ChildContent>
+            </BbDataGridTemplateColumn>
+        </Columns>
+    </BbDataGrid>
+</div>
+
+@code {
+    /// <summary>The projected rows to show — the caller has already authorized, tenant-filtered, and paged them.</summary>
+    [Parameter]
+    [EditorRequired]
+    public IReadOnlyList<AuditRow> Rows { get; set; } = [];
+}

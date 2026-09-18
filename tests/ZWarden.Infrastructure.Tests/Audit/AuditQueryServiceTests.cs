@@ -74,6 +74,24 @@ public class AuditQueryServiceTests
     }
 
     [Test]
+    public async Task Lists_distinct_actions_alphabetically()
+    {
+        await WithSeededTenantA(async service =>
+        {
+            IReadOnlyList<string> actions = await service.ListActionsAsync();
+
+            string[] expected =
+            [
+                "Authentication.SignInFailed",
+                "Authentication.SignInSucceeded",
+                "Role.Created",
+                "Server.Started",
+            ];
+            await Assert.That(actions.SequenceEqual(expected)).IsTrue();
+        }, UserId.New(), ServerId.New());
+    }
+
+    [Test]
     public async Task A_tenant_never_sees_another_tenants_events()
     {
         await WithSqlite(async options =>

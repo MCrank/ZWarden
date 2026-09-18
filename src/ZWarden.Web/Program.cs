@@ -20,6 +20,7 @@ using ZWarden.Web.Operations;
 using ZWarden.Web.Components;
 using ZWarden.Web.Components.Account;
 using ZWarden.Web.Components.Agents;
+using ZWarden.Web.Components.Audit;
 using ZWarden.Web.Components.Console;
 using ZWarden.Web.Components.Diagnostics;
 using ZWarden.Web.Components.Operations;
@@ -128,6 +129,9 @@ app.MapServerEndpoints();
 app.MapPlayerEndpoints();
 app.MapConsoleEndpoints();
 app.MapDiagnosticsEndpoints();
+
+// The audit-trail CSV export (#161), gated by the same Audit.View policy as the viewer page.
+app.MapAuditEndpoints();
 
 // The SignalR Agent hub (F10) — Agents connect outbound here over WSS, authenticated by the "Agent" scheme.
 app.MapAgentHub();

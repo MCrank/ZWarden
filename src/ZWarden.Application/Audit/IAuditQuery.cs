@@ -12,4 +12,12 @@ public interface IAuditQuery
 
     /// <summary>The total number of matching audit events (ignoring paging), for the viewer's paging.</summary>
     Task<int> CountAsync(AuditQuery query, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The distinct action names present in the tenant's audit trail, ordered alphabetically — the source for
+    /// the viewer's "action" filter. Tenant-scoped like every other read (ADR 0016); the audit action vocabulary
+    /// is open and defined across features (each feature owns its <c>*AuditActions</c>), so the actual values that
+    /// have occurred are the only complete, tenant-relevant set.
+    /// </summary>
+    Task<IReadOnlyList<string>> ListActionsAsync(CancellationToken cancellationToken = default);
 }

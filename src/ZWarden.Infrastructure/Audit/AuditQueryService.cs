@@ -27,6 +27,9 @@ public sealed class AuditQueryService : IAuditQuery
     public Task<int> CountAsync(AuditQuery query, CancellationToken cancellationToken = default)
         => _repository.CountMatchingAsync(query, cancellationToken);
 
+    public Task<IReadOnlyList<string>> ListActionsAsync(CancellationToken cancellationToken = default)
+        => _repository.ListDistinctActionsAsync(cancellationToken);
+
     private static AuditEventView ToView(AuditEvent audit) => new(
         audit.Id,
         audit.OccurredAt,
