@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.DependencyInjection;
+using ZWarden.Application.Configuration;
 using ZWarden.Application.Mods;
 using ZWarden.Domain.Backups;
 using ZWarden.Domain.Configuration;
@@ -201,6 +202,145 @@ public sealed class ServerDetailPageTests
         await Assert.That(op).IsNotNull();
         await Assert.That(op!.CommandPayload).Contains("PublicName");
         client.Dispose();
+    }
+
+    [Test]
+    public async Task The_configuration_editor_renders_grouped_prefilled_controls_from_a_live_read()
+    {
+        await using ZWardenWebAppFactory factory = new()
+        {
+            ConfigureTestServicesHook = static s =>
+                s.AddSingleton<IServerConfigurationReader>(new FakeConfigReader(SampleView())),
+        };
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "live-config");
+
+        string html = await (await client.GetAsync(
+            new Uri($"/servers/{serverId}?section=config&file=SandboxVars", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        // The live editor form, its file tabs and raw view render from the read.
+        await Assert.That(html).Contains("data-cfg-form");
+        await Assert.That(html).Contains("data-config-tabs");
+        await Assert.That(html).Contains("data-config-raw");
+        // A setting's hidden path + a boolean toggle + a schema label are rendered.
+        await Assert.That(html).Contains("name=\"_editorForm.Rows[0].Path\"");
+        await Assert.That(html).Contains("zw-cfg-switch");
+        await Assert.That(html).Contains("Population");
+        // A ranged-enum's option labels come from the comment (rendered as select options).
+        await Assert.That(html).Contains(">Insane<");
+        // An unknown/mod key is flagged as passed through unvalidated (the "Other" section).
+        await Assert.That(html).Contains("Not in ZWarden's schema");
+        // The by-path Advanced fallback is still available.
+        await Assert.That(html).Contains("data-config-advanced");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task The_configuration_editor_applies_only_the_changed_settings()
+    {
+        await using ZWardenWebAppFactory factory = new()
+        {
+            ConfigureTestServicesHook = static s =>
+                s.AddSingleton<IServerConfigurationReader>(new FakeConfigReader(SampleView())),
+        };
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "live-config-apply");
+
+        Uri url = new($"/servers/{serverId}?section=config&file=SandboxVars", UriKind.Relative);
+        string page = await (await client.GetAsync(url)).Content.ReadAsStringAsync();
+        Dictionary<string, string> form = new(StringComparer.Ordinal)
+        {
+            ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
+            ["_handler"] = "config-editor",
+            ["_editorForm.File"] = "SandboxVars",
+            ["_editorForm.Target"] = "apply",
+            // Row 0 — PVP boolean, was true; its Flag is omitted (toggled off) so it must apply as false.
+            ["_editorForm.Rows[0].Path"] = "PVP",
+            ["_editorForm.Rows[0].Kind"] = "Bool",
+            ["_editorForm.Rows[0].Original"] = "true",
+            // Row 1 — PublicName unchanged.
+            ["_editorForm.Rows[1].Path"] = "PublicName",
+            ["_editorForm.Rows[1].Kind"] = "Text",
+            ["_editorForm.Rows[1].Original"] = "My Server",
+            ["_editorForm.Rows[1].Value"] = "My Server",
+            // Row 2 — Zombies changed 4 → 2.
+            ["_editorForm.Rows[2].Path"] = "Zombies",
+            ["_editorForm.Rows[2].Kind"] = "Number",
+            ["_editorForm.Rows[2].Original"] = "4",
+            ["_editorForm.Rows[2].Value"] = "2",
+            // Row 3 — the unknown key, unchanged.
+            ["_editorForm.Rows[3].Path"] = "XpMultiplierGlobal",
+            ["_editorForm.Rows[3].Kind"] = "Number",
+            ["_editorForm.Rows[3].Original"] = "1.5",
+            ["_editorForm.Rows[3].Value"] = "1.5",
+        };
+        HttpResponseMessage post = await client.PostAsync(url, new FormUrlEncodedContent(form));
+
+        await Assert.That((int)post.StatusCode).IsLessThan(400);
+        Operation? op = FirstOperation(factory, serverId, OperationKind.ConfigApply);
+        await Assert.That(op).IsNotNull();
+        await Assert.That(op!.IsMutating).IsTrue();
+        // Only the two changed settings ride the apply — PVP toggled off (false) and Zombies.
+        await Assert.That(op.CommandPayload).Contains("PVP");
+        await Assert.That(op.CommandPayload).Contains("false");
+        await Assert.That(op.CommandPayload).Contains("Zombies");
+        await Assert.That(op.CommandPayload).DoesNotContain("PublicName");
+        await Assert.That(op.CommandPayload).DoesNotContain("XpMultiplierGlobal");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task The_configuration_editor_shows_the_offline_state_when_the_host_is_unavailable()
+    {
+        // No fake reader — the real coordinator has no connected Agent, so the read is AgentOffline.
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "config-offline");
+
+        string html = await (await client.GetAsync(
+            new Uri($"/servers/{serverId}?section=config", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        await Assert.That(html).Contains("data-config-unavailable");
+        await Assert.That(html).Contains("offline");
+        // Without a live read the schema editor is withheld, but the by-path Advanced fallback remains usable.
+        await Assert.That(html).DoesNotContain("data-cfg-form");
+        await Assert.That(html).Contains("data-config-advanced");
+        client.Dispose();
+    }
+
+    private static ConfigDocumentView SampleView() => new(
+        ConfigReadOutcome.Read,
+        [
+            new ConfigSection("Access",
+            [
+                new ConfigSettingView("PVP", "PVP", ConfigEditKind.Bool, ConfigValueShape.Boolean, "true",
+                    null, null, null, "Allow player-versus-player combat.", [], KnownToSchema: true),
+                new ConfigSettingView("PublicName", "Public name", ConfigEditKind.Text, ConfigValueShape.Text,
+                    "My Server", null, null, null, null, [], KnownToSchema: true),
+            ]),
+            new ConfigSection("Zombies",
+            [
+                new ConfigSettingView("Zombies", "Population", ConfigEditKind.Number, ConfigValueShape.Whole, "4",
+                    1, 6, "4", "The zombie population.",
+                    [new ConfigOption("1", "Insane"), new ConfigOption("4", "Normal"), new ConfigOption("6", "None")],
+                    KnownToSchema: true),
+            ]),
+            new ConfigSection("Other",
+            [
+                new ConfigSettingView("XpMultiplierGlobal", "XpMultiplierGlobal", ConfigEditKind.Number,
+                    ConfigValueShape.Fractional, "1.5", null, null, null, null, [], KnownToSchema: false),
+            ]),
+        ],
+        "VERSION = 1,\nZombies = 4,\n",
+        "hash-abc",
+        [],
+        null);
+
+    private sealed class FakeConfigReader(ConfigDocumentView view) : IServerConfigurationReader
+    {
+        public Task<ConfigDocumentView> ReadAsync(
+            UserId user, ServerId server, PzConfigFile file, CancellationToken cancellationToken = default) =>
+            Task.FromResult(view);
     }
 
     private static async Task<ConfigurationRevisionId> SeedRevisionAsync(

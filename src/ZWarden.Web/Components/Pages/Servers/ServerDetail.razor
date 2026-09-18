@@ -24,6 +24,7 @@
 @inject IConsoleCommandService ConsoleService
 @inject IOperationCoordinator Operations
 @inject IServerConfigurationEditor ConfigEditor
+@inject IServerConfigurationReader ConfigReader
 @inject IServerConfigurationHistory ConfigHistory
 @inject IModDiscoveryService ModDiscovery
 @inject IServerModManager ModManager
@@ -654,11 +655,12 @@ else
         <BbCard Class="p-5" data-config-card>
             <h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Configuration</h2>
             <p class="mt-1 text-xs text-muted-foreground">
-                Change a single setting's value in one of this server's four configuration files. Each edit is
-                re-checked against the live file on the host and refused if the file changed outside ZWarden
-                (fail-closed), then written byte-for-byte and recorded as a revision. Adding or removing keys is
-                not supported — the game owns the key set. Sandbox and spawn changes take effect on the next
-                restart; <span class="font-mono">.ini</span> changes reload live.
+                The current values of this server's configuration files, read live from the host and grouped for
+                editing. Change as many settings as you like, then <span class="font-medium">Apply changes</span> —
+                each changed value is re-checked against the live file and refused if it changed outside ZWarden
+                (fail-closed), then written byte-for-byte and recorded as a revision. Adding or removing keys is not
+                supported — the game owns the key set. <span class="font-mono">.ini</span> changes reload live;
+                sandbox and spawn changes take effect on the next restart.
             </p>
 
             @if (_configMessage is not null)
@@ -670,43 +672,201 @@ else
                 </div>
             }
 
-            <EditForm Model="_configForm" FormName="server-config" OnValidSubmit="ConfigAsync" class="mt-4">
-                <DataAnnotationsValidator />
-                <div class="grid gap-3 sm:grid-cols-4">
-                    <div class="flex flex-col text-sm">
-                        <BbLabel For="config-file" Class="mb-1 text-muted-foreground">File</BbLabel>
-                        @* BbNativeSelect auto-derives only the leaf name under static SSR; set the full model path (#84). *@
-                        <BbNativeSelect TValue="string" Id="config-file" Name="_configForm.File" @bind-Value="_configForm!.File">
-                            <option value="Ini">servertest.ini</option>
-                            <option value="SandboxVars">SandboxVars.lua</option>
-                            <option value="SpawnRegions">spawnregions.lua</option>
-                            <option value="SpawnPoints">spawnpoints.lua</option>
-                        </BbNativeSelect>
+            @* File tabs — bookmarkable GET switching (?file=), like the section rail. Switching files discards
+               unsaved edits, which is why it is a navigation, not a form control. *@
+            <div class="zw-cfg-tabs" data-config-tabs>
+                @foreach (PzConfigFile file in ConfigFiles)
+                {
+                    <a class="zw-cfg-tab @(file == _selectedFile ? "active" : string.Empty)"
+                       href="@ConfigFileHref(file)" data-config-tab="@file">@FileLabel(file)</a>
+                }
+            </div>
+
+            @if (_configView is { IsRead: true } view && view.Sections.Count > 0)
+            {
+                <EditForm Model="_editorForm" FormName="config-editor" OnValidSubmit="ConfigEditorAsync"
+                          class="mt-2" data-cfg-form>
+                    <input type="hidden" name="_editorForm.File" value="@_selectedFile" />
+
+                    <div class="zw-cfg-toolbar">
+                        <label class="zw-cfg-searchbox">
+                            <ShellIcon Name="search" />
+                            <input type="search" placeholder="Search settings…" autocomplete="off"
+                                   spellcheck="false" aria-label="Search settings" data-cfg-search />
+                        </label>
+                        <span class="zw-spacer"></span>
+                        <a class="text-xs text-muted-foreground hover:text-foreground" href="@ConfigFileHref(_selectedFile)"
+                           data-action="config-reload">Reload from host</a>
+                        <BbButton Type="ButtonType.Submit" Size="ButtonSize.Small"
+                                  name="_editorForm.Target" value="apply" data-action="config-apply-batch">Apply changes</BbButton>
                     </div>
-                    <div class="flex flex-col text-sm">
-                        <BbLabel For="config-path" Class="mb-1 text-muted-foreground">Setting path</BbLabel>
-                        <BbInput Id="config-path" @bind-Value="_configForm!.Path" autocomplete="off" Placeholder="e.g. Map.AllowMiniMap" />
+
+                    <p class="mt-2 text-xs text-muted-foreground">@RestartHint(_selectedFile)</p>
+
+                    @{ int rowIndex = 0; }
+                    @foreach (ConfigSection section in view.Sections)
+                    {
+                        <details class="zw-cfg-sec" open data-cfg-sec>
+                            <summary>
+                                <span>@section.Name</span>
+                                <span class="zw-cfg-count">@section.Settings.Count</span>
+                            </summary>
+                            @foreach (ConfigSettingView setting in section.Settings)
+                            {
+                                int i = rowIndex++;
+                                ConfigEditorRow row = _editorForm.Rows.Count > i ? _editorForm.Rows[i] : new ConfigEditorRow();
+                                <div class="zw-cfg-row" data-cfg-row data-cfg-terms="@Terms(setting)"
+                                     data-cfg-original="@row.Original">
+                                    <input type="hidden" name="_editorForm.Rows[@i].Path" value="@row.Path" />
+                                    <input type="hidden" name="_editorForm.Rows[@i].Kind" value="@row.Kind" />
+                                    <input type="hidden" name="_editorForm.Rows[@i].Original" value="@row.Original" />
+
+                                    <div class="zw-cfg-name">
+                                        <span class="zw-cfg-changed-dot" aria-hidden="true">•</span>
+                                        <div class="min-w-0">
+                                            <span class="zw-cfg-labeltext">@setting.Label</span>
+                                            @if (!string.Equals(setting.Label, setting.Path, StringComparison.Ordinal))
+                                            {
+                                                <span class="zw-cfg-path">@setting.Path</span>
+                                            }
+                                        </div>
+                                        @if (HasHelp(setting))
+                                        {
+                                            <span class="zw-cfg-info" tabindex="0" role="button"
+                                                  aria-label="About @setting.Label">i<span class="zw-cfg-pop" role="tooltip">
+                                                @if (!string.IsNullOrWhiteSpace(setting.Tooltip))
+                                                {
+                                                    <div>@setting.Tooltip</div>
+                                                }
+                                                @if (setting.Options.Count > 0)
+                                                {
+                                                    <div class="zw-cfg-pop-meta">
+                                                        @foreach (ConfigOption opt in setting.Options)
+                                                        {
+                                                            <div>@opt.Value = @opt.Label</div>
+                                                        }
+                                                    </div>
+                                                }
+                                                @if (MetaText(setting) is { Length: > 0 } meta)
+                                                {
+                                                    <div class="zw-cfg-pop-meta">@meta</div>
+                                                }
+                                                @if (!setting.KnownToSchema)
+                                                {
+                                                    <div class="zw-cfg-pop-src">Not in ZWarden's schema — applied as-is, unvalidated.</div>
+                                                }
+                                            </span></span>
+                                        }
+                                    </div>
+
+                                    <div class="zw-cfg-control">
+                                        @if (setting.Options.Count > 0)
+                                        {
+                                            <select class="zw-cfg-input" name="_editorForm.Rows[@i].Value" data-cfg-value>
+                                                @foreach (ConfigOption opt in setting.Options)
+                                                {
+                                                    <option value="@opt.Value" selected="@(string.Equals(opt.Value, row.Value, StringComparison.Ordinal))">@opt.Label</option>
+                                                }
+                                                @if (!setting.Options.Any(o => string.Equals(o.Value, row.Value, StringComparison.Ordinal)))
+                                                {
+                                                    <option value="@row.Value" selected>@row.Value</option>
+                                                }
+                                            </select>
+                                        }
+                                        else if (setting.Shape == ConfigValueShape.Boolean)
+                                        {
+                                            <label class="zw-cfg-toggle">
+                                                <input type="checkbox" class="zw-cfg-switch" name="_editorForm.Rows[@i].Flag"
+                                                       value="true" checked="@row.Flag" data-cfg-value />
+                                                <span class="zw-cfg-state">@(row.Flag ? "On" : "Off")</span>
+                                            </label>
+                                        }
+                                        else if (setting.Shape is ConfigValueShape.Whole or ConfigValueShape.Fractional)
+                                        {
+                                            <input type="number" class="zw-cfg-input" name="_editorForm.Rows[@i].Value"
+                                                   value="@row.Value" data-cfg-value
+                                                   step="@(setting.Shape == ConfigValueShape.Whole ? "1" : "any")"
+                                                   min="@(setting.Min?.ToString(System.Globalization.CultureInfo.InvariantCulture))"
+                                                   max="@(setting.Max?.ToString(System.Globalization.CultureInfo.InvariantCulture))" />
+                                        }
+                                        else
+                                        {
+                                            <input type="text" class="zw-cfg-input" name="_editorForm.Rows[@i].Value"
+                                                   value="@row.Value" autocomplete="off" spellcheck="false" data-cfg-value />
+                                        }
+                                    </div>
+                                </div>
+                            }
+                        </details>
+                    }
+
+                    <div class="mt-4 flex flex-wrap gap-2">
+                        <BbButton Type="ButtonType.Submit" Size="ButtonSize.Small"
+                                  name="_editorForm.Target" value="apply" data-action="config-apply-batch-bottom">Apply changes</BbButton>
                     </div>
-                    <div class="flex flex-col text-sm">
-                        <BbLabel For="config-kind" Class="mb-1 text-muted-foreground">Type</BbLabel>
-                        <BbNativeSelect TValue="string" Id="config-kind" Name="_configForm.Kind" @bind-Value="_configForm!.Kind">
-                            <option value="Bool">true / false</option>
-                            <option value="Number">number</option>
-                            <option value="Text">text</option>
-                        </BbNativeSelect>
-                    </div>
-                    <div class="flex flex-col text-sm">
-                        <BbLabel For="config-value" Class="mb-1 text-muted-foreground">New value</BbLabel>
-                        <BbInput Id="config-value" @bind-Value="_configForm!.Value" autocomplete="off" />
-                    </div>
+                </EditForm>
+            }
+            else if (_configView is not null && !_configView.IsRead)
+            {
+                <div class="zw-cfg-empty" data-config-unavailable="@_configView.Outcome">
+                    @ReadOutcomeText(_configView)
                 </div>
-                <div class="mt-3 flex flex-wrap gap-2">
-                    <BbButton Type="ButtonType.Submit" Size="ButtonSize.Small"
-                              name="_configForm.Target" value="apply" data-action="config-apply">Apply edit</BbButton>
-                    <BbButton Variant="ButtonVariant.Outline" Type="ButtonType.Submit" Size="ButtonSize.Small"
-                              name="_configForm.Target" value="load" data-action="config-load">Load history</BbButton>
-                </div>
-            </EditForm>
+            }
+            else if (_configView is { IsRead: true })
+            {
+                <div class="zw-cfg-empty" data-config-empty>No editable settings were found in this file.</div>
+            }
+
+            @if (_configView?.RawText is { Length: > 0 } rawText)
+            {
+                <details class="zw-cfg-raw" data-config-raw>
+                    <summary><ShellIcon Name="scroll-text" /> Raw file — @FileLabel(_selectedFile)</summary>
+                    <pre>@rawText</pre>
+                </details>
+            }
+
+            @* Advanced: the by-path single-edit form. It needs no live read, so it stays available when the host is
+               offline, and covers a key the structured editor does not surface (e.g. a spawn-file value). *@
+            <details class="mt-6 border-t border-border pt-4" data-config-advanced>
+                <summary class="cursor-pointer text-sm font-medium">Advanced — edit a single setting by path</summary>
+                <EditForm Model="_configForm" FormName="server-config" OnValidSubmit="ConfigAsync" class="mt-3">
+                    <DataAnnotationsValidator />
+                    <div class="grid gap-3 sm:grid-cols-4">
+                        <div class="flex flex-col text-sm">
+                            <BbLabel For="config-file" Class="mb-1 text-muted-foreground">File</BbLabel>
+                            @* BbNativeSelect auto-derives only the leaf name under static SSR; set the full model path (#84). *@
+                            <BbNativeSelect TValue="string" Id="config-file" Name="_configForm.File" @bind-Value="_configForm!.File">
+                                <option value="Ini">servertest.ini</option>
+                                <option value="SandboxVars">SandboxVars.lua</option>
+                                <option value="SpawnRegions">spawnregions.lua</option>
+                                <option value="SpawnPoints">spawnpoints.lua</option>
+                            </BbNativeSelect>
+                        </div>
+                        <div class="flex flex-col text-sm">
+                            <BbLabel For="config-path" Class="mb-1 text-muted-foreground">Setting path</BbLabel>
+                            <BbInput Id="config-path" @bind-Value="_configForm!.Path" autocomplete="off" Placeholder="e.g. Map.AllowMiniMap" />
+                        </div>
+                        <div class="flex flex-col text-sm">
+                            <BbLabel For="config-kind" Class="mb-1 text-muted-foreground">Type</BbLabel>
+                            <BbNativeSelect TValue="string" Id="config-kind" Name="_configForm.Kind" @bind-Value="_configForm!.Kind">
+                                <option value="Bool">true / false</option>
+                                <option value="Number">number</option>
+                                <option value="Text">text</option>
+                            </BbNativeSelect>
+                        </div>
+                        <div class="flex flex-col text-sm">
+                            <BbLabel For="config-value" Class="mb-1 text-muted-foreground">New value</BbLabel>
+                            <BbInput Id="config-value" @bind-Value="_configForm!.Value" autocomplete="off" />
+                        </div>
+                    </div>
+                    <div class="mt-3 flex flex-wrap gap-2">
+                        <BbButton Type="ButtonType.Submit" Size="ButtonSize.Small"
+                                  name="_configForm.Target" value="apply" data-action="config-apply">Apply edit</BbButton>
+                        <BbButton Variant="ButtonVariant.Outline" Type="ButtonType.Submit" Size="ButtonSize.Small"
+                                  name="_configForm.Target" value="load" data-action="config-load">Load history</BbButton>
+                    </div>
+                </EditForm>
+            </details>
 
             <div class="mt-6 border-t border-border pt-4">
                 <h3 class="text-sm font-medium">Revision history — @FileLabel(_selectedFile)</h3>
@@ -864,6 +1024,10 @@ else
     [SupplyParameterFromQuery]
     public string? Section { get; set; }
 
+    // Which config file the live editor shows (F20c). Bookmarkable, GET-switched like ?section=; Ini by default.
+    [SupplyParameterFromQuery(Name = "file")]
+    public string? FileParam { get; set; }
+
     [CascadingParameter]
     private Task<AuthenticationState>? AuthState { get; set; }
 
@@ -884,6 +1048,9 @@ else
 
     [SupplyParameterFromForm(FormName = "server-config")]
     private ConfigFormModel _configForm { get; set; } = default!;
+
+    [SupplyParameterFromForm(FormName = "config-editor")]
+    private ConfigEditorModel _editorForm { get; set; } = default!;
 
     [SupplyParameterFromForm(FormName = "config-restore")]
     private ConfigRestoreModel _restoreForm { get; set; } = default!;
@@ -927,6 +1094,7 @@ else
 
     private PzConfigFile _selectedFile = PzConfigFile.Ini;
     private IReadOnlyList<ConfigRevisionView> _revisions = [];
+    private ConfigDocumentView? _configView;
     private string? _configMessage;
     private AlertVariant _configAlert = AlertVariant.Warning;
 
@@ -941,6 +1109,7 @@ else
         _unbanForm ??= new UnbanModel();
         _consoleForm ??= new ConsoleFormModel();
         _configForm ??= new ConfigFormModel();
+        _editorForm ??= new ConfigEditorModel();
         _restoreForm ??= new ConfigRestoreModel();
         _modForm ??= new ModDiscoveryModel();
         _modManageForm ??= new ModManageModel();
@@ -971,16 +1140,27 @@ else
             _canStop = (await PermissionChecker.EvaluateAsync(user, Permissions.ServerStop, serverId)).IsAllowed;
             _canRestartServer = (await PermissionChecker.EvaluateAsync(user, Permissions.ServerRestart, serverId)).IsAllowed;
             await LoadModManagementAsync(user, serverId);
-            if (_perm.CanConfigEdit)
-            {
-                await LoadHistoryAsync(user, serverId);
-            }
-
             await LoadBackupsAsync(user, serverId);
 
             // Resolve the active section only after the per-section gates are known, so an unknown or
             // unauthorized ?section= fails closed to the always-available overview.
             _activeSection = ResolveSection(Section);
+
+            // The live config editor (F20c): only the Config section reads the host, and only for a permitted
+            // operator. The file is chosen by the ?file= query param (bookmarkable tab switching, GET); Ini by
+            // default. On a GET — or a post from another form — the editor's row list is empty, so load the
+            // current values from the host now. A config-editor POST arrives with its rows already bound and its
+            // submit handler applies them and then re-reads, so we must not clobber those posted rows here.
+            if (_activeSection == "config" && _perm.CanConfigEdit)
+            {
+                _selectedFile = ParseFile(FileParam ?? _editorForm.File ?? _configForm.File);
+                await LoadHistoryAsync(user, serverId);
+                // Always read so the editor form is present in this render — static SSR dispatches a form's
+                // submit handler only to a form that is actually rendered. Rebuild the editable row list from
+                // the read on a GET (or a post from another form); on a config-editor post the rows are already
+                // bound with the operator's edits, so preserve them for the submit handler to diff.
+                await ReadConfigViewAsync(user, serverId, rebuildRows: _editorForm.Rows.Count == 0);
+            }
         }
     }
 
@@ -1406,6 +1586,93 @@ else
         }
     }
 
+    // Reads the live Configuration View of the selected file from the host and rebuilds the editor's row list
+    // from it (F20c). Fail-closed and non-throwing: every unavailable/denied case is an outcome on _configView
+    // that the markup renders as an operator message. Nothing is persisted (ADR 0011).
+    private async Task ReadConfigViewAsync(UserId user, ServerId serverId, bool rebuildRows)
+    {
+        _configView = await ConfigReader.ReadAsync(user, serverId, _selectedFile);
+        _editorForm.File = _selectedFile.ToString();
+        if (rebuildRows)
+        {
+            _editorForm.Rows = BuildRows(_configView);
+        }
+    }
+
+    // Flattens the view's sections into the editor's row list, in render order, so a row's index matches the
+    // markup's running index and the posted _editorForm.Rows[i] binds back to the same setting.
+    private static List<ConfigEditorRow> BuildRows(ConfigDocumentView view)
+    {
+        List<ConfigEditorRow> rows = [];
+        if (!view.IsRead)
+        {
+            return rows;
+        }
+
+        foreach (ConfigSection section in view.Sections)
+        {
+            foreach (ConfigSettingView setting in section.Settings)
+            {
+                bool isBool = setting.Shape == ConfigValueShape.Boolean;
+                rows.Add(new ConfigEditorRow
+                {
+                    Path = setting.Path,
+                    Kind = setting.Kind.ToString(),
+                    Original = setting.Value,
+                    Value = setting.Value,
+                    Flag = isBool && string.Equals(setting.Value, "true", StringComparison.OrdinalIgnoreCase),
+                });
+            }
+        }
+
+        return rows;
+    }
+
+    // The batch-apply submit handler (F20c): diff each posted row against the value it was rendered with and
+    // enqueue only the changed ones as a single surgical apply, then re-read to refresh the editor and history.
+    private async Task ConfigEditorAsync()
+    {
+        if (_server is null || !ServerId.TryParse(Id, out ServerId serverId))
+        {
+            return;
+        }
+
+        UserId user = await CurrentUserAsync();
+        _selectedFile = ParseFile(_editorForm.File);
+
+        List<ConfigApplyEdit> edits = [];
+        foreach (ConfigEditorRow row in _editorForm.Rows)
+        {
+            if (string.IsNullOrEmpty(row.Path))
+            {
+                continue;
+            }
+
+            ConfigEditKind kind = ParseKind(row.Kind);
+            string current = kind == ConfigEditKind.Bool ? (row.Flag ? "true" : "false") : row.Value ?? string.Empty;
+            if (!string.Equals(current, row.Original ?? string.Empty, StringComparison.Ordinal))
+            {
+                edits.Add(new ConfigApplyEdit(row.Path!, kind, current));
+            }
+        }
+
+        if (edits.Count == 0)
+        {
+            SetConfigMessage("No changes to apply — every setting still holds its loaded value.", ok: false);
+        }
+        else
+        {
+            ServerConfigurationResult result = await ConfigEditor.ApplyAsync(user, serverId, _selectedFile, edits);
+            SetConfigResult(result, $"{edits.Count} change{(edits.Count == 1 ? string.Empty : "s")} enqueued");
+        }
+
+        // Refresh the editor from the view already read for this request (OnInitializedAsync read it so the form
+        // could render). The apply is enqueued, so the live values are unchanged until the Agent writes them and
+        // the next read runs — no second host round-trip is needed here.
+        _editorForm.Rows = BuildRows(_configView ?? ConfigDocumentView.OfOutcome(ConfigReadOutcome.Read));
+        await LoadHistoryAsync(user, serverId);
+    }
+
     private async Task LoadHistoryAsync(UserId user, ServerId serverId) =>
         _revisions = await ConfigHistory.GetHistoryAsync(user, serverId, _selectedFile);
 
@@ -1447,6 +1714,67 @@ else
         PzConfigFile.SpawnRegions => "spawnregions.lua",
         PzConfigFile.SpawnPoints => "spawnpoints.lua",
         _ => file.ToString(),
+    };
+
+    // The four config files, in the tab order shown above the editor.
+    private static readonly PzConfigFile[] ConfigFiles =
+        [PzConfigFile.Ini, PzConfigFile.SandboxVars, PzConfigFile.SpawnRegions, PzConfigFile.SpawnPoints];
+
+    private string ConfigFileHref(PzConfigFile file) => $"/servers/{Id}?section=config&file={file}";
+
+    private static string RestartHint(PzConfigFile file) => file == PzConfigFile.Ini
+        ? "servertest.ini changes reload live on the running server."
+        : "Sandbox and spawn changes take effect on the next server restart.";
+
+    // The lower-cased haystack the client-side search filters each row against (label + dotted path).
+    private static string Terms(ConfigSettingView setting) =>
+        $"{setting.Label} {setting.Path}".ToLowerInvariant();
+
+    private static bool HasHelp(ConfigSettingView setting) =>
+        !string.IsNullOrWhiteSpace(setting.Tooltip) || setting.Options.Count > 0
+        || MetaText(setting).Length > 0 || !setting.KnownToSchema;
+
+    // The range/default line shown under a tooltip, e.g. "Range 1–6 · Default 4".
+    private static string MetaText(ConfigSettingView setting)
+    {
+        List<string> parts = [];
+        if (setting.Min is { } min && setting.Max is { } max)
+        {
+            parts.Add($"Range {Trim(min)}–{Trim(max)}");
+        }
+        else if (setting.Min is { } lo)
+        {
+            parts.Add($"Min {Trim(lo)}");
+        }
+        else if (setting.Max is { } hi)
+        {
+            parts.Add($"Max {Trim(hi)}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(setting.Default))
+        {
+            parts.Add($"Default {setting.Default}");
+        }
+
+        return string.Join(" · ", parts);
+
+        static string Trim(double value) =>
+            value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    private static string ReadOutcomeText(ConfigDocumentView view) => view.Outcome switch
+    {
+        ConfigReadOutcome.AgentOffline =>
+            "The host for this server is offline, so its current configuration can't be loaded. Use Advanced below to edit a setting by path, or bring the host online and reload.",
+        ConfigReadOutcome.TimedOut =>
+            "The host did not answer the configuration read in time. Try Reload from host; if it persists, check the host's connection.",
+        ConfigReadOutcome.FileMissing =>
+            "This file does not exist for this server yet — it is created when the server first runs.",
+        ConfigReadOutcome.ParseFailed =>
+            "The file is on the host but could not be parsed; its raw text is shown below. Fix it with Advanced or on the host, then reload.",
+        ConfigReadOutcome.NotAuthorized => "You are not permitted to read this server's configuration.",
+        ConfigReadOutcome.ServerNotFound => "That server is no longer available.",
+        _ => "The configuration could not be loaded.",
     };
 
     private static string ChangeText(ConfigValueChange change) => change.Kind switch
@@ -1678,6 +2006,38 @@ else
     {
         // The restore button's "{file}|{revisionId}" token.
         public string? Target { get; set; }
+    }
+
+    // The live schema editor's batch model (F20c): one row per rendered setting. The hidden Path/Kind/Original
+    // travel with each row so the changed set can be computed from the post alone, without a re-read that could
+    // race the host rewriting the file. Value carries text/number/enum controls; Flag carries the boolean toggle.
+    private sealed class ConfigEditorModel
+    {
+        // Which PzConfigFile these rows belong to (hidden) — the file the apply targets.
+        public string? File { get; set; }
+
+        // The submit button's verb; only "apply" today (file switching and reload are GETs via ?file=).
+        public string? Target { get; set; }
+
+        public List<ConfigEditorRow> Rows { get; set; } = [];
+    }
+
+    private sealed class ConfigEditorRow
+    {
+        // The dotted path of the scalar (hidden).
+        public string? Path { get; set; }
+
+        // The ConfigEditKind name (Bool/Number/Text) interpreting the value (hidden).
+        public string? Kind { get; set; }
+
+        // The value this row was rendered with, so a change can be detected on post (hidden).
+        public string? Original { get; set; }
+
+        // The edited value for text/number/enum controls.
+        public string? Value { get; set; }
+
+        // The edited value for a boolean toggle (a checkbox posts nothing when off, binding to false).
+        public bool Flag { get; set; }
     }
 
     // The mod-discovery form carries no fields — its single Refresh button enqueues a discovery.

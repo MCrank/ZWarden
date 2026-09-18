@@ -169,6 +169,118 @@ html:not(.dark) .zw-ico-moon { display: inline-block; }
   .zw-railgrp { width: 100%; }
 }
 
+/* ---- live config editor (#108 / F20c) ----------------------------------- */
+/* Static-SSR schema editor: one big form of pre-filled controls grouped by section, each with an ⓘ
+   comment-sourced tooltip. Search, dirty-highlight and raw-toggle are progressive enhancement in
+   wwwroot/js/config-editor.js against the data-* hooks; the form posts and applies without a circuit. */
+.zw-cfg-toolbar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 16px;
+}
+.zw-cfg-searchbox {
+  display: flex; align-items: center; gap: 8px; flex: 1; min-width: 180px; max-width: 340px;
+  padding: 6px 10px; background: var(--background); border: 1px solid var(--border);
+  border-radius: var(--radius); color: var(--muted-foreground);
+}
+.zw-cfg-searchbox input { flex: 1; border: 0; background: transparent; color: var(--foreground); font: inherit; font-size: 13px; outline: none; }
+.zw-cfg-searchbox .zw-ico { width: 15px; height: 15px; }
+
+.zw-cfg-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 14px; border-bottom: 1px solid var(--border); }
+.zw-cfg-tab {
+  padding: 7px 12px; font-size: 12.5px; font-weight: 500; color: var(--muted-foreground);
+  text-decoration: none; border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.zw-cfg-tab:hover { color: var(--foreground); }
+.zw-cfg-tab.active { color: var(--foreground); border-bottom-color: var(--primary); font-weight: 600; }
+
+.zw-cfg-sec { margin-top: 18px; }
+.zw-cfg-sec > summary {
+  cursor: pointer; list-style: none; display: flex; align-items: center; gap: 8px;
+  font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted-foreground);
+  font-weight: 600; padding: 6px 0; border-bottom: 1px solid var(--border);
+}
+.zw-cfg-sec > summary::-webkit-details-marker { display: none; }
+.zw-cfg-sec > summary .zw-cfg-count {
+  margin-left: auto; font-size: 10px; letter-spacing: normal; text-transform: none;
+  color: var(--muted-foreground); background: var(--muted); border-radius: 999px; padding: 1px 8px;
+}
+
+.zw-cfg-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 12px 16px; align-items: center;
+  padding: 10px 4px; border-bottom: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+}
+.zw-cfg-row.zw-cfg-hidden { display: none; }
+.zw-cfg-row.zw-cfg-changed { background: color-mix(in oklab, var(--primary) 8%, transparent); border-radius: var(--radius); }
+.zw-cfg-name { min-width: 0; display: flex; align-items: center; gap: 7px; }
+.zw-cfg-name .zw-cfg-labeltext { font-size: 13.5px; font-weight: 500; }
+.zw-cfg-path { display: block; font-size: 10.5px; color: var(--muted-foreground); font-family: var(--font-mono, ui-monospace, monospace); margin-top: 1px; }
+.zw-cfg-changed-dot { color: var(--primary); font-size: 16px; line-height: 1; visibility: hidden; }
+.zw-cfg-row.zw-cfg-changed .zw-cfg-changed-dot { visibility: visible; }
+.zw-cfg-control { display: flex; align-items: center; gap: 8px; justify-self: stretch; }
+.zw-cfg-control > input[type="number"], .zw-cfg-control > input[type="text"], .zw-cfg-control > select { width: 100%; }
+.zw-cfg-restart { font-size: 10px; color: var(--muted-foreground); }
+
+/* ⓘ info trigger + hover/focus popover (no JS, no circuit). */
+.zw-cfg-info {
+  flex: none; width: 16px; height: 16px; display: inline-grid; place-items: center; position: relative;
+  border-radius: 999px; border: 1px solid var(--border); color: var(--muted-foreground);
+  font-size: 10px; font-weight: 700; cursor: help;
+}
+.zw-cfg-info:hover, .zw-cfg-info:focus-visible { color: var(--foreground); border-color: var(--foreground); outline: none; }
+.zw-cfg-pop {
+  position: absolute; left: 0; top: calc(100% + 6px); z-index: 40; width: 280px; max-width: 70vw;
+  background: var(--popover); color: var(--popover-foreground); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: 0 16px 40px -14px rgba(0, 0, 0, .55);
+  padding: 9px 11px; font-size: 12px; font-weight: 400; line-height: 1.45; text-transform: none; letter-spacing: normal;
+  white-space: normal; cursor: auto; display: none;
+}
+.zw-cfg-info:hover .zw-cfg-pop, .zw-cfg-info:focus-within .zw-cfg-pop { display: block; }
+.zw-cfg-pop .zw-cfg-pop-meta { margin-top: 6px; color: var(--muted-foreground); font-size: 11px; }
+.zw-cfg-pop .zw-cfg-pop-src { margin-top: 6px; color: var(--muted-foreground); font-size: 11px; font-style: italic; }
+
+/* Plain SSR controls, styled to match Blueprint's inputs. The editor binds a dynamic, index-keyed row
+   list (name="_editorForm.Rows[i].X"), which the expression-bound Bb inputs do not fit, so these are
+   hand-styled native controls under static SSR (CLAUDE.md's "no SSR-safe fit" allowance). */
+.zw-cfg-input {
+  width: 100%; padding: 6px 9px; font-size: 13px; color: var(--foreground);
+  background: var(--background); border: 1px solid var(--border); border-radius: var(--radius); outline: none;
+}
+.zw-cfg-input:focus-visible { border-color: var(--primary); box-shadow: 0 0 0 2px color-mix(in oklab, var(--primary) 30%, transparent); }
+
+/* Boolean toggle — a styled native checkbox; unchecked simply posts nothing and binds to false because
+   the row's hidden Path field materialises the element regardless. */
+.zw-cfg-toggle { display: inline-flex; align-items: center; gap: 9px; }
+.zw-cfg-toggle .zw-cfg-state { font-size: 12px; color: var(--muted-foreground); min-width: 24px; }
+.zw-cfg-switch {
+  appearance: none; -webkit-appearance: none; position: relative; flex: none; cursor: pointer;
+  width: 36px; height: 20px; border-radius: 999px; background: var(--muted); border: 1px solid var(--border);
+  transition: background .15s, border-color .15s;
+}
+.zw-cfg-switch::after {
+  content: ""; position: absolute; top: 1px; left: 1px; width: 16px; height: 16px; border-radius: 999px;
+  background: var(--background); transition: transform .15s;
+}
+.zw-cfg-switch:checked { background: var(--primary); border-color: var(--primary); }
+.zw-cfg-switch:checked::after { transform: translateX(16px); background: var(--primary-foreground); }
+.zw-cfg-switch:focus-visible { outline: none; box-shadow: 0 0 0 2px color-mix(in oklab, var(--primary) 30%, transparent); }
+
+.zw-cfg-raw {
+  margin-top: 16px; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+}
+.zw-cfg-raw > summary {
+  cursor: pointer; list-style: none; padding: 10px 12px; font-size: 12.5px; font-weight: 600;
+  display: flex; align-items: center; gap: 8px;
+}
+.zw-cfg-raw > summary::-webkit-details-marker { display: none; }
+.zw-cfg-raw pre {
+  margin: 0; padding: 12px; border-top: 1px solid var(--border); overflow: auto; max-height: 460px;
+  font-family: var(--font-mono, ui-monospace, monospace); font-size: 11.5px; line-height: 1.5; color: var(--foreground);
+}
+.zw-cfg-empty { padding: 20px 4px; color: var(--muted-foreground); font-size: 13px; }
+
+@media (max-width: 700px) {
+  .zw-cfg-row { grid-template-columns: 1fr; gap: 8px; }
+}
+
 /* ---- mobile drawer ------------------------------------------------------ */
 .zw-scrim { display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, .5); z-index: 25; border: 0; }
 
