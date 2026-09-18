@@ -90,6 +90,23 @@ public sealed class AgentOptions
     /// </summary>
     public int StopTimeoutSeconds { get; set; } = 120;
 
+    /// <summary>
+    /// The default graceful-restart countdown (#114): the seconds-before-stop at which the Agent broadcasts a
+    /// <c>servermsg</c> warning to connected players before a restart-causing Operation takes the server down,
+    /// when the command does not carry its own plan. Strictly descending; each restart path (F15/F17/F22) inherits
+    /// it, so even an automated restart warns. An <b>empty</b> list disables the default broadcast. Bounded by
+    /// <c>GracefulRestartRules</c> (at most 8 steps, no earlier than 900s). Defaults to five minutes, one minute,
+    /// thirty seconds and ten seconds out.
+    /// </summary>
+    public IReadOnlyList<int> RestartWarningLeadSeconds { get; set; } = [300, 60, 30, 10];
+
+    /// <summary>
+    /// The default short, printable-ASCII clause appended to each graceful-restart countdown notice (#114), when
+    /// the command does not carry its own reason — e.g. "Scheduled maintenance." <c>null</c> (the default) appends
+    /// nothing. Bounded and hygiene-checked by <c>GracefulRestartRules</c>.
+    /// </summary>
+    public string? RestartWarningReason { get; set; }
+
     /// <summary>How often the Agent will emit a heartbeat once transport lands (F10). Must be positive.</summary>
     public TimeSpan HeartbeatInterval { get; set; } = TimeSpan.FromSeconds(30);
 

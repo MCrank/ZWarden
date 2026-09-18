@@ -14,6 +14,8 @@ public class LifecycleMessagesTests
 {
     private static readonly DateTimeOffset At = new(2026, 9, 13, 8, 30, 0, TimeSpan.Zero);
 
+    private static readonly int[] GracefulLeads = [300, 60, 30, 10];
+
     private static async Task RoundTripsWithServerOnEnvelope(AgentCommand command)
     {
         ServerId server = ServerId.New();
@@ -60,4 +62,20 @@ public class LifecycleMessagesTests
     [Test]
     public async Task RestartServer_declares_the_lifecycle_discriminator()
         => await DeclaresDiscriminator(new RestartServer(), "lifecycle.restart-server");
+
+    [Test]
+    public async Task RestartServer_carries_its_graceful_plan_across_the_wire()
+    {
+        // #114: the optional graceful-restart plan is an additive field (ADR 0020) that survives the round-trip.
+        AgentCommand command = new RestartServer(new GracefulRestartPlan(GracefulLeads, "Applying mod changes."));
+        Envelope<AgentCommand> original = Envelope.Create(
+            command, At, agentId: AgentId.New(), serverId: ServerId.New(), operationId: OperationId.New());
+
+        Envelope<IProtocolMessage> back = ProtocolJson.Deserialize(ProtocolJson.Serialize(original));
+
+        RestartServer restored = (RestartServer)back.Payload;
+        await Assert.That(restored.Plan).IsNotNull();
+        await Assert.That(restored.Plan!.WarningLeadSeconds).IsEquivalentTo(GracefulLeads);
+        await Assert.That(restored.Plan!.Reason).IsEqualTo("Applying mod changes.");
+    }
 }

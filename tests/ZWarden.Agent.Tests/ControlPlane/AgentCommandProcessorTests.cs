@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using ZWarden.Agent.Backups;
 using ZWarden.Agent.Configuration;
@@ -7,6 +8,7 @@ using ZWarden.Agent.Docker;
 using ZWarden.Agent.Players;
 using ZWarden.Agent.Rcon;
 using ZWarden.Agent.ServerConfig;
+using ZWarden.Agent.Servers;
 using ZWarden.Agent.SteamCmd;
 using ZWarden.Agent.Mods;
 using ZWarden.Agent.Diagnostics;
@@ -41,34 +43,52 @@ public class AgentCommandProcessorTests
         IRconHealthProbe? rconProbe = null,
         IRconServerConfig? rconConfig = null,
         IPlayerAdministration? players = null,
+        IServerRestartCoordinator? restartCoordinator = null,
         IConsoleAdministration? console = null,
         IServerConfigWriter? configWriter = null,
         IServerConfigRawEditStaging? rawStaging = null,
         IModDiscovery? modDiscovery = null,
         IHostDiagnosticsGatherer? hostDiagnostics = null,
-        IServerDiagnosticsGatherer? serverDiagnostics = null) =>
-        new(
+        IServerDiagnosticsGatherer? serverDiagnostics = null)
+    {
+        IContainerRuntime effectiveRuntime = runtime ?? new FakeContainerRuntime();
+        IOptions<AgentOptions> options = Options.Create(new AgentOptions
+        {
+            PzImageReference = "zwarden/pzserver:pinned",
+            NetworkName = "zwarden",
+            DataMountRoot = OperatingSystem.IsWindows() ? @"C:\pz" : "/pz",
+            DefaultMemoryLimitBytes = 4L * 1024 * 1024 * 1024,
+        });
+
+        // The default coordinator is the real one, wired to the shared runtime with a resolver that reports no
+        // RCON (so the broadcast is skipped) — a plain RestartServer still restarts the container. A test that
+        // exercises the countdown passes its own coordinator.
+        IServerRestartCoordinator coordinator = restartCoordinator ?? new ServerRestartCoordinator(
+            new FakeRconEndpointResolver(),
+            new FakeRconConnectionFactory(new FakeRconConnection()),
+            effectiveRuntime,
+            options,
+            NullLogger<ServerRestartCoordinator>.Instance,
+            static (_, _) => Task.CompletedTask);
+
+        return new(
             TimeProvider.System,
-            runtime ?? new FakeContainerRuntime(),
+            effectiveRuntime,
             updates ?? new FakeServerUpdateRunner(),
             backups ?? new FakeServerBackupRunner(),
             restores ?? new FakeServerRestoreRunner(),
             rconProbe ?? new FakeRconHealthProbe(),
             rconConfig ?? new FakeRconServerConfig(),
             players ?? new FakePlayerAdministration(),
+            coordinator,
             console ?? new FakeConsoleAdministration(),
             configWriter ?? new FakeServerConfigWriter(),
             rawStaging ?? new ServerConfigRawEditStaging(TimeProvider.System),
             modDiscovery ?? new FakeModDiscovery(),
             hostDiagnostics ?? new FakeHostDiagnosticsGatherer(),
             serverDiagnostics ?? new FakeServerDiagnosticsGatherer(),
-            Options.Create(new AgentOptions
-            {
-                PzImageReference = "zwarden/pzserver:pinned",
-                NetworkName = "zwarden",
-                DataMountRoot = OperatingSystem.IsWindows() ? @"C:\pz" : "/pz",
-                DefaultMemoryLimitBytes = 4L * 1024 * 1024 * 1024,
-            }));
+            options);
+    }
 
     private static string Json(AgentCommand command, OperationId? operationId = null, ServerId? serverId = null)
         => ProtocolJson.Serialize(operationId is { } op

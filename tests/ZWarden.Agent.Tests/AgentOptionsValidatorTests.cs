@@ -47,6 +47,37 @@ public class AgentOptionsValidatorTests
     }
 
     [Test]
+    public async Task The_default_restart_warning_schedule_is_valid()
+    {
+        // #114: the shipped default [300, 60, 30, 10] is a valid, bounded, descending countdown.
+        await Assert.That(new AgentOptionsValidator().Validate(name: null, Valid()).Succeeded).IsTrue();
+    }
+
+    [Test]
+    public async Task An_ascending_restart_warning_schedule_fails()
+    {
+        var options = Valid();
+        options.RestartWarningLeadSeconds = [10, 60, 300];
+
+        var result = new AgentOptionsValidator().Validate(name: null, options);
+
+        await Assert.That(result.Failed).IsTrue();
+        await Assert.That(result.FailureMessage!).Contains(nameof(AgentOptions.RestartWarningLeadSeconds));
+    }
+
+    [Test]
+    public async Task An_injection_restart_warning_reason_fails()
+    {
+        var options = Valid();
+        options.RestartWarningReason = "bad \" reason";
+
+        var result = new AgentOptionsValidator().Validate(name: null, options);
+
+        await Assert.That(result.Failed).IsTrue();
+        await Assert.That(result.FailureMessage!).Contains(nameof(AgentOptions.RestartWarningReason));
+    }
+
+    [Test]
     [Arguments("")]
     [Arguments("   ")]
     public async Task Empty_identity_path_fails(string path)
