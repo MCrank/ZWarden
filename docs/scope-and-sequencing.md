@@ -335,6 +335,21 @@ detection is mandatory:** the in-game admin panel and server-settings editor bot
 behind ZWarden's back, so without detection the revision history would assert a previous state the
 file never held.
 
+**F20c — Live Configuration Read, Schema Editor, and Tooltips** · *depends: F20a, F20b*
+**In:** a live, non-mutating read of a Server's config files from the Agent over a non-Operation,
+read-only, chunked request/reply channel (**ADR 0041**, sibling of ADR 0030) — the Operation payload
+cap cannot carry a ~45 KB file; a schema-driven structured editor **pre-filled with current values**
+(toggles, labelled dropdowns, bounded numeric controls, inputs) built from F20a's schema; **per-setting
+tooltips sourced primarily from the file's own `--` comments** (harvested at read, sanitized of PZ UI
+markup) supplemented by schema metadata; an advanced **raw view**; and an interactive drift
+**confirm-and-override** (re-read, refresh baseline, reapply) the F20b write could only refuse.
+**Not:** raw *edit* (a gated later slice — arbitrary-text write bypasses the surgical/drift envelope);
+structured spawn-file editing; live application of sandbox settings (unchanged from F20b — edit-then-
+restart; the INI stays live-reloadable); filling the full ~275-key schema (mechanical follow-up).
+**Why the read is not an Operation:** it observes and persists nothing (ADR 0011), so it carries no
+per-server lock, audit row, or revision — it rides its own channel, authorized fail-closed on
+`Server.Configuration.Edit` (ADR 0018). The turns-a-blind-editor-legible half PRD 32 named.
+
 **F21 — Workshop and Mod Discovery** · *depends: F17, F20a*
 **In:** Workshop item model, Mod ID model, metadata discovery, Workshop-to-Mod mapping,
 installed-state detection, compatibility diagnostics where possible. Anonymous SteamCMD covers
