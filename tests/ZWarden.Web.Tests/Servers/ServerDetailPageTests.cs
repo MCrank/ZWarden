@@ -253,6 +253,8 @@ public sealed class ServerDetailPageTests
             ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
             ["_handler"] = "config-editor",
             ["_editorForm.File"] = "SandboxVars",
+            // The baseline the operator was shown — matches the fresh read, so the apply proceeds (F20c, ADR 0042).
+            ["_editorForm.BaselineHash"] = "hash-abc",
             ["_editorForm.Target"] = "apply",
             // Row 0 — PVP boolean, was true; its Flag is omitted (toggled off) so it must apply as false.
             ["_editorForm.Rows[0].Path"] = "PVP",
@@ -286,6 +288,51 @@ public sealed class ServerDetailPageTests
         await Assert.That(op.CommandPayload).Contains("Zombies");
         await Assert.That(op.CommandPayload).DoesNotContain("PublicName");
         await Assert.That(op.CommandPayload).DoesNotContain("XpMultiplierGlobal");
+        // The apply carries the operator's live-read baseline (not the last recorded revision) as the drift
+        // baseline, so the Agent checks against exactly the state they saw (F20c, ADR 0042).
+        await Assert.That(op.CommandPayload).Contains("hash-abc");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task The_configuration_editor_refuses_and_shows_the_drift_banner_when_the_file_changed()
+    {
+        await using ZWardenWebAppFactory factory = new()
+        {
+            ConfigureTestServicesHook = static s =>
+                s.AddSingleton<IServerConfigurationReader>(new FakeConfigReader(SampleView())),
+        };
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "config-drift");
+
+        Uri url = new($"/servers/{serverId}?section=config&file=SandboxVars", UriKind.Relative);
+        string page = await (await client.GetAsync(url)).Content.ReadAsStringAsync();
+        // Post a STALE baseline — the operator loaded when the file held a different value; the fresh read the
+        // POST performs returns "hash-abc", so the pre-check sees drift and must refuse to enqueue.
+        Dictionary<string, string> form = new(StringComparer.Ordinal)
+        {
+            ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
+            ["_handler"] = "config-editor",
+            ["_editorForm.File"] = "SandboxVars",
+            ["_editorForm.BaselineHash"] = "stale-hash-from-an-earlier-load",
+            ["_editorForm.Target"] = "apply",
+            ["_editorForm.Rows[0].Path"] = "PVP",
+            ["_editorForm.Rows[0].Kind"] = "Bool",
+            ["_editorForm.Rows[0].Original"] = "true",
+            ["_editorForm.Rows[2].Path"] = "Zombies",
+            ["_editorForm.Rows[2].Kind"] = "Number",
+            ["_editorForm.Rows[2].Original"] = "4",
+            ["_editorForm.Rows[2].Value"] = "2",
+        };
+        HttpResponseMessage post = await client.PostAsync(url, new FormUrlEncodedContent(form));
+        string html = await post.Content.ReadAsStringAsync();
+
+        await Assert.That((int)post.StatusCode).IsLessThan(400);
+        // The confirm-and-override banner is shown and the current values are re-rendered…
+        await Assert.That(html).Contains("data-config-drift");
+        await Assert.That(html).Contains("data-cfg-form");
+        // …and nothing was enqueued — a drift refusal never writes (fail-closed, ADR 0011/0042).
+        await Assert.That(FirstOperation(factory, serverId, OperationKind.ConfigApply)).IsNull();
         client.Dispose();
     }
 
