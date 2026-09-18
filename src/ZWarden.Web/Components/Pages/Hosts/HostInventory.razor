@@ -5,101 +5,167 @@
 @using ZWarden.Domain.Ids
 @attribute [Authorize(Policy = "Agent.View")]
 @inject IAgentInventory Inventory
+@inject IServerInventory Servers
 @inject AuthenticationStateProvider AuthProvider
 @inject UserManager<ApplicationUser> Users
 
-@* Static server render (no @rendermode), like /audit: the page runs per request with a live HttpContext so
-   the session-derived tenant resolves and the read is tenant-filtered server-side. The Agent.View policy gates
-   the endpoint itself (tenant-wide, so it gates cleanly, ADR 0018) and the inventory service re-checks it —
-   this is enforcement, not UI visibility (PRD 12). Every Agent-reported fact (hostname, version, OS) is
-   untrusted and rendered as data (trust-boundaries.md §3): observed, never an authorization input. The live,
-   auto-refreshing fleet view is a later interactive surface (F36); F35 shows last-observed state over a plain
-   server-rendered table with the in-memory registry's "connected now" overlaid. *@
+@* The Hosts inventory (#159), re-skinned from the F35 table into the Signal card grid: Hosts are few and rich,
+   so a card each reads better than a row (deliberately not a table). Static server render (no @rendermode), like
+   /audit and /servers: the page runs per request with a live HttpContext so the session-derived tenant resolves
+   and both reads are tenant-filtered server-side. The Agent.View policy gates the endpoint itself (tenant-wide,
+   so it gates cleanly, ADR 0018) and IAgentInventory re-checks it — enforcement, not UI visibility (PRD 12). The
+   servers-on-a-host list comes from IServerInventory, which self-filters per-Server (ADR 0018) and needs no
+   Agent.View: a viewer sees only the Servers it may already see, grouped under their owning Agent. Every
+   Agent-reported fact (hostname, version, OS) is untrusted and rendered as data (trust-boundaries.md §3):
+   observed, never an authorization input. "Connected" is live from this control-plane instance (the F10
+   registry overlay); an unreachable Host shows its last-known facts with no telemetry. The live, auto-refreshing
+   fleet view is a later interactive surface (F36). *@
 
 <PageTitle>Hosts — ZWarden</PageTitle>
 
-<h1 class="text-2xl font-semibold tracking-tight">Hosts</h1>
+<div class="flex flex-wrap items-center justify-between gap-3">
+    <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <h1 class="text-2xl font-semibold tracking-tight">Hosts</h1>
+        <p class="text-sm text-muted-foreground">
+            @_hosts.Count @(_hosts.Count == 1 ? "host" : "hosts") · @_connected connected
+        </p>
+    </div>
+    @* Enroll host → the F9 enrollment surface. It lives under /setup for now; the standalone Settings →
+       Enrollment section is #160 (this link moves there once it lands). The target enforces
+       Tenant.Enrollment.Manage. *@
+    <a href="/setup/enroll"
+       class="inline-flex items-center gap-1.5 rounded bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90"
+       data-hosts-enroll>
+        Enroll host
+    </a>
+</div>
 <p class="mt-1 text-sm text-muted-foreground">
     The Agents managing your servers, one per Host. State is what each Agent last reported; "Connected" is
     live from this control-plane instance.
 </p>
 
-<div class="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-    <BbCard Class="p-4">
-        <div class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Connected</div>
-        <div class="mt-1 font-mono text-2xl tabular-nums text-status-running">@_connected</div>
-    </BbCard>
-    <BbCard Class="p-4">
-        <div class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Enrolled</div>
-        <div class="mt-1 font-mono text-2xl tabular-nums text-foreground">@_hosts.Count</div>
-    </BbCard>
-    <BbCard Class="p-4">
-        <div class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Disabled</div>
-        <div class="mt-1 font-mono text-2xl tabular-nums text-status-unhealthy">@_disabled</div>
-    </BbCard>
-    <BbCard Class="p-4">
-        <div class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Revoked</div>
-        <div class="mt-1 font-mono text-2xl tabular-nums text-muted-foreground">@_revoked</div>
-    </BbCard>
-</div>
+@if (_hosts.Count == 0)
+{
+    <div class="mt-6 rounded border border-border bg-card p-6 text-sm text-muted-foreground" data-hosts-empty>
+        No Hosts enrolled yet. Enrol an Agent to bring a Host under management.
+    </div>
+}
+else
+{
+    @* One column at phone width (acceptance criterion), reflowing to a rich card grid from md up. *@
+    <div class="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+        @foreach (HostSummary host in _hosts)
+        {
+            bool degraded = !host.IsConnected;
+            <BbCard Class="@CardClass(degraded)" data-host-card data-host-degraded="@degraded">
+                <div class="flex flex-col gap-4 p-5">
+                    <div class="flex items-start justify-between gap-3">
+                        <div class="min-w-0">
+                            <div class="truncate font-medium text-foreground">@DisplayName(host)</div>
+                            <div class="truncate font-mono text-xs text-muted-foreground">@host.Id</div>
+                        </div>
+                        <div class="flex shrink-0 flex-col items-end gap-1" data-host-status>
+                            @if (host.IsConnected)
+                            {
+                                <span class="inline-flex items-center gap-1.5 rounded-sm border border-status-running px-2 py-0.5 text-xs font-medium text-foreground">
+                                    <span class="h-2 w-2 rounded-full bg-status-running"></span>Online
+                                </span>
+                            }
+                            else
+                            {
+                                <span class="inline-flex items-center gap-1.5 rounded-sm border border-status-unknown px-2 py-0.5 text-xs font-medium text-foreground">
+                                    <span class="h-2 w-2 rounded-full bg-status-unknown"></span>Unreachable
+                                </span>
+                            }
+                            @if (TrustChip(host) is { } chip)
+                            {
+                                <span class="inline-flex items-center rounded-sm border border-status-unhealthy px-2 py-0.5 text-xs font-medium text-muted-foreground" data-host-trust>@chip</span>
+                            }
+                        </div>
+                    </div>
 
-<div class="mt-6 overflow-x-auto">
-    <table class="w-full border-collapse text-left text-sm">
-        <thead>
-            <tr class="border-b border-border text-muted-foreground">
-                <th class="py-2 pr-4 font-medium">Host</th>
-                <th class="py-2 pr-4 font-medium">Connection</th>
-                <th class="py-2 pr-4 font-medium">Agent version</th>
-                <th class="py-2 pr-4 font-medium">OS</th>
-                <th class="py-2 pr-4 font-medium">Protocol</th>
-                <th class="py-2 pr-4 font-medium">Trust</th>
-                <th class="py-2 pr-4 font-medium">Last seen (UTC)</th>
-            </tr>
-        </thead>
-        <tbody>
-            @if (_hosts.Count == 0)
-            {
-                <tr>
-                    <td colspan="7" class="py-4 text-muted-foreground" data-hosts-empty>
-                        No Hosts enrolled yet. Enrol an Agent to bring a Host under management.
-                    </td>
-                </tr>
-            }
-            @foreach (HostSummary host in _hosts)
-            {
-                <tr class="border-b border-border" data-host-row>
-                    <td class="py-2 pr-4 font-medium">
-                        @DisplayName(host)
-                        <span class="block font-mono text-xs text-muted-foreground">@host.Id</span>
-                    </td>
-                    <td class="py-2 pr-4" data-host-connection>
-                        @if (host.IsConnected)
+                    @* Meta: transport is always WSS (F10 outbound), last-seen/version/OS/protocol are observed. *@
+                    <dl class="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+                        <div>
+                            <dt class="text-muted-foreground">Transport</dt>
+                            <dd class="mt-0.5 font-mono tabular-nums text-foreground">WSS</dd>
+                        </div>
+                        <div>
+                            <dt class="text-muted-foreground">Last seen</dt>
+                            <dd class="mt-0.5 tabular-nums text-foreground">@LastSeen(host)</dd>
+                        </div>
+                        <div>
+                            <dt class="text-muted-foreground">Agent version</dt>
+                            <dd class="mt-0.5 font-mono tabular-nums text-foreground">@Dash(host.AgentVersion)</dd>
+                        </div>
+                        <div>
+                            <dt class="text-muted-foreground">OS</dt>
+                            <dd class="mt-0.5 text-foreground">@Dash(host.OsPlatform)</dd>
+                        </div>
+                    </dl>
+
+                    @* Host telemetry. A degraded (unreachable) Host reports nothing, so it shows no meters
+                       (acceptance criterion). There is no host-level CPU/memory feed in v1.0 — only per-Server
+                       ServerMetrics exists — so a connected Host renders the meter slots empty (—), the same
+                       "keep the slot, show —" posture as the fleet board (#158) until that feed lands. *@
+                    <div class="border-t border-border pt-3" data-host-telemetry>
+                        @if (degraded)
                         {
-                            <span class="inline-flex items-center gap-1 text-status-running">
-                                <span class="h-2 w-2 rounded-full bg-status-running"></span>Connected
-                            </span>
+                            <p class="text-xs text-muted-foreground">No telemetry — Agent unreachable.</p>
                         }
                         else
                         {
-                            <span class="text-muted-foreground">Disconnected</span>
+                            <div class="flex items-center justify-between gap-2 text-xs">
+                                <span class="text-muted-foreground">CPU</span>
+                                <span class="font-mono tabular-nums text-muted-foreground">—</span>
+                            </div>
+                            <div class="mt-1 flex items-center justify-between gap-2 text-xs">
+                                <span class="text-muted-foreground">Memory</span>
+                                <span class="font-mono tabular-nums text-muted-foreground">—</span>
+                            </div>
                         }
-                    </td>
-                    <td class="py-2 pr-4 font-mono tabular-nums text-xs text-muted-foreground">@Dash(host.AgentVersion)</td>
-                    <td class="py-2 pr-4 text-muted-foreground">@Dash(host.OsPlatform)</td>
-                    <td class="py-2 pr-4 font-mono tabular-nums text-xs text-muted-foreground">@(host.LastProtocolVersion?.ToString() ?? "—")</td>
-                    <td class="py-2 pr-4" data-host-trust>@TrustLabel(host)</td>
-                    <td class="py-2 pr-4 tabular-nums text-muted-foreground">@LastSeen(host)</td>
-                </tr>
-            }
-        </tbody>
-    </table>
-</div>
+                    </div>
+
+                    @* Servers running on this Host — each links through to Server Detail with a run-state dot. *@
+                    <div class="border-t border-border pt-3" data-host-servers>
+                        @{
+                            IReadOnlyList<ServerSummary> onHost = ServersOn(host.Id);
+                        }
+                        <div class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                            Servers <span class="font-mono tabular-nums">(@onHost.Count)</span>
+                        </div>
+                        @if (onHost.Count == 0)
+                        {
+                            <p class="mt-1 text-xs text-muted-foreground" data-host-servers-empty>No servers on this Host.</p>
+                        }
+                        else
+                        {
+                            <ul class="mt-2 space-y-1">
+                                @foreach (ServerSummary server in onHost)
+                                {
+                                    <li>
+                                        <a href="@($"/servers/{server.Id}")"
+                                           class="flex items-center gap-2 text-sm text-foreground hover:underline"
+                                           data-host-server>
+                                            <span class="h-2 w-2 shrink-0 rounded-full @DotClass(server.LastRunState)"
+                                                  title="@server.LastRunState"></span>
+                                            <span class="truncate">@server.Name</span>
+                                        </a>
+                                    </li>
+                                }
+                            </ul>
+                        }
+                    </div>
+                </div>
+            </BbCard>
+        }
+    </div>
+}
 
 @code {
     private IReadOnlyList<HostSummary> _hosts = [];
+    private IReadOnlyList<ServerSummary> _servers = [];
     private int _connected;
-    private int _disabled;
-    private int _revoked;
 
     protected override async Task OnInitializedAsync()
     {
@@ -109,11 +175,19 @@
             throw new InvalidOperationException("Authenticated request carries no user id claim.");
         }
 
-        _hosts = await Inventory.ListHostsAsync(UserId.FromGuid(id));
+        UserId user = UserId.FromGuid(id);
+        _hosts = await Inventory.ListHostsAsync(user);
+        _servers = await Servers.ListVisibleAsync(user);
         _connected = _hosts.Count(h => h.IsConnected);
-        _disabled = _hosts.Count(h => !h.IsEnabled);
-        _revoked = _hosts.Count(h => !h.HasCredential);
     }
+
+    private IReadOnlyList<ServerSummary> ServersOn(AgentId host)
+        => _servers.Where(s => s.AgentId == host).ToList();
+
+    // A degraded (unreachable) Host is visually distinct: a violet (unknown-state) border, matching the
+    // status-unknown ramp used by the badge and by StatusBadge for "agent unreachable, not down".
+    private static string CardClass(bool degraded)
+        => degraded ? "overflow-hidden border-status-unknown" : "overflow-hidden";
 
     // The operator-facing name: the Agent's self-reported hostname, else the enrollment label, else "—".
     // Both are untrusted, observed strings (trust-boundaries.md §3); the id below always disambiguates.
@@ -125,8 +199,21 @@
     private static string Dash(string? value) => string.IsNullOrWhiteSpace(value) ? "—" : value!;
 
     private static string LastSeen(HostSummary host)
-        => host.LastSeenAt?.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss") ?? "never";
+        => host.LastSeenAt?.UtcDateTime.ToString("yyyy-MM-dd HH:mm") ?? "never";
 
-    private static string TrustLabel(HostSummary host)
-        => !host.HasCredential ? "Revoked" : host.IsEnabled ? "Trusted" : "Disabled";
+    // A secondary trust chip only when the credential state is not plain "trusted".
+    private static string? TrustChip(HostSummary host)
+        => !host.HasCredential ? "Revoked" : !host.IsEnabled ? "Disabled" : null;
+
+    // Server run-state dot, matching the StatusBadge ramp (running→green, stopped→grey, busy→amber,
+    // failed→red, unknown→violet).
+    private static string DotClass(ServerRunState state) => state switch
+    {
+        ServerRunState.Running => "bg-status-running",
+        ServerRunState.Stopped => "bg-status-stopped",
+        ServerRunState.Starting => "bg-status-busy",
+        ServerRunState.Stopping => "bg-status-busy",
+        ServerRunState.Failed => "bg-status-unhealthy",
+        _ => "bg-status-unknown",
+    };
 }
