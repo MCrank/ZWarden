@@ -743,6 +743,47 @@ public sealed class ServerDetailPageTests
     }
 
     [Test]
+    public async Task The_graceful_restart_control_shows_for_a_permitted_operator()
+    {
+        // #114: the restart-options disclosure lets the operator warn players or skip the warning.
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "gracefully-restartable");
+
+        string html = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        await Assert.That(html).Contains("data-graceful-restart");
+        await Assert.That(html).Contains("data-action=\"graceful-restart\"");
+        await Assert.That(html).Contains("name=\"_gracefulForm.Message\"");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task The_graceful_restart_form_posts_and_enqueues_a_restart_carrying_the_plan()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "graceful-enqueue");
+
+        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+        Dictionary<string, string> form = new(StringComparer.Ordinal)
+        {
+            ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
+            ["_handler"] = "server-graceful-restart",
+            ["_gracefulForm.Message"] = "Scheduled maintenance.",
+        };
+        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}", UriKind.Relative), new FormUrlEncodedContent(form));
+
+        await Assert.That((int)post.StatusCode).IsLessThan(400);
+        await Assert.That(EnqueuedKind(factory, serverId, OperationKind.RestartServer)).IsTrue();
+        string? payload = EnqueuedPayload(factory, serverId, OperationKind.RestartServer);
+        await Assert.That(payload).IsNotNull();
+        await Assert.That(payload!).Contains("Scheduled maintenance.");
+        await Assert.That(payload!).Contains("300");
+        client.Dispose();
+    }
+
+    [Test]
     public async Task The_logs_card_shows_and_prerenders_the_live_island_for_a_permitted_operator()
     {
         await using ZWardenWebAppFactory factory = new();
@@ -934,6 +975,16 @@ public sealed class ServerDetailPageTests
         using IServiceScope scope = factory.Services.CreateScope();
         ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
         return db.Set<Operation>().Any(o => o.ServerId == serverId && o.Kind == kind);
+    }
+
+    private static string? EnqueuedPayload(ZWardenWebAppFactory factory, ServerId serverId, OperationKind kind)
+    {
+        using IServiceScope scope = factory.Services.CreateScope();
+        ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
+        return db.Set<Operation>()
+            .Where(o => o.ServerId == serverId && o.Kind == kind)
+            .Select(o => o.CommandPayload)
+            .FirstOrDefault();
     }
 
     private static Operation? FirstOperation(ZWardenWebAppFactory factory, ServerId serverId, OperationKind kind)

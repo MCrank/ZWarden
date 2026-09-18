@@ -102,6 +102,33 @@ else
         </div>
     }
 
+    @* Graceful restart (#114): the header Restart button already warns players with the Agent's default countdown;
+       this control lets the operator add a message, or skip the warning and restart immediately. Static-SSR form,
+       gated on the same server-scoped Server.Restart permission the service re-checks on submit. *@
+    @if (_canRestartServer)
+    {
+        <details class="mt-3" data-graceful-restart>
+            <summary class="text-sm text-muted-foreground cursor-pointer">Restart options (warn players)</summary>
+            <EditForm Model="_gracefulForm" FormName="server-graceful-restart" OnValidSubmit="GracefulRestartAsync" class="mt-2">
+                <DataAnnotationsValidator />
+                <div class="flex flex-col gap-2 sm:flex-row sm:items-end">
+                    <div class="flex flex-1 flex-col text-sm">
+                        <BbLabel For="graceful-message" Class="mb-1 text-muted-foreground">Message to players (optional)</BbLabel>
+                        @* BbInput auto-derives the model-path Name (_gracefulForm.Message) under the EditForm (#121). *@
+                        <BbInput Id="graceful-message" @bind-Value="_gracefulForm.Message" autocomplete="off"
+                                 Placeholder="Scheduled maintenance." />
+                    </div>
+                    <label class="flex items-center gap-2 text-sm">
+                        <BbCheckbox @bind-Value="_gracefulForm.SkipWarning" />
+                        <span>Skip warning (restart now)</span>
+                    </label>
+                    <BbButton Variant="ButtonVariant.Secondary" Type="ButtonType.Submit" Size="ButtonSize.Small"
+                              Disabled="@(!RestartEnabled)" data-action="graceful-restart">Restart</BbButton>
+                </div>
+            </EditForm>
+        </details>
+    }
+
     <div class="zw-srvlayout mt-6">
         @* Grouped vertical rail (#162). Each item links to its ?section= (static SSR, bookmarkable), so only
            the selected section — and its one Live* island — renders. A section appears only where the operator
@@ -1082,6 +1109,9 @@ else
     [SupplyParameterFromForm(FormName = "server-lifecycle")]
     private LifecycleModel _lifecycleForm { get; set; } = default!;
 
+    [SupplyParameterFromForm(FormName = "server-graceful-restart")]
+    private GracefulRestartFormModel _gracefulForm { get; set; } = default!;
+
     [SupplyParameterFromForm(FormName = "player-action")]
     private PlayerActionModel _actionForm { get; set; } = default!;
 
@@ -1169,6 +1199,7 @@ else
         _backupForm ??= new BackupManageModel();
         _diagnosticsForm ??= new DiagnosticsFormModel();
         _lifecycleForm ??= new LifecycleModel();
+        _gracefulForm ??= new GracefulRestartFormModel();
         _configForm.File ??= nameof(PzConfigFile.Ini);
         _configForm.Kind ??= nameof(ConfigEditKind.Bool);
         _selectedFile = ParseFile(_configForm.File);
@@ -1259,6 +1290,33 @@ else
         };
 
         SetLifecycleResult(command, result);
+    }
+
+    // #114: the default warning schedule the operator control uses when "warn players" is left on. The Agent holds
+    // the authoritative default for a plain (header-button) restart; this is the schedule the configure form sends.
+    private static readonly int[] DefaultRestartWarning = [300, 60, 30, 10];
+
+    private async Task GracefulRestartAsync()
+    {
+        if (_server is null || !ServerId.TryParse(Id, out ServerId serverId))
+        {
+            return;
+        }
+
+        string? message = string.IsNullOrWhiteSpace(_gracefulForm?.Message) ? null : _gracefulForm!.Message!.Trim();
+        if (message is not null && BroadcastMessageRules.ValidateMessage(message) is { } invalid)
+        {
+            _lifecycleAlert = AlertVariant.Warning;
+            _lifecycleMessage = invalid;
+            return;
+        }
+
+        // Skip ⇒ an empty schedule (restart immediately, no broadcast); otherwise the default descending countdown.
+        IReadOnlyList<int> leads = _gracefulForm?.SkipWarning == true ? [] : DefaultRestartWarning;
+        var plan = new GracefulRestartPayload(leads, message);
+
+        UserId user = await CurrentUserAsync();
+        SetLifecycleResult("restart", await Lifecycle.RestartAsync(user, serverId, plan));
     }
 
     private void SetLifecycleResult(string command, ServerLifecycleResult? result)
@@ -2241,6 +2299,15 @@ else
     {
         // The header lifecycle button's verb: "start" / "stop" / "restart".
         public string? Command { get; set; }
+    }
+
+    private sealed class GracefulRestartFormModel
+    {
+        // An optional message broadcast to players during the restart countdown (#114).
+        public string? Message { get; set; }
+
+        // When true, restart immediately without warning players (empty countdown schedule).
+        public bool SkipWarning { get; set; }
     }
 
     private readonly record struct BackupPermissions(bool CanView, bool CanCreate, bool CanRestore, bool CanDelete);
