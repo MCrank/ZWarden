@@ -37,6 +37,9 @@
     @* App-shell behaviour (menus, mobile drawer, theme toggle) — static-SSR progressive enhancement,
        delegated on document so it survives enhanced-navigation DOM merges (ADR 0040). *@
     <script src="@Assets["js/shell.js"]"></script>
+    @* Live config editor (#108 / F20c): filter-as-you-type search + dirty-row highlight, delegated on
+       document so it survives enhanced-navigation. Pure progressive enhancement — the editor works without it. *@
+    <script src="@Assets["js/config-editor.js"]"></script>
 </body>
 
 </html>

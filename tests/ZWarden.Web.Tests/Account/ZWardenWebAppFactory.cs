@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using ZWarden.Application.Setup;
@@ -32,6 +33,10 @@ public sealed class ZWardenWebAppFactory : WebApplicationFactory<Program>
     /// </summary>
     public bool CompleteSetupOnStart { get; init; } = true;
 
+    /// <summary>An optional hook to override registrations for a test (applied after the app's own, so a
+    /// re-registered service wins) — e.g. faking an Agent-backed seam like the F20c configuration read.</summary>
+    public Action<IServiceCollection>? ConfigureTestServicesHook { get; init; }
+
     static ZWardenWebAppFactory()
     {
         // AddSecurityFoundation loads the key ring from the environment (ADR 0015) and fails closed
@@ -46,6 +51,10 @@ public sealed class ZWardenWebAppFactory : WebApplicationFactory<Program>
         builder.UseEnvironment("Development");
         // Pooling=False so the file handle is released for deletion at teardown.
         builder.UseSetting("ConnectionStrings:ZWarden", $"Data Source={_databasePath};Pooling=False");
+        if (ConfigureTestServicesHook is { } hook)
+        {
+            builder.ConfigureTestServices(hook);
+        }
     }
 
     protected override IHost CreateHost(IHostBuilder builder)
