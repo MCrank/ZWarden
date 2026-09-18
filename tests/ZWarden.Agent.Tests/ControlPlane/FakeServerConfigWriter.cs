@@ -21,6 +21,12 @@ internal sealed class FakeServerConfigWriter : IServerConfigWriter
 
     public IReadOnlyList<ConfigValueEdit>? LastEdits { get; private set; }
 
+    public ConfigApplyOutcome RawOutcome { get; set; } = ConfigApplyOutcome.Applied("[[\"Zombies\",\"n:1:i\"]]", "hash-1", 1);
+
+    public int ApplyRawCount { get; private set; }
+
+    public string? LastRawContent { get; private set; }
+
     public Task<ConfigApplyOutcome> ApplyAsync(
         ServerId serverId,
         PzConfigFile file,
@@ -34,5 +40,20 @@ internal sealed class FakeServerConfigWriter : IServerConfigWriter
         LastBaselineHash = baselineHash;
         LastEdits = edits;
         return Task.FromResult(Outcome);
+    }
+
+    public Task<ConfigApplyOutcome> ApplyRawAsync(
+        ServerId serverId,
+        PzConfigFile file,
+        string? baselineHash,
+        string rawContent,
+        CancellationToken cancellationToken)
+    {
+        ApplyRawCount++;
+        LastServerId = serverId;
+        LastFile = file;
+        LastBaselineHash = baselineHash;
+        LastRawContent = rawContent;
+        return Task.FromResult(RawOutcome);
     }
 }

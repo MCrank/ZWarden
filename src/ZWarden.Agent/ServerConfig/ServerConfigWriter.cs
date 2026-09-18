@@ -31,6 +31,23 @@ public interface IServerConfigWriter
         string? baselineHash,
         IReadOnlyList<ConfigValueEdit> edits,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Overwrites the live <paramref name="file"/> for <paramref name="serverId"/> with the operator-authored
+    /// <paramref name="rawContent"/> (F20c PR-D, ADR 0042). Runs the same safety envelope as
+    /// <see cref="ApplyAsync"/>, in this order: <b>parse-validate</b> the new text (a syntax error or size/depth
+    /// violation is refused, never written — it would stop the server on start); <b>drift-check</b> the current
+    /// on-disk file against <paramref name="baselineHash"/> and fail the write <b>closed</b> on a mismatch (ADR
+    /// 0011); then write the new text back BOM-less through a temp-file-and-atomic-replace, and report the same
+    /// <see cref="ConfigApplyOutcome"/> a surgical apply does (with the changed-value count computed against the
+    /// pre-write file). Returns a first-class outcome for every expected condition rather than throwing.
+    /// </summary>
+    Task<ConfigApplyOutcome> ApplyRawAsync(
+        ServerId serverId,
+        PzConfigFile file,
+        string? baselineHash,
+        string rawContent,
+        CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -129,6 +146,75 @@ public sealed class ServerConfigWriter : IServerConfigWriter
         PzValueSnapshot snapshot = PzValueSnapshot.Of(document);
         return ConfigApplyOutcome.Applied(snapshot.CanonicalText, snapshot.Hash, applied);
     }
+
+    /// <inheritdoc />
+    public async Task<ConfigApplyOutcome> ApplyRawAsync(
+        ServerId serverId,
+        PzConfigFile file,
+        string? baselineHash,
+        string rawContent,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(rawContent);
+
+        string path = ServerConfigFiles.PathFor(_options.DataMountRoot, serverId, file);
+        if (!File.Exists(path))
+        {
+            return ConfigApplyOutcome.Failed(
+                $"The {ServerConfigFiles.FileName(file)} configuration file does not exist for this server yet.");
+        }
+
+        // Parse-validate the operator's new text before it is allowed anywhere near the disk: a syntax error or a
+        // size/depth pre-check violation (inside the parser seam, ADR 0010) is refused, so a raw edit can never
+        // write a file PZ would reject on start. Encode BOM-less so what we validate is what we write.
+        byte[] newBytes = System.Text.Encoding.UTF8.GetBytes(StripBom(rawContent));
+        PzConfigReadResult newRead = _parser.Open(ServerConfigFiles.ToKind(file), newBytes);
+        if (!newRead.Parsed || newRead.Document is not { } newDocument)
+        {
+            string detail = newRead.Diagnostics.Count > 0 ? newRead.Diagnostics[0].Message : "unknown error";
+            return ConfigApplyOutcome.Failed($"The edited configuration text did not parse and was not written: {detail}");
+        }
+
+        // Fail closed on drift (ADR 0011): re-read and re-parse the current live file and compare it to the
+        // baseline the operator saw before overwriting it, so a change a second author made is never silently lost.
+        PzValueSnapshot? currentSnapshot;
+        try
+        {
+            byte[] currentBytes = await File.ReadAllBytesAsync(path, cancellationToken).ConfigureAwait(false);
+            PzConfigReadResult currentRead = _parser.Open(ServerConfigFiles.ToKind(file), currentBytes);
+            currentSnapshot = currentRead.Parsed && currentRead.Document is { } currentDoc ? PzValueSnapshot.Of(currentDoc) : null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return ConfigApplyOutcome.Failed($"Could not read the configuration file: {ex.Message}");
+        }
+
+        PzValueSnapshot newSnapshot = PzValueSnapshot.Of(newDocument);
+        PzDriftResult drift = PzDriftCheck.Compare(baselineHash, currentSnapshot ?? newSnapshot);
+        if (!drift.WriteAllowed)
+        {
+            return ConfigApplyOutcome.DriftRefused(
+                "The configuration on disk changed outside ZWarden since you loaded it, so the raw edit was refused "
+                + "to avoid discarding that change. Reload from host and try again.");
+        }
+
+        try
+        {
+            await WriteAtomicAsync(path, newBytes, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return ConfigApplyOutcome.Failed($"Could not write the configuration file: {ex.Message}");
+        }
+
+        // The changed-value count is the value-level diff from the pre-write file (a raw edit has no surgical edit
+        // list); the new baseline is the values the file now holds, order-normalized (ADR 0011).
+        int changed = currentSnapshot is null ? newSnapshot.Scalars.Count : PzValueDiff.Compare(currentSnapshot, newSnapshot).Count;
+        return ConfigApplyOutcome.Applied(newSnapshot.CanonicalText, newSnapshot.Hash, changed);
+    }
+
+    // Drop a leading UTF-8 BOM the operator's editor may have inserted; the write is BOM-less (ADR 0011).
+    private static string StripBom(string text) => text.Length > 0 && text[0] == '﻿' ? text[1..] : text;
 
     // Reconstructs the parser's value node from the wire edit. The command is control-plane input, but the Agent
     // re-validates it defensively before writing (a malformed number or boolean is an actionable failure, never

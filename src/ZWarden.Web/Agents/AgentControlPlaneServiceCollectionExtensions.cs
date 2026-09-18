@@ -33,6 +33,11 @@ public static class AgentControlPlaneServiceCollectionExtensions
         services.AddSingleton<ServerConfigReadCoordinator>();
         services.AddSingleton<IServerConfigReadChannel>(sp => sp.GetRequiredService<ServerConfigReadCoordinator>());
 
+        // The raw whole-file edit staging channel (F20c PR-D, ADR 0042): chunks the operator's text up the owning
+        // Agent's connection ahead of the ConfigApplyRaw Operation. The IServerConfigRawEditChannel the
+        // Infrastructure editor (AddZWardenConfiguration) depends on; a singleton beside the registry it routes through.
+        services.AddSingleton<IServerConfigRawEditChannel, ServerConfigRawEditCoordinator>();
+
         // The bearer-credential handshake scheme. Added alongside the cookie schemes without changing the
         // application's default scheme; the hub opts into it explicitly via [Authorize].
         services.AddAuthentication()

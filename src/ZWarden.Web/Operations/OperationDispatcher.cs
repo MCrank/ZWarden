@@ -119,6 +119,7 @@ public sealed class OperationDispatcher : IOperationDispatcher
         OperationKind.RemoveFromWhitelist => new RemoveFromWhitelist(Payload(commandPayload).Username!),
         OperationKind.SetWhitelistMode => new SetWhitelistMode(Payload(commandPayload).Open ?? false),
         OperationKind.ConfigApply => ConfigApplyCommand(commandPayload),
+        OperationKind.ConfigApplyRaw => ConfigApplyRawCommand(commandPayload),
         OperationKind.ExecuteConsoleCommand => new ExecuteConsoleCommand(ConsolePayload(commandPayload).Input),
         OperationKind.Backup => new BackupServer(),
         OperationKind.DeleteBackup => new DeleteBackup(BackupPayload(commandPayload).ArchiveName!),
@@ -153,6 +154,16 @@ public sealed class OperationDispatcher : IOperationDispatcher
         IReadOnlyList<ConfigValueEdit> edits =
             [.. payload.Edits.Select(e => new ConfigValueEdit(e.Path, ToWireKind(e.Kind), e.Value))];
         return new ConfigApply(payload.File, payload.BaselineHash, edits);
+    }
+
+    // Builds the ConfigApplyRaw wire command from the Application-neutral payload the enqueueing service wrote
+    // (F20c PR-D, ADR 0042). The operator's whole-file text is not here — it was staged over its own channel — so
+    // the command carries only the file, drift baseline, and staging correlation id.
+    private static ConfigApplyRaw ConfigApplyRawCommand(string? commandPayload)
+    {
+        ConfigApplyRawPayload payload = ConfigApplyRawPayload.FromJson(
+            commandPayload ?? throw new InvalidOperationException("A raw config Operation was dispatched with no command payload."));
+        return new ConfigApplyRaw(payload.File, payload.BaselineHash, payload.CorrelationId);
     }
 
     private static ConfigValueKind ToWireKind(ConfigEditKind kind) => kind switch

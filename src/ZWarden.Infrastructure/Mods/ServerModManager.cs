@@ -189,8 +189,12 @@ public sealed class ServerModManager : IServerModManager
                     ModManagementFailure.InvalidReorder, "A reorder must contain exactly the currently enabled mods.");
         }
 
+        // A mod-list change drift-checks against the last recorded revision (no interactive live read), so it
+        // supplies no live-read baseline (F20c, ADR 0042) — the enqueuer falls back to the recorded revision.
         ServerConfigurationResult enqueued = await _enqueuer
-            .EnqueueAsync(user, resolved, PzConfigFile.Ini, edit.Edits, auditAction, auditSubject, cancellationToken)
+            .EnqueueAsync(
+                user, resolved, PzConfigFile.Ini, edit.Edits, auditAction, auditSubject,
+                expectedBaselineHash: null, cancellationToken)
             .ConfigureAwait(false);
         return MapEnqueued(enqueued);
     }

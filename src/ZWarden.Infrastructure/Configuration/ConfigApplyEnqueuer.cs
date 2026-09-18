@@ -45,25 +45,71 @@ internal sealed class ConfigApplyEnqueuer
         IReadOnlyList<ConfigApplyEdit> edits,
         string auditAction,
         string auditSubject,
+        string? expectedBaselineHash,
         CancellationToken cancellationToken)
     {
-        // The drift baseline: the last recorded revision's hash for this file, or null when none exists (the
-        // Agent then treats it as the first write — no baseline to drift from, ADR 0011).
-        ConfigurationRevision? baseline = await _revisions.FindLatestAsync(resolved.Id, file, cancellationToken).ConfigureAwait(false);
-        string payload = new ConfigApplyPayload(file, baseline?.SnapshotHash, edits).ToJson();
+        // The drift baseline the Agent re-checks (ADR 0011). When the caller supplies one — the interactive
+        // editor's live-read baseline (F20c, ADR 0042) — it wins, so the write is checked against the state the
+        // operator actually saw. Otherwise fall back to the last recorded revision's hash, or null when none
+        // exists (the Agent then treats it as the first write — no baseline to drift from).
+        string? baselineHash = expectedBaselineHash;
+        if (baselineHash is null)
+        {
+            ConfigurationRevision? baseline = await _revisions.FindLatestAsync(resolved.Id, file, cancellationToken).ConfigureAwait(false);
+            baselineHash = baseline?.SnapshotHash;
+        }
+
+        string payload = new ConfigApplyPayload(file, baselineHash, edits).ToJson();
         if (payload.Length > Operation.MaxCommandPayloadLength)
         {
             return ServerConfigurationResult.Denied(
                 ServerConfigurationFailure.InvalidInput, "Too many edits to apply in one operation; apply fewer at a time.");
         }
 
+        return await EnqueueOperationAsync(
+            user, resolved, OperationKind.ConfigApply, payload, auditAction, auditSubject, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Enqueues an F20c raw whole-file config-apply Operation (ADR 0042). The operator's text has already been
+    /// staged to the Agent over its own channel and is named here only by <paramref name="correlationId"/>, so the
+    /// tiny payload stays well under the command cap. Otherwise identical to <see cref="EnqueueAsync"/>: a mutating,
+    /// server-scoped Operation with per-server-lock and audit, and a <see cref="ServerConfigurationFailure.ServerBusy"/>
+    /// on a contended lock. The caller has already resolved, authorized, and staged.
+    /// </summary>
+    public Task<ServerConfigurationResult> EnqueueRawAsync(
+        UserId user,
+        Server resolved,
+        PzConfigFile file,
+        string? baselineHash,
+        string correlationId,
+        string auditAction,
+        string auditSubject,
+        CancellationToken cancellationToken)
+    {
+        string payload = new ConfigApplyRawPayload(file, baselineHash, correlationId).ToJson();
+        return EnqueueOperationAsync(
+            user, resolved, OperationKind.ConfigApplyRaw, payload, auditAction, auditSubject, cancellationToken);
+    }
+
+    // The shared tail of both enqueue paths: a mutating, server-scoped Operation (ADR 0022) plus success/busy audit.
+    private async Task<ServerConfigurationResult> EnqueueOperationAsync(
+        UserId user,
+        Server resolved,
+        OperationKind kind,
+        string payload,
+        string auditAction,
+        string auditSubject,
+        CancellationToken cancellationToken)
+    {
         try
         {
             // A mutating, server-scoped Operation on the Server's Agent (ADR 0022). Each request is a fresh
             // intent, so the idempotency key is fresh; the per-server lock refuses a second in-flight mutation.
             Operation operation = await _operations.EnqueueAsync(
                 new EnqueueOperationRequest(
-                    resolved.AgentId, OperationKind.ConfigApply, IsMutating: true, Guid.NewGuid().ToString("N"),
+                    resolved.AgentId, kind, IsMutating: true, Guid.NewGuid().ToString("N"),
                     ServerId: resolved.Id, CommandPayload: payload),
                 user,
                 cancellationToken).ConfigureAwait(false);

@@ -38,6 +38,7 @@ public sealed class AgentCommandProcessor
     private readonly IPlayerAdministration _players;
     private readonly IConsoleAdministration _console;
     private readonly IServerConfigWriter _configWriter;
+    private readonly IServerConfigRawEditStaging _rawStaging;
     private readonly IModDiscovery _modDiscovery;
     private readonly IHostDiagnosticsGatherer _hostDiagnostics;
     private readonly IServerDiagnosticsGatherer _serverDiagnostics;
@@ -55,6 +56,7 @@ public sealed class AgentCommandProcessor
         IPlayerAdministration players,
         IConsoleAdministration console,
         IServerConfigWriter configWriter,
+        IServerConfigRawEditStaging rawStaging,
         IModDiscovery modDiscovery,
         IHostDiagnosticsGatherer hostDiagnostics,
         IServerDiagnosticsGatherer serverDiagnostics,
@@ -70,6 +72,7 @@ public sealed class AgentCommandProcessor
         ArgumentNullException.ThrowIfNull(players);
         ArgumentNullException.ThrowIfNull(console);
         ArgumentNullException.ThrowIfNull(configWriter);
+        ArgumentNullException.ThrowIfNull(rawStaging);
         ArgumentNullException.ThrowIfNull(modDiscovery);
         ArgumentNullException.ThrowIfNull(hostDiagnostics);
         ArgumentNullException.ThrowIfNull(serverDiagnostics);
@@ -84,6 +87,7 @@ public sealed class AgentCommandProcessor
         _players = players;
         _console = console;
         _configWriter = configWriter;
+        _rawStaging = rawStaging;
         _modDiscovery = modDiscovery;
         _hostDiagnostics = hostDiagnostics;
         _serverDiagnostics = serverDiagnostics;
@@ -402,6 +406,39 @@ public sealed class AgentCommandProcessor
                         OperationOutcome.Succeeded, failureReason: null, operationId, configServerId,
                         config: new ConfigApplyResult(apply.File, config.SnapshotHash!, config.CanonicalSnapshot!, config.ChangedCount))
                     : Completed(OperationOutcome.Failed, config.FailureReason, operationId, configServerId);
+
+            case ConfigApplyRaw raw:
+                if (envelope.ServerId is not { } rawServerId)
+                {
+                    // A raw config apply with no target Server is malformed — fail it explicitly.
+                    return Completed(OperationOutcome.Failed, "No target Server on the raw configuration apply command.", operationId);
+                }
+
+                if (!_handled.TryAdd(operationId, 0))
+                {
+                    return null; // Already handled this operation — a redelivered command (PRD 20).
+                }
+
+                // The operator's whole-file text was staged over the transport channel before this Operation was
+                // dispatched (ADR 0042). A missing or expired stage — a lost chunk, or an Agent restart between the
+                // stage and the Operation — is a clean failure, never a hang.
+                if (!_rawStaging.TryTake(raw.CorrelationId, out string? rawContent))
+                {
+                    return Completed(
+                        OperationOutcome.Failed,
+                        "The edited configuration text was not received (or expired) before the apply ran; re-submit the edit.",
+                        operationId,
+                        rawServerId);
+                }
+
+                ConfigApplyOutcome rawOutcome = await _configWriter
+                    .ApplyRawAsync(rawServerId, raw.File, raw.BaselineHash, rawContent, cancellationToken)
+                    .ConfigureAwait(false);
+                return rawOutcome.Succeeded
+                    ? Completed(
+                        OperationOutcome.Succeeded, failureReason: null, operationId, rawServerId,
+                        config: new ConfigApplyResult(raw.File, rawOutcome.SnapshotHash!, rawOutcome.CanonicalSnapshot!, rawOutcome.ChangedCount))
+                    : Completed(OperationOutcome.Failed, rawOutcome.FailureReason, operationId, rawServerId);
 
             default:
                 // A command this Agent version does not understand: leave it unhandled (not marked handled) so

@@ -25,9 +25,14 @@ namespace ZWarden.Infrastructure.Configuration;
 /// </summary>
 public sealed class ServerConfigurationEditor : IServerConfigurationEditor
 {
+    /// <summary>The largest whole-file raw edit accepted for staging (F20c PR-D). Generous next to the largest PZ
+    /// config (~45 KB), but bounds what a single request stages to the Agent.</summary>
+    private const int MaxRawEditChars = 1_000_000;
+
     private readonly ServerRepository _servers;
     private readonly IPermissionChecker _permissions;
     private readonly ConfigurationRevisionRepository _revisions;
+    private readonly IServerConfigRawEditChannel _rawChannel;
     private readonly ConfigApplyEnqueuer _enqueuer;
 
     public ServerConfigurationEditor(
@@ -35,16 +40,19 @@ public sealed class ServerConfigurationEditor : IServerConfigurationEditor
         IPermissionChecker permissions,
         IOperationCoordinator operations,
         ConfigurationRevisionRepository revisions,
+        IServerConfigRawEditChannel rawChannel,
         IAuditWriter audit)
     {
         ArgumentNullException.ThrowIfNull(servers);
         ArgumentNullException.ThrowIfNull(permissions);
         ArgumentNullException.ThrowIfNull(operations);
         ArgumentNullException.ThrowIfNull(revisions);
+        ArgumentNullException.ThrowIfNull(rawChannel);
         ArgumentNullException.ThrowIfNull(audit);
         _servers = servers;
         _permissions = permissions;
         _revisions = revisions;
+        _rawChannel = rawChannel;
         _enqueuer = new ConfigApplyEnqueuer(operations, revisions, audit);
     }
 
@@ -54,6 +62,7 @@ public sealed class ServerConfigurationEditor : IServerConfigurationEditor
         ServerId server,
         PzConfigFile file,
         IReadOnlyList<ConfigApplyEdit> edits,
+        string? expectedBaselineHash = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(edits);
@@ -83,7 +92,8 @@ public sealed class ServerConfigurationEditor : IServerConfigurationEditor
             return ServerConfigurationResult.Denied(ServerConfigurationFailure.InvalidInput, "An edit has an empty configuration path.");
         }
 
-        return await EnqueueAsync(user, resolved, file, edits, ConfigurationAuditActions.Applied, cancellationToken)
+        return await EnqueueAsync(
+            user, resolved, file, edits, ConfigurationAuditActions.Applied, expectedBaselineHash, cancellationToken)
             .ConfigureAwait(false);
     }
 
@@ -138,22 +148,80 @@ public sealed class ServerConfigurationEditor : IServerConfigurationEditor
         }
 
         List<ConfigApplyEdit> edits = [.. plan.Edits.Select(e => new ConfigApplyEdit(e.Path, KindOf(e.Value), WireValueOf(e.Value)))];
-        return await EnqueueAsync(user, resolved, file, edits, ConfigurationAuditActions.Restored, cancellationToken)
+        // Restore's baseline is the current recorded state it planned against, so it supplies none and the enqueuer
+        // uses the recorded revision (a restore is not an interactive live-read edit).
+        return await EnqueueAsync(
+            user, resolved, file, edits, ConfigurationAuditActions.Restored, expectedBaselineHash: null, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<ServerConfigurationResult> ApplyRawAsync(
+        UserId user,
+        ServerId server,
+        PzConfigFile file,
+        string rawText,
+        string? expectedBaselineHash = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(rawText);
+
+        Server? resolved = await _servers.FindByIdAsync(server, cancellationToken).ConfigureAwait(false);
+        if (resolved is null)
+        {
+            return ServerConfigurationResult.Denied(ServerConfigurationFailure.ServerNotFound);
+        }
+
+        AuthorizationDecision decision = await _permissions
+            .EvaluateAsync(user, Permissions.ServerConfigurationEdit, server: server, cancellationToken).ConfigureAwait(false);
+        if (!decision.IsAllowed)
+        {
+            return ServerConfigurationResult.Denied(ServerConfigurationFailure.NotAuthorized);
+        }
+
+        if (string.IsNullOrEmpty(rawText))
+        {
+            return ServerConfigurationResult.Denied(ServerConfigurationFailure.InvalidInput, "The edited file text is empty.");
+        }
+
+        if (rawText.Length > MaxRawEditChars)
+        {
+            return ServerConfigurationResult.Denied(
+                ServerConfigurationFailure.InvalidInput, "The edited file text is too large to apply.");
+        }
+
+        // Stage the text to the owning Agent over its own channel before enqueuing the Operation (ADR 0042). The
+        // text cannot ride the command payload, and cannot queue while the Agent is offline, so an offline Agent is
+        // a first-class failure here (unlike a surgical apply, which queues).
+        ConfigRawEditStage stage = await _rawChannel
+            .StageAsync(server, resolved.AgentId, rawText, cancellationToken).ConfigureAwait(false);
+        if (stage.Status != ConfigRawEditStageStatus.Staged || stage.CorrelationId is not { } correlationId)
+        {
+            return ServerConfigurationResult.Denied(
+                ServerConfigurationFailure.AgentOffline,
+                "The server's host is offline, so the raw edit could not be sent. Try again once it reconnects.");
+        }
+
+        return await _enqueuer.EnqueueRawAsync(
+            user, resolved, file, expectedBaselineHash, correlationId,
+            ConfigurationAuditActions.RawApplied, $"{file}, raw whole-file edit", cancellationToken)
             .ConfigureAwait(false);
     }
 
     // The shared enqueue half of apply and restore: capture the drift baseline, size-check the payload, enqueue a
     // mutating server-scoped Operation, and audit. Delegates to the enqueuer F22's mod manager also reuses; the
-    // audit subject preserves the "{file}, {n} edit(s)" detail. The caller has already resolved and authorized.
+    // audit subject preserves the "{file}, {n} edit(s)" detail. The caller has already resolved and authorized. A
+    // non-null expectedBaselineHash is the interactive editor's live-read baseline (F20c, ADR 0042).
     private Task<ServerConfigurationResult> EnqueueAsync(
         UserId user,
         Server resolved,
         PzConfigFile file,
         IReadOnlyList<ConfigApplyEdit> edits,
         string auditAction,
+        string? expectedBaselineHash,
         CancellationToken cancellationToken)
         => _enqueuer.EnqueueAsync(
-            user, resolved, file, edits, auditAction, $"{file}, {edits.Count} edit(s)", cancellationToken);
+            user, resolved, file, edits, auditAction, $"{file}, {edits.Count} edit(s)", expectedBaselineHash, cancellationToken);
 
     private static ConfigEditKind KindOf(PzValue value) => value switch
     {

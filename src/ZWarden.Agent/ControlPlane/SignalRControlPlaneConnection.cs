@@ -27,6 +27,7 @@ public sealed partial class SignalRControlPlaneConnection : IAgentControlPlaneCo
     private readonly IServerHealthObserver _health;
     private readonly IServerLogSubscriptionService _logSubscriptions;
     private readonly IServerConfigReader _configReader;
+    private readonly IServerConfigRawEditStaging _rawStaging;
     private readonly AgentOptions _options;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<SignalRControlPlaneConnection> _logger;
@@ -38,6 +39,7 @@ public sealed partial class SignalRControlPlaneConnection : IAgentControlPlaneCo
         IServerHealthObserver health,
         IServerLogSubscriptionService logSubscriptions,
         IServerConfigReader configReader,
+        IServerConfigRawEditStaging rawStaging,
         IOptions<AgentOptions> options,
         TimeProvider timeProvider,
         ILogger<SignalRControlPlaneConnection> logger)
@@ -47,6 +49,7 @@ public sealed partial class SignalRControlPlaneConnection : IAgentControlPlaneCo
         ArgumentNullException.ThrowIfNull(health);
         ArgumentNullException.ThrowIfNull(logSubscriptions);
         ArgumentNullException.ThrowIfNull(configReader);
+        ArgumentNullException.ThrowIfNull(rawStaging);
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(timeProvider);
         ArgumentNullException.ThrowIfNull(logger);
@@ -55,6 +58,7 @@ public sealed partial class SignalRControlPlaneConnection : IAgentControlPlaneCo
         _health = health;
         _logSubscriptions = logSubscriptions;
         _configReader = configReader;
+        _rawStaging = rawStaging;
         _options = options.Value;
         _timeProvider = timeProvider;
         _logger = logger;
@@ -239,6 +243,15 @@ public sealed partial class SignalRControlPlaneConnection : IAgentControlPlaneCo
                 }
 #pragma warning restore CA1031
             });
+
+        // Raw whole-file config edit staging (F20c PR-D, ADR 0042): Web sends the operator's text up in chunks
+        // before enqueuing the ConfigApplyRaw Operation that applies it. This is transport plumbing, not a command —
+        // bare arguments, no OperationId, no reply; the arbitrary text never rides an AgentCommand. The staging
+        // buffer is bounded and transient; a lost or expired stage fails the Operation cleanly, never this callback.
+        connection.On<string, int, int, string>(
+            AgentHubProtocol.StageServerConfigRawEdit,
+            (correlationId, chunkIndex, chunkCount, chunk) =>
+                _rawStaging.Accept(new ServerConfigRawEditChunk(correlationId, chunkIndex, chunkCount, chunk)));
 
         // A terminal close (auto-reconnect gave up, or an explicit stop) tears down every follow, so none lingers
         // against a dead connection; a transient drop keeps them — auto-reconnect reuses this same connection and

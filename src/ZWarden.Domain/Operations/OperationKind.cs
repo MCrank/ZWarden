@@ -148,4 +148,15 @@ public enum OperationKind
     /// 0022) and does not contend with an in-flight lifecycle Operation. The target Server rides the envelope
     /// <c>ServerId</c>; the Agent reports a <c>ServerDiagnosticsResult</c> bundle on completion.</summary>
     GatherServerDiagnostics = 21,
+
+    /// <summary>Apply an operator-authored <b>whole-file</b> edit to one of a Server's four configuration files
+    /// (F20c PR-D, ADR 0042). A <b>mutating, server-scoped</b> Operation — it writes to the <c>/pz/</c> mount — so
+    /// it claims the per-server lock (ADR 0022) exactly like <see cref="ConfigApply"/>. The file text is far larger
+    /// than the 2 KB command-payload cap, so it is <b>staged</b> to the Agent over a separate transport channel
+    /// before this Operation is enqueued; the command payload carries only the file, the drift baseline, and the
+    /// staging correlation id. The Agent retrieves the staged text, parse-validates it, fails the write closed on a
+    /// drift from the baseline (ADR 0011), and writes it BOM-less and atomically, reporting the same
+    /// <c>ConfigApplyResult</c> a surgical apply does (so it records a revision). The whole-file text never rides
+    /// an <c>AgentCommand</c>, keeping the closed-command vocabulary intact.</summary>
+    ConfigApplyRaw = 22,
 }

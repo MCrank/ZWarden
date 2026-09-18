@@ -1,8 +1,10 @@
 # Feature 20c Mini-Plan — Live Configuration Read, Schema Editor, and Tooltips
 
-**Status:** planned (not started). Track D. The third F20 split — [#108](https://github.com/MCrank/ZWarden/issues/108),
+**Status:** delivered. Track D. The third F20 split — [#108](https://github.com/MCrank/ZWarden/issues/108),
 "F20b follow-up: live config read → full schema editor + raw view/edit" (`ready-for-agent`). Delivered
-across **~3–4 PRs**, one commit per TDD slice, on branches under `feat/f20c-*`.
+across four PRs, one commit per TDD slice, on branches under `feat/f20c-*`: PR-A library (comment
+harvest + schema metadata), PR-B read path (ADR 0041), PR-C schema editor UI, and PR-D drift
+confirm-and-override + gated raw whole-file edit (ADR 0042) — this PR closes #108.
 
 **Format:** PRD 60. **Written against:** PRD 32 (structured configuration editing — the *live-read and
 present* half F20a/F20b deferred), PRD 2.2 (TDD mandatory), PRD 2.3 (supportability — a blind editor and a
@@ -144,9 +146,23 @@ not a toggle on the editor.**
   UI, show the layout inside the real redesigned app** (run-web/aspire/playwright per the maintainer's
   standing checkpoint). Bump the Web.Tests floor in **both** the csproj and the `ci.yml`
   `tier1-silent-drop-guard`; rebuild `app.css` if utility classes change.
-- **PR-D — Raw edit (gated; may be deferred).** Whole-file operator-authored write: parse-validate +
-  pre-check + drift-check + BOM-less atomic write, reusing the F20b writer's safety envelope. Sequence/size
-  to be triaged after PR-C lands.
+- **PR-D — Drift confirm-and-override + gated raw edit (the final leg).** `ADR 0042`. Two capabilities over
+  one shared apply-seam extension (`IServerConfigurationEditor.ApplyAsync` gains an additive
+  `expectedBaselineHash`; the enqueuer coalesces it over the recorded-revision baseline). **(1) Interactive
+  drift confirm-and-override:** the editor applies against the operator's **live-read baseline** (the hash it
+  showed), and on a control-plane pre-check drift (the fresh read the POST already performs disagrees with the
+  baseline the form carried) it re-renders the current values with a banner and does not enqueue; the Agent's
+  fail-closed check (ADR 0011) stays the authoritative residual-race guard. **(2) Gated raw whole-file edit:**
+  operator-authored text is chunked to the Agent over a new `StageServerConfigRawEdit` transport channel (the
+  reverse-direction sibling of the read channel), then a **small** `ConfigApplyRaw(File, BaselineHash,
+  CorrelationId)` Operation is enqueued — so the write keeps the per-server lock (ADR 0022), the audit row, and
+  the value-level revision (ADR 0011) despite the ~45 KB payload the 2 KB Operation cap forbids. The Agent runs
+  the F20b safety envelope (parse-validate + pre-check + drift-check + BOM-less atomic write) on the staged text
+  and reports the same `ConfigApplyResult`. The whole-file text never rides an `AgentCommand`, so the
+  closed-command-vocabulary boundary holds. Gated by an explicit in-form acknowledgement on the existing
+  `ServerConfigurationEdit` permission. **Show the UI inside the real app before committing** (the standing
+  checkpoint). Bump the Web.Tests floor in **both** the csproj and `ci.yml`; rebuild `app.css` if classes
+  change. Closes #108.
 
 ## Non-scope
 

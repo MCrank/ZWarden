@@ -663,6 +663,20 @@ else
                 sandbox and spawn changes take effect on the next restart.
             </p>
 
+            @if (_configDrift)
+            {
+                <div class="mt-3" data-config-drift>
+                    <BbAlert Variant="AlertVariant.Warning" AccentBorder>
+                        <BbAlertDescription>
+                            This file changed on the host since you loaded it — another operator or the in-game admin
+                            panel wrote it, or the server rewrote it on start. Nothing was applied. The editor below now
+                            shows the <span class="font-medium">current</span> values; review your changes and
+                            <span class="font-medium">Apply changes</span> again to write on top of them.
+                        </BbAlertDescription>
+                    </BbAlert>
+                </div>
+            }
+
             @if (_configMessage is not null)
             {
                 <div class="mt-3" data-config-message>
@@ -687,6 +701,7 @@ else
                 <EditForm Model="_editorForm" FormName="config-editor" OnValidSubmit="ConfigEditorAsync"
                           class="mt-2" data-cfg-form>
                     <input type="hidden" name="_editorForm.File" value="@_selectedFile" />
+                    <input type="hidden" name="_editorForm.BaselineHash" value="@_editorForm.BaselineHash" />
 
                     <div class="zw-cfg-toolbar">
                         <label class="zw-cfg-searchbox">
@@ -821,7 +836,40 @@ else
             {
                 <details class="zw-cfg-raw" data-config-raw>
                     <summary><ShellIcon Name="scroll-text" /> Raw file — @FileLabel(_selectedFile)</summary>
-                    <pre>@rawText</pre>
+                    @if (_perm.CanConfigEdit && _configView is { IsRead: true })
+                    {
+                        @* Gated raw whole-file edit (F20c PR-D, ADR 0042). Arbitrary operator text bypasses the
+                           surgical writer and can stop the server on start, so it is gated behind an explicit
+                           acknowledgement; the Agent still parse-validates, drift-checks, and writes BOM-less. *@
+                        <EditForm Model="_rawForm" FormName="config-raw-edit" OnValidSubmit="RawEditAsync"
+                                  class="mt-2" data-config-raweditform>
+                            <input type="hidden" name="_rawForm.File" value="@_selectedFile" />
+                            <input type="hidden" name="_rawForm.BaselineHash" value="@_rawForm.BaselineHash" />
+                            <p class="mb-2 text-xs text-muted-foreground">
+                                Editing the whole file replaces every byte the game reads. A typo can stop the server
+                                from starting. The text is re-parsed and re-checked against the live file before it is
+                                written; a syntax error or a drift is refused. Prefer the structured editor above unless
+                                you need a setting it does not surface (for example the spawn files).
+                            </p>
+                            <textarea class="zw-cfg-rawedit" name="_rawForm.Content" rows="16" spellcheck="false"
+                                      autocomplete="off" aria-label="Raw file contents">@(_rawForm.Content ?? rawText)</textarea>
+                            <label class="mt-2 flex items-start gap-2 text-xs text-muted-foreground">
+                                <input type="checkbox" name="_rawForm.Confirmed" value="true" checked="@_rawForm.Confirmed"
+                                       data-config-rawconfirm />
+                                <span>I understand this replaces the whole file and can prevent the server from starting.</span>
+                            </label>
+                            <div class="mt-2 flex flex-wrap items-center gap-2">
+                                <BbButton Type="ButtonType.Submit" Size="ButtonSize.Small"
+                                          data-action="config-raw-apply">Apply raw edit</BbButton>
+                                <a class="text-xs text-muted-foreground hover:text-foreground" href="@ConfigFileHref(_selectedFile)"
+                                   data-action="config-raw-reload">Reload from host</a>
+                            </div>
+                        </EditForm>
+                    }
+                    else
+                    {
+                        <pre>@rawText</pre>
+                    }
                 </details>
             }
 
@@ -1055,6 +1103,9 @@ else
     [SupplyParameterFromForm(FormName = "config-restore")]
     private ConfigRestoreModel _restoreForm { get; set; } = default!;
 
+    [SupplyParameterFromForm(FormName = "config-raw-edit")]
+    private ConfigRawEditModel _rawForm { get; set; } = default!;
+
     [SupplyParameterFromForm(FormName = "mod-discovery")]
     private ModDiscoveryModel _modForm { get; set; } = default!;
 
@@ -1097,6 +1148,7 @@ else
     private ConfigDocumentView? _configView;
     private string? _configMessage;
     private AlertVariant _configAlert = AlertVariant.Warning;
+    private bool _configDrift;
 
     private BackupPermissions _backupPerm;
     private IReadOnlyList<BackupSummary> _backups = [];
@@ -1111,6 +1163,7 @@ else
         _configForm ??= new ConfigFormModel();
         _editorForm ??= new ConfigEditorModel();
         _restoreForm ??= new ConfigRestoreModel();
+        _rawForm ??= new ConfigRawEditModel();
         _modForm ??= new ModDiscoveryModel();
         _modManageForm ??= new ModManageModel();
         _backupForm ??= new BackupManageModel();
@@ -1596,6 +1649,16 @@ else
         if (rebuildRows)
         {
             _editorForm.Rows = BuildRows(_configView);
+            // Carry the baseline the operator is about to see, so a later apply drift-checks against it (ADR 0042).
+            _editorForm.BaselineHash = _configView.IsRead ? _configView.BaselineHash : null;
+        }
+
+        // Prime the raw-edit form's file + baseline from this read too — but only when it is not itself being
+        // submitted (Content bound), so a raw-edit post keeps the baseline the operator saw for its drift check.
+        if (_rawForm.Content is null)
+        {
+            _rawForm.File = _selectedFile.ToString();
+            _rawForm.BaselineHash = _configView.IsRead ? _configView.BaselineHash : null;
         }
     }
 
@@ -1656,20 +1719,100 @@ else
             }
         }
 
+        // OnInitializedAsync already re-read the live file for this POST (so the form could render), so the drift
+        // pre-check is free: compare the baseline the operator was shown (the posted hidden field) against the
+        // fresh read. A mismatch — or a read that could not confirm the current state — refuses to enqueue and
+        // shows the confirm-and-override banner over the current values; the Agent's own fail-closed check (ADR
+        // 0011) still guards the residual race between this read and the write (F20c, ADR 0042).
+        string? liveBaseline = _configView is { IsRead: true } ? _configView.BaselineHash : null;
+        bool inSync = liveBaseline is not null
+            && !string.IsNullOrEmpty(_editorForm.BaselineHash)
+            && string.Equals(_editorForm.BaselineHash, liveBaseline, StringComparison.Ordinal);
+
         if (edits.Count == 0)
         {
             SetConfigMessage("No changes to apply — every setting still holds its loaded value.", ok: false);
         }
+        else if (_configView is not { IsRead: true })
+        {
+            // The live re-read failed (host offline/timeout/parse), so the current state cannot be confirmed —
+            // refuse rather than write against an unknown baseline.
+            SetConfigMessage(
+                "Could not read the current configuration from the host, so nothing was applied. "
+                + "Try Reload from host, then apply again.",
+                ok: false);
+        }
+        else if (!inSync)
+        {
+            // Drift: the file changed since the operator loaded it (or the baseline could not be matched). Show the
+            // current values and the confirm-and-override banner; do not enqueue.
+            _configDrift = true;
+        }
         else
         {
-            ServerConfigurationResult result = await ConfigEditor.ApplyAsync(user, serverId, _selectedFile, edits);
+            ServerConfigurationResult result = await ConfigEditor.ApplyAsync(
+                user, serverId, _selectedFile, edits, expectedBaselineHash: _editorForm.BaselineHash);
             SetConfigResult(result, $"{edits.Count} change{(edits.Count == 1 ? string.Empty : "s")} enqueued");
         }
 
         // Refresh the editor from the view already read for this request (OnInitializedAsync read it so the form
         // could render). The apply is enqueued, so the live values are unchanged until the Agent writes them and
-        // the next read runs — no second host round-trip is needed here.
-        _editorForm.Rows = BuildRows(_configView ?? ConfigDocumentView.OfOutcome(ConfigReadOutcome.Read));
+        // the next read runs — no second host round-trip is needed here. Refreshing the baseline too means a
+        // reapply after drift carries the current hash (the operator is now writing on top of the live state).
+        ConfigDocumentView refreshed = _configView ?? ConfigDocumentView.OfOutcome(ConfigReadOutcome.Read);
+        _editorForm.Rows = BuildRows(refreshed);
+        _editorForm.BaselineHash = refreshed.IsRead ? refreshed.BaselineHash : null;
+        await LoadHistoryAsync(user, serverId);
+    }
+
+    // The gated raw whole-file edit submit handler (F20c PR-D, ADR 0042). Requires the explicit acknowledgement,
+    // drift-pre-checks against the fresh read exactly like the structured editor, then stages the text and enqueues
+    // a ConfigApplyRaw Operation. The Agent still parse-validates and drift-checks before it writes.
+    private async Task RawEditAsync()
+    {
+        if (_server is null || !ServerId.TryParse(Id, out ServerId serverId))
+        {
+            return;
+        }
+
+        UserId user = await CurrentUserAsync();
+        _selectedFile = ParseFile(_rawForm.File);
+        string content = _rawForm.Content ?? string.Empty;
+
+        string? liveBaseline = _configView is { IsRead: true } ? _configView.BaselineHash : null;
+        bool inSync = liveBaseline is not null
+            && !string.IsNullOrEmpty(_rawForm.BaselineHash)
+            && string.Equals(_rawForm.BaselineHash, liveBaseline, StringComparison.Ordinal);
+
+        if (!_rawForm.Confirmed)
+        {
+            SetConfigMessage("Confirm you understand a raw edit replaces the whole file before applying it.", ok: false);
+        }
+        else if (string.IsNullOrWhiteSpace(content))
+        {
+            SetConfigMessage("The edited file text is empty, so nothing was applied.", ok: false);
+        }
+        else if (_configView is not { IsRead: true })
+        {
+            SetConfigMessage(
+                "Could not read the current configuration from the host, so the raw edit was not applied. "
+                + "Try Reload from host, then apply again.",
+                ok: false);
+        }
+        else if (!inSync)
+        {
+            // Drift: the file changed since the operator loaded it. A raw edit cannot be auto-merged, so keep their
+            // text, do not enqueue, and show the banner — they Reload from host to pick up the current text and
+            // re-make their change. The stale baseline is left in place so a blind re-submit re-drifts (fail closed).
+            _configDrift = true;
+        }
+        else
+        {
+            ServerConfigurationResult result = await ConfigEditor.ApplyRawAsync(
+                user, serverId, _selectedFile, content, expectedBaselineHash: _rawForm.BaselineHash);
+            SetConfigResult(result, "raw whole-file edit enqueued");
+        }
+
         await LoadHistoryAsync(user, serverId);
     }
 
@@ -1690,6 +1833,7 @@ else
             ServerConfigurationFailure.ServerNotFound => "That server is no longer available.",
             ServerConfigurationFailure.ServerBusy => "The server is busy with another operation; try again once it finishes.",
             ServerConfigurationFailure.InvalidInput => result.Message ?? "That configuration change is not valid.",
+            ServerConfigurationFailure.AgentOffline => result.Message ?? "The server's host is offline; try again once it reconnects.",
             _ => "The configuration change could not be completed.",
         };
         SetConfigMessage(message, ok: false);
@@ -2008,6 +2152,20 @@ else
         public string? Target { get; set; }
     }
 
+    // The gated raw whole-file edit model (F20c PR-D, ADR 0042). Content is the operator-authored text; Confirmed is
+    // the required acknowledgement (a raw edit replaces the whole file and can stop the server on start); File and
+    // BaselineHash travel hidden so the apply targets the right file and drift-checks against what was loaded.
+    private sealed class ConfigRawEditModel
+    {
+        public string? File { get; set; }
+
+        public string? BaselineHash { get; set; }
+
+        public string? Content { get; set; }
+
+        public bool Confirmed { get; set; }
+    }
+
     // The live schema editor's batch model (F20c): one row per rendered setting. The hidden Path/Kind/Original
     // travel with each row so the changed set can be computed from the post alone, without a re-read that could
     // race the host rewriting the file. Value carries text/number/enum controls; Flag carries the boolean toggle.
@@ -2015,6 +2173,11 @@ else
     {
         // Which PzConfigFile these rows belong to (hidden) — the file the apply targets.
         public string? File { get; set; }
+
+        // The live-read baseline the operator was shown (hidden): the canonical value hash of the state these
+        // rows were rendered from (F20c, ADR 0042). Sent back on apply so the Agent drift-checks against what the
+        // operator saw, and compared on post against a fresh read to raise the confirm-and-override banner.
+        public string? BaselineHash { get; set; }
 
         // The submit button's verb; only "apply" today (file switching and reload are GETs via ?file=).
         public string? Target { get; set; }
