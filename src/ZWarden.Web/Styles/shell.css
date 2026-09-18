@@ -275,6 +275,13 @@ html:not(.dark) .zw-ico-moon { display: inline-block; }
   margin: 0; padding: 12px; border-top: 1px solid var(--border); overflow: auto; max-height: 460px;
   font-family: var(--font-mono, ui-monospace, monospace); font-size: 11.5px; line-height: 1.5; color: var(--foreground);
 }
+.zw-cfg-rawedit {
+  display: block; width: 100%; margin: 0; padding: 12px; border: 0; border-top: 1px solid var(--border);
+  background: var(--background); color: var(--foreground); resize: vertical;
+  font-family: var(--font-mono, ui-monospace, monospace); font-size: 11.5px; line-height: 1.5;
+}
+.zw-cfg-rawedit:focus-visible { outline: none; box-shadow: inset 0 0 0 2px color-mix(in oklab, var(--primary) 30%, transparent); }
+
 .zw-cfg-empty { padding: 20px 4px; color: var(--muted-foreground); font-size: 13px; }
 
 @media (max-width: 700px) {

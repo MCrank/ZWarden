@@ -836,7 +836,40 @@ else
             {
                 <details class="zw-cfg-raw" data-config-raw>
                     <summary><ShellIcon Name="scroll-text" /> Raw file — @FileLabel(_selectedFile)</summary>
-                    <pre>@rawText</pre>
+                    @if (_perm.CanConfigEdit && _configView is { IsRead: true })
+                    {
+                        @* Gated raw whole-file edit (F20c PR-D, ADR 0042). Arbitrary operator text bypasses the
+                           surgical writer and can stop the server on start, so it is gated behind an explicit
+                           acknowledgement; the Agent still parse-validates, drift-checks, and writes BOM-less. *@
+                        <EditForm Model="_rawForm" FormName="config-raw-edit" OnValidSubmit="RawEditAsync"
+                                  class="mt-2" data-config-raweditform>
+                            <input type="hidden" name="_rawForm.File" value="@_selectedFile" />
+                            <input type="hidden" name="_rawForm.BaselineHash" value="@_rawForm.BaselineHash" />
+                            <p class="mb-2 text-xs text-muted-foreground">
+                                Editing the whole file replaces every byte the game reads. A typo can stop the server
+                                from starting. The text is re-parsed and re-checked against the live file before it is
+                                written; a syntax error or a drift is refused. Prefer the structured editor above unless
+                                you need a setting it does not surface (for example the spawn files).
+                            </p>
+                            <textarea class="zw-cfg-rawedit" name="_rawForm.Content" rows="16" spellcheck="false"
+                                      autocomplete="off" aria-label="Raw file contents">@(_rawForm.Content ?? rawText)</textarea>
+                            <label class="mt-2 flex items-start gap-2 text-xs text-muted-foreground">
+                                <input type="checkbox" name="_rawForm.Confirmed" value="true" checked="@_rawForm.Confirmed"
+                                       data-config-rawconfirm />
+                                <span>I understand this replaces the whole file and can prevent the server from starting.</span>
+                            </label>
+                            <div class="mt-2 flex flex-wrap items-center gap-2">
+                                <BbButton Type="ButtonType.Submit" Size="ButtonSize.Small"
+                                          data-action="config-raw-apply">Apply raw edit</BbButton>
+                                <a class="text-xs text-muted-foreground hover:text-foreground" href="@ConfigFileHref(_selectedFile)"
+                                   data-action="config-raw-reload">Reload from host</a>
+                            </div>
+                        </EditForm>
+                    }
+                    else
+                    {
+                        <pre>@rawText</pre>
+                    }
                 </details>
             }
 
@@ -1070,6 +1103,9 @@ else
     [SupplyParameterFromForm(FormName = "config-restore")]
     private ConfigRestoreModel _restoreForm { get; set; } = default!;
 
+    [SupplyParameterFromForm(FormName = "config-raw-edit")]
+    private ConfigRawEditModel _rawForm { get; set; } = default!;
+
     [SupplyParameterFromForm(FormName = "mod-discovery")]
     private ModDiscoveryModel _modForm { get; set; } = default!;
 
@@ -1127,6 +1163,7 @@ else
         _configForm ??= new ConfigFormModel();
         _editorForm ??= new ConfigEditorModel();
         _restoreForm ??= new ConfigRestoreModel();
+        _rawForm ??= new ConfigRawEditModel();
         _modForm ??= new ModDiscoveryModel();
         _modManageForm ??= new ModManageModel();
         _backupForm ??= new BackupManageModel();
@@ -1615,6 +1652,14 @@ else
             // Carry the baseline the operator is about to see, so a later apply drift-checks against it (ADR 0042).
             _editorForm.BaselineHash = _configView.IsRead ? _configView.BaselineHash : null;
         }
+
+        // Prime the raw-edit form's file + baseline from this read too — but only when it is not itself being
+        // submitted (Content bound), so a raw-edit post keeps the baseline the operator saw for its drift check.
+        if (_rawForm.Content is null)
+        {
+            _rawForm.File = _selectedFile.ToString();
+            _rawForm.BaselineHash = _configView.IsRead ? _configView.BaselineHash : null;
+        }
     }
 
     // Flattens the view's sections into the editor's row list, in render order, so a row's index matches the
@@ -1720,6 +1765,57 @@ else
         await LoadHistoryAsync(user, serverId);
     }
 
+    // The gated raw whole-file edit submit handler (F20c PR-D, ADR 0042). Requires the explicit acknowledgement,
+    // drift-pre-checks against the fresh read exactly like the structured editor, then stages the text and enqueues
+    // a ConfigApplyRaw Operation. The Agent still parse-validates and drift-checks before it writes.
+    private async Task RawEditAsync()
+    {
+        if (_server is null || !ServerId.TryParse(Id, out ServerId serverId))
+        {
+            return;
+        }
+
+        UserId user = await CurrentUserAsync();
+        _selectedFile = ParseFile(_rawForm.File);
+        string content = _rawForm.Content ?? string.Empty;
+
+        string? liveBaseline = _configView is { IsRead: true } ? _configView.BaselineHash : null;
+        bool inSync = liveBaseline is not null
+            && !string.IsNullOrEmpty(_rawForm.BaselineHash)
+            && string.Equals(_rawForm.BaselineHash, liveBaseline, StringComparison.Ordinal);
+
+        if (!_rawForm.Confirmed)
+        {
+            SetConfigMessage("Confirm you understand a raw edit replaces the whole file before applying it.", ok: false);
+        }
+        else if (string.IsNullOrWhiteSpace(content))
+        {
+            SetConfigMessage("The edited file text is empty, so nothing was applied.", ok: false);
+        }
+        else if (_configView is not { IsRead: true })
+        {
+            SetConfigMessage(
+                "Could not read the current configuration from the host, so the raw edit was not applied. "
+                + "Try Reload from host, then apply again.",
+                ok: false);
+        }
+        else if (!inSync)
+        {
+            // Drift: the file changed since the operator loaded it. A raw edit cannot be auto-merged, so keep their
+            // text, do not enqueue, and show the banner — they Reload from host to pick up the current text and
+            // re-make their change. The stale baseline is left in place so a blind re-submit re-drifts (fail closed).
+            _configDrift = true;
+        }
+        else
+        {
+            ServerConfigurationResult result = await ConfigEditor.ApplyRawAsync(
+                user, serverId, _selectedFile, content, expectedBaselineHash: _rawForm.BaselineHash);
+            SetConfigResult(result, "raw whole-file edit enqueued");
+        }
+
+        await LoadHistoryAsync(user, serverId);
+    }
+
     private async Task LoadHistoryAsync(UserId user, ServerId serverId) =>
         _revisions = await ConfigHistory.GetHistoryAsync(user, serverId, _selectedFile);
 
@@ -1737,6 +1833,7 @@ else
             ServerConfigurationFailure.ServerNotFound => "That server is no longer available.",
             ServerConfigurationFailure.ServerBusy => "The server is busy with another operation; try again once it finishes.",
             ServerConfigurationFailure.InvalidInput => result.Message ?? "That configuration change is not valid.",
+            ServerConfigurationFailure.AgentOffline => result.Message ?? "The server's host is offline; try again once it reconnects.",
             _ => "The configuration change could not be completed.",
         };
         SetConfigMessage(message, ok: false);
@@ -2053,6 +2150,20 @@ else
     {
         // The restore button's "{file}|{revisionId}" token.
         public string? Target { get; set; }
+    }
+
+    // The gated raw whole-file edit model (F20c PR-D, ADR 0042). Content is the operator-authored text; Confirmed is
+    // the required acknowledgement (a raw edit replaces the whole file and can stop the server on start); File and
+    // BaselineHash travel hidden so the apply targets the right file and drift-checks against what was loaded.
+    private sealed class ConfigRawEditModel
+    {
+        public string? File { get; set; }
+
+        public string? BaselineHash { get; set; }
+
+        public string? Content { get; set; }
+
+        public bool Confirmed { get; set; }
     }
 
     // The live schema editor's batch model (F20c): one row per rendered setting. The hidden Path/Kind/Original
