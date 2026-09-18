@@ -3,6 +3,7 @@ using Microsoft.Extensions.Options;
 using ZWarden.Agent.Configuration;
 using ZWarden.Agent.ControlPlane;
 using ZWarden.Agent.Docker;
+using ZWarden.Agent.Servers;
 using ZWarden.Domain.Ids;
 
 namespace ZWarden.Agent.SteamCmd;
@@ -34,6 +35,7 @@ public sealed partial class ServerUpdateRunner : IServerUpdateRunner
 
     private readonly IContainerRuntime _runtime;
     private readonly IServerInstallPaths _paths;
+    private readonly IServerRestartCoordinator _restartCoordinator;
     private readonly AgentOptions _options;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<ServerUpdateRunner> _logger;
@@ -41,17 +43,20 @@ public sealed partial class ServerUpdateRunner : IServerUpdateRunner
     public ServerUpdateRunner(
         IContainerRuntime runtime,
         IServerInstallPaths paths,
+        IServerRestartCoordinator restartCoordinator,
         IOptions<AgentOptions> options,
         TimeProvider timeProvider,
         ILogger<ServerUpdateRunner> logger)
     {
         ArgumentNullException.ThrowIfNull(runtime);
         ArgumentNullException.ThrowIfNull(paths);
+        ArgumentNullException.ThrowIfNull(restartCoordinator);
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(timeProvider);
         ArgumentNullException.ThrowIfNull(logger);
         _runtime = runtime;
         _paths = paths;
+        _restartCoordinator = restartCoordinator;
         _options = options.Value;
         _timeProvider = timeProvider;
         _logger = logger;
@@ -69,6 +74,12 @@ public sealed partial class ServerUpdateRunner : IServerUpdateRunner
 
         try
         {
+            // Graceful restart (#114): warn connected players with a servermsg countdown before the update takes
+            // the server down. Best-effort — an RCON failure never blocks the update — using the Agent's default
+            // warning schedule.
+            await _restartCoordinator
+                .WarnAsync(serverId, plan: null, operationId, progress, cancellationToken).ConfigureAwait(false);
+
             // The restart runs the blessed save→quit stop and reboots into the entrypoint's update path.
             await _runtime.RestartAsync(serverId, cancellationToken).ConfigureAwait(false);
         }

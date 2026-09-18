@@ -4,6 +4,7 @@ using ZWarden.Agent.Configuration;
 using ZWarden.Agent.ControlPlane;
 using ZWarden.Agent.Docker;
 using ZWarden.Agent.SteamCmd;
+using ZWarden.Agent.Tests.ControlPlane;
 using ZWarden.Domain.Ids;
 
 namespace ZWarden.Agent.Tests.SteamCmd;
@@ -16,10 +17,12 @@ namespace ZWarden.Agent.Tests.SteamCmd;
 public class ServerUpdateRunnerTests
 {
     private static ServerUpdateRunner Runner(
-        ScriptedRuntime runtime, RecordingPaths paths, TimeSpan? timeout = null) =>
+        ScriptedRuntime runtime, RecordingPaths paths, TimeSpan? timeout = null,
+        FakeServerRestartCoordinator? coordinator = null) =>
         new(
             runtime,
             paths,
+            coordinator ?? new FakeServerRestartCoordinator(),
             Options.Create(new AgentOptions
             {
                 UpdatePollInterval = TimeSpan.Zero,
@@ -52,6 +55,23 @@ public class ServerUpdateRunnerTests
         await Assert.That(runtime.RestartedServerId).IsEqualTo(serverId);
         await Assert.That(reporter.Percents).Contains(6);
         await Assert.That(reporter.Percents).Contains(43);
+    }
+
+    [Test]
+    public async Task It_warns_players_before_taking_the_server_down_for_the_update()
+    {
+        // #114: an update restart inherits the graceful player broadcast.
+        ServerId serverId = ServerId.New();
+        OperationId op = OperationId.New();
+        var runtime = new ScriptedRuntime();
+        runtime.Logs.Enqueue(string.Join('\n', Begin(op), "Success! App '380870' fully installed", EndOk(op)));
+        var coordinator = new FakeServerRestartCoordinator();
+
+        await Runner(runtime, new RecordingPaths { BuildId = "1" }, coordinator: coordinator)
+            .RunAsync(serverId, op, new RecordingReporter(), CancellationToken.None);
+
+        await Assert.That(coordinator.WarnCount).IsEqualTo(1);
+        await Assert.That(coordinator.LastWarnedServerId).IsEqualTo(serverId);
     }
 
     [Test]
