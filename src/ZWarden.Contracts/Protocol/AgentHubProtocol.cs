@@ -74,4 +74,24 @@ public static class AgentHubProtocol
     /// <summary>The client method ZWarden.Web invokes on the Agent to <b>stop</b> following a Server's logs (F27),
     /// with the Server's canonical id string as its one argument — called when the last viewer leaves (ADR 0030).</summary>
     public const string StopServerLogStream = "StopServerLogStream";
+
+    /// <summary>
+    /// The client method ZWarden.Web invokes on the Agent to request a <b>live, non-mutating read</b> of one of a
+    /// Server's configuration files (F20c). Its three arguments are the Server's canonical id string, the
+    /// <c>PzConfigFile</c> name, and an opaque <b>correlation id</b> the Agent echoes on every reply chunk. Like the
+    /// log-stream control this is deliberately <b>transport plumbing</b>, not a protocol message: it is neither an
+    /// <c>AgentCommand</c> (the operation-dispatch vocabulary — a read takes no lock, writes no audit row, records no
+    /// revision, ADR 0022/0011) nor an <c>AgentEvent</c>, so the closed-vocabulary guard (ADR 0020) is unaffected. The
+    /// Agent replies with one or more <see cref="ServerConfigContent"/> sends (ADR 0041).
+    /// </summary>
+    public const string RequestServerConfigRead = "RequestServerConfigRead";
+
+    /// <summary>
+    /// The Agent's reply to <see cref="RequestServerConfigRead"/> (F20c), carrying an
+    /// <c>Envelope&lt;ServerConfigContent&gt;</c> — one sequenced chunk of the canonical-JSON view of the parsed file
+    /// (the current values, harvested comments, raw text, diagnostics, and drift baseline hash). A parsed file can
+    /// exceed SignalR's per-message ceiling, so the reply is chunked and reassembled by correlation id on
+    /// ZWarden.Web, bounded and transient (ADR 0041). The Server is the envelope's <c>ServerId</c>.
+    /// </summary>
+    public const string ServerConfigContent = "ServerConfigContent";
 }
