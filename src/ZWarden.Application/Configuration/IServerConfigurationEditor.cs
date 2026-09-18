@@ -51,4 +51,24 @@ public interface IServerConfigurationEditor
         ServerId server,
         ConfigurationRevisionId revision,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Applies an operator-authored <b>whole-file</b> edit to a Server's <paramref name="file"/> (F20c PR-D, ADR
+    /// 0042) — the gated escape hatch past the structured editor. Fail-closed like <see cref="ApplyAsync"/>: it
+    /// resolves the Server through the tenant filter, authorizes <c>ServerConfigurationEdit</c>, and validates the
+    /// text is non-empty and within the size bound. Because the text is too large for the Operation command payload,
+    /// it is <b>staged</b> to the owning Agent over <see cref="IServerConfigRawEditChannel"/> first — an offline
+    /// Agent is <see cref="ServerConfigurationFailure.AgentOffline"/>, since a raw edit cannot queue ahead of the
+    /// connection — then a small <b>mutating, server-scoped</b> <c>ConfigApplyRaw</c> Operation (per-server lock,
+    /// ADR 0022) is enqueued carrying only the file, the drift <paramref name="expectedBaselineHash"/>, and the
+    /// staging correlation id. The Agent parse-validates and drift-checks the staged text and writes it BOM-less and
+    /// atomically, recording a revision on success.
+    /// </summary>
+    Task<ServerConfigurationResult> ApplyRawAsync(
+        UserId user,
+        ServerId server,
+        PzConfigFile file,
+        string rawText,
+        string? expectedBaselineHash = null,
+        CancellationToken cancellationToken = default);
 }

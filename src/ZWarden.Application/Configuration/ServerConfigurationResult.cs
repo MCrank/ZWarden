@@ -21,6 +21,11 @@ public enum ServerConfigurationFailure
     /// <summary>The requested edits are not valid to enqueue — empty, an empty path, or too many to fit one
     /// Operation's command payload. The Agent re-validates the values before it writes.</summary>
     InvalidInput,
+
+    /// <summary>The Server's owning Agent is not connected, so an operator-authored whole-file edit could not be
+    /// staged to it (F20c PR-D, ADR 0042). Only the raw-edit path reports this — a surgical apply queues while the
+    /// Agent is offline; a raw edit cannot, because its text rides the live connection ahead of the Operation.</summary>
+    AgentOffline,
 }
 
 /// <summary>The outcome of a configuration apply (F20b): on success, the enqueued mutating Operation whose state

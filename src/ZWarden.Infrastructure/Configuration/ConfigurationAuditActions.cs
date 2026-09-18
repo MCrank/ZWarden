@@ -13,4 +13,9 @@ public static class ConfigurationAuditActions
     /// <summary>An operator requested a restore of a prior configuration revision (F20b PR-4). The value edits
     /// that move the current state to the target revision were enqueued as a mutating config Operation.</summary>
     public const string Restored = "Server.ConfigurationRestored";
+
+    /// <summary>An operator applied a whole-file raw edit to a configuration file (F20c PR-D). The text was staged
+    /// to the Agent and a mutating raw-apply Operation was enqueued — a distinct, riskier surface than a surgical
+    /// apply, so it carries its own audit action.</summary>
+    public const string RawApplied = "Server.ConfigurationRawApplied";
 }

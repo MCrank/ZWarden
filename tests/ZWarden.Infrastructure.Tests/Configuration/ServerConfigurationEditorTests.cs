@@ -254,6 +254,81 @@ public class ServerConfigurationEditorTests
     }
 
     [Test]
+    public async Task ApplyRaw_stages_the_text_then_enqueues_a_mutating_raw_operation()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            AgentId agent = AgentId.New();
+            ServerId serverId = await SeedServerAsync(options, agent);
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ServerConfigurationEdit);
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            RecordingCoordinator coordinator = new();
+            CapturingAuditWriter audit = new();
+            RecordingRawEditChannel channel = new();
+            ServerConfigurationEditor sut = Editor(db, coordinator, audit, channel);
+
+            ServerConfigurationResult result = await sut.ApplyRawAsync(
+                user, serverId, PzConfigFile.SandboxVars, "SandboxVars = {\n    Zombies = 1,\n}\n",
+                expectedBaselineHash: "live-read-hash");
+
+            await Assert.That(result.Succeeded).IsTrue();
+            // The whole-file text was staged to the owning Agent (not on the command payload).
+            await Assert.That(channel.LastRawText).Contains("Zombies = 1");
+            await Assert.That(coordinator.LastRequest!.Kind).IsEqualTo(OperationKind.ConfigApplyRaw);
+            await Assert.That(coordinator.LastRequest!.IsMutating).IsTrue();
+            await Assert.That(coordinator.LastRequest!.AgentId).IsEqualTo(agent);
+            ConfigApplyRawPayload payload = ConfigApplyRawPayload.FromJson(coordinator.LastRequest!.CommandPayload!);
+            await Assert.That(payload.File).IsEqualTo(PzConfigFile.SandboxVars);
+            await Assert.That(payload.BaselineHash).IsEqualTo("live-read-hash");
+            await Assert.That(payload.CorrelationId).IsEqualTo("corr-raw-1");
+            await Assert.That(audit.Actions).Contains(ConfigurationAuditActions.RawApplied);
+        });
+    }
+
+    [Test]
+    public async Task ApplyRaw_reports_agent_offline_and_enqueues_nothing_when_staging_cannot_reach_the_host()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            ServerId serverId = await SeedServerAsync(options, AgentId.New());
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ServerConfigurationEdit);
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            RecordingCoordinator coordinator = new();
+            ServerConfigurationEditor sut = Editor(db, coordinator, new CapturingAuditWriter(), new RecordingRawEditChannel { Offline = true });
+
+            ServerConfigurationResult result = await sut.ApplyRawAsync(
+                user, serverId, PzConfigFile.Ini, "PublicName=New\n", expectedBaselineHash: "h");
+
+            await Assert.That(result.Failure).IsEqualTo(ServerConfigurationFailure.AgentOffline);
+            await Assert.That(coordinator.LastRequest).IsNull();
+        });
+    }
+
+    [Test]
+    public async Task ApplyRaw_denies_without_the_server_scoped_config_edit_permission()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            ServerId serverId = await SeedServerAsync(options, AgentId.New());
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            RecordingCoordinator coordinator = new();
+            ServerConfigurationEditor sut = Editor(db, coordinator, new CapturingAuditWriter());
+
+            ServerConfigurationResult result = await sut.ApplyRawAsync(
+                user, serverId, PzConfigFile.Ini, "PublicName=New\n");
+
+            await Assert.That(result.Failure).IsEqualTo(ServerConfigurationFailure.NotAuthorized);
+            await Assert.That(coordinator.LastRequest).IsNull();
+        });
+    }
+
+    [Test]
     public async Task Restore_enqueues_the_edits_that_move_current_to_the_target_revision()
     {
         await WithSqlite(async options =>
@@ -391,13 +466,28 @@ public class ServerConfigurationEditorTests
     }
 
     private static ServerConfigurationEditor Editor(
-        ZWardenDbContext db, RecordingCoordinator coordinator, CapturingAuditWriter audit)
+        ZWardenDbContext db, RecordingCoordinator coordinator, CapturingAuditWriter audit, RecordingRawEditChannel? rawChannel = null)
         => new(
             new ServerRepository(db),
             new PermissionChecker(db, new TestTenantContext(Tenant)),
             coordinator,
             new ConfigurationRevisionRepository(db),
+            rawChannel ?? new RecordingRawEditChannel(),
             audit);
+
+    private sealed class RecordingRawEditChannel : IServerConfigRawEditChannel
+    {
+        public bool Offline { get; init; }
+
+        public string? LastRawText { get; private set; }
+
+        public Task<ConfigRawEditStage> StageAsync(
+            ServerId server, AgentId owningAgent, string rawText, CancellationToken cancellationToken = default)
+        {
+            LastRawText = rawText;
+            return Task.FromResult(Offline ? ConfigRawEditStage.Offline() : ConfigRawEditStage.Ok("corr-raw-1"));
+        }
+    }
 
     private sealed class RecordingCoordinator : IOperationCoordinator
     {

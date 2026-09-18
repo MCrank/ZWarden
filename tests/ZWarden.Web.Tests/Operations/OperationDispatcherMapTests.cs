@@ -131,6 +131,24 @@ public class OperationDispatcherMapTests
     }
 
     [Test]
+    public async Task The_raw_config_apply_kind_reads_its_file_baseline_and_correlation_from_the_payload()
+    {
+        string json = new ConfigApplyRawPayload(PzConfigFile.SandboxVars, BaselineHash: "abc123", CorrelationId: "corr-9").ToJson();
+
+        var raw = (ConfigApplyRaw)OperationDispatcher.CommandFor(OperationKind.ConfigApplyRaw, json);
+
+        await Assert.That(raw.File).IsEqualTo(PzConfigFile.SandboxVars);
+        await Assert.That(raw.BaselineHash).IsEqualTo("abc123");
+        await Assert.That(raw.CorrelationId).IsEqualTo("corr-9");
+    }
+
+    [Test]
+    public async Task The_raw_config_apply_kind_without_a_payload_throws()
+    {
+        await Assert.That(() => OperationDispatcher.CommandFor(OperationKind.ConfigApplyRaw)).Throws<InvalidOperationException>();
+    }
+
+    [Test]
     public async Task The_backup_kind_maps_to_the_backup_command()
     {
         // The reason rides the payload for the ingest, not the Agent command — a backup takes no parameters.
