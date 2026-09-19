@@ -167,6 +167,18 @@ ownership the Agent (uid 10001) and the game-server containers (uid 10000) both 
 `/srv/zwarden/...` host paths in the `pz-data-init` and `agent` service `volumes`, the Agent's
 `Agent__DataMountRoot`/`Agent__BackupRoot`, and wollomatic's `-allowbindmountfrom` together (they must agree).
 
+## The Project Zomboid admin account
+
+Each server boots with an in-game administrator account. Set its password with `ZW_PZ_ADMIN_PASSWORD` (per
+server, via the container environment); left unset, a strong one is generated on first boot and persisted under
+the server's data directory. ZWarden itself manages servers over **RCON**, not this in-game account, so it is a
+secondary credential.
+
+> **Note:** Project Zomboid only accepts this password on the command line (`-adminpassword`), so it is visible
+> in the container's **process table** (e.g. `docker top`) to anyone with Docker-daemon/host access. It is kept
+> out of the container logs and is never baked into the image, but do not treat the generated admin password as
+> a secret hardened against someone who already has host access to the box.
+
 ## Upgrade
 
 ZWarden.Web applies any new database migrations automatically on startup, so an upgrade is pull-and-recreate:
