@@ -93,6 +93,28 @@ public class ServerHealthEvaluatorTests
     }
 
     [Test]
+    public async Task A_container_that_exited_143_after_a_graceful_stop_is_stopped()
+    {
+        // #200: `docker stop` -> SIGTERM -> the entrypoint's save->quit yields 143 (128+SIGTERM). That is a
+        // clean, intentional stop, so it must roll up Stopped, not Failed.
+        HealthEvaluation e = Evaluate("exited", exitCode: 143);
+
+        await Assert.That(e.Health).IsEqualTo(ServerHealth.Stopped);
+        await Assert.That(e.RunState).IsEqualTo(ServerRunState.Stopped);
+        await Assert.That(e.Breakdown.Container.Status).IsEqualTo(ProbeStatus.Skipped);
+    }
+
+    [Test]
+    public async Task An_oom_killed_container_that_exited_143_still_has_failed()
+    {
+        // OOM overrides the clean-exit allowance — an OOM-killed container can still report 143.
+        HealthEvaluation e = Evaluate("exited", exitCode: 143, oom: true);
+
+        await Assert.That(e.Health).IsEqualTo(ServerHealth.Failed);
+        await Assert.That(e.Reason).Contains("OOM");
+    }
+
+    [Test]
     public async Task An_oom_killed_container_has_failed()
     {
         HealthEvaluation e = Evaluate("exited", exitCode: 0, oom: true);

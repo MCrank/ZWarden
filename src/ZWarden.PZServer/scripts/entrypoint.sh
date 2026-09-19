@@ -74,6 +74,10 @@ term_handler() {
   log "SIGTERM received; graceful stop (save, ${ZW_PZ_STOP_GRACE}s grace, quit)..."
   pz_graceful_stop "${FIFO}"
   wait "${SERVER_PID}"
+  # Exit with the JVM's real status (0 on a clean save→quit), NOT the 143 the outer `wait` below would
+  # surface after being interrupted by SIGTERM — a graceful stop must leave the container exited 0 so the
+  # control plane reads it as Stopped, not Failed (#200).
+  exit $?
 }
 trap term_handler TERM
 

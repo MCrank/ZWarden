@@ -47,6 +47,15 @@ public sealed record HealthEvaluation(
 /// </summary>
 public static class ServerHealthEvaluator
 {
+    // 128 + SIGTERM(15): the exit code the PZ entrypoint's graceful-stop path yields when `docker stop` delivers
+    // SIGTERM and the JVM saves then quits cleanly (#200). It is a normal stop, not a crash — unlike 137
+    // (128 + SIGKILL), which means the stop timeout was exceeded and the save was truncated, and stays "bad".
+    private const long GracefulSigtermExitCode = 143;
+
+    // A container that exited on its own terms: a clean 0, or the graceful-stop SIGTERM code. OOM and a "dead"
+    // state are handled separately and always override this — an OOM-killed container can still report 143.
+    private static bool IsCleanExit(long exitCode) => exitCode is 0 or GracefulSigtermExitCode;
+
     /// <summary>Evaluates one Server's probe facts into its health rollup, run-state, breakdown and reason.</summary>
     public static HealthEvaluation Evaluate(HealthProbeFacts facts)
     {
@@ -55,7 +64,7 @@ public static class ServerHealthEvaluator
         string state = facts.ContainerState?.Trim().ToLowerInvariant() ?? string.Empty;
         string? health = facts.ContainerHealth?.Trim().ToLowerInvariant();
         bool running = state == "running";
-        bool exitedBadly = facts.OomKilled || facts.ExitCode != 0 || state == "dead";
+        bool exitedBadly = facts.OomKilled || state == "dead" || !IsCleanExit(facts.ExitCode);
 
         HealthBreakdown breakdown = new(
             Container: ContainerCheck(state, facts, exitedBadly),
