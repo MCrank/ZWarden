@@ -428,7 +428,7 @@ jobs:
           status=starting
           # Up to ~55 min (330 x 10s) for a healthy transition — the first-run install alone can take ~40 min,
           # then the server boots and the healthcheck flips healthy (#191). Kept under timeout-minutes above.
-          for _ in $(seq 1 330); do
+          for i in $(seq 1 330); do
             status="$(docker inspect --format '{{.State.Health.Status}}' pz 2>/dev/null || echo gone)"
             [ "$status" = "healthy" ] && break
             [ "$status" = "gone" ] && break
@@ -437,6 +437,13 @@ jobs:
             # burns the full timeout. Stop the moment it is no longer running (F12/#65).
             if [ "$(docker inspect --format '{{.State.Running}}' pz 2>/dev/null || echo false)" != "true" ]; then
               status="exited"; break
+            fi
+            # DIAG(#191): every ~60s, show the container's processes and what the healthcheck sees, so a server
+            # that is up but never "healthy" reveals the real process cmdline the healthcheck must match.
+            if [ $((i % 6)) -eq 0 ]; then
+              echo "--- diag iter $i (status=$status): container processes ---"
+              docker top pz -eo pid,args 2>/dev/null | head -25 || true
+              docker exec pz /pz/scripts/healthcheck.sh && echo "healthcheck.sh -> healthy" || echo "healthcheck.sh -> NOT healthy (exit $?)"
             fi
             sleep 10
           done
