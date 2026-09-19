@@ -34,4 +34,11 @@ USER zwarden
 VOLUME /data
 EXPOSE 8080
 ENV ASPNETCORE_HTTP_PORTS=8080
+# Default the Data Protection key ring onto the writable /data volume (#186). Without this the app falls back
+# to <contentRoot>/dp-keys = /app/dp-keys, which is root-owned, so the non-root `zwarden` user crashes creating
+# it (UnauthorizedAccessException) on a bare `docker run` — /app is not writable by uid 10001. /data is created
+# and chowned to zwarden above and is the persisted volume, so keys are durable across recreates by default.
+# The reference Compose sets the same value explicitly (deploy/compose/compose.yaml); this makes the standalone
+# image self-sufficient.
+ENV ZWarden__DataProtection__KeyRingPath=/data/dp-keys
 ENTRYPOINT ["dotnet", "ZWarden.Web.dll"]
