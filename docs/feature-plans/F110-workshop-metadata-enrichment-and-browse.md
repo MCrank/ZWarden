@@ -1,9 +1,9 @@
 # Feature 110 Mini-Plan — Workshop Metadata Enrichment & Browse
 
-**Status:** planned. Branch `feat/f110-workshop-browse` (closes
-[#110](https://github.com/MCrank/ZWarden/issues/110)), one commit per slice across **~3 PRs**
-plus a **research spike up front** (PR-A keyless enrichment core; PR-B the optional publisher-key
-setting + Workshop search; PR-C the adaptive Mod-Browser UI). Split out of F21
+**Status:** PR-A + PR-B merged; **PR-C delivered** (this branch, closes
+[#110](https://github.com/MCrank/ZWarden/issues/110)). Branch `feat/f110-workshop-browse`,
+one commit per slice across **3 PRs** plus a **research spike up front** (PR-A keyless enrichment
+core; PR-B the optional publisher-key setting + Workshop search; PR-C the adaptive Mod-Browser UI). Split out of F21
 ([#43](https://github.com/MCrank/ZWarden/issues/43), closed) and pairs with F22
 ([#44](https://github.com/MCrank/ZWarden/issues/44), closed) — this is the *browse-and-preview*
 layer that feeds F22's install verb.
@@ -151,20 +151,38 @@ right thing; record the finding as a research-doc §4 addendum. Gates PR-B only 
 - Test-floor bumps: Infrastructure, Web.Tests (**both** the csproj `--minimum-expected-tests` **and**
   ci.yml silent-drop-guard, per the discovery-floor gotcha).
 
-### PR-C — Adaptive Mod-Browser UI (the mockup section)
-- New **`?section=modbrowser`** on the Server Detail vertical rail (matches the #162 rail + one-island
-  pattern; the mockup's "Mod Browser · Configure" item).
-- **Keyless mode (always):** a "Paste a Workshop item id or collection URL" input → preview card(s)
-  with name / thumbnail / size / updated + **dependencies, version-compat, MP-hint** → **"Install"**
-  button calling F22 `AddWorkshopItemAsync`, then the existing two-step enable flow.
-- **Keyed mode (when `IsSearchAvailable`):** additionally render the "Search the Workshop…" box + sorted
-  grid (the mockup's `modgrid`), each card with the same compat badges + Install.
-- **Enrich the installed panel:** `LiveModInventoryPanel` shows resolved names/previews next to ids.
-- Bb* components (grid via cards; `prefer-blueprint-over-raw-html`); all Workshop names/ids/JSON
-  escaped at render (§8). Remember the **`npm run build:css` + commit `wwwroot/app.css`** step for any
-  new Tailwind class, and the Web.Tests floor bump in both places.
-- Verify in the real app via `run-web`/aspire + `playwright-cli` (screenshot the section in both
-  keyless and keyed states; seed the inventory cache first).
+### PR-C — Adaptive Mod-Browser UI (the mockup section) — **DELIVERED**
+- **`IWorkshopMetadataService`** (`ZWarden.Application/Workshop`) + **`WorkshopMetadataService`**
+  (`ZWarden.Infrastructure/Workshop`, registered in `AddZWardenWorkshop`) — the PR-A deferral: the
+  authorized, server-scoped preview surface. Fail-closed (ADR 0018): resolves the Server through the
+  tenant filter and requires **`Mod.View`** before it composes the keyless `IWorkshopMetadataClient`, so
+  an unauthorized viewer never drives the control-plane Steam egress. `WorkshopReference` (pure) parses a
+  bare id or a Steam URL's `id=` parameter without dereferencing it; a collection reference expands to its
+  members, a single reference resolves to one item, and an id Steam cannot resolve degrades to a not-found
+  item rendered as a bare id. Never throws. ✓
+- New **`?section=modbrowser`** on the Server Detail vertical rail (Configure group, gated on `Mod.View`),
+  replacing the reserved "soon" placeholder — matches the #162 rail + one-island pattern. ✓
+- **Keyless mode (always):** a "Paste a Workshop item id or collection URL" input → preview card(s) with
+  name / thumbnail / size / updated → **"Install"** button calling F22 `AddWorkshopItemAsync` (then the
+  existing two-step enable flow). Compat is **honest and self-contained** — shown only for content already
+  on disk (before install there is no `mod.info` to read): PZ version, dependency count, unsatisfied deps
+  and declared conflicts reconciled against the observed inventory, and a best-effort multiplayer-**tag**
+  hint (never an assertion, trust-boundaries §3). The full `WrongPzVersion` finding still waits on the
+  server build being threaded to the Agent. ✓
+- **Keyed mode (when `IsSearchAvailable`):** additionally renders the "Search the Workshop…" box + result
+  grid, each card with the same compat chips + Install; a rejected key surfaces as "search unavailable". ✓
+- **Enrich the installed panel:** `LiveModInventoryPanel` shows resolved names/previews next to ids. The
+  enrichment runs in `OnAfterRenderAsync` — which never fires during a static server prerender — so the
+  Steam egress happens only in a live interactive circuit, never on the initial render; bare ids paint at
+  once and names/previews fill in when Steam answers, re-enriching when the installed-id set changes. ✓
+- Bb* cards over `zw-mb-*` shell.css (`prefer-blueprint-over-raw-html`); all Workshop names/ids escaped
+  and preview urls http(s)-constrained + lazy-loaded at render (§8). `npm run build:css` + committed
+  `wwwroot/app.css`; Web.Tests floor bumped 301→311 (csproj + ci.yml), Infrastructure 397→411. ✓
+- **Deferred (per plan):** the live `run-web`/`playwright-cli` screenshot of the section — the preview and
+  search paths depend on live Steam egress, which the offline test tiers cannot exercise; the rendering
+  and behaviour are covered comprehensively by real-host `ServerDetailModBrowserTests` (rail item, keyless
+  form, search-box-when-keyed, preview cards + escaping via faked seams, install-enqueues-ConfigApply,
+  search results, compat chips) and the bUnit `LiveModInventoryPanel` enrichment test.
 
 ## Risks & notes
 - **Key-type uncertainty** is the one real unknown — the spike de-risks it before we build the field.
