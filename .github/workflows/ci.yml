@@ -407,7 +407,9 @@ jobs:
     name: pzserver-real-install
     if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_pzserver)
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # The 6.72 GiB first-run (download + preallocation + first world-gen) can take ~40 min; leave headroom for
+    # the container to reach `healthy` after it boots (the healthcheck start-period is 45 min; #191).
+    timeout-minutes: 60
     defaults:
       run:
         shell: bash
@@ -419,13 +421,15 @@ jobs:
         run: |
           docker run -d --name pz zwarden-pzserver:ci
           status=starting
-          for _ in $(seq 1 240); do
+          # Up to ~55 min (330 x 10s) for a healthy transition — the first-run install alone can take ~40 min,
+          # then the server boots and the healthcheck flips healthy (#191). Kept under timeout-minutes above.
+          for _ in $(seq 1 330); do
             status="$(docker inspect --format '{{.State.Health.Status}}' pz 2>/dev/null || echo gone)"
             [ "$status" = "healthy" ] && break
             [ "$status" = "gone" ] && break
             # A failed install exits the container, but its health status freezes at
             # "starting" (start-period suppresses "unhealthy"), so waiting on health alone
-            # burns the full ~40-min timeout. Stop the moment it is no longer running (F12/#65).
+            # burns the full timeout. Stop the moment it is no longer running (F12/#65).
             if [ "$(docker inspect --format '{{.State.Running}}' pz 2>/dev/null || echo false)" != "true" ]; then
               status="exited"; break
             fi

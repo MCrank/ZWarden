@@ -66,9 +66,12 @@ EXPOSE 16261/udp 16262/udp
 # is an ephemeral tmpfs the Agent supplies (F17), re-bootstrapped each boot.
 VOLUME /pz/data /pz/server
 
-# Base health check (Q5): the GameServer JVM is alive. Generous start-period for the first-run
-# SteamCMD install + world generation. Feature 16 layers the real hierarchical model.
-HEALTHCHECK --interval=30s --timeout=5s --start-period=600s --retries=3 \
+# Base health check (Q5): the GameServer JVM is alive. The start-period must cover a genuine first run — the
+# ~6.72 GiB anonymous SteamCMD download + preallocation + first world generation — during which there is no
+# GameServer process yet; 10 min was far too short (the container went `unhealthy` mid-install, #191), so it is
+# 45 min. A successful check still flips the container healthy immediately, even within the start-period, so a
+# fast (already-installed) restart is not delayed. Feature 16 layers the real hierarchical model.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=45m --retries=3 \
   CMD /pz/scripts/healthcheck.sh
 
 ENTRYPOINT ["/usr/bin/tini", "--", "/pz/scripts/entrypoint.sh"]
