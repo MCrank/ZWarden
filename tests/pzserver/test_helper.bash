@@ -28,3 +28,10 @@ assert_output_contains() {
     *) echo "expected output to contain: $1"$'\n'"actual: $output" >&2; return 1 ;;
   esac
 }
+
+refute_output_contains() {
+  case "$output" in
+    *"$1"*) echo "expected output NOT to contain: $1"$'\n'"actual: $output" >&2; return 1 ;;
+    *) : ;;
+  esac
+}

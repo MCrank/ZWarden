@@ -48,6 +48,10 @@ ENV PZ_ROOT=/pz \
     ZW_PZ_XMX=4g \
     ZW_PZ_STOP_GRACE=30 \
     ZW_PZ_SERVERNAME=servertest
+# ZW_PZ_ADMIN_PASSWORD (runtime-only, deliberately NOT an ENV so no secret is baked into the image):
+# the in-game admin password passed non-interactively at launch (#188). Set it via `docker run -e` /
+# compose `environment`. When empty the entrypoint generates a strong one on first boot and persists it
+# under /pz/data (stable across restarts). Build 42 otherwise prompts for it and the server hangs on stdin.
 
 # Canonical labels (PRD 25). server-id and agent-id are set by the Agent at create time (F13).
 LABEL io.zwarden.managed="true" \
