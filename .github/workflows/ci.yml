@@ -419,7 +419,11 @@ jobs:
         run: docker build -t zwarden-pzserver:ci src/ZWarden.PZServer
       - name: Real SteamCMD install + boot to a healthy container
         run: |
-          docker run -d --name pz zwarden-pzserver:ci
+          # Run under the SAME memory profile the Agent provisions managed containers with (#198): the derived
+          # cgroup cap (10 GiB) with the injected heap (4 GiB). A cap equal to the heap OOM-kills on boot, and CI's
+          # earlier uncapped `docker run` could never see that — so this capped run is the #198 regression guard.
+          # Requires a runner with >10 GiB RAM (ubuntu-latest has ~16 GiB).
+          docker run -d --name pz --memory 10g -e ZW_PZ_XMS=4g -e ZW_PZ_XMX=4g zwarden-pzserver:ci
           # Stream the container's logs LIVE so the SteamCMD download and server boot are visible during the run,
           # not just tailed at the end. Wrapped in a collapsible group; stopped before the health assertion.
           echo "::group::PZ container logs (live — SteamCMD install + boot)"

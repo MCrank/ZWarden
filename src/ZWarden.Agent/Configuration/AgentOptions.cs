@@ -93,9 +93,27 @@ public sealed class AgentOptions
     [Required]
     public string BackupRoot { get; set; } = DefaultBackupRoot();
 
-    /// <summary>The memory limit, in bytes, applied to a provisioned container (F14/PRD 24 resource limits).
-    /// Must be positive; defaults to 4 GiB.</summary>
-    public long DefaultMemoryLimitBytes { get; set; } = 4L * 1024 * 1024 * 1024;
+    /// <summary>The JVM heap, in bytes, the Agent gives a provisioned PZ container — injected as the image's
+    /// <c>ZW_PZ_XMS</c>/<c>ZW_PZ_XMX</c> so the managed container's heap is owned here, next to the memory limit,
+    /// rather than drifting from the image's standalone default (#198). Must be positive; defaults to 4 GiB.</summary>
+    public long DefaultHeapSizeBytes { get; set; } = 4L * 1024 * 1024 * 1024;
+
+    /// <summary>The non-heap headroom, in bytes, the container memory limit must leave above the JVM heap for
+    /// ZGC/native/metaspace and Project Zomboid's off-heap world load (#198): a fresh world's first-boot spike
+    /// runs well over the heap, so a limit equal to the heap OOM-kills on boot. Must not be negative; defaults to
+    /// 6 GiB, which — with the 4 GiB heap default — yields a 10 GiB limit, the value proven to reach healthy.</summary>
+    public long MemoryOverheadBytes { get; set; } = 6L * 1024 * 1024 * 1024;
+
+    /// <summary>The memory limit, in bytes, applied to a provisioned container (F14/PRD 24 resource limits). Defaults
+    /// to <see cref="DefaultHeapSizeBytes"/> + <see cref="MemoryOverheadBytes"/> so the limit always keeps headroom
+    /// over the heap (#198); set it explicitly to override the derived value. Must exceed the heap.</summary>
+    public long DefaultMemoryLimitBytes
+    {
+        get => _defaultMemoryLimitBytes ?? (DefaultHeapSizeBytes + MemoryOverheadBytes);
+        set => _defaultMemoryLimitBytes = value;
+    }
+
+    private long? _defaultMemoryLimitBytes;
 
     /// <summary>
     /// How long (seconds) a Docker <c>stop</c>/<c>restart</c> waits for the container to exit before Docker

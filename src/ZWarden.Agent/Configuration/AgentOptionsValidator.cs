@@ -49,9 +49,21 @@ public sealed class AgentOptionsValidator : IValidateOptions<AgentOptions>
             failures.Add($"{AgentOptions.SectionName}:{nameof(AgentOptions.BackupRoot)} must be an absolute host path.");
         }
 
-        if (options.DefaultMemoryLimitBytes <= 0)
+        if (options.DefaultHeapSizeBytes <= 0)
         {
-            failures.Add($"{AgentOptions.SectionName}:{nameof(AgentOptions.DefaultMemoryLimitBytes)} must be positive.");
+            failures.Add($"{AgentOptions.SectionName}:{nameof(AgentOptions.DefaultHeapSizeBytes)} must be positive.");
+        }
+
+        if (options.MemoryOverheadBytes < 0)
+        {
+            failures.Add($"{AgentOptions.SectionName}:{nameof(AgentOptions.MemoryOverheadBytes)} must not be negative.");
+        }
+
+        // Headroom invariant (#198): a limit equal to (or below) the JVM heap OOM-kills the container on boot,
+        // because ZGC/native/metaspace and PZ's off-heap world load run well over the heap. Fail closed at startup.
+        if (options.DefaultMemoryLimitBytes <= options.DefaultHeapSizeBytes)
+        {
+            failures.Add($"{AgentOptions.SectionName}:{nameof(AgentOptions.DefaultMemoryLimitBytes)} must exceed {nameof(AgentOptions.DefaultHeapSizeBytes)} to leave headroom for non-heap memory.");
         }
 
         if (options.StopTimeoutSeconds <= 0)

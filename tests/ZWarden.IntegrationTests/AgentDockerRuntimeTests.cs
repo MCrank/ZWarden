@@ -316,7 +316,8 @@ public sealed class AgentDockerRuntimeTests : IAsyncDisposable
         "/tmp",
         "/tmp",
         PortStrideAllocator.ForStride(0),
-        64L * 1024 * 1024);
+        64L * 1024 * 1024,
+        32L * 1024 * 1024);
 
     private static Dictionary<string, string> CanonicalLabelSet(AgentId owner, ServerId server) => new(StringComparer.Ordinal)
     {
