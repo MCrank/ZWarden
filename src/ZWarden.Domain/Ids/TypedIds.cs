@@ -1,6 +1,6 @@
 namespace ZWarden.Domain.Ids;
 
-// The canonical typed identifiers (PRD 7 + the ten- tenant id from PRD 7A) - 21 in all.
+// The canonical typed identifiers (PRD 7 + the ten- tenant id from PRD 7A) - 22 in all.
 // Each follows the ADR 0014 recipe: a readonly record struct over ITypedId<TSelf>, a unique
 // lowercase prefix, and thin delegations to TypedId. The PrefixRegistryTests reflection test
 // enforces PRD 7's rules (unique, lowercase-ASCII, never reused) and this exact set.
@@ -253,6 +253,26 @@ public readonly record struct WorkshopItemId(Guid Value) : ITypedId<WorkshopItem
     public bool IsEmpty => Value == Guid.Empty;
     /// <inheritdoc />
     public override string ToString() => TypedId.Format<WorkshopItemId>(Value);
+}
+
+/// <summary>Identifies a tenant's Workshop integration settings (F110; one row per tenant). Canonical form
+/// <c>wis-&lt;uuid&gt;</c> — distinct from the <c>wsi-</c> Workshop <b>item</b> id.</summary>
+public readonly record struct WorkshopIntegrationSettingsId(Guid Value) : ITypedId<WorkshopIntegrationSettingsId>
+{
+    /// <inheritdoc />
+    public static string Prefix => "wis-";
+    /// <inheritdoc />
+    public static WorkshopIntegrationSettingsId FromGuid(Guid value) => new(value);
+    /// <summary>A fresh, non-empty UUIDv7 id.</summary>
+    public static WorkshopIntegrationSettingsId New() => TypedId.New<WorkshopIntegrationSettingsId>();
+    /// <summary>Parses the canonical form; throws on the wrong prefix or a malformed UUID.</summary>
+    public static WorkshopIntegrationSettingsId Parse(string s) => TypedId.Parse<WorkshopIntegrationSettingsId>(s);
+    /// <summary>Non-throwing parse of the canonical form.</summary>
+    public static bool TryParse(string? s, out WorkshopIntegrationSettingsId id) => TypedId.TryParse(s, out id);
+    /// <summary>True when this is the default (unset) id.</summary>
+    public bool IsEmpty => Value == Guid.Empty;
+    /// <inheritdoc />
+    public override string ToString() => TypedId.Format<WorkshopIntegrationSettingsId>(Value);
 }
 
 /// <summary>Identifies a mod profile. Canonical form <c>mdp-&lt;uuid&gt;</c>.</summary>

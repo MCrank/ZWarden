@@ -528,6 +528,51 @@ Supporting primary sources:
   change, suspend or discontinue the Steam Web API… at any time for any reason, without
   notice." — <https://steamcommunity.com/dev/apiterms>
 
+### §4 addendum — `IPublishedFileService/QueryFiles` key type (F110 PR-B spike, 2026-09-18)
+
+**Question the spike closed:** F110's search feature needs `QueryFiles` (search all of Workshop,
+which the keyless `GetPublishedFileDetails` cannot do). The open question was *which* credential it
+needs — a plain **standard Steam Web API key** (`steamcommunity.com/dev/apikey`, obtainable by any
+Steam account) or a **Steamworks *publisher* Web API key** (a confidential per-app key, only
+available to the app's Steamworks partner). These are different things to ask an operator for, so
+the Settings field could not be built until this was resolved.
+
+**Finding: a standard Steam Web API key suffices. `QueryFiles` does NOT require a publisher key.**
+**Confidence: High** — authoritative Valve documentation + live API probing this date.
+
+- **Live, keyless probe (2026-09-18):** `GET
+  https://api.steampowered.com/IPublishedFileService/QueryFiles/v1/?query_type=1&numperpage=1&appid=108600&search_text=hydrocraft`
+  with **no key** → **HTTP 403** `Access is denied. Retrying will not help. Please verify your
+  key= parameter.` So `QueryFiles` is unambiguously key-gated (unlike `GetPublishedFileDetails`,
+  §4 above). — verified by execution.
+- **Live, keyless `GetSupportedAPIList` (2026-09-18):** the keyless surface *now* lists the
+  `IPublishedFileService` interface (it did not at the §4 original research date — a Valve-side
+  change), but its **only keyless method is `GetUserVoteSummary`**. `QueryFiles` and `GetDetails`
+  are absent from the keyless surface, consistent with the 403 above. — verified by execution,
+  `https://api.steampowered.com/ISteamWebAPIUtil/GetSupportedAPIList/v1/`.
+- **The decisive source — Valve's own `IPublishedFileService` page.** Only the **mutating/admin**
+  methods carry the verbatim flag "This call requires a publisher API key to use this method":
+  `Delete`, `SetDeveloperMetadata`, `UpdateAppUGCBan`, `UpdateBanStatus`,
+  `UpdateIncompatibleStatus`, `UpdateTags`. **`QueryFiles` carries no such flag** — it is a
+  read-only search satisfied by standard Web-API-key authentication. —
+  <https://partner.steamgames.com/doc/webapi/IPublishedFileService> (fetched 2026-09-18)
+- **Corroboration:** widely-used OSS Steam Web API clients call `QueryFiles` with an ordinary user
+  key (e.g. zyberspace/php-steam-web-api-client, kouwasi/steam_ex, xpaw's reverse-engineered
+  `steamapi.xpaw.me` listing). No project was found that requires a publisher key for `QueryFiles`.
+- **Caveat / correction of an earlier reading:** a naive read of the interface-level preamble
+  ("methods… MUST be called from a secure server / require a publisher key") over-generalises — that
+  language attaches to the six mutating methods above, **not** to the read-only `QueryFiles`. The
+  "secure server" concern that *does* apply to `QueryFiles` is only the ordinary one: any Web API
+  key is a secret and must not be shipped to a client — which is exactly F110's control-plane-only,
+  encrypted-at-rest posture. **Not tested:** an actual authenticated `QueryFiles` call with a live
+  standard key (none was on hand); the resolution rests on Valve's per-method documentation + the
+  keyless-surface probe, which agree.
+
+**Consequence for F110 PR-B:** the Settings field asks for a **standard Steam Web API key**
+(`steamcommunity.com/dev/apikey`), not a publisher key — one line of UI copy and one help link.
+A 403 from `QueryFiles` at runtime therefore means *bad/expired key* or *IP throttle*, not *wrong
+key class*, and the capability check treats a stored-but-rejected key as "search unavailable".
+
 ---
 
 ## 5. On-disk layout and the config file set
