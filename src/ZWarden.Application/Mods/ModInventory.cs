@@ -30,10 +30,36 @@ public sealed record ModInventory(
 /// <param name="Mods">The mods this item provides (may be empty).</param>
 public sealed record InstalledWorkshopItem(string WorkshopId, IReadOnlyList<InstalledMod> Mods);
 
-/// <summary>A mod declared by a <c>mod.info</c>: its Mod id and optional display name.</summary>
+/// <summary>A mod declared by a <c>mod.info</c>: its Mod id, optional display name, and (#110) the optional version,
+/// dependency, and compatibility metadata the file declares. All fields are untrusted PZ output carried verbatim for
+/// escaping at render; the list fields default to empty, never <c>null</c>.</summary>
 /// <param name="ModId">The PZ Mod id (the token used in <c>Mods=</c>).</param>
 /// <param name="Name">The declared display name, or <c>null</c>.</param>
-public sealed record InstalledMod(string ModId, string? Name);
+/// <param name="Version">The mod's own version (<c>version=</c>), or <c>null</c>.</param>
+/// <param name="PzVersion">The declared Project Zomboid version (<c>pzversion=</c>), or <c>null</c>.</param>
+/// <param name="VersionMin">The declared minimum PZ version (<c>versionMin=</c>), or <c>null</c>.</param>
+/// <param name="Requires">The Mod ids this mod depends on (<c>require=</c>); empty when none.</param>
+/// <param name="Incompatible">The Mod ids this mod declares incompatible (<c>incompatible=</c>); empty when none.</param>
+/// <param name="Tags">The mod's declared tags (<c>tags=</c>); empty when none.</param>
+public sealed record InstalledMod(
+    string ModId,
+    string? Name,
+    string? Version = null,
+    string? PzVersion = null,
+    string? VersionMin = null,
+    IReadOnlyList<string>? Requires = null,
+    IReadOnlyList<string>? Incompatible = null,
+    IReadOnlyList<string>? Tags = null)
+{
+    /// <summary>The Mod ids this mod depends on (<c>require=</c>); empty when none.</summary>
+    public IReadOnlyList<string> Requires { get; init; } = Requires ?? [];
+
+    /// <summary>The Mod ids this mod declares incompatible (<c>incompatible=</c>); empty when none.</summary>
+    public IReadOnlyList<string> Incompatible { get; init; } = Incompatible ?? [];
+
+    /// <summary>The mod's declared tags (<c>tags=</c>); empty when none.</summary>
+    public IReadOnlyList<string> Tags { get; init; } = Tags ?? [];
+}
 
 /// <summary>A compatibility problem found by reconciling the on-disk mods against the config lists (F21).</summary>
 public enum ModCompatIssueKind
@@ -49,6 +75,12 @@ public enum ModCompatIssueKind
 
     /// <summary>The same Mod id is provided by more than one installed Workshop item.</summary>
     DuplicateModId,
+
+    /// <summary>An enabled mod's <c>require=</c> names a Mod id no installed item provides — a missing dependency.</summary>
+    RequiresMissing,
+
+    /// <summary>An enabled mod's <c>incompatible=</c> names another enabled mod — a declared conflict.</summary>
+    IncompatiblePresent,
 }
 
 /// <summary>One compatibility issue: its kind, the offending id (Mod id or Workshop id, untrusted), and an optional

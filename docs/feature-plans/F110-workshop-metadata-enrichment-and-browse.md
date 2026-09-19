@@ -109,26 +109,30 @@ on public Workshop items, or whether a Steamworks *publisher* key is truly requi
 different credentials to obtain. Resolve this before building the Settings field so it asks for the
 right thing; record the finding as a research-doc §4 addendum. Gates PR-B only — PR-A is independent.
 
-### PR-A — Keyless enrichment core + extended `mod.info` (no UI, no secret)
+### PR-A — Keyless enrichment core + extended `mod.info` (no UI, no secret) — **DELIVERED**
 - **Extend `ModInfoReader` / `ModInfo`** (F21, `src/ZWarden.Agent/Mods/`) to also read `pzversion`,
-  `versionMin`, `version`, `require` (**repeatable** → list), `incompatible`, `tags` — same defensive
-  posture (size-cap, bounded fields, malformed-line skip). Read the **version-appropriate** file (the
-  B42 `42/mod.info` when present, per research §6).
-- **Extend `ModCompatAnalyzer`** with new pure findings — new `ModCompatIssueKind` values
-  `RequiresMissing` (a `require=` dep not present), `IncompatiblePresent`, `WrongPzVersion` — and carry
-  the new fields onto `InstalledMod` in `ModInventory`. **Additive-optional on the wire result → do
-  NOT bump `ProtocolVersion.Current`** (still 1; matches F21's note that additive result fields kept
-  it at 1).
-- **`IWorkshopMetadataService`** (`src/ZWarden.Application/Workshop/`) — enrich a set of Workshop ids
-  → title/preview/size/updated/description; resolve a pasted id or collection URL → item ids +
-  details. `Mod.View` gate, non-mutating, not audited.
-- **`WorkshopMetadataClient`** (`src/ZWarden.Infrastructure/Workshop/`) — keyless
-  `GetPublishedFileDetails` + `GetCollectionDetails` over a named `HttpClient` to
-  `api.steampowered.com`; §8 bounded/untrusted-JSON parsing (internal DTOs), response caching,
-  offline fallback. Pure JSON-shape parsing sits behind the seam so it can be arch-tested like F20a's
-  Loretta wrapper. DI in a `WorkshopServiceCollectionExtensions`.
-- Test-floor bumps: Contracts/Agent as needed, Infrastructure. Synthetic fixtures only (F12 rule) —
-  captured sample JSON, never a live call in tests.
+  `versionMin`, `version`, `require` (**repeatable + comma-split** → list), `incompatible`, `tags` —
+  same defensive posture (size-cap, bounded fields, malformed-line skip, per-list count cap). Read the
+  **version-appropriate** file (prefer the B42 `42/mod.info` when present, per research §6). ✓
+- **Extend `ModCompatAnalyzer`** with the pure `RequiresMissing` (an enabled mod's `require=` dep no
+  installed item provides) and `IncompatiblePresent` (two enabled mutually-incompatible mods; PZ's
+  `\`/`+`/`-` markers normalized) findings, and carry the version/dep/tag fields onto `DiscoveredMod`
+  (wire) and `InstalledMod` (Application), mapped at `AgentHub`. **Additive-optional → `ProtocolVersion`
+  stays 1** (matches F21). ✓
+  - **Deferred:** a `WrongPzVersion` *finding* needs the server's build (B41 vs B42), which isn't
+    threaded to the Agent yet — so PR-A carries `pzversion`/`versionMin`/`version` as **display
+    metadata** for the UI to show, and the version *finding* is a follow-up once the build is available.
+- **`IWorkshopMetadataClient`** (`src/ZWarden.Application/Workshop/`) + **`WorkshopMetadataClient`**
+  (`src/ZWarden.Infrastructure/Workshop/`) — keyless `GetPublishedFileDetails` (`GetItemsAsync`) +
+  `GetCollectionDetails` (`GetCollectionItemIdsAsync`) over a typed `HttpClient` to
+  `api.steampowered.com`; §8 bounded/tolerant `JsonDocument` parsing, per-id `IMemoryCache`, numeric-id
+  guard, https-only preview urls, **never throws** (any failure → not-found/empty). DI in
+  `WorkshopServiceCollectionExtensions` (`AddZWardenWorkshop`), wired in `Program.cs`. ✓
+  - **Refinement vs. plan:** the *authorized, server-scoped* `IWorkshopMetadataService` (Mod.View gate,
+    resolve-a-pasted-id/collection) is built in **PR-C** alongside its UI consumer, to avoid a dead
+    surface — PR-A ships the client seam + impl the service and UI compose over.
+- Test-floor bumps: Contracts 131→134, Agent 411→426, Infrastructure 369→380. Synthetic fixtures only
+  (F12 rule) — captured sample JSON via a stub handler, never a live call. ✓
 
 ### PR-B — Optional publisher key + encrypted storage + Workshop search (behind capability check)
 - **`WorkshopIntegrationSettings`** entity (per-tenant, decision 3) + EF migration — the key stored as
