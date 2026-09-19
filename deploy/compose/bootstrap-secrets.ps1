@@ -51,4 +51,4 @@ $out = foreach ($line in $lines) {
 Set-Content -LiteralPath $envFile -Value $out -Encoding utf8
 
 Write-Host "wrote .env with a freshly generated key ring and Postgres password."
-Write-Host "next: set ZWARDEN_DOMAIN (and ZWARDEN_ACME_EMAIL for Public TLS) in .env, then 'docker compose up -d'."
+Write-Host "next: set ZWARDEN_DOMAIN in .env, then 'docker compose up -d'."

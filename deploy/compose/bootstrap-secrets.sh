@@ -50,4 +50,4 @@ set_kv "POSTGRES_PASSWORD" "$pg_password"
 chmod 600 "$ENV_FILE" 2>/dev/null || true
 
 echo "wrote $ENV_FILE with a freshly generated key ring and Postgres password."
-echo "next: set ZWARDEN_DOMAIN (and ZWARDEN_ACME_EMAIL for Public TLS) in $ENV_FILE, then 'docker compose up -d'."
+echo "next: set ZWARDEN_DOMAIN in $ENV_FILE, then 'docker compose up -d'."
