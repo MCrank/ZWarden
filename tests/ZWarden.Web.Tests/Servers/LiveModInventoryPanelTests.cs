@@ -1,6 +1,7 @@
 using Bunit;
 using Microsoft.Extensions.DependencyInjection;
 using ZWarden.Application.Mods;
+using ZWarden.Application.Workshop;
 using ZWarden.Domain.Ids;
 using ZWarden.Infrastructure.Mods;
 using ZWarden.Web.Components.Pages.Servers;
@@ -43,6 +44,7 @@ public class LiveModInventoryPanelTests
         // The inventory now renders BlazorBlueprint BbItem controls, which call JSInterop in OnAfterRender (ui-components.md).
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddSingleton<IModInventoryCache>(cache);
+        ctx.Services.AddSingleton<IWorkshopMetadataClient>(new StubMetadataClient());
 
         var cut = ctx.Render<LiveModInventoryPanel>(p => p
             .Add(c => c.ServerId, server.ToString())
@@ -67,6 +69,7 @@ public class LiveModInventoryPanelTests
         // The inventory now renders BlazorBlueprint BbItem controls, which call JSInterop in OnAfterRender (ui-components.md).
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddSingleton<IModInventoryCache>(cache);
+        ctx.Services.AddSingleton<IWorkshopMetadataClient>(new StubMetadataClient());
 
         var cut = ctx.Render<LiveModInventoryPanel>(p => p
             .Add(c => c.ServerId, server.ToString())
@@ -88,6 +91,7 @@ public class LiveModInventoryPanelTests
         using BunitContext ctx = new();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddSingleton<IModInventoryCache>(cache);
+        ctx.Services.AddSingleton<IWorkshopMetadataClient>(new StubMetadataClient());
 
         var cut = ctx.Render<LiveModInventoryPanel>(p => p
             .Add(c => c.ServerId, server.ToString())
@@ -108,6 +112,7 @@ public class LiveModInventoryPanelTests
         // The inventory now renders BlazorBlueprint BbItem controls, which call JSInterop in OnAfterRender (ui-components.md).
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddSingleton<IModInventoryCache>(new ModInventoryCache());
+        ctx.Services.AddSingleton<IWorkshopMetadataClient>(new StubMetadataClient());
 
         var cut = ctx.Render<LiveModInventoryPanel>(p => p
             .Add(c => c.ServerId, ServerId.New().ToString())
@@ -131,6 +136,7 @@ public class LiveModInventoryPanelTests
         // The inventory now renders BlazorBlueprint BbItem controls, which call JSInterop in OnAfterRender (ui-components.md).
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddSingleton<IModInventoryCache>(cache);
+        ctx.Services.AddSingleton<IWorkshopMetadataClient>(new StubMetadataClient());
 
         var cut = ctx.Render<LiveModInventoryPanel>(p => p
             .Add(c => c.ServerId, server.ToString())
@@ -139,5 +145,53 @@ public class LiveModInventoryPanelTests
         string markup = cut.Markup;
         await Assert.That(markup).Contains("&lt;script&gt;");
         await Assert.That(markup).DoesNotContain("<script>alert(1)");
+    }
+
+    [Test]
+    public async Task It_enriches_installed_items_with_resolved_names_and_previews()
+    {
+        AgentId agent = AgentId.New();
+        ServerId server = ServerId.New();
+        ModInventoryCache cache = new();
+        cache.Record(new ModInventory(
+            server, agent,
+            [new InstalledWorkshopItem("2392709985", [new InstalledMod("Brita_2", "Brita_2")])],
+            ["2392709985"], ["Brita_2"], [], At));
+
+        using BunitContext ctx = new();
+        ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+        ctx.Services.AddSingleton<IModInventoryCache>(cache);
+        // Enrichment resolves the bare id to a human name + preview via the keyless metadata client (#110).
+        ctx.Services.AddSingleton<IWorkshopMetadataClient>(new StubMetadataClient(
+            new Dictionary<string, WorkshopItemMetadata>(StringComparer.Ordinal)
+            {
+                ["2392709985"] = new("2392709985", Found: true, Title: "Brita Weapon Pack (Steam)", PreviewUrl: "https://img.steam/brita.jpg"),
+            }));
+
+        var cut = ctx.Render<LiveModInventoryPanel>(p => p
+            .Add(c => c.ServerId, server.ToString())
+            .Add(c => c.AgentId, agent.ToString()));
+
+        // Enrichment runs in OnAfterRenderAsync (interactive), so wait for the resolved markup to appear.
+        cut.WaitForState(() => cut.Markup.Contains("data-workshop-enriched", StringComparison.Ordinal));
+
+        string markup = cut.Markup;
+        await Assert.That(markup).Contains("Brita Weapon Pack (Steam)");
+        await Assert.That(markup).Contains("https://img.steam/brita.jpg");
+        await Assert.That(markup).Contains("data-workshop-thumb");
+    }
+
+    private sealed class StubMetadataClient(IReadOnlyDictionary<string, WorkshopItemMetadata>? items = null)
+        : IWorkshopMetadataClient
+    {
+        public Task<IReadOnlyList<WorkshopItemMetadata>> GetItemsAsync(
+            IReadOnlyList<string> workshopIds, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<WorkshopItemMetadata>>(
+                [.. workshopIds.Select(id =>
+                    items is not null && items.TryGetValue(id, out WorkshopItemMetadata? m) ? m : WorkshopItemMetadata.NotFound(id))]);
+
+        public Task<IReadOnlyList<string>> GetCollectionItemIdsAsync(
+            string collectionId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<string>>([]);
     }
 }

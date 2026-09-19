@@ -31,6 +31,11 @@ public static class WorkshopServiceCollectionExtensions
             client.MaxResponseContentBufferSize = 4 * 1024 * 1024;
         });
 
+        // F110 PR-C: the authorized, server-scoped preview service the Mod Browser consumes. Request-scoped (it
+        // resolves the request-scoped ServerRepository and the fail-closed IPermissionChecker) and composes the
+        // keyless metadata client above — no key, control-plane egress only.
+        services.AddScoped<IWorkshopMetadataService, WorkshopMetadataService>();
+
         // F110 PR-B: the optional, per-tenant search key. Request-scoped, like the other tenant-scoped services.
         services.AddScoped<WorkshopIntegrationSettingsRepository>();
         services.AddScoped<IWorkshopSettingsService, WorkshopSettingsService>();
