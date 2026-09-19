@@ -180,21 +180,22 @@ public sealed class ServerDiagnosticsGatherer : IServerDiagnosticsGatherer
                 return Fact(DiagnosticDomain.GamePort, ProbeStatus.Skipped, "No running container for this server on this host.");
             }
 
-            PublishedPort port = container.Facts.Ports.FirstOrDefault(p =>
-                p.ContainerPort == PortStrideAllocator.BaseGamePort
-                && string.Equals(p.Protocol, "udp", StringComparison.OrdinalIgnoreCase)
-                && p.HostPort != 0);
-            if (port.HostPort == 0)
+            // #199: reach the game port at the container's own ZWarden-network IP, not the Agent's loopback — the
+            // published host port is not on a containerized Agent's loopback. No address on the network → skip.
+            if (container.Facts.NetworkAddresses is not { } addresses
+                || !addresses.TryGetValue(_options.NetworkName, out string? address)
+                || string.IsNullOrEmpty(address))
             {
-                return Fact(DiagnosticDomain.GamePort, ProbeStatus.Skipped, "The server publishes no game UDP port.");
+                return Fact(DiagnosticDomain.GamePort, ProbeStatus.Skipped, "The server has no address on the ZWarden network.");
             }
 
-            bool? reachable = await _network.IsUdpPortReachableAsync(port.HostPort, cancellationToken).ConfigureAwait(false);
+            int gamePort = PortStrideAllocator.BaseGamePort;
+            bool? reachable = await _network.IsUdpPortReachableAsync(address, gamePort, cancellationToken).ConfigureAwait(false);
             return reachable switch
             {
-                true => Fact(DiagnosticDomain.GamePort, ProbeStatus.Pass, $"The game UDP port {port.HostPort} is reachable."),
-                false => Fact(DiagnosticDomain.GamePort, ProbeStatus.Fail, $"The game UDP port {port.HostPort} is unreachable."),
-                null => Fact(DiagnosticDomain.GamePort, ProbeStatus.Warn, $"The game UDP port {port.HostPort} reachability is unknown."),
+                true => Fact(DiagnosticDomain.GamePort, ProbeStatus.Pass, $"The game UDP port {gamePort} is reachable."),
+                false => Fact(DiagnosticDomain.GamePort, ProbeStatus.Fail, $"The game UDP port {gamePort} is unreachable."),
+                null => Fact(DiagnosticDomain.GamePort, ProbeStatus.Warn, $"The game UDP port {gamePort} reachability is unknown."),
             };
         }
         catch (Exception ex) when (ex is not OperationCanceledException)

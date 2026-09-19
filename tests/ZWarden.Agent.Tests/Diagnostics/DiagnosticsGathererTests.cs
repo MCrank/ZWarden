@@ -120,12 +120,30 @@ public class DiagnosticsGathererTests
         ServerId server = ServerId.New();
         FakeContainerRuntime runtime = new()
         {
-            Observed = [new ObservedContainer(server, new ContainerHealthFacts("running", "healthy", 0, false, [new PublishedPort(27015, 16261, "udp")]))],
+            Observed = [new ObservedContainer(server, new ContainerHealthFacts(
+                "running", "healthy", 0, false, [new PublishedPort(27015, 16261, "udp")],
+                new Dictionary<string, string>(StringComparer.Ordinal) { ["zwarden"] = "172.22.0.3" }))],
         };
         ServerDiagnosticsResult result = await ServerGatherer(runtime: runtime, portReachable: true)
             .GatherAsync(server, CancellationToken.None);
 
         await Assert.That(Check(result.Checks, DiagnosticDomain.GamePort).Status).IsEqualTo(ProbeStatus.Pass);
+    }
+
+    [Test]
+    public async Task Server_gather_skips_the_game_port_when_the_container_has_no_zwarden_network_address()
+    {
+        // #199: with no resolvable address on the ZWarden network, the probe is skipped rather than falsely failed.
+        ServerId server = ServerId.New();
+        FakeContainerRuntime runtime = new()
+        {
+            Observed = [new ObservedContainer(server, new ContainerHealthFacts(
+                "running", "healthy", 0, false, [new PublishedPort(27015, 16261, "udp")], NetworkAddresses: null))],
+        };
+        ServerDiagnosticsResult result = await ServerGatherer(runtime: runtime, portReachable: false)
+            .GatherAsync(server, CancellationToken.None);
+
+        await Assert.That(Check(result.Checks, DiagnosticDomain.GamePort).Status).IsEqualTo(ProbeStatus.Skipped);
     }
 
     [Test]
@@ -224,7 +242,7 @@ public class DiagnosticsGathererTests
 
     private sealed class StubNetwork(bool? reachable) : INetworkReachabilityProbe
     {
-        public Task<bool?> IsUdpPortReachableAsync(int port, CancellationToken cancellationToken) =>
+        public Task<bool?> IsUdpPortReachableAsync(string host, int port, CancellationToken cancellationToken) =>
             Task.FromResult(reachable);
     }
 
