@@ -203,4 +203,52 @@ public class AgentOptionsValidatorTests
         await Assert.That(AgentOptions.DefaultBackupRoot()).IsNotEqualTo(AgentOptions.DefaultDataMountRoot());
         await Assert.That(Path.IsPathFullyQualified(AgentOptions.DefaultBackupRoot())).IsTrue();
     }
+
+    [Test]
+    public async Task Default_memory_limit_derives_from_heap_plus_overhead_with_headroom()
+    {
+        // #198: the default limit is heap (4 GiB) + overhead (6 GiB) = 10 GiB, proven to reach healthy, and
+        // always strictly above the heap so a fresh world's off-heap boot spike does not OOM.
+        var options = new AgentOptions();
+
+        await Assert.That(options.DefaultMemoryLimitBytes).IsEqualTo(10L * 1024 * 1024 * 1024);
+        await Assert.That(options.DefaultMemoryLimitBytes > options.DefaultHeapSizeBytes).IsTrue();
+    }
+
+    [Test]
+    public async Task A_memory_limit_at_or_below_the_heap_fails()
+    {
+        var options = Valid();
+        options.DefaultHeapSizeBytes = 4L * 1024 * 1024 * 1024;
+        options.DefaultMemoryLimitBytes = 4L * 1024 * 1024 * 1024;
+
+        var result = new AgentOptionsValidator().Validate(name: null, options);
+
+        await Assert.That(result.Failed).IsTrue();
+        await Assert.That(result.FailureMessage!).Contains(nameof(AgentOptions.DefaultMemoryLimitBytes));
+    }
+
+    [Test]
+    public async Task A_non_positive_heap_fails()
+    {
+        var options = Valid();
+        options.DefaultHeapSizeBytes = 0;
+
+        var result = new AgentOptionsValidator().Validate(name: null, options);
+
+        await Assert.That(result.Failed).IsTrue();
+        await Assert.That(result.FailureMessage!).Contains(nameof(AgentOptions.DefaultHeapSizeBytes));
+    }
+
+    [Test]
+    public async Task A_negative_memory_overhead_fails()
+    {
+        var options = Valid();
+        options.MemoryOverheadBytes = -1;
+
+        var result = new AgentOptionsValidator().Validate(name: null, options);
+
+        await Assert.That(result.Failed).IsTrue();
+        await Assert.That(result.FailureMessage!).Contains(nameof(AgentOptions.MemoryOverheadBytes));
+    }
 }

@@ -17,9 +17,11 @@ public class PzContainerFactoryTests
     private static readonly ServerId Server = ServerId.New();
     private const string PinnedImage = "ghcr.io/mcrank/zwarden-pzserver@sha256:abc";
     private const long MemoryLimit = 6L * 1024 * 1024 * 1024;
+    private const long HeapSize = 4L * 1024 * 1024 * 1024;
 
     private static PzContainerSpec ValidSpec(
-        string? image = null, string? network = null, string? mount = null, string? serverMount = null, long? memory = null) =>
+        string? image = null, string? network = null, string? mount = null, string? serverMount = null,
+        long? memory = null, long? heap = null) =>
         new(
             Server,
             "zwarden-srv-abc",
@@ -28,7 +30,8 @@ public class PzContainerFactoryTests
             mount ?? "/srv/zwarden/servers/abc/data",
             serverMount ?? "/srv/zwarden/servers/abc.server",
             PortStrideAllocator.ForStride(0),
-            memory ?? MemoryLimit);
+            memory ?? MemoryLimit,
+            heap ?? HeapSize);
 
     private static CreateContainerParameters Build(PzContainerSpec spec) =>
         new PzContainerFactory(new FixedAgentIdentity(Self)).Build(spec);
@@ -205,5 +208,28 @@ public class PzContainerFactoryTests
     public async Task A_non_positive_memory_limit_is_rejected()
     {
         await Assert.That(() => Build(ValidSpec(memory: 0))).Throws<ArgumentException>();
+    }
+
+    [Test]
+    public async Task Invariant11_the_jvm_heap_is_injected_as_the_image_xms_and_xmx(){
+        // #198: the managed container's heap is owned by the Agent (from the spec), overriding the image default.
+        CreateContainerParameters p = Build(ValidSpec(heap: 4L * 1024 * 1024 * 1024));
+
+        await Assert.That(p.Env!).Contains("ZW_PZ_XMS=4096m");
+        await Assert.That(p.Env!).Contains("ZW_PZ_XMX=4096m");
+    }
+
+    [Test]
+    public async Task A_memory_limit_at_or_below_the_heap_is_rejected()
+    {
+        // #198 headroom invariant: a limit equal to the heap OOM-kills the container on boot.
+        await Assert.That(() => Build(ValidSpec(memory: 4L * 1024 * 1024 * 1024, heap: 4L * 1024 * 1024 * 1024)))
+            .Throws<ArgumentException>();
+    }
+
+    [Test]
+    public async Task A_non_positive_heap_is_rejected()
+    {
+        await Assert.That(() => Build(ValidSpec(heap: 0))).Throws<ArgumentException>();
     }
 }

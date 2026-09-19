@@ -45,7 +45,7 @@ public class ContainerRuntimeTests
 
     private static PzContainerSpec Spec() => new(
         ServerId.New(), "zwarden-srv", "img@sha256:abc", "zwarden-pz", "/srv/zwarden/data", "/srv/zwarden/server",
-        PortStrideAllocator.ForStride(0), 6L * 1024 * 1024 * 1024);
+        PortStrideAllocator.ForStride(0), 6L * 1024 * 1024 * 1024, 4L * 1024 * 1024 * 1024);
 
     [Test]
     public async Task Health_reports_the_negotiated_api_version_when_reachable()

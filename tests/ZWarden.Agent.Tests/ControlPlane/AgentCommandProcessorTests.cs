@@ -58,7 +58,6 @@ public class AgentCommandProcessorTests
             PzImageReference = "zwarden/pzserver:pinned",
             NetworkName = "zwarden",
             DataMountRoot = OperatingSystem.IsWindows() ? @"C:\pz" : "/pz",
-            DefaultMemoryLimitBytes = 4L * 1024 * 1024 * 1024,
         });
 
         // The default coordinator is the real one, wired to the shared runtime with a resolver that reports no
@@ -301,6 +300,11 @@ public class AgentCommandProcessorTests
         await Assert.That(prepared.ServerId).IsEqualTo(server);
         await Assert.That(prepared.DataMountSource).Contains(server.ToString());
         await Assert.That(prepared.ServerMountSource).IsEqualTo(prepared.DataMountSource + ".server");
+        // #198: the spec's heap is the configured heap and the limit is derived with headroom above it, so the
+        // container can never be provisioned with a limit that OOM-kills the JVM on boot.
+        await Assert.That(prepared.HeapSizeBytes).IsEqualTo(4L * 1024 * 1024 * 1024);
+        await Assert.That(prepared.MemoryLimitBytes).IsEqualTo(10L * 1024 * 1024 * 1024);
+        await Assert.That(prepared.MemoryLimitBytes > prepared.HeapSizeBytes).IsTrue();
     }
 
     [Test]

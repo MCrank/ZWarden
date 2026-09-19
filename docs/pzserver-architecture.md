@@ -129,8 +129,8 @@ There are two kinds of knobs, and **when** you set them matters.
 
 | Knob | How | Default | Notes |
 | --- | --- | --- | --- |
-| JVM heap (the game's RAM) | env `ZW_PZ_XMS` / `ZW_PZ_XMX` | `4g` / `4g` | The entrypoint rewrites the launcher's heap. |
-| Container memory **cap** | Agent (`DefaultMemoryLimitBytes`) | — | A hard cgroup ceiling Docker enforces on the whole container. |
+| JVM heap (the game's RAM) | Agent (`DefaultHeapSizeBytes`), injected as env `ZW_PZ_XMS` / `ZW_PZ_XMX` | `4 GiB` | For a managed container the Agent owns the heap and injects it, overriding the image's standalone `4g` default; the entrypoint rewrites the launcher's heap from it. |
+| Container memory **cap** | Agent (`DefaultMemoryLimitBytes`), derived from heap + `MemoryOverheadBytes` | `10 GiB` (4 GiB heap + 6 GiB overhead) | A hard cgroup ceiling. It **must exceed the heap** — ZGC/native/metaspace and a fresh world's off-heap boot run well above the Java heap, so a cap equal to the heap OOM-kills on boot (#198). The Agent derives it from the heap so the two cannot drift, and fails closed if `cap ≤ heap`. |
 | PZ version / branch | env `ZW_PZ_BETA` | empty = `public` (42.20.x) | e.g. `legacy41`, `42.19`. |
 | Server name (config set) | env `ZW_PZ_SERVERNAME` | `servertest` | Which `servertest.*` set PZ loads. |
 | Safe-stop grace | env `ZW_PZ_STOP_GRACE` | `30`s | Seconds between `save` and `quit`. |
