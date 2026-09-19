@@ -214,7 +214,6 @@ public class DiagnosticsGathererTests
         PzImageReference = "zwarden/pzserver:pinned",
         NetworkName = "zwarden",
         DataMountRoot = dataRoot,
-        DefaultMemoryLimitBytes = 4L * 1024 * 1024 * 1024,
     });
 
     private sealed class StubRcon(RconHealthResult result) : IRconHealthProbe

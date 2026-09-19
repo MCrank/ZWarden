@@ -72,10 +72,15 @@ public sealed class PzContainerFactory
             // #184: point SteamCMD's writable needs at the /pz/runtime tmpfs so it runs under the read-only
             // rootfs (Invariant 8). Overrides the image's defaults (/home/pzserver, /tmp) only for the managed
             // container — the standalone image is unchanged.
+            // #198: own the JVM heap here alongside the memory limit so the two can never drift. Overrides the
+            // image's standalone ZW_PZ_XMS/XMX defaults for the managed container only; the memory limit below is
+            // derived from this heap plus fixed headroom, so a fresh world's off-heap boot spike does not OOM.
             Env =
             [
                 $"HOME={RuntimeTmpfsTarget}",
                 $"TMPDIR={RuntimeTmpfsTarget}",
+                $"ZW_PZ_XMS={FormatJvmHeap(spec.HeapSizeBytes)}",
+                $"ZW_PZ_XMX={FormatJvmHeap(spec.HeapSizeBytes)}",
             ],
             HostConfig = new HostConfig
             {
@@ -167,9 +172,21 @@ public sealed class PzContainerFactory
             throw new ArgumentException("The server mount source must be an absolute host path.", nameof(spec));
         }
 
-        if (spec.MemoryLimitBytes <= 0)
+        if (spec.HeapSizeBytes <= 0)
         {
-            throw new ArgumentException("The container memory limit must be positive.", nameof(spec));
+            throw new ArgumentException("The JVM heap size must be positive.", nameof(spec));
+        }
+
+        // Invariant 11 (cont.): the limit must leave headroom over the heap, or the container OOM-kills on boot
+        // (#198) — ZGC/native/metaspace and PZ's off-heap world load run well above the Java heap.
+        if (spec.MemoryLimitBytes <= spec.HeapSizeBytes)
+        {
+            throw new ArgumentException("The container memory limit must exceed the JVM heap size.", nameof(spec));
         }
     }
+
+    // The image tunes -Xms/-Xmx from ZW_PZ_XMS/XMX (pz-lib.sh pz_tune_jvm), which accept a JVM size suffix. Emit
+    // whole mebibytes so the value is exact and always a legal heap string (e.g. 4 GiB -> "4096m").
+    private static string FormatJvmHeap(long bytes) =>
+        $"{bytes / (1024 * 1024)}m";
 }

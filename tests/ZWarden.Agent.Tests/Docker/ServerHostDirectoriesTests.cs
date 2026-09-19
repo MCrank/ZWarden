@@ -12,7 +12,7 @@ public class ServerHostDirectoriesTests
 {
     private static PzContainerSpec Spec(string dataSource, string serverSource) => new(
         ServerId.New(), "zwarden-srv", "img@sha256:abc", "zwarden-pz", dataSource, serverSource,
-        PortStrideAllocator.ForStride(0), 6L * 1024 * 1024 * 1024);
+        PortStrideAllocator.ForStride(0), 6L * 1024 * 1024 * 1024, 4L * 1024 * 1024 * 1024);
 
     [Test]
     public async Task EnsureCreated_creates_both_the_data_and_server_install_bind_sources()

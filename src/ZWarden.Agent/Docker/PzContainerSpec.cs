@@ -25,7 +25,10 @@ namespace ZWarden.Agent.Docker;
 /// A host sibling of the data directory, so it is not counted by the data-volume disk meter (F16).
 /// </param>
 /// <param name="Ports">The two-port-stride host allocation (PRD 28).</param>
-/// <param name="MemoryLimitBytes">The container memory limit in bytes (PRD 24 resource limits); must be positive.</param>
+/// <param name="MemoryLimitBytes">The container memory limit in bytes (PRD 24 resource limits); must be positive
+/// and must exceed <paramref name="HeapSizeBytes"/> so the heap has non-heap headroom (#198).</param>
+/// <param name="HeapSizeBytes">The JVM heap in bytes for this managed container, injected as the image's
+/// <c>ZW_PZ_XMS</c>/<c>ZW_PZ_XMX</c> so heap and limit are set together and cannot drift (#198); must be positive.</param>
 public sealed record PzContainerSpec(
     ServerId ServerId,
     string ContainerName,
@@ -34,4 +37,5 @@ public sealed record PzContainerSpec(
     string DataMountSource,
     string ServerMountSource,
     PortAllocation Ports,
-    long MemoryLimitBytes);
+    long MemoryLimitBytes,
+    long HeapSizeBytes);

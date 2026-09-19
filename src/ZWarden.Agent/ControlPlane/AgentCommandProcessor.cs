@@ -488,7 +488,8 @@ public sealed class AgentCommandProcessor
                 // world-data path the disk meter reads (F16), so the ~6.72 GiB install is not counted as world use.
                 ServerMountSource: Path.Combine(_options.DataMountRoot, $"{serverId}.server"),
                 Ports: ports,
-                MemoryLimitBytes: _options.DefaultMemoryLimitBytes);
+                MemoryLimitBytes: _options.DefaultMemoryLimitBytes,
+                HeapSizeBytes: _options.DefaultHeapSizeBytes);
 
             // Materialise BOTH host-side bind-mount sources before the create (#184): the Docker Mounts API
             // never auto-creates them, and the Agent's own container filesystem is not where the daemon resolves
