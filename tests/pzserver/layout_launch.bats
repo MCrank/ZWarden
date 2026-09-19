@@ -50,15 +50,15 @@ teardown() {
 
 @test "admin_password generates a strong password, persists it, and reuses it" {
   ZW_PZ_ADMIN_PASSWORD=""
-  run pz_admin_password "$PZ_ROOT/data"
-  assert_success
-  local first="$output"
+  # Call the function directly (not via `run`) so the persist-then-reuse across two calls does not
+  # depend on how a given bats version scopes `run` — matching the working pattern below.
+  local first second
+  first="$(pz_admin_password "$PZ_ROOT/data")"
   [ "${#first}" -ge 20 ]
   [ -s "$PZ_ROOT/data/.zwarden-adminpw" ]
   # A second call returns the SAME persisted value (stable across restarts).
-  run pz_admin_password "$PZ_ROOT/data"
-  assert_success
-  [ "$output" = "$first" ]
+  second="$(pz_admin_password "$PZ_ROOT/data")"
+  [ "$second" = "$first" ]
 }
 
 @test "a generated admin password file is not world-readable" {
