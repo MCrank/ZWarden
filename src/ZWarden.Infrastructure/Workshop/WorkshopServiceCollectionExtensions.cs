@@ -35,6 +35,16 @@ public static class WorkshopServiceCollectionExtensions
         services.AddScoped<WorkshopIntegrationSettingsRepository>();
         services.AddScoped<IWorkshopSettingsService, WorkshopSettingsService>();
 
+        // F110 PR-B: key-gated Workshop search (QueryFiles). Its own typed client so its timeout/buffer are
+        // independent of the keyless metadata client; it pulls the decrypted key per request from the settings
+        // service (never cached in plaintext). Same control-plane-only egress to Valve's API host.
+        services.AddHttpClient<IWorkshopSearchService, WorkshopSearchClient>(client =>
+        {
+            client.BaseAddress = new Uri(SteamApiBaseAddress);
+            client.Timeout = TimeSpan.FromSeconds(10);
+            client.MaxResponseContentBufferSize = 4 * 1024 * 1024;
+        });
+
         return services;
     }
 }
