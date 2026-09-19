@@ -1,5 +1,9 @@
 # ZWarden reference deployment — Docker Compose
 
+> **New here?** Start with the friendly, start-to-finish walkthrough:
+> [**Getting started — stand up ZWarden on your own domain**](./getting-started.md). This page is the
+> complete reference behind it.
+
 This guide stands up a complete self-hosted ZWarden control plane with Docker Compose (F34, ADR 0037). It
 is the production twin of the dev/test Aspire graph (ADR 0031), minus Aspire. For the TLS/ingress details
 behind it, see [`https-reference.md`](./https-reference.md) (F32, ADR 0035).
@@ -48,9 +52,10 @@ cd deploy/compose
 # 1. Generate the secrets (AES key ring + database password) into a git-ignored .env.
 ./bootstrap-secrets.sh            # Windows hosts: ./bootstrap-secrets.ps1
 
-# 2. Set your hostname (and, for Public TLS, an ACME contact e-mail) in .env:
+# 2. Set your hostname in .env:
 #      ZWARDEN_DOMAIN=zwarden.example.com
-#      ZWARDEN_ACME_EMAIL=you@example.com
+#    (Optional, Public TLS: to get Let's Encrypt expiry notices, add an `email you@example.com` line to the
+#     global options block at the top of deploy/caddy/Caddyfile — see https-reference.md.)
 
 # 3. Bring up the stack (SQLite mode — the default).
 docker compose up -d
@@ -96,8 +101,9 @@ act on the SQLite topology instead.
   undecryptable. The script refuses to overwrite an existing `.env` for exactly this reason.
 - **`POSTGRES_PASSWORD`** — the database password (used only in PostgreSQL mode).
 
-You supply the non-secret values by hand: `ZWARDEN_DOMAIN`, `ZWARDEN_ACME_EMAIL`, the one-time
-`ZWARDEN_ENROLLMENT_SECRET` (below), and the PZ image reference.
+You supply the non-secret values by hand: `ZWARDEN_DOMAIN`, the one-time `ZWARDEN_ENROLLMENT_SECRET` (below),
+and the PZ image reference. (An ACME contact e-mail is optional and set in the Caddyfile, not `.env` — see
+[`https-reference.md`](./https-reference.md).)
 
 `.env` values are visible via `docker inspect`. For a hardened install you can move them to Docker `secrets`
 (mounted files); that is a supported upgrade, not the default. For a single-node self-hosted deployment the
@@ -152,9 +158,11 @@ Agent enrollment is operator-driven (D-4): the stack does not bake a shared enro
 3. `docker compose up -d agent` (add the `-f` overlay pair in PostgreSQL mode).
 
 The Agent enrols once, persists its own per-Agent credential on the `agent_state` volume, and reuses it across
-restarts — so you can blank `ZWARDEN_ENROLLMENT_SECRET` again afterwards. To run game servers, set
-`ZWARDEN_PZ_IMAGE` to a pinned `repo@sha256:…` digest of the PZ image built from `src/ZWarden.PZServer` (a
-floating tag like `:latest` is rejected, ADR 0008).
+restarts — so you can blank `ZWARDEN_ENROLLMENT_SECRET` again afterwards. To run game servers, build the PZ
+image from `src/ZWarden.PZServer` (`docker build -t zwarden-pzserver:42.20.4 src/ZWarden.PZServer`) and set
+`ZWARDEN_PZ_IMAGE` to a **specific** reference — any tag except a floating `:latest`, which is rejected
+(ADR 0008). A `repo@sha256:…` digest is the hardened production form (push to a registry to obtain one); a
+locally built image that was never pushed has no digest, so pin its build tag.
 
 ## Where Project Zomboid data lives
 

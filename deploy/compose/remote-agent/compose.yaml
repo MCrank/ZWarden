@@ -67,8 +67,9 @@ services:
       - Agent__BackupRoot=/srv/zwarden/pz-backups
       # The Docker network provisioned PZ containers attach to (F14). Must be a real host network.
       - Agent__NetworkName=${ZWARDEN_PZ_NETWORK:-zwarden-pz}
-      # The pinned canonical PZ image (repo@sha256:… — a floating tag is rejected, ADR 0008). Optional at
-      # startup; provisioning fails with an actionable message until set. See .env.example.
+      # The pinned canonical PZ image: a specific reference (any tag except a floating `latest`, which is
+      # rejected — ADR 0008; a repo@sha256:… digest is the hardened form). Optional at startup; provisioning
+      # fails with an actionable message until set. See .env.example.
       - Agent__PzImageReference=${ZWARDEN_PZ_IMAGE:-}
     volumes:
       - agent_state:/var/lib/zwarden

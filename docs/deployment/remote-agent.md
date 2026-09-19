@@ -53,8 +53,9 @@ Edit `.env`:
 - `ZWARDEN_DOMAIN` — the **same public domain** the control plane serves (e.g. `zwarden.example.com`). The
   Agent connects to `wss://<domain>/agent/hub`.
 - `ZWARDEN_ENROLLMENT_SECRET` — paste the secret from step 1.
-- `ZWARDEN_PZ_IMAGE` — optional now; the pinned `repo@sha256:…` PZ image digest, needed before you provision a
-  server on this host (a floating tag is rejected — ADR 0008).
+- `ZWARDEN_PZ_IMAGE` — optional now; a **specific** PZ image reference (any tag except a floating `:latest`,
+  which is rejected — ADR 0008), needed before you provision a server on this host. A `repo@sha256:…` digest is
+  the hardened production form; a locally built, unpushed image has no digest, so pin its build tag.
 
 ### 3. Bring the Agent up
 

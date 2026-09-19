@@ -39,8 +39,10 @@ Prerequisites:
 - **Ports 80 and 443 must be reachable from the Internet.** HTTP-01 validation and the HTTP→HTTPS redirect both
   require port 80; HTTPS serves on 443.
 - The DNS name must already resolve to the host before first start.
-- **Recommended:** set an ACME contact e-mail so the CA can send expiry/security notices. Add a global block at
-  the top of the Caddyfile:
+- **Optional (recommended):** set an ACME contact e-mail so the CA can send expiry/security notices. Let's
+  Encrypt does **not** require one, and Caddy errors on an empty `email` directive, so it is intentionally not
+  wired as an environment variable — set it directly by adding a global options block at the top of
+  [`deploy/caddy/Caddyfile`](../../deploy/caddy/Caddyfile):
 
   ```caddyfile
   {

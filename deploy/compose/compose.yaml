@@ -24,8 +24,10 @@ services:
       - "443:443"
     environment:
       - ZWARDEN_DOMAIN=${ZWARDEN_DOMAIN}
-      - ZWARDEN_ACME_EMAIL=${ZWARDEN_ACME_EMAIL:-}
       - ZWARDEN_UPSTREAM=web:8080
+      # No ACME contact e-mail is set here: Let's Encrypt does not require one, and Caddy errors on an empty
+      # `email` directive. To receive expiry/security notices, add an `email you@example.com` line to the global
+      # options block at the top of deploy/caddy/Caddyfile (see docs/deployment/https-reference.md).
     volumes:
       - ../caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
@@ -132,8 +134,9 @@ services:
       - Agent__BackupRoot=/srv/zwarden/pz-backups
       # The Docker network provisioned PZ containers attach to (F14). Must be a real host network.
       - Agent__NetworkName=${ZWARDEN_PZ_NETWORK:-zwarden-pz}
-      # The pinned canonical PZ image (repo@sha256:… — a floating tag is rejected, ADR 0008). Optional at
-      # startup; provisioning fails with an actionable message until set. See .env.example.
+      # The pinned canonical PZ image: a specific reference (any tag except a floating `latest`, which is
+      # rejected — ADR 0008; a repo@sha256:… digest is the hardened form). Optional at startup; provisioning
+      # fails with an actionable message until set. See .env.example.
       - Agent__PzImageReference=${ZWARDEN_PZ_IMAGE:-}
     volumes:
       - agent_state:/var/lib/zwarden
