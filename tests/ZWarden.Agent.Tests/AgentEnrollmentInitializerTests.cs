@@ -24,10 +24,12 @@ public class AgentEnrollmentInitializerTests
         IAgentTrustStore store,
         IEnrollmentClient client,
         string trustPath,
-        string? secret)
+        string? secret,
+        AgentEnrollmentSignal? signal = null)
         => new(
             store,
             client,
+            signal ?? new AgentEnrollmentSignal(),
             Options.Create(new AgentOptions
             {
                 TrustFilePath = trustPath,
@@ -109,6 +111,7 @@ public class AgentEnrollmentInitializerTests
         AgentEnrollmentInitializer initializer = new(
             new FileAgentTrustStore(path),
             client,
+            new AgentEnrollmentSignal(),
             Options.Create(new AgentOptions
             {
                 TrustFilePath = path,
@@ -176,6 +179,7 @@ public class AgentEnrollmentInitializerTests
         AgentEnrollmentInitializer initializer = new(
             new FileAgentTrustStore(path),
             client,
+            new AgentEnrollmentSignal(),
             Options.Create(new AgentOptions
             {
                 TrustFilePath = path,
@@ -195,6 +199,71 @@ public class AgentEnrollmentInitializerTests
         await Assert.That(File.Exists(path)).IsFalse();
         await Assert.That(client.Calls).IsEqualTo(callsAfterRefusal); // the loop stopped on refusal, not busy-looping
         await Assert.That(logger.Entries.Any(e => e.Message.Contains("refused", StringComparison.Ordinal))).IsTrue();
+    }
+
+    [Test]
+    public async Task Signals_settled_when_already_enrolled()
+    {
+        using var temp = new TempDirectory();
+        string path = temp.File("agent-trust.json");
+        FileAgentTrustStore store = new(path);
+        await store.SaveAsync(SomeMaterial());
+        AgentEnrollmentSignal signal = new();
+
+        await Initializer(store, new StubEnrollmentClient(SomeMaterial()), path, "zwe_secret", signal)
+            .StartAsync(CancellationToken.None);
+
+        await Assert.That(signal.IsSettled).IsTrue();
+    }
+
+    [Test]
+    public async Task Signals_settled_when_no_secret_is_configured()
+    {
+        using var temp = new TempDirectory();
+        string path = temp.File("agent-trust.json");
+        AgentEnrollmentSignal signal = new();
+
+        await Initializer(new FileAgentTrustStore(path), new StubEnrollmentClient(SomeMaterial()), path, secret: null, signal)
+            .StartAsync(CancellationToken.None);
+
+        await Assert.That(signal.IsSettled).IsTrue();
+    }
+
+    [Test]
+    public async Task Signals_settled_when_the_secret_is_refused()
+    {
+        using var temp = new TempDirectory();
+        string path = temp.File("agent-trust.json");
+        AgentEnrollmentSignal signal = new();
+
+        await Initializer(new FileAgentTrustStore(path), new StubEnrollmentClient(null), path, "zwe_secret", signal)
+            .StartAsync(CancellationToken.None);
+
+        await Assert.That(signal.IsSettled).IsTrue();
+    }
+
+    [Test]
+    public async Task Signals_settled_after_a_background_retry_enrols()
+    {
+        // The #195 driver: the inline attempt fails transiently (so nothing is signalled yet), then the
+        // background retry succeeds — which must settle the signal so the connection step connects.
+        using var temp = new TempDirectory();
+        string path = temp.File("agent-trust.json");
+        FileAgentTrustStore store = new(path);
+        AgentEnrollmentSignal signal = new();
+        AgentTrustMaterial material = SomeMaterial();
+        ScriptedEnrollmentClient client = new(_ => material, () => throw Unreachable());
+        AgentEnrollmentInitializer initializer = Initializer(store, client, path, "zwe_secret", signal);
+
+        // The signal must NOT be set while only the transient inline attempt has run.
+        await initializer.StartAsync(CancellationToken.None);
+        await Assert.That(signal.IsSettled).IsFalse();
+
+        await WaitUntilAsync(() => signal.IsSettled);
+        await initializer.StopAsync(CancellationToken.None);
+
+        await Assert.That(signal.IsSettled).IsTrue();
+        await Assert.That((await store.TryLoadAsync())!.AgentId).IsEqualTo(material.AgentId);
     }
 
     private static HttpRequestException TlsTrustFailure() =>
