@@ -450,7 +450,14 @@ jobs:
         run: |
           docker stop -t 90 pz
           logs="$(docker logs pz 2>&1)"
-          echo "$logs" | grep -qi 'SIGTERM received' || { echo "::error::stop was not graceful"; exit 1; }
+          echo "::group::PZ container logs at shutdown (tail)"
+          printf '%s\n' "$logs" | tail -40
+          echo "::endgroup::"
+          if printf '%s\n' "$logs" | grep -qi 'SIGTERM received'; then
+            echo "graceful stop OK"
+          else
+            echo "::error::stop was not graceful (no 'SIGTERM received' in the container logs)"; exit 1
+          fi
       - name: No PZ artefact leaked into the workspace
         if: always()
         run: |
