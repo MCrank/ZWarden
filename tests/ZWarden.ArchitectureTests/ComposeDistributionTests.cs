@@ -271,6 +271,19 @@ public class ComposeDistributionTests
         await Assert.That(agentDockerfile).Contains("USER ");
     }
 
+    [Test]
+    public async Task Web_image_defaults_the_data_protection_key_ring_to_the_writable_data_volume()
+    {
+        string webDockerfile = await File.ReadAllTextAsync(Path.Combine(RepoRoot(), "src", "ZWarden.Web", "Dockerfile"));
+
+        // #186 regression guard: the bare image must default the Data Protection key ring onto the writable
+        // /data volume. Without this it falls back to <contentRoot>/dp-keys = /app/dp-keys, which is root-owned,
+        // so the non-root user crashes creating it (UnauthorizedAccessException) on a plain `docker run` — the
+        // exact failure the tier-2 smoke test hit. That test is dispatch-only, so this offline guard catches a
+        // regression on every PR.
+        await Assert.That(webDockerfile).Contains("ZWarden__DataProtection__KeyRingPath=/data/dp-keys");
+    }
+
     private static string RepoRoot()
     {
         DirectoryInfo? dir = new(AppContext.BaseDirectory);
