@@ -4,10 +4,14 @@ using ZWarden.Application.Workshop;
 namespace ZWarden.Infrastructure.Workshop;
 
 /// <summary>
-/// Composition seam for the keyless Workshop metadata client (#110). Registers a typed <see cref="System.Net.Http.HttpClient"/>
-/// pinned to Valve's API host with a bounded response buffer and a short timeout, plus the in-memory cache the client
-/// reuses. The egress is deliberately control-plane only (never the Agent) and needs no secret; the opt-in publisher
-/// key that unlocks search is a later, separately-wired concern (#110 PR-B).
+/// Composition seam for the Workshop metadata client and the optional, per-tenant search key (#110). Registers
+/// a typed <see cref="System.Net.Http.HttpClient"/> pinned to Valve's API host with a bounded response buffer
+/// and a short timeout, the in-memory cache the client reuses, and the tenant-scoped
+/// <see cref="IWorkshopSettingsService"/> that owns the encrypted search key (ADR 0044). The egress is
+/// deliberately control-plane only (never the Agent). Call it after <c>AddZWardenAuthorization</c>,
+/// <c>AddZWardenAudit</c>, and the security foundation (the settings service resolves the fail-closed
+/// <c>IPermissionChecker</c>, the <c>IAuditWriter</c>, the request-scoped <c>ZWardenDbContext</c>, and
+/// <c>ISecretProtector</c>).
 /// </summary>
 public static class WorkshopServiceCollectionExtensions
 {
@@ -26,6 +30,10 @@ public static class WorkshopServiceCollectionExtensions
             // Metadata responses are small; cap the buffer as an untrusted-response guard (~4 MB).
             client.MaxResponseContentBufferSize = 4 * 1024 * 1024;
         });
+
+        // F110 PR-B: the optional, per-tenant search key. Request-scoped, like the other tenant-scoped services.
+        services.AddScoped<WorkshopIntegrationSettingsRepository>();
+        services.AddScoped<IWorkshopSettingsService, WorkshopSettingsService>();
 
         return services;
     }

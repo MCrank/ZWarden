@@ -15,6 +15,9 @@ public static class Redaction
         "password", "passwd", "pwd", "secret", "token", "apikey", "api_key",
         "rcon", "connectionstring", "connection_string", "authorization",
         "cookie", "privatekey", "private_key", "mfa", "credential",
+        // F110/ADR 0044: the tenant's Steam Web API search key. "apikey" already covers "…ApiKey"
+        // spellings, but this is listed explicitly so the intent survives a rename of either side.
+        "steamwebapikey", "workshopapikey",
     ];
 
     /// <summary>Replaces the whole value with <see cref="Mask"/>.</summary>
