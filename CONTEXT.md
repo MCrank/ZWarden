@@ -204,6 +204,14 @@ _Avoid_: registration (which means adding a Server), pairing, onboarding
 Two distinct identifiers that must never be conflated: a Steam Workshop item may contain several
 Project Zomboid mods.
 
+**Workshop search key**:
+An optional, per-tenant Steam Web API key that unlocks free-text Workshop **search** (`QueryFiles`);
+keyless name/preview enrichment and paste-an-id browse need none, so the key's presence is a
+capability flag. Stored encrypted (an **Envelope**), write-only in the UI (only `configured ✓ / not`),
+redacted, `Tenant.Manage`-gated and audited, and used only control-plane-side — never sent to an Agent
+(F110, ADR 0044).
+_Avoid_: publisher key (a standard `dev/apikey` key suffices), Workshop credentials
+
 **Diagnostic Report**:
 The transient result of one diagnostics sweep — a set of **Diagnostic Checks** across the diagnostic
 **domains**. Read-only and not persisted; the durable, packaged form is a **Support Package**.
@@ -257,6 +265,7 @@ never reused for another entity type; adding one is an ADR (PRD 7).
 | Backup | `bkp-` | Notification | `ntf-` |
 | Diagnostic package | `diag-` | Enrollment | `enr-` |
 | Configuration revision | `cfg-` | Protocol message | `msg-` |
+| Install state | `ist-` | Workshop integration settings | `wis-` |
 
 ### Security
 
