@@ -78,4 +78,7 @@ VOLUME /pz/data /pz/server
 HEALTHCHECK --interval=30s --timeout=5s --start-period=45m --retries=3 \
   CMD /pz/scripts/healthcheck.sh
 
+# tini is deliberately in DEFAULT mode (`--`, NOT `-g`): on `docker stop` it forwards SIGTERM to its direct
+# child (the entrypoint) ONLY, not the process group, so the entrypoint's `term_handler` is the authoritative
+# stop path (blessed FIFO save→grace→quit) and the JVM never gets a bare SIGTERM (#193).
 ENTRYPOINT ["/usr/bin/tini", "--", "/pz/scripts/entrypoint.sh"]
