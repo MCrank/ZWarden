@@ -21,9 +21,14 @@ namespace ZWarden.Web.Tests.Account;
 /// cookie is actually stored by the client — the point of the hardening being tested. Each factory owns
 /// its own SQLite file, so tests are isolated and can run in parallel.
 /// </remarks>
-public sealed class ZWardenWebAppFactory : WebApplicationFactory<Program>
+public class ZWardenWebAppFactory : WebApplicationFactory<Program>
 {
     private readonly string _databasePath = Path.Combine(Path.GetTempPath(), $"zw-web-{Guid.NewGuid():N}.db");
+
+    // #186: each factory gets its own throwaway Data Protection key-ring directory, so the composed host's
+    // AddZWardenDataProtection persists somewhere isolated (never the Web content root) and parallel tests
+    // don't share a key ring.
+    private readonly string _keyRingPath = Path.Combine(Path.GetTempPath(), $"zw-web-dp-{Guid.NewGuid():N}");
 
     /// <summary>
     /// Whether to mark first-run setup complete as the host starts (F33). Defaults to <see langword="true"/>
@@ -51,6 +56,7 @@ public sealed class ZWardenWebAppFactory : WebApplicationFactory<Program>
         builder.UseEnvironment("Development");
         // Pooling=False so the file handle is released for deletion at teardown.
         builder.UseSetting("ConnectionStrings:ZWarden", $"Data Source={_databasePath};Pooling=False");
+        builder.UseSetting("ZWarden:DataProtection:KeyRingPath", _keyRingPath);
         if (ConfigureTestServicesHook is { } hook)
         {
             builder.ConfigureTestServices(hook);
@@ -135,6 +141,18 @@ public sealed class ZWardenWebAppFactory : WebApplicationFactory<Program>
             catch (IOException)
             {
                 // Best effort - the temp file is cleaned up by the OS eventually.
+            }
+
+            try
+            {
+                if (Directory.Exists(_keyRingPath))
+                {
+                    Directory.Delete(_keyRingPath, recursive: true);
+                }
+            }
+            catch (IOException)
+            {
+                // Best effort - the temp key ring is cleaned up by the OS eventually.
             }
         }
     }

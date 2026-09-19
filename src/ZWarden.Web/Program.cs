@@ -32,6 +32,9 @@ using ZWarden.Web.Hosting;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
+// #187: don't disclose "Server: Kestrel" through the Caddy front door (ADR 0035).
+builder.Services.SuppressKestrelServerHeader();
+
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
@@ -60,6 +63,7 @@ builder.Services.Configure<ZWarden.Web.Configuration.InstanceOptions>(
     builder.Configuration.GetSection(ZWarden.Web.Configuration.InstanceOptions.SectionName));
 
 builder.Services.AddSecurityFoundation();          // key ring from the environment (fail-closed, ADR 0015)
+builder.Services.AddZWardenDataProtection(builder.Configuration, builder.Environment); // #186: persist + encrypt the DP key ring (ADR 0015)
 builder.Services.AddSessionTenantContext();        // wins over the single-tenant default (S5)
 builder.Services.AddTenantFoundation();
 builder.Services.AddZWardenPersistence(provider, connectionString);
@@ -91,11 +95,13 @@ app.UseForwardedHeaders();
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Error", createScopeForErrors: true);
-    app.UseHsts();
+    // #187: no app-level HSTS or HTTPS redirection. Caddy is the sole front door (ADR 0035): it terminates
+    // TLS, redirects HTTP→HTTPS (308), and emits the single canonical HSTS header. Emitting HSTS here too
+    // produced a duplicate, non-conformant header; UseHttpsRedirection only logged "Failed to determine the
+    // https port for redirect" and was dead code behind the proxy. The app trusts X-Forwarded-Proto instead.
 }
 
 app.UseHostFiltering();       // host-header validation at the browser boundary (ADR 0006)
-app.UseHttpsRedirection();
 
 // F33: until first-run setup is complete, redirect browser navigations to the /setup wizard. Runs BEFORE
 // authentication/authorization so an un-set-up install routes even [Authorize] pages to /setup rather than
