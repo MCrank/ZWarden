@@ -198,6 +198,8 @@ html:not(.dark) .zw-ico-moon { display: inline-block; }
   color: var(--destructive); background: color-mix(in oklab, var(--destructive) 8%, var(--card));
 }
 .zw-mb-actions { margin-top: auto; padding-top: 2px; display: flex; align-items: center; gap: 8px; }
+/* The small resolved-thumbnail in the installed inventory list (#110 enrichment). */
+.zw-mb-thumb-sm { width: 26px; height: 26px; flex: none; border-radius: 4px; object-fit: cover; background: var(--muted); }
 
 /* ---- live config editor (#108 / F20c) ----------------------------------- */
 /* Static-SSR schema editor: one big form of pre-filled controls grouped by section, each with an ⓘ

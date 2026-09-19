@@ -1,7 +1,9 @@
 @using ZWarden.Application.Mods
+@using ZWarden.Application.Workshop
 @using ZWarden.Domain.Ids
 @implements IDisposable
 @inject IModInventoryCache Inventories
+@inject IWorkshopMetadataClient Metadata
 
 @* The live mod-inventory island (F21): an interactive island embedded in the static server-detail page, mirroring
    LivePlayerRosterPanel. The parent does the authorized, tenant-filtered work (it has an HttpContext); this child
@@ -52,7 +54,31 @@
                     {
                         <BbItem Variant="ItemVariant.Outline" Size="ItemSize.Sm" data-workshop-item>
                             <BbItemContent>
-                                <BbItemTitle><span class="font-mono text-sm" data-workshop-id>@item.WorkshopId</span></BbItemTitle>
+                                <BbItemTitle>
+                                    @if (Meta(item.WorkshopId) is { Found: true } meta)
+                                    {
+                                        @* Enriched (#110): resolved Workshop name + preview thumbnail next to the id.
+                                           Name and preview url are untrusted external data, escaped/constrained at render. *@
+                                        <span class="inline-flex items-center gap-2" data-workshop-enriched>
+                                            @if (meta.PreviewUrl is { Length: > 0 } url)
+                                            {
+                                                <img class="zw-mb-thumb-sm" src="@url" alt="" loading="lazy"
+                                                     referrerpolicy="no-referrer" data-workshop-thumb />
+                                            }
+                                            <span>
+                                                @if (meta.Title is { Length: > 0 } title)
+                                                {
+                                                    <span class="text-sm font-medium" data-workshop-name>@title</span>
+                                                }
+                                                <span class="font-mono text-xs text-muted-foreground" data-workshop-id>@item.WorkshopId</span>
+                                            </span>
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span class="font-mono text-sm" data-workshop-id>@item.WorkshopId</span>
+                                    }
+                                </BbItemTitle>
                                 @if (item.Mods.Count > 0)
                                 {
                                     @foreach (InstalledMod mod in item.Mods)
@@ -107,6 +133,13 @@
     private PeriodicTimer? _timer;
     private Task? _loop;
 
+    // #110 enrichment: resolved Workshop metadata by id, filled from the keyless control-plane client. This runs
+    // only in OnAfterRenderAsync — which never fires during a static server prerender — so the Steam egress happens
+    // only in a live interactive circuit, never on the initial server render. Best-effort: the bare ids render at
+    // once and names/previews appear when Steam answers.
+    private readonly Dictionary<string, WorkshopItemMetadata> _meta = new(StringComparer.Ordinal);
+    private string? _metaSignature;
+
     protected override void OnInitialized()
     {
         _parsed = ZWarden.Domain.Ids.ServerId.TryParse(ServerId, out _server)
@@ -139,6 +172,41 @@
             _inventory = Inventories.GetLatest(_server, _agent);
         }
     }
+
+    // Enrichment runs only after a render in an interactive circuit (OnAfterRender is not called during static
+    // prerender), so no Steam call happens on the server prerender. It re-enriches whenever the set of installed
+    // Workshop ids changes, and only on the renderer's dispatcher, so _meta is never touched concurrently.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_parsed || _inventory is not { } inv)
+        {
+            return;
+        }
+
+        List<string> ids = inv.InstalledItems.Select(i => i.WorkshopId).ToList();
+        string signature = string.Join(',', ids);
+        if (signature == _metaSignature)
+        {
+            return;
+        }
+
+        _metaSignature = signature;
+        if (ids.Count == 0)
+        {
+            return;
+        }
+
+        IReadOnlyList<WorkshopItemMetadata> items = await Metadata.GetItemsAsync(ids).ConfigureAwait(false);
+        foreach (WorkshopItemMetadata item in items)
+        {
+            _meta[item.WorkshopId] = item;
+        }
+
+        await InvokeAsync(StateHasChanged).ConfigureAwait(false);
+    }
+
+    private WorkshopItemMetadata? Meta(string workshopId) =>
+        _meta.TryGetValue(workshopId, out WorkshopItemMetadata? metadata) ? metadata : null;
 
     private static string Summary(ModInventory inv)
     {

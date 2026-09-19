@@ -723,6 +723,18 @@ html:not(.dark) .zw-ico-moon {
   gap: 8px;
 }
 
+/* The small resolved-thumbnail in the installed inventory list (#110 enrichment). */
+
+.zw-mb-thumb-sm {
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border-radius: 4px;
+  -o-object-fit: cover;
+     object-fit: cover;
+  background: var(--muted);
+}
+
 /* ---- live config editor (#108 / F20c) ----------------------------------- */
 
 /* Static-SSR schema editor: one big form of pre-filled controls grouped by section, each with an ⓘ
