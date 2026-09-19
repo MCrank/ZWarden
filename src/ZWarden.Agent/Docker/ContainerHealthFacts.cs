@@ -13,12 +13,16 @@ namespace ZWarden.Agent.Docker;
 /// <param name="ExitCode">The last exit code (0 unless the container exited abnormally).</param>
 /// <param name="OomKilled">Whether the container was OOM-killed.</param>
 /// <param name="Ports">The container's published host↔container port mappings.</param>
+/// <param name="NetworkAddresses">The container's IP on each network it is attached to, keyed by network name, or
+/// <c>null</c> when the inspect reported none. The network probe uses the ZWarden-network address to reach the game
+/// port over the shared bridge rather than the Agent's own loopback (#199).</param>
 public sealed record ContainerHealthFacts(
     string State,
     string? HealthStatus,
     long ExitCode,
     bool OomKilled,
-    IReadOnlyList<PublishedPort> Ports);
+    IReadOnlyList<PublishedPort> Ports,
+    IReadOnlyDictionary<string, string>? NetworkAddresses = null);
 
 /// <summary>One owned container the Agent inspected for health (F16): the Server it hosts and its inspected facts.</summary>
 /// <param name="ServerId">The Server this container hosts.</param>

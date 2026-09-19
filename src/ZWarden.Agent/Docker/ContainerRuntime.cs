@@ -93,7 +93,8 @@ public sealed partial class ContainerRuntime : IContainerRuntime
                         inspected.HealthStatus,
                         inspected.ExitCode,
                         inspected.OomKilled,
-                        inspected.Ports)));
+                        inspected.Ports,
+                        inspected.NetworkAddresses)));
             }
             catch (DockerApiException ex)
             {
