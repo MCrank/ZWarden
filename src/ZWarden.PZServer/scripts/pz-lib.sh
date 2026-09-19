@@ -106,6 +106,21 @@ pz_write_appid() {
   printf '%s\n' "${PZ_STEAM_APPID_TXT}" > "${server_dir}/steam_appid.txt"
 }
 
+# --- Health (F12 base check) -----------------------------------------------------
+# The running dedicated-server process. Build 42's start-server.sh execs a NATIVE launcher
+# (`./ProjectZomboid64`) that runs the JVM embedded, so the main class `zombie.network.GameServer`
+# is NOT present in any process's argv (#191) - matching it alone leaves the container forever
+# "unhealthy" even though the server is up. Match the native launcher, and also the class name so a
+# direct `java ... zombie.network.GameServer` launch (legacy/B41, or a hand run) is still detected.
+# Extended-regex alternation (pgrep -f uses ERE).
+PZ_SERVER_PROCESS_PATTERN='ProjectZomboid[0-9]*|zombie\.network\.GameServer'
+
+# pz_server_running  — exit 0 when the PZ dedicated-server process is alive, non-zero otherwise.
+# Deliberately shallow (the container base health, mini-plan Q5); F16 layers the hierarchical model.
+pz_server_running() {
+  pgrep -f "${PZ_SERVER_PROCESS_PATTERN}" >/dev/null 2>&1
+}
+
 # pz_bootstrap_steamcmd <baked_dir> <runtime_dir>
 # SteamCMD is baked at /opt/steamcmd (outside any /pz mount) and copied into the runtime dir on
 # boot, because under an Agent-created container /pz/runtime is an ephemeral tmpfs (ReadonlyRootfs,
