@@ -132,13 +132,18 @@ public sealed partial class ModDiscovery : IModDiscovery
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            // Prefer the legacy root mod.info; fall back to the Build 42 version folder for a B42-only mod
-            // (research §6). The id is identical across both, so either yields the mapping.
-            ModInfo? info = await ReadModInfoAsync(Path.Combine(modDir, ModInfoFileName), cancellationToken).ConfigureAwait(false)
-                ?? await ReadModInfoAsync(Path.Combine(modDir, Build42FolderName, ModInfoFileName), cancellationToken).ConfigureAwait(false);
+            // Prefer the Build 42 version folder's mod.info; fall back to the legacy root one (research §6). The id
+            // is identical across both, but the version/dependency/compat metadata differs per build — and B42 is
+            // the current default build (research §1), so its folder carries the version-appropriate metadata.
+            // (Limitation: a B41-only server running a dual-build mod would want the root file; threading the
+            // server's build to pick the exact file is a #110 follow-up.)
+            ModInfo? info = await ReadModInfoAsync(Path.Combine(modDir, Build42FolderName, ModInfoFileName), cancellationToken).ConfigureAwait(false)
+                ?? await ReadModInfoAsync(Path.Combine(modDir, ModInfoFileName), cancellationToken).ConfigureAwait(false);
             if (info is not null)
             {
-                mods.Add(new DiscoveredMod(info.Id, info.Name));
+                mods.Add(new DiscoveredMod(
+                    info.Id, info.Name, info.Version, info.PzVersion, info.VersionMin,
+                    info.Requires, info.Incompatible, info.Tags));
             }
         }
 
