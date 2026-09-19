@@ -121,6 +121,31 @@ public class AgentOptionsValidatorTests
     }
 
     [Test]
+    public async Task A_non_positive_enrollment_retry_initial_delay_fails()
+    {
+        var options = Valid();
+        options.EnrollmentRetryInitialDelay = TimeSpan.Zero;
+
+        var result = new AgentOptionsValidator().Validate(name: null, options);
+
+        await Assert.That(result.Failed).IsTrue();
+        await Assert.That(result.FailureMessage!).Contains(nameof(AgentOptions.EnrollmentRetryInitialDelay));
+    }
+
+    [Test]
+    public async Task An_enrollment_retry_max_delay_below_the_initial_delay_fails()
+    {
+        var options = Valid();
+        options.EnrollmentRetryInitialDelay = TimeSpan.FromSeconds(30);
+        options.EnrollmentRetryMaxDelay = TimeSpan.FromSeconds(5);
+
+        var result = new AgentOptionsValidator().Validate(name: null, options);
+
+        await Assert.That(result.Failed).IsTrue();
+        await Assert.That(result.FailureMessage!).Contains(nameof(AgentOptions.EnrollmentRetryMaxDelay));
+    }
+
+    [Test]
     public async Task Non_positive_heartbeat_interval_fails()
     {
         var options = Valid();

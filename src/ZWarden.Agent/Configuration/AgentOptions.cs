@@ -44,6 +44,22 @@ public sealed class AgentOptions
     public string? EnrollmentSecret { get; set; }
 
     /// <summary>
+    /// The first back-off delay before re-attempting enrollment after a transient/transport failure — a TLS-trust
+    /// failure, a socket/timeout, or an unreachable control plane (#185). Enrollment never crash-loops on these;
+    /// it retries in the background, doubling the wait each attempt up to <see cref="EnrollmentRetryMaxDelay"/>,
+    /// so the Agent enrols with no restart once the operator fixes trust (or the control plane comes up). Must be
+    /// positive; defaults to 5 seconds.
+    /// </summary>
+    public TimeSpan EnrollmentRetryInitialDelay { get; set; } = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// The ceiling on the enrollment retry back-off (#185): a long outage settles into one attempt every
+    /// <see cref="EnrollmentRetryMaxDelay"/> rather than a busy-loop against the control plane. Must be positive
+    /// and no smaller than <see cref="EnrollmentRetryInitialDelay"/>; defaults to 60 seconds.
+    /// </summary>
+    public TimeSpan EnrollmentRetryMaxDelay { get; set; } = TimeSpan.FromSeconds(60);
+
+    /// <summary>
     /// The Docker Engine endpoint the Agent's Docker runtime connects to (F13). Optional: when unset, the
     /// OS default local endpoint is used (the unix socket on Linux, the named pipe on Windows). Set it to the
     /// socket-proxy address in the reference deployment (ADR 0008). When set, it must be an absolute URI. The
