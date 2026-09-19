@@ -1,5 +1,9 @@
 # ZWarden reference deployment — Docker Compose
 
+> **New here?** Start with the friendly, start-to-finish walkthrough:
+> [**Getting started — stand up ZWarden on your own domain**](./getting-started.md). This page is the
+> complete reference behind it.
+
 This guide stands up a complete self-hosted ZWarden control plane with Docker Compose (F34, ADR 0037). It
 is the production twin of the dev/test Aspire graph (ADR 0031), minus Aspire. For the TLS/ingress details
 behind it, see [`https-reference.md`](./https-reference.md) (F32, ADR 0035).
