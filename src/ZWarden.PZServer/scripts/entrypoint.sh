@@ -70,6 +70,19 @@ log "launching: ${launch} -adminpassword <redacted>"
 ( cd "${SERVER_DIR}" && eval "${launch} -adminpassword $(printf '%q' "${admin_pw}")" ) < "${FIFO}" &
 SERVER_PID=$!
 
+# This handler is the authoritative stop path (#193). tini runs in its DEFAULT mode (the ENTRYPOINT is
+# `tini -- entrypoint.sh`, NOT `tini -g --`), so on `docker stop` it forwards SIGTERM to its direct child
+# ONLY — this entrypoint — and never to the process group. The JVM (a grandchild) therefore does not get
+# SIGTERM directly; this trap fires and drives the blessed FIFO save→grace→quit. Verified live against a
+# real Build 42 managed container stopped the way the control plane stops it (F15 `docker stop -t 120`):
+# "SIGTERM received" logs, the grace window elapses, the world saves (#2 pre-release validation).
+# Build 42's ./ProjectZomboid64 launcher also self-saves on a direct SIGTERM, so even a stop that reached
+# the JVM directly (e.g. `docker stop -g`, or a future tini `-g`) is data-safe — a benign backstop, not the
+# mechanism we rely on. Keep this path: it honours ZW_PZ_STOP_GRACE and is the seam for any future
+# in-container pre-stop step, and B42's native behaviour is not contractual (it changed B41→B42).
+# NOTE: this trap uses ZW_PZ_STOP_GRACE (default 30s), so a stop must allow at least that long before the
+# SIGKILL deadline. The managed path uses `docker stop -t 120`; a MANUAL `docker stop` defaults to 10s and
+# would SIGKILL mid-grace (world still saved, but no clean quit) — pass `-t 120` when stopping by hand.
 term_handler() {
   log "SIGTERM received; graceful stop (save, ${ZW_PZ_STOP_GRACE}s grace, quit)..."
   pz_graceful_stop "${FIFO}"

@@ -119,6 +119,25 @@ The Agent never runs the game itself and cannot `exec` into a container (ADR 000
 starts, stops, restarts, and reads (inspect / logs / stats). Everything else happens inside the
 container's own entrypoint.
 
+### How the safe stop actually works
+
+Stopping a server is a plain `docker stop` — the Agent never sends `quit` itself. The container turns that
+SIGTERM into the *blessed* Project Zomboid shutdown (`save`, wait `ZW_PZ_STOP_GRACE`, `quit`), never a bare
+kill of the JVM, so the world is always saved before exit:
+
+- The image runs `tini` in its **default mode** (`tini -- entrypoint.sh`, not `tini -g`), so SIGTERM is
+  forwarded to the entrypoint **only**, not the process group. The entrypoint's `term_handler` therefore
+  fires and drives the save→grace→quit over the control FIFO — it is the authoritative stop path, not dead
+  code (#193). Build 42's launcher *also* self-saves on a direct SIGTERM, which is a harmless backstop but
+  not the mechanism we rely on (it is not contractual — it changed between B41 and B42).
+- A clean save→quit exits `0`, which the control plane reads as **Stopped**, not Failed (#200).
+- Because the grace window defaults to **30 s**, a stop must allow at least that long before the SIGKILL
+  deadline. The managed path (F15 restart / F17 update / F22 mod-apply) uses `docker stop -t 120`, so there
+  is ample room. A **manual** `docker stop` defaults to a 10 s timeout and would SIGKILL mid-grace (the
+  world is still saved, but the quit is not clean) — pass `-t 120` when stopping a managed container by hand.
+- F114's graceful-restart countdown is an **Agent-side** RCON `servermsg` broadcast that *wraps* this safe
+  stop (ADR 0043); it is independent of the container's `term_handler`.
+
 ---
 
 ## Configuration & memory — where each knob lives
