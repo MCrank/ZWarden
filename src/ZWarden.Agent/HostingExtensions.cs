@@ -161,6 +161,9 @@ public static class HostingExtensions
         services.AddAgentTelemetry(configuration, environment);
 
         // Control plane (F10): the outbound SignalR connection the Agent opens once enrolled.
+        // The enrollment step signals this when it settles, so the connection step connects after a late
+        // background enrollment without a restart (#195); must be a singleton shared by both steps.
+        services.AddSingleton<AgentEnrollmentSignal>();
         services.AddSingleton<AgentCommandProcessor>();
         services.AddSingleton<IServerLogSubscriptionService, ServerLogSubscriptionService>();
         services.AddSingleton<IAgentControlPlaneConnection, SignalRControlPlaneConnection>();

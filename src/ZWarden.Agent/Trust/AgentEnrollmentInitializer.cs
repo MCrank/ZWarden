@@ -29,6 +29,7 @@ public sealed partial class AgentEnrollmentInitializer : IHostedService, IDispos
 {
     private readonly IAgentTrustStore _store;
     private readonly IEnrollmentClient _client;
+    private readonly AgentEnrollmentSignal _signal;
     private readonly AgentOptions _options;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<AgentEnrollmentInitializer> _logger;
@@ -38,17 +39,20 @@ public sealed partial class AgentEnrollmentInitializer : IHostedService, IDispos
     public AgentEnrollmentInitializer(
         IAgentTrustStore store,
         IEnrollmentClient client,
+        AgentEnrollmentSignal signal,
         IOptions<AgentOptions> options,
         TimeProvider timeProvider,
         ILogger<AgentEnrollmentInitializer> logger)
     {
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(client);
+        ArgumentNullException.ThrowIfNull(signal);
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(timeProvider);
         ArgumentNullException.ThrowIfNull(logger);
         _store = store;
         _client = client;
+        _signal = signal;
         _options = options.Value;
         _timeProvider = timeProvider;
         _logger = logger;
@@ -76,25 +80,31 @@ public sealed partial class AgentEnrollmentInitializer : IHostedService, IDispos
         if (existing is not null)
         {
             LogAlreadyEnrolled(existing.AgentId);
+            _signal.MarkSettled();
             return;
         }
 
         if (string.IsNullOrWhiteSpace(_options.EnrollmentSecret))
         {
             LogNotEnrolled();
+            _signal.MarkSettled();
             return;
         }
 
         // First attempt runs inline so a healthy control plane enrols before the connection step starts, keeping
         // the F8/F10 startup ordering. A transient/trust failure never throws out of here (that would crash the
-        // host and, under restart: unless-stopped, crash-loop); it schedules a background retry instead.
+        // host and, under restart: unless-stopped, crash-loop); it schedules a background retry instead. Each
+        // terminal outcome signals the connection step, which waits on it when it starts un-enrolled (#195); a
+        // transient failure does NOT signal — the background retry does, once it settles.
         EnrollmentAttempt outcome = await TryEnrollAsync(cancellationToken).ConfigureAwait(false);
         switch (outcome)
         {
             case EnrollmentAttempt.Succeeded:
+                _signal.MarkSettled();
                 return;
             case EnrollmentAttempt.Refused:
                 LogEnrollmentFailed();
+                _signal.MarkSettled();
                 return;
             case EnrollmentAttempt.TransientTls:
                 LogTlsTrustFailure();
@@ -167,12 +177,14 @@ public sealed partial class AgentEnrollmentInitializer : IHostedService, IDispos
                 EnrollmentAttempt outcome = await TryEnrollAsync(cancellationToken).ConfigureAwait(false);
                 if (outcome == EnrollmentAttempt.Succeeded)
                 {
+                    _signal.MarkSettled();
                     return;
                 }
 
                 if (outcome == EnrollmentAttempt.Refused)
                 {
                     LogEnrollmentFailed();
+                    _signal.MarkSettled();
                     return;
                 }
 
