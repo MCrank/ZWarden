@@ -116,6 +116,45 @@ public sealed class AgentDockerRuntimeTests : IAsyncDisposable
 
     [Test]
     [Category("Networked")]
+    [Timeout(300_000)]
+    public async Task Create_requires_both_bind_sources_and_ServerHostDirectories_prepares_them(CancellationToken ct)
+    {
+        // #184: the Docker Mounts API does NOT auto-create a bind source, so a canonical create with per-server
+        // mount sources that do not yet exist is refused — and ServerHostDirectories (run by provisioning before
+        // the create) is what makes it succeed. Regression guard for the whole provisioning-mount chain.
+        await EnsureImageAsync(ct);
+        string network = await CreateNetworkAsync(ct);
+        ServerId server = ServerId.New();
+        string root = Path.Combine(Path.GetTempPath(), $"zw-it-{Guid.NewGuid():N}");
+        PzContainerSpec spec = SpecFor(server, network) with
+        {
+            DataMountSource = Path.Combine(root, server.ToString()),
+            ServerMountSource = Path.Combine(root, $"{server}.server"),
+        };
+        ContainerRuntime runtime = DirectRuntime();
+
+        try
+        {
+            // Sources absent → the daemon rejects the create ("bind source path does not exist").
+            await Assert.ThrowsAsync<ContainerCreateException>(() => runtime.CreateAsync(spec, ct));
+
+            // Prepare both sources exactly as provisioning does, then the same create succeeds.
+            new ServerHostDirectories().EnsureCreated(spec);
+            string id = await runtime.CreateAsync(spec, ct);
+            _containers.Add(id);
+            await Assert.That(id).IsNotNull();
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [Test]
+    [Category("Networked")]
     [Timeout(420_000)]
     public async Task The_runtime_works_through_the_wollomatic_allowlist_and_a_denied_verb_is_refused(CancellationToken ct)
     {

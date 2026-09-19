@@ -68,6 +68,26 @@ services:
     networks:
       - frontend
 
+  # One-shot init: create the shared PZ data/backup roots and hand them to the Agent (uid 10001) with the PZ
+  # game-server gid (10000), setgid so children inherit it, group-writable so both the Agent and the PZ
+  # containers can read/write the world tree (#184). Runs as root (the only thing here that needs to), exits,
+  # and the Agent waits for it to complete. See docs/deployment/compose-reference.md.
+  pz-data-init:
+    image: busybox:1.37
+    command:
+      - sh
+      - -c
+      - >-
+        mkdir -p /srv/zwarden/pz-data /srv/zwarden/pz-backups &&
+        chown 10001:10000 /srv/zwarden/pz-data /srv/zwarden/pz-backups &&
+        chmod 2775 /srv/zwarden/pz-data /srv/zwarden/pz-backups
+    # HOST binds at the SAME path both sides, NOT named volumes: the Agent hands the daemon these exact paths
+    # as the PZ containers' bind-mount sources, and the daemon resolves them on the host (#184).
+    volumes:
+      - /srv/zwarden/pz-data:/srv/zwarden/pz-data
+      - /srv/zwarden/pz-backups:/srv/zwarden/pz-backups
+    restart: "no"
+
   # The host worker (F8). Headless: no inbound HTTP. Reaches Docker only via wollomatic (ADR 0008).
   agent:
     build:
@@ -75,11 +95,18 @@ services:
       dockerfile: src/ZWarden.Agent/Dockerfile
     image: zwarden/agent:latest
     restart: unless-stopped
+    # Run as the Agent uid with the PZ game-server gid (10000) so the world tree the Agent seeds and the PZ
+    # container writes is shared through the group (#184). A umask that keeps that group-write bit is set on the
+    # entrypoint below (Docker's Mounts API dirs are created by the Agent, not auto-created by the daemon).
+    user: "10001:10000"
+    entrypoint: ["/bin/sh", "-c", "umask 0002 && exec dotnet ZWarden.Agent.dll"]
     depends_on:
       web:
         condition: service_healthy
       wollomatic:
         condition: service_started
+      pz-data-init:
+        condition: service_completed_successfully
     environment:
       - DOTNET_ENVIRONMENT=Production
       # D-8: outbound wss through Caddy (F8 requires https/wss). Public mode → trusted cert; Private mode
@@ -93,9 +120,12 @@ services:
       # Identity + trust persist on a named volume so a restart never re-enrols (F9).
       - Agent__IdentityFilePath=/var/lib/zwarden/agent-identity.json
       - Agent__TrustFilePath=/var/lib/zwarden/agent-trust.json
-      # PZ world data + backups. Under /tmp because the proxy's -allowbindmountfrom is /tmp (ADR 0008).
-      - Agent__DataMountRoot=/tmp/zwarden/pz-data
-      - Agent__BackupRoot=/tmp/zwarden/pz-backups
+      # PZ world data + backups on a PERSISTENT host path (ADR 0008, amended by #184: relocated off /tmp so a
+      # host tmp-cleanup/reboot can't wipe worlds). The Agent hands these exact paths to the daemon as the PZ
+      # containers' bind-mount sources, so they are HOST binds at the same path both sides (below), and the
+      # proxy's -allowbindmountfrom is /srv/zwarden.
+      - Agent__DataMountRoot=/srv/zwarden/pz-data
+      - Agent__BackupRoot=/srv/zwarden/pz-backups
       # The Docker network provisioned PZ containers attach to (F14). Must be a real host network.
       - Agent__NetworkName=${ZWARDEN_PZ_NETWORK:-zwarden-pz}
       # The pinned canonical PZ image (repo@sha256:… — a floating tag is rejected, ADR 0008). Optional at
@@ -103,9 +133,16 @@ services:
       - Agent__PzImageReference=${ZWARDEN_PZ_IMAGE:-}
     volumes:
       - agent_state:/var/lib/zwarden
+      # The shared PZ world/backup roots as HOST binds at the same path both sides, so the paths the Agent
+      # seeds are the paths the daemon bind-mounts into the PZ containers (#184). Prepared by pz-data-init.
+      - /srv/zwarden/pz-data:/srv/zwarden/pz-data
+      - /srv/zwarden/pz-backups:/srv/zwarden/pz-backups
     networks:
       - frontend
       - docker-proxy
+      # On the PZ game-server network too (F14): both to make Compose actually create it (nothing else attaches,
+      # so it would otherwise be pruned) and so the Agent can reach each PZ container's RCON port (F18/F19/F28).
+      - zwarden-pz
 
   # The Docker socket-proxy (ADR 0008): the ONLY thing that touches the daemon socket, constraining it to a
   # fixed allowlist. Internal-only network, never host-published. The allowlist below is the SAME set the F13
@@ -126,7 +163,8 @@ services:
       - '-allowGET=(/v1\.[0-9]+)?/(_ping|version|info|containers/json|containers/[a-zA-Z0-9_.-]+/(json|logs|stats))'
       - '-allowHEAD=(/v1\.[0-9]+)?/_ping'
       - '-allowPOST=(/v1\.[0-9]+)?/(containers/create|containers/[a-zA-Z0-9_.-]+/(start|stop|restart))'
-      - '-allowbindmountfrom=/tmp'
+      # Bind sources are constrained to the persistent PZ data root (ADR 0008, amended by #184; was /tmp).
+      - '-allowbindmountfrom=/srv/zwarden'
       - '-watchdoginterval=0'
     networks:
       - docker-proxy

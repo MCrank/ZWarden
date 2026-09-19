@@ -85,6 +85,9 @@ public static class HostingExtensions
         services.AddSingleton<ContainerOwnershipGuard>();
         services.AddSingleton<PzContainerFactory>();
         services.AddSingleton<IContainerRuntime, ContainerRuntime>();
+        // Materialises the host-side bind-mount sources before a create (#184): the Mounts API never
+        // auto-creates them, so provisioning must, or the daemon refuses with "bind source does not exist".
+        services.AddSingleton<IServerHostDirectories, ServerHostDirectories>();
 
         // Health and observability (F16): the pure rollup's inputs — the best-effort network probe and the
         // observer that inspects owned containers and evaluates their hierarchical health.

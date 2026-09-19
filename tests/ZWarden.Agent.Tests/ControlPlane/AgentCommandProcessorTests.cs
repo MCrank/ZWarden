@@ -37,6 +37,7 @@ public class AgentCommandProcessorTests
 
     private static AgentCommandProcessor Processor(
         IContainerRuntime? runtime = null,
+        IServerHostDirectories? hostDirectories = null,
         IServerUpdateRunner? updates = null,
         IServerBackupRunner? backups = null,
         IServerRestoreRunner? restores = null,
@@ -74,6 +75,7 @@ public class AgentCommandProcessorTests
         return new(
             TimeProvider.System,
             effectiveRuntime,
+            hostDirectories ?? new FakeServerHostDirectories(),
             updates ?? new FakeServerUpdateRunner(),
             backups ?? new FakeServerBackupRunner(),
             restores ?? new FakeServerRestoreRunner(),
@@ -280,6 +282,25 @@ public class AgentCommandProcessorTests
 
         await Assert.That(reply!.Payload.Outcome).IsEqualTo(OperationOutcome.Succeeded);
         await Assert.That(config.EnabledServers).Contains(server);
+    }
+
+    [Test]
+    public async Task Provisioning_ensures_both_host_bind_mount_sources_before_create()
+    {
+        var hostDirs = new FakeServerHostDirectories();
+        ServerId server = ServerId.New();
+
+        Envelope<OperationCompleted>? reply = await Processor(hostDirectories: hostDirs)
+            .ProcessAsync(Json(new CreateServer(), OperationId.New(), server), CancellationToken.None);
+
+        await Assert.That(reply!.Payload.Outcome).IsEqualTo(OperationOutcome.Succeeded);
+        // Exactly the provisioned Server's world-data and server-install bind sources were prepared (#184):
+        // the Mounts API never auto-creates them, so the daemon would otherwise refuse the create.
+        await Assert.That(hostDirs.Created.Count).IsEqualTo(1);
+        PzContainerSpec prepared = hostDirs.Created[0];
+        await Assert.That(prepared.ServerId).IsEqualTo(server);
+        await Assert.That(prepared.DataMountSource).Contains(server.ToString());
+        await Assert.That(prepared.ServerMountSource).IsEqualTo(prepared.DataMountSource + ".server");
     }
 
     [Test]

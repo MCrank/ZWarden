@@ -52,6 +52,10 @@ ENV PZ_ROOT=/pz \
 # the in-game admin password passed non-interactively at launch (#188). Set it via `docker run -e` /
 # compose `environment`. When empty the entrypoint generates a strong one on first boot and persists it
 # under /pz/data (stable across restarts). Build 42 otherwise prompts for it and the server hangs on stdin.
+# NOTE (#184): under an Agent-created container the root filesystem is read-only, so SteamCMD's writable needs —
+# a temp dir (mktemp, /tmp/dumps) and $HOME (~/.steam) — are redirected onto writable tmpfs by the F13 create
+# template (PzContainerFactory sets HOME/TMPDIR and mounts a /tmp tmpfs), NOT baked here, so the standalone
+# image keeps its default writable /tmp and /home/pzserver.
 
 # Canonical labels (PRD 25). server-id and agent-id are set by the Agent at create time (F13).
 LABEL io.zwarden.managed="true" \

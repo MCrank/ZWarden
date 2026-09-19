@@ -152,6 +152,17 @@ restarts — so you can blank `ZWARDEN_ENROLLMENT_SECRET` again afterwards. To r
 `ZWARDEN_PZ_IMAGE` to a pinned `repo@sha256:…` digest of the PZ image built from `src/ZWarden.PZServer` (a
 floating tag like `:latest` is rejected, ADR 0008).
 
+## Where Project Zomboid data lives
+
+Provisioned game servers keep their world data and backups on the **host** under `/srv/zwarden` — the world
+tree at `/srv/zwarden/pz-data/<server-id>` and backups at `/srv/zwarden/pz-backups`. This is a persistent host
+path (not `/tmp`, so a reboot or `tmpfiles` cleanup can't wipe worlds; ADR 0008 as amended). The stack prepares
+it automatically on first `up` via the one-shot `pz-data-init` service, which creates the tree with the shared
+ownership the Agent (uid 10001) and the game-server containers (uid 10000) both need. **Back up `/srv/zwarden`**
+(and use the in-app backup feature, F24/F25) as part of your routine. To place it on a different disk, change the
+`/srv/zwarden/...` host paths in the `pz-data-init` and `agent` service `volumes`, the Agent's
+`Agent__DataMountRoot`/`Agent__BackupRoot`, and wollomatic's `-allowbindmountfrom` together (they must agree).
+
 ## Upgrade
 
 ZWarden.Web applies any new database migrations automatically on startup, so an upgrade is pull-and-recreate:

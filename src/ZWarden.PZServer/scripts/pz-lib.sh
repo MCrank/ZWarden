@@ -131,7 +131,10 @@ pz_bootstrap_steamcmd() {
   local baked="$1" runtime_dir="$2"
   if [ ! -x "${runtime_dir}/steamcmd.sh" ]; then
     mkdir -p "${runtime_dir}"
-    cp -a "${baked}/." "${runtime_dir}/"
+    # -dR (recurse + keep symlinks + copy mode), NOT -a (#184): under an Agent-created container /pz/runtime is
+    # a root-owned tmpfs, and `-a` would try to preserve timestamps on that root dir, which the non-root PZ user
+    # cannot do ("Operation not permitted") — aborting the boot. We don't need the source's times/ownership.
+    cp -dR "${baked}/." "${runtime_dir}/"
   fi
 }
 

@@ -84,9 +84,27 @@ public class RemoteAgentDistributionTests
         await Assert.That(compose).Contains("-allowGET=(/v1\\.[0-9]+)?/(_ping|version|info|containers/json|containers/[a-zA-Z0-9_.-]+/(json|logs|stats))");
         await Assert.That(compose).Contains("-allowHEAD=(/v1\\.[0-9]+)?/_ping");
         await Assert.That(compose).Contains("-allowPOST=(/v1\\.[0-9]+)?/(containers/create|containers/[a-zA-Z0-9_.-]+/(start|stop|restart))");
-        await Assert.That(compose).Contains("-allowbindmountfrom=/tmp");
+        // Bind sources constrained to the persistent PZ data root (ADR 0008 amended by #184; was /tmp).
+        await Assert.That(compose).Contains("-allowbindmountfrom=/srv/zwarden");
+        await Assert.That(compose).DoesNotContain("-allowbindmountfrom=/tmp");
         // And still scoped to the internal subnet, never the world.
         await Assert.That(compose).DoesNotContain("-allowfrom=0.0.0.0/0");
+    }
+
+    [Test]
+    public async Task It_prepares_and_shares_the_persistent_pz_data_root_like_the_reference_stack()
+    {
+        string compose = await ComposeYamlAsync();
+
+        // #184: identical data-plane wiring to the co-located stack — persistent host binds at the same path,
+        // a one-shot init that sets the shared Agent/PZ ownership, the Agent on the PZ network, run 10001:10000.
+        await Assert.That(compose).Contains("Agent__DataMountRoot=/srv/zwarden/pz-data");
+        await Assert.That(compose).Contains("/srv/zwarden/pz-data:/srv/zwarden/pz-data");
+        await Assert.That(compose).Contains("pz-data-init:");
+        await Assert.That(compose).Contains("chown 10001:10000");
+        await Assert.That(compose).Contains("chmod 2775");
+        await Assert.That(compose).Contains("user: \"10001:10000\"");
+        await Assert.That(compose).Contains("zwarden-pz");
     }
 
     [Test]

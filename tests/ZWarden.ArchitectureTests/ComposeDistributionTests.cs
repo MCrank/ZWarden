@@ -95,7 +95,49 @@ public class ComposeDistributionTests
         await Assert.That(compose).Contains("-allowGET=(/v1\\.[0-9]+)?/(_ping|version|info|containers/json|containers/[a-zA-Z0-9_.-]+/(json|logs|stats))");
         await Assert.That(compose).Contains("-allowHEAD=(/v1\\.[0-9]+)?/_ping");
         await Assert.That(compose).Contains("-allowPOST=(/v1\\.[0-9]+)?/(containers/create|containers/[a-zA-Z0-9_.-]+/(start|stop|restart))");
-        await Assert.That(compose).Contains("-allowbindmountfrom=/tmp");
+        // Bind sources are constrained to the persistent PZ data root (ADR 0008 amended by #184; was /tmp).
+        await Assert.That(compose).Contains("-allowbindmountfrom=/srv/zwarden");
+        await Assert.That(compose).DoesNotContain("-allowbindmountfrom=/tmp");
+    }
+
+    [Test]
+    public async Task Agent_shares_the_persistent_pz_data_root_as_host_binds_at_the_same_path()
+    {
+        string compose = await ComposeYamlAsync();
+
+        // #184: the PZ data/backup roots are a PERSISTENT host path (off /tmp), bind-mounted into the Agent at
+        // the SAME path both sides so the paths the Agent hands the daemon resolve as host bind sources.
+        await Assert.That(compose).Contains("Agent__DataMountRoot=/srv/zwarden/pz-data");
+        await Assert.That(compose).Contains("Agent__BackupRoot=/srv/zwarden/pz-backups");
+        await Assert.That(compose).Contains("/srv/zwarden/pz-data:/srv/zwarden/pz-data");
+        await Assert.That(compose).Contains("/srv/zwarden/pz-backups:/srv/zwarden/pz-backups");
+        // The data root must NOT be a named volume (that would not resolve as a host bind source).
+        await Assert.That(compose).DoesNotContain("Agent__DataMountRoot=/tmp");
+    }
+
+    [Test]
+    public async Task The_pz_data_roots_are_prepared_with_shared_agent_and_game_server_ownership()
+    {
+        string compose = await ComposeYamlAsync();
+
+        // #184: a one-shot init prepares the shared tree — owned by the Agent uid with the PZ game-server gid,
+        // setgid + group-writable (2775) so both can read/write it. The Agent waits for it to complete.
+        await Assert.That(compose).Contains("pz-data-init:");
+        await Assert.That(compose).Contains("chown 10001:10000");
+        await Assert.That(compose).Contains("chmod 2775");
+        await Assert.That(compose).Contains("service_completed_successfully");
+        // The Agent runs as the Agent uid with the PZ game-server gid so the shared tree works through the group.
+        await Assert.That(compose).Contains("user: \"10001:10000\"");
+    }
+
+    [Test]
+    public async Task Agent_joins_the_pz_game_server_network_for_provisioning_and_rcon()
+    {
+        string compose = await ComposeYamlAsync();
+
+        // #184: nothing else attaches to zwarden-pz, so the Agent must — both to make Compose actually create
+        // the network and so the Agent can reach each PZ container's RCON port (F18/F19/F28).
+        await Assert.That(compose).Contains("zwarden-pz");
     }
 
     [Test]
