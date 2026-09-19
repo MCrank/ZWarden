@@ -446,17 +446,22 @@ jobs:
           echo "::endgroup::"
           echo "final health status: $status"
           if [ "$status" != "healthy" ]; then echo "::error::container did not become healthy (status=$status)"; exit 1; fi
-      - name: Graceful stop performs save then quit
+      - name: Graceful stop saves the world and quits cleanly
         run: |
           docker stop -t 90 pz
           logs="$(docker logs pz 2>&1)"
           echo "::group::PZ container logs at shutdown (tail)"
           printf '%s\n' "$logs" | tail -40
           echo "::endgroup::"
-          if printf '%s\n' "$logs" | grep -qi 'SIGTERM received'; then
-            echo "graceful stop OK"
+          # The data-safety guarantee (F15): on `docker stop` the world is SAVED and the server quits cleanly
+          # BEFORE the SIGKILL deadline — never a bare kill that corrupts the world. Build 42's launcher handles
+          # SIGTERM natively (save then quit); the container entrypoint's FIFO save/quit is the same guarantee by
+          # a different route. Assert the OUTCOME (saved + clean shutdown), not which handler produced it.
+          if printf '%s\n' "$logs" | grep -qiE 'World saved|Saving finish' \
+             && printf '%s\n' "$logs" | grep -qiE 'Shutdown handling finished|Server exited'; then
+            echo "graceful stop OK — world saved and server shut down cleanly"
           else
-            echo "::error::stop was not graceful (no 'SIGTERM received' in the container logs)"; exit 1
+            echo "::error::stop was not graceful (no world-save / clean-shutdown markers in the container logs)"; exit 1
           fi
       - name: No PZ artefact leaked into the workspace
         if: always()
