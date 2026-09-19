@@ -45,6 +45,22 @@ What remained was which proxy, and what it may pass through.
 > that stands for log streaming below). The integration drift test carries the amended allowlist so any
 > divergence between what the Agent calls and what the deployment permits still fails the build.
 
+> **Amendment (#184):** the bind-mount source prefix `-allowbindmountfrom` was relocated from `/tmp` to
+> **`/srv/zwarden`**. The original `/tmp` was chosen only as a conveniently-writable prefix, but Project Zomboid
+> **world data lives under it**, and a host's `/tmp` is subject to `tmpfiles`/reboot cleanup — a data-loss risk.
+> `/srv/zwarden` is a persistent host location that the reference Compose bind-mounts into the Agent at the
+> **same path** (so the path the Agent seeds is the path the daemon resolves the bind source against) and
+> prepares with the shared Agent/PZ ownership the world tree needs. The security property is unchanged: bind
+> sources are still constrained to a single fixed prefix; only the prefix moved. The value is deployment
+> configuration, not part of the canonical **verb** allowlist — the integration drift test continues to pin the
+> verb set (create/start/stop/restart + the read `GET`s), which is the security-critical invariant.
+>
+> The same change also taught the closed create-template to run SteamCMD under the read-only rootfs (Invariant 8):
+> it mounts a small ephemeral **`/tmp` tmpfs** and redirects **`HOME`/`TMPDIR`** onto the existing `/pz/runtime`
+> tmpfs, so SteamCMD's temp files (including its breakpad `/tmp/dumps`) and client state (`~/.steam`) have
+> writable storage without loosening the read-only root or adding a persistent mount. Nothing there survives a
+> recreate. It is enforced by the F13 factory tests alongside the other invariants.
+
 Denied explicitly, among others: `DELETE /containers/{id}`, `POST /containers/prune`,
 `/containers/{id}/kill`, `/containers/{id}/exec` **and** `/exec/{id}/start`,
 `PUT|GET|HEAD /containers/{id}/archive`, `/update`, `/rename`, `/attach`, `/export`, `/pause`,

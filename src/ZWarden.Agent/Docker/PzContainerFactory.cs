@@ -17,6 +17,10 @@ public sealed class PzContainerFactory
     private const string DataMountTarget = "/pz/data";
     private const string ServerMountTarget = "/pz/server";
     private const string RuntimeTmpfsTarget = "/pz/runtime";
+    // #184: SteamCMD needs a writable temp dir (mktemp + its breakpad /tmp/dumps) and a writable $HOME
+    // (~/.steam, ~/.local). Under Invariant 8's read-only rootfs those paths would be read-only, so /tmp is an
+    // ephemeral tmpfs and HOME/TMPDIR are redirected onto the writable /pz/runtime tmpfs (below).
+    private const string TmpTmpfsTarget = "/tmp";
     // exec so SteamCMD can run from the copied-in client; mode 1777 so the non-root user can write it.
     private const string RuntimeTmpfsOptions = "exec,mode=1777";
     private const string GamePortKey = "16261/udp";
@@ -65,6 +69,14 @@ public sealed class PzContainerFactory
                 [GamePortKey] = default,
                 [DirectPortKey] = default,
             },
+            // #184: point SteamCMD's writable needs at the /pz/runtime tmpfs so it runs under the read-only
+            // rootfs (Invariant 8). Overrides the image's defaults (/home/pzserver, /tmp) only for the managed
+            // container — the standalone image is unchanged.
+            Env =
+            [
+                $"HOME={RuntimeTmpfsTarget}",
+                $"TMPDIR={RuntimeTmpfsTarget}",
+            ],
             HostConfig = new HostConfig
             {
                 // Invariant 1: never privileged.
@@ -104,6 +116,8 @@ public sealed class PzContainerFactory
                 Tmpfs = new Dictionary<string, string>(StringComparer.Ordinal)
                 {
                     [RuntimeTmpfsTarget] = RuntimeTmpfsOptions,
+                    // #184: a small writable /tmp for SteamCMD (breakpad /tmp/dumps and any tmp it execs).
+                    [TmpTmpfsTarget] = RuntimeTmpfsOptions,
                 },
                 // Invariant 8: read-only root filesystem; only the two binds and the runtime tmpfs are writable.
                 ReadonlyRootfs = true,

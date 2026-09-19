@@ -113,6 +113,20 @@ public class PzContainerFactoryTests
     }
 
     [Test]
+    public async Task Invariant8_steamcmd_gets_a_writable_tmp_and_home_under_the_read_only_rootfs()
+    {
+        // #184: SteamCMD needs a writable temp dir (mktemp + its breakpad /tmp/dumps) and $HOME (~/.steam), which
+        // the read-only rootfs would otherwise deny. /tmp is an ephemeral tmpfs and HOME/TMPDIR are redirected
+        // onto the writable /pz/runtime tmpfs — for the managed container only (the standalone image is unchanged).
+        CreateContainerParameters parameters = Build(ValidSpec());
+
+        await Assert.That(parameters.HostConfig!.Tmpfs!.ContainsKey("/tmp")).IsTrue();
+        await Assert.That(parameters.HostConfig!.Tmpfs!["/tmp"]).Contains("exec");
+        await Assert.That(parameters.Env!).Contains("HOME=/pz/runtime");
+        await Assert.That(parameters.Env!).Contains("TMPDIR=/pz/runtime");
+    }
+
+    [Test]
     public async Task Invariant8_the_root_filesystem_is_read_only()
     {
         await Assert.That(Host(ValidSpec()).ReadonlyRootfs).IsTrue();

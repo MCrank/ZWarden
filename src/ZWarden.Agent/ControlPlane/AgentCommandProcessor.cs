@@ -31,6 +31,7 @@ public sealed class AgentCommandProcessor
 {
     private readonly TimeProvider _timeProvider;
     private readonly IContainerRuntime _containerRuntime;
+    private readonly IServerHostDirectories _hostDirectories;
     private readonly IServerUpdateRunner _updates;
     private readonly IServerBackupRunner _backups;
     private readonly IServerRestoreRunner _restores;
@@ -50,6 +51,7 @@ public sealed class AgentCommandProcessor
     public AgentCommandProcessor(
         TimeProvider timeProvider,
         IContainerRuntime containerRuntime,
+        IServerHostDirectories hostDirectories,
         IServerUpdateRunner updates,
         IServerBackupRunner backups,
         IServerRestoreRunner restores,
@@ -67,6 +69,7 @@ public sealed class AgentCommandProcessor
     {
         ArgumentNullException.ThrowIfNull(timeProvider);
         ArgumentNullException.ThrowIfNull(containerRuntime);
+        ArgumentNullException.ThrowIfNull(hostDirectories);
         ArgumentNullException.ThrowIfNull(updates);
         ArgumentNullException.ThrowIfNull(backups);
         ArgumentNullException.ThrowIfNull(restores);
@@ -83,6 +86,7 @@ public sealed class AgentCommandProcessor
         ArgumentNullException.ThrowIfNull(options);
         _timeProvider = timeProvider;
         _containerRuntime = containerRuntime;
+        _hostDirectories = hostDirectories;
         _updates = updates;
         _backups = backups;
         _restores = restores;
@@ -485,6 +489,11 @@ public sealed class AgentCommandProcessor
                 ServerMountSource: Path.Combine(_options.DataMountRoot, $"{serverId}.server"),
                 Ports: ports,
                 MemoryLimitBytes: _options.DefaultMemoryLimitBytes);
+
+            // Materialise BOTH host-side bind-mount sources before the create (#184): the Docker Mounts API
+            // never auto-creates them, and the Agent's own container filesystem is not where the daemon resolves
+            // them, so without this the daemon refuses with "bind source path does not exist".
+            _hostDirectories.EnsureCreated(spec);
 
             // Seed RCON into the Server's config on the (Agent-owned) data mount before the container first
             // launches, so PZ enables RCON with an Agent-generated password on first boot (F18 D-2). Idempotent:
