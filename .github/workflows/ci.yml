@@ -420,6 +420,11 @@ jobs:
       - name: Real SteamCMD install + boot to a healthy container
         run: |
           docker run -d --name pz zwarden-pzserver:ci
+          # Stream the container's logs LIVE so the SteamCMD download and server boot are visible during the run,
+          # not just tailed at the end. Wrapped in a collapsible group; stopped before the health assertion.
+          echo "::group::PZ container logs (live — SteamCMD install + boot)"
+          docker logs -f pz &
+          logs_pid=$!
           status=starting
           # Up to ~55 min (330 x 10s) for a healthy transition — the first-run install alone can take ~40 min,
           # then the server boots and the healthcheck flips healthy (#191). Kept under timeout-minutes above.
@@ -435,7 +440,11 @@ jobs:
             fi
             sleep 10
           done
-          docker logs pz | tail -40
+          # Stop the live stream and close the log group before reporting the result.
+          kill "$logs_pid" 2>/dev/null || true
+          wait "$logs_pid" 2>/dev/null || true
+          echo "::endgroup::"
+          echo "final health status: $status"
           if [ "$status" != "healthy" ]; then echo "::error::container did not become healthy (status=$status)"; exit 1; fi
       - name: Graceful stop performs save then quit
         run: |
