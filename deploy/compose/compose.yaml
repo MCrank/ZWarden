@@ -49,6 +49,10 @@ services:
       # SQLite is the base mode (D-2). The database lives on the persisted volume, not the container layer.
       - ZWarden__Database__Provider=sqlite
       - ConnectionStrings__ZWarden=Data Source=/data/zwarden.db
+      # The Data Protection key ring (auth cookies + antiforgery) on the SAME persisted volume, so a container
+      # recreate/upgrade never invalidates sessions (#186). Encrypted at rest by the AES key ring (ADR 0015).
+      # Inherited unchanged by the Postgres overlay, which keeps this /data volume mounted.
+      - ZWarden__DataProtection__KeyRingPath=/data/dp-keys
       # The fail-closed AES key ring (ADR 0015) — sourced from .env, never baked into the image.
       - ZW_SECRET_KEYS=${ZW_SECRET_KEYS}
       - ZW_SECRET_ACTIVE_KEY_ID=${ZW_SECRET_ACTIVE_KEY_ID}
