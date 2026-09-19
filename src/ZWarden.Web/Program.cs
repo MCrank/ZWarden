@@ -9,6 +9,7 @@ using ZWarden.Infrastructure.Identity;
 using ZWarden.Infrastructure.Mods;
 using ZWarden.Infrastructure.Operations;
 using ZWarden.Infrastructure.Persistence;
+using ZWarden.Infrastructure.Workshop;
 using ZWarden.Infrastructure.Players;
 using ZWarden.Infrastructure.Security;
 using ZWarden.Infrastructure.Servers;
@@ -73,6 +74,7 @@ builder.Services.AddZWardenPlayers();               // F19: player management (k
 builder.Services.AddZWardenConsole();               // F28: remote administrative console — non-mutating arbitrary-RCON operations + output cache
 builder.Services.AddZWardenConfiguration();         // F20b: configuration revisions — repository + completion-time revision recorder
 builder.Services.AddZWardenMods();                  // F21: Workshop/mod discovery — inventory cache + discovery service (read-only)
+builder.Services.AddZWardenWorkshop();              // #110: keyless Steam Workshop metadata client (control-plane egress, no key)
 builder.Services.AddZWardenBackups();               // F24: backups — take/delete Operations, pre-op API seam, completion ingest, read surface
 builder.Services.AddZWardenDiagnostics(builder.Configuration); // F29: read-only diagnostics engine — in-process DB/TLS/Web/Agent domains (Agent-side domains land in PR-B/PR-C)
 builder.Services.AddAgentControlPlane();            // F10: Agent hub, handshake auth scheme, connection registry + monitor

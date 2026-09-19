@@ -485,7 +485,8 @@ public sealed partial class AgentHub : Hub
             server,
             agent,
             [.. result.InstalledItems.Select(i =>
-                new InstalledWorkshopItem(i.WorkshopId, [.. i.Mods.Select(m => new InstalledMod(m.ModId, m.Name))]))],
+                new InstalledWorkshopItem(i.WorkshopId, [.. i.Mods.Select(m => new InstalledMod(
+                    m.ModId, m.Name, m.Version, m.PzVersion, m.VersionMin, m.Requires, m.Incompatible, m.Tags))]))],
             result.ConfiguredWorkshopIds,
             result.EnabledModIds,
             [.. result.Findings.Select(f => new ModCompatIssue(ToIssueKind(f.Kind), f.Subject, f.Detail))],
@@ -497,6 +498,8 @@ public sealed partial class AgentHub : Hub
         ModCompatKind.EnabledButMissing => ModCompatIssueKind.EnabledButMissing,
         ModCompatKind.InstalledButInactive => ModCompatIssueKind.InstalledButInactive,
         ModCompatKind.DuplicateModId => ModCompatIssueKind.DuplicateModId,
+        ModCompatKind.RequiresMissing => ModCompatIssueKind.RequiresMissing,
+        ModCompatKind.IncompatiblePresent => ModCompatIssueKind.IncompatiblePresent,
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unknown mod compatibility kind."),
     };
 

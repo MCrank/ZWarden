@@ -86,6 +86,78 @@ public class ModInfoReaderTests
     }
 
     [Test]
+    public async Task Reads_version_pz_version_and_version_min()
+    {
+        // #110: research §6 keys — version=, pzversion=, versionMin= (scalars, first value wins like id/name).
+        ModInfo? info = ModInfoReader.Read(Utf8("id=AZ\nversion=42\npzversion=41\nversionMin=41.78\n"));
+
+        await Assert.That(info!.Version).IsEqualTo("42");
+        await Assert.That(info.PzVersion).IsEqualTo("41");
+        await Assert.That(info.VersionMin).IsEqualTo("41.78");
+    }
+
+    [Test]
+    public async Task Reads_require_as_a_comma_separated_list()
+    {
+        ModInfo? info = ModInfoReader.Read(Utf8("id=AZ\nrequire=RV_Interior_MP, OtherDep\n"));
+
+        string[] expected = ["RV_Interior_MP", "OtherDep"];
+        await Assert.That(info!.Requires).IsEquivalentTo(expected);
+    }
+
+    [Test]
+    public async Task Accumulates_require_across_repeated_lines()
+    {
+        // require= may appear on multiple lines and/or be comma-separated; all are collected in order.
+        ModInfo? info = ModInfoReader.Read(Utf8("id=AZ\nrequire=DepA\nrequire=DepB,DepC\n"));
+
+        string[] expected = ["DepA", "DepB", "DepC"];
+        await Assert.That(info!.Requires).IsEquivalentTo(expected);
+    }
+
+    [Test]
+    public async Task Reads_incompatible_and_tags_verbatim()
+    {
+        // incompatible values carry PZ's leading '\' and trailing '+'/'-' markers (research §6) — kept verbatim.
+        ModInfo? info = ModInfoReader.Read(Utf8("id=AZ\nincompatible=\\AuthenticZLite,\\AuthenticZBackpacks+\ntags=Realistic,Overhaul\n"));
+
+        string[] incompatible = ["\\AuthenticZLite", "\\AuthenticZBackpacks+"];
+        string[] tags = ["Realistic", "Overhaul"];
+        await Assert.That(info!.Incompatible).IsEquivalentTo(incompatible);
+        await Assert.That(info.Tags).IsEquivalentTo(tags);
+    }
+
+    [Test]
+    public async Task Absent_optional_fields_default_empty_or_null()
+    {
+        ModInfo? info = ModInfoReader.Read(Utf8("id=Plain\n"));
+
+        await Assert.That(info!.Version).IsNull();
+        await Assert.That(info.PzVersion).IsNull();
+        await Assert.That(info.VersionMin).IsNull();
+        await Assert.That(info.Requires).IsEmpty();
+        await Assert.That(info.Incompatible).IsEmpty();
+        await Assert.That(info.Tags).IsEmpty();
+    }
+
+    [Test]
+    public async Task List_field_item_count_is_bounded()
+    {
+        string many = string.Join(',', Enumerable.Range(0, ModInfoReader.MaxListItems + 50).Select(i => "d" + i));
+        ModInfo? info = ModInfoReader.Read(Utf8("id=AZ\nrequire=" + many + "\n"));
+
+        await Assert.That(info!.Requires.Count).IsEqualTo(ModInfoReader.MaxListItems);
+    }
+
+    [Test]
+    public async Task List_field_elements_are_length_bounded()
+    {
+        ModInfo? info = ModInfoReader.Read(Utf8("id=AZ\nrequire=" + new string('a', 5000) + "\n"));
+
+        await Assert.That(info!.Requires.Single().Length).IsEqualTo(ModInfoReader.MaxFieldLength);
+    }
+
+    [Test]
     public async Task Oversized_content_is_rejected_before_parsing()
     {
         byte[] huge = Utf8("id=Big\n" + new string('x', ModInfoReader.MaxBytes + 1));

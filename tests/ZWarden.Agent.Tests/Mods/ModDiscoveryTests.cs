@@ -169,6 +169,64 @@ public class ModDiscoveryTests
     }
 
     [Test]
+    public async Task Carries_the_mod_info_version_and_dependency_metadata()
+    {
+        (ModDiscovery discovery, string root, ServerId serverId) = NewDiscovery();
+        try
+        {
+            WriteMod(root, serverId, "111", "AZ",
+                "id=AuthenticZ\nname=Authentic Z\nversion=42\npzversion=41\nversionMin=41.78\nrequire=DepMod\nincompatible=\\Lite\ntags=Realistic,Overhaul\n");
+            WriteIni(root, serverId, "WorkshopItems=111\nMods=AuthenticZ\n");
+
+            ModDiscoveryResult result = await discovery.DiscoverAsync(serverId, CancellationToken.None);
+
+            DiscoveredMod mod = result.InstalledItems.Single().Mods.Single();
+            await Assert.That(mod.Version).IsEqualTo("42");
+            await Assert.That(mod.PzVersion).IsEqualTo("41");
+            await Assert.That(mod.VersionMin).IsEqualTo("41.78");
+            string[] requires = ["DepMod"];
+            string[] incompatible = ["\\Lite"];
+            string[] tags = ["Realistic", "Overhaul"];
+            await Assert.That(mod.Requires).IsEquivalentTo(requires);
+            await Assert.That(mod.Incompatible).IsEquivalentTo(incompatible);
+            await Assert.That(mod.Tags).IsEquivalentTo(tags);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Prefers_the_build_42_mod_info_metadata_when_both_are_present()
+    {
+        (ModDiscovery discovery, string root, ServerId serverId) = NewDiscovery();
+        try
+        {
+            // A dual-build mod ships a root (B41) mod.info and a 42/ (B42) one whose metadata differs (research §6).
+            // B42 is the current default build, so its version folder is the version-appropriate source.
+            WriteMod(root, serverId, "111", "AZ", "id=AuthenticZ\nname=Authentic Z\npzversion=41\n");
+            string b42Dir = Path.Combine(
+                root, $"{serverId}.server", "steamapps", "workshop", "content", "108600", "111", "mods", "AZ", "42");
+            Directory.CreateDirectory(b42Dir);
+            File.WriteAllText(Path.Combine(b42Dir, "mod.info"), "id=AuthenticZ\nname=Authentic Z\nversion=42\nincompatible=\\Lite\n");
+            WriteIni(root, serverId, "WorkshopItems=111\nMods=AuthenticZ\n");
+
+            ModDiscoveryResult result = await discovery.DiscoverAsync(serverId, CancellationToken.None);
+
+            DiscoveredMod mod = result.InstalledItems.Single().Mods.Single();
+            await Assert.That(mod.ModId).IsEqualTo("AuthenticZ");
+            await Assert.That(mod.Version).IsEqualTo("42");
+            string[] incompatible = ["\\Lite"];
+            await Assert.That(mod.Incompatible).IsEquivalentTo(incompatible);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task An_item_directory_with_no_readable_mod_info_is_kept_with_no_mods()
     {
         (ModDiscovery discovery, string root, ServerId serverId) = NewDiscovery();

@@ -76,6 +76,72 @@ public static class ModCompatAnalyzer
                 ModCompatKind.DuplicateModId, modId, "provided by multiple installed Workshop items"));
         }
 
+        // The mod.info metadata behind the last two findings belongs to a mod only when it is actually loading, so
+        // resolve the first-provider metadata for each enabled mod id (#110). require=/incompatible= on an inactive
+        // mod raise no noise.
+        Dictionary<string, DiscoveredMod> metadataByModId = new(StringComparer.Ordinal);
+        foreach (DiscoveredMod mod in installedItems.SelectMany(i => i.Mods))
+        {
+            metadataByModId.TryAdd(mod.ModId, mod);
+        }
+
+        // 5. An enabled mod's require= names an id no installed item provides (a missing dependency). Reported once
+        //    per distinct missing id, in encounter order.
+        HashSet<string> requiresSeen = new(StringComparer.Ordinal);
+        foreach (string modId in enabledModIds)
+        {
+            if (!metadataByModId.TryGetValue(modId, out DiscoveredMod? mod))
+            {
+                continue;
+            }
+
+            foreach (string required in mod.Requires.Where(r => !provided.Contains(r) && requiresSeen.Add(r)))
+            {
+                findings.Add(new ModCompatFinding(
+                    ModCompatKind.RequiresMissing, required, $"required by {modId} but no installed mod provides it"));
+            }
+        }
+
+        // 6. An enabled mod's incompatible= names another enabled mod (both are loading — a real conflict). The
+        //    subject is the present incompatible id; PZ's leading '\' and trailing '+'/'-' markers are normalized
+        //    away for the comparison only (research §6).
+        HashSet<string> incompatibleSeen = new(StringComparer.Ordinal);
+        foreach (string modId in enabledModIds)
+        {
+            if (!metadataByModId.TryGetValue(modId, out DiscoveredMod? mod))
+            {
+                continue;
+            }
+
+            foreach (string raw in mod.Incompatible)
+            {
+                string other = NormalizeIncompatible(raw);
+                if (enabled.Contains(other) && incompatibleSeen.Add(other))
+                {
+                    findings.Add(new ModCompatFinding(
+                        ModCompatKind.IncompatiblePresent, other, $"declared incompatible by {modId} and also enabled"));
+                }
+            }
+        }
+
         return findings;
+    }
+
+    // PZ writes an incompatible id with a leading '\' and an optional trailing '+'/'-' (research §6); strip them so
+    // the value compares against the bare Mod id. Everything else is preserved verbatim.
+    private static string NormalizeIncompatible(string value)
+    {
+        ReadOnlySpan<char> span = value.AsSpan().Trim();
+        if (span.StartsWith("\\"))
+        {
+            span = span[1..];
+        }
+
+        if (span.EndsWith("+") || span.EndsWith("-"))
+        {
+            span = span[..^1];
+        }
+
+        return span.ToString();
     }
 }
