@@ -138,6 +138,10 @@ Agent trust that CA, or its control-plane connection fails the TLS handshake. Tw
 
    Rebuild: `docker compose -f compose.yaml … up -d --build agent`.
 
+Until the Agent trusts the CA, enrollment's TLS handshake fails — but the Agent does **not** crash: it logs a
+single actionable warning pointing here and retries enrollment in the background with capped backoff. Once you
+apply the trust fix above (or switch to Public mode), the Agent enrols on the next retry with **no restart**.
+
 ## Enrolling the Agent
 
 Agent enrollment is operator-driven (D-4): the stack does not bake a shared enrollment secret.

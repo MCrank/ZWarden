@@ -69,6 +69,16 @@ public sealed class AgentOptionsValidator : IValidateOptions<AgentOptions>
             failures.Add($"{AgentOptions.SectionName}:{nameof(AgentOptions.RestartWarningReason)} {reasonError}");
         }
 
+        if (options.EnrollmentRetryInitialDelay <= TimeSpan.Zero)
+        {
+            failures.Add($"{AgentOptions.SectionName}:{nameof(AgentOptions.EnrollmentRetryInitialDelay)} must be positive.");
+        }
+
+        if (options.EnrollmentRetryMaxDelay < options.EnrollmentRetryInitialDelay)
+        {
+            failures.Add($"{AgentOptions.SectionName}:{nameof(AgentOptions.EnrollmentRetryMaxDelay)} must be positive and no smaller than {nameof(AgentOptions.EnrollmentRetryInitialDelay)}.");
+        }
+
         if (options.HeartbeatInterval <= TimeSpan.Zero)
         {
             failures.Add($"{AgentOptions.SectionName}:{nameof(AgentOptions.HeartbeatInterval)} must be positive.");
