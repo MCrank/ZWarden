@@ -407,7 +407,9 @@ jobs:
     name: pzserver-real-install
     if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_pzserver)
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # The 6.72 GiB first-run (download + preallocation + first world-gen) can take ~40 min; leave headroom for
+    # the container to reach `healthy` after it boots (the healthcheck start-period is 45 min; #191).
+    timeout-minutes: 60
     defaults:
       run:
         shell: bash
@@ -418,26 +420,49 @@ jobs:
       - name: Real SteamCMD install + boot to a healthy container
         run: |
           docker run -d --name pz zwarden-pzserver:ci
+          # Stream the container's logs LIVE so the SteamCMD download and server boot are visible during the run,
+          # not just tailed at the end. Wrapped in a collapsible group; stopped before the health assertion.
+          echo "::group::PZ container logs (live — SteamCMD install + boot)"
+          docker logs -f pz &
+          logs_pid=$!
           status=starting
-          for _ in $(seq 1 240); do
+          # Up to ~55 min (330 x 10s) for a healthy transition — the first-run install alone can take ~40 min,
+          # then the server boots and the healthcheck flips healthy (#191). Kept under timeout-minutes above.
+          for _ in $(seq 1 330); do
             status="$(docker inspect --format '{{.State.Health.Status}}' pz 2>/dev/null || echo gone)"
             [ "$status" = "healthy" ] && break
             [ "$status" = "gone" ] && break
             # A failed install exits the container, but its health status freezes at
             # "starting" (start-period suppresses "unhealthy"), so waiting on health alone
-            # burns the full ~40-min timeout. Stop the moment it is no longer running (F12/#65).
+            # burns the full timeout. Stop the moment it is no longer running (F12/#65).
             if [ "$(docker inspect --format '{{.State.Running}}' pz 2>/dev/null || echo false)" != "true" ]; then
               status="exited"; break
             fi
             sleep 10
           done
-          docker logs pz | tail -40
+          # Stop the live stream and close the log group before reporting the result.
+          kill "$logs_pid" 2>/dev/null || true
+          wait "$logs_pid" 2>/dev/null || true
+          echo "::endgroup::"
+          echo "final health status: $status"
           if [ "$status" != "healthy" ]; then echo "::error::container did not become healthy (status=$status)"; exit 1; fi
-      - name: Graceful stop performs save then quit
+      - name: Graceful stop saves the world and quits cleanly
         run: |
           docker stop -t 90 pz
           logs="$(docker logs pz 2>&1)"
-          echo "$logs" | grep -qi 'SIGTERM received' || { echo "::error::stop was not graceful"; exit 1; }
+          echo "::group::PZ container logs at shutdown (tail)"
+          printf '%s\n' "$logs" | tail -40
+          echo "::endgroup::"
+          # The data-safety guarantee (F15): on `docker stop` the world is SAVED and the server quits cleanly
+          # BEFORE the SIGKILL deadline — never a bare kill that corrupts the world. Build 42's launcher handles
+          # SIGTERM natively (save then quit); the container entrypoint's FIFO save/quit is the same guarantee by
+          # a different route. Assert the OUTCOME (saved + clean shutdown), not which handler produced it.
+          if printf '%s\n' "$logs" | grep -qiE 'World saved|Saving finish' \
+             && printf '%s\n' "$logs" | grep -qiE 'Shutdown handling finished|Server exited'; then
+            echo "graceful stop OK — world saved and server shut down cleanly"
+          else
+            echo "::error::stop was not graceful (no world-save / clean-shutdown markers in the container logs)"; exit 1
+          fi
       - name: No PZ artefact leaked into the workspace
         if: always()
         run: |

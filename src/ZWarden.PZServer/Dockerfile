@@ -48,6 +48,10 @@ ENV PZ_ROOT=/pz \
     ZW_PZ_XMX=4g \
     ZW_PZ_STOP_GRACE=30 \
     ZW_PZ_SERVERNAME=servertest
+# ZW_PZ_ADMIN_PASSWORD (runtime-only, deliberately NOT an ENV so no secret is baked into the image):
+# the in-game admin password passed non-interactively at launch (#188). Set it via `docker run -e` /
+# compose `environment`. When empty the entrypoint generates a strong one on first boot and persists it
+# under /pz/data (stable across restarts). Build 42 otherwise prompts for it and the server hangs on stdin.
 
 # Canonical labels (PRD 25). server-id and agent-id are set by the Agent at create time (F13).
 LABEL io.zwarden.managed="true" \
@@ -62,9 +66,12 @@ EXPOSE 16261/udp 16262/udp
 # is an ephemeral tmpfs the Agent supplies (F17), re-bootstrapped each boot.
 VOLUME /pz/data /pz/server
 
-# Base health check (Q5): the GameServer JVM is alive. Generous start-period for the first-run
-# SteamCMD install + world generation. Feature 16 layers the real hierarchical model.
-HEALTHCHECK --interval=30s --timeout=5s --start-period=600s --retries=3 \
+# Base health check (Q5): the GameServer JVM is alive. The start-period must cover a genuine first run — the
+# ~6.72 GiB anonymous SteamCMD download + preallocation + first world generation — during which there is no
+# GameServer process yet; 10 min was far too short (the container went `unhealthy` mid-install, #191), so it is
+# 45 min. A successful check still flips the container healthy immediately, even within the start-period, so a
+# fast (already-installed) restart is not delayed. Feature 16 layers the real hierarchical model.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=45m --retries=3 \
   CMD /pz/scripts/healthcheck.sh
 
 ENTRYPOINT ["/usr/bin/tini", "--", "/pz/scripts/entrypoint.sh"]

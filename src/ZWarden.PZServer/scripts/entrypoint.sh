@@ -62,8 +62,12 @@ pz_tune_jvm "${SERVER_DIR}/${PZ_LINUX_LAUNCHER}"
 exec 3<> "${FIFO}"
 
 launch="$(pz_build_launch_cmd "${SERVER_DIR}" "${DATA_DIR}")"
-log "launching: ${launch}"
-( cd "${SERVER_DIR}" && eval "${launch}" ) < "${FIFO}" &
+# Build 42 prompts for an admin password on first boot; supply it non-interactively so the
+# server never blocks on stdin (#188). Kept OUT of the logged line and appended only to the
+# executed command, so the secret never lands in container logs the Agent streams.
+admin_pw="$(pz_admin_password "${DATA_DIR}")"
+log "launching: ${launch} -adminpassword <redacted>"
+( cd "${SERVER_DIR}" && eval "${launch} -adminpassword $(printf '%q' "${admin_pw}")" ) < "${FIFO}" &
 SERVER_PID=$!
 
 term_handler() {

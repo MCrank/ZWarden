@@ -21,6 +21,8 @@ PZ_STEAMCMD_BAKED="${PZ_STEAMCMD_BAKED:-/opt/steamcmd}" # F17: SteamCMD is baked
 : "${ZW_PZ_SERVERNAME:=servertest}"
 : "${ZW_PZ_INSTALL_ATTEMPTS:=3}"   # SteamCMD install attempts before fail-closed (F12/#65)
 : "${ZW_PZ_INSTALL_RETRY_DELAY:=15}" # seconds between install attempts
+: "${ZW_PZ_ADMIN_PASSWORD:=}"      # non-interactive in-game admin password (#188); generated + persisted when empty
+PZ_ADMIN_PASSWORD_FILE=".zwarden-adminpw" # where a generated admin password is persisted under /pz/data
 
 # pz_needs_install <server_dir>
 # Exit 0 (needs install) unless BOTH the shipped launcher and our completion marker
@@ -102,6 +104,21 @@ pz_install_with_retry() {
 pz_write_appid() {
   local server_dir="$1"
   printf '%s\n' "${PZ_STEAM_APPID_TXT}" > "${server_dir}/steam_appid.txt"
+}
+
+# --- Health (F12 base check) -----------------------------------------------------
+# The running dedicated-server process. Build 42's start-server.sh execs a NATIVE launcher
+# (`./ProjectZomboid64`) that runs the JVM embedded, so the main class `zombie.network.GameServer`
+# is NOT present in any process's argv (#191) - matching it alone leaves the container forever
+# "unhealthy" even though the server is up. Match the native launcher, and also the class name so a
+# direct `java ... zombie.network.GameServer` launch (legacy/B41, or a hand run) is still detected.
+# Extended-regex alternation (pgrep -f uses ERE).
+PZ_SERVER_PROCESS_PATTERN='ProjectZomboid[0-9]*|zombie\.network\.GameServer'
+
+# pz_server_running  — exit 0 when the PZ dedicated-server process is alive, non-zero otherwise.
+# Deliberately shallow (the container base health, mini-plan Q5); F16 layers the hierarchical model.
+pz_server_running() {
+  pgrep -f "${PZ_SERVER_PROCESS_PATTERN}" >/dev/null 2>&1
 }
 
 # pz_bootstrap_steamcmd <baked_dir> <runtime_dir>
@@ -201,15 +218,42 @@ pz_create_layout() {
   ln -sfn "${workshop_cache}" "${root}/data/workshop"
 }
 
+# pz_admin_password <data_dir>
+# The in-game administrator password supplied non-interactively at launch (#188). Build 42
+# PROMPTS for it on first boot when none is given ("Enter new administrator password:") and,
+# with stdin on the control FIFO, that prompt never resolves and the server hangs. Precedence:
+# an operator-set ZW_PZ_ADMIN_PASSWORD wins; otherwise a strong one is generated ONCE and
+# persisted under the world volume so it is stable across restarts (a fresh value each boot
+# would rotate the admin account every restart). ZWarden manages the server over RCON, not this
+# account, so a generated default is safe; operators can override or read the persisted file.
+pz_admin_password() {
+  local data_dir="${1:-/pz/data}"
+  if [ -n "${ZW_PZ_ADMIN_PASSWORD}" ]; then
+    printf '%s' "${ZW_PZ_ADMIN_PASSWORD}"
+    return 0
+  fi
+  local pwfile="${data_dir}/${PZ_ADMIN_PASSWORD_FILE}"
+  if [ -s "${pwfile}" ]; then
+    cat "${pwfile}"
+    return 0
+  fi
+  local pw
+  pw="$(LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 24)"
+  mkdir -p "${data_dir}"
+  ( umask 077; printf '%s' "${pw}" > "${pwfile}" )
+  printf '%s' "${pw}"
+}
+
 # pz_build_launch_cmd <server_dir> [data_dir]
 # Delegates to PZ's shipped Linux launcher (which owns the classpath, natives path and
 # LD_PRELOAD) and appends only the game arguments ZWarden controls. -cachedir relocates
 # the user data onto the /pz/data volume so config, saves and logs survive a container
-# rebuild (research §5).
+# rebuild (research §5). The admin password is appended by the entrypoint (never here) so it
+# is kept out of the logged launch line; -statistic was dropped as Build 42 rejects it.
 pz_build_launch_cmd() {
   local server_dir="$1"
   local data_dir="${2:-/pz/data}"
-  printf 'bash %s/%s -cachedir=%s -servername %s -statistic 0' \
+  printf 'bash %s/%s -cachedir=%s -servername %s' \
     "${server_dir}" "${PZ_LINUX_LAUNCHER}" "${data_dir}" "${ZW_PZ_SERVERNAME}"
 }
 
