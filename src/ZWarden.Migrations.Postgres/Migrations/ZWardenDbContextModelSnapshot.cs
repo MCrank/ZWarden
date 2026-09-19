@@ -671,6 +671,31 @@ namespace ZWarden.Migrations.Postgres.Migrations
                     b.ToTable("Tenants", (string)null);
                 });
 
+            modelBuilder.Entity("ZWarden.Domain.Workshop.WorkshopIntegrationSettings", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ProtectedApiKey")
+                        .IsRequired()
+                        .HasMaxLength(4096)
+                        .HasColumnType("character varying(4096)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId")
+                        .IsUnique();
+
+                    b.ToTable("WorkshopIntegrationSettings", (string)null);
+                });
+
             modelBuilder.Entity("ZWarden.Infrastructure.Identity.ApplicationRole", b =>
                 {
                     b.Property<Guid>("Id")

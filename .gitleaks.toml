@@ -19,9 +19,13 @@ paths = [
   '''docs/feature-plans/F20a-configuration-read-and-model\.md''',
 ]
 
-# Value-scoped allowlist for a false positive in production source (kept narrow — the file itself is still
-# scanned). RconServerConfig's PasswordAlphabet is the base62 character set fed to RandomNumberGenerator to
-# *generate* RCON passwords; it is a charset, not a secret.
+# Value-scoped allowlist for false positives (kept narrow — the files themselves are still scanned).
 regexes = [
+  # RconServerConfig's PasswordAlphabet is the base62 character set fed to RandomNumberGenerator to
+  # *generate* RCON passwords; it is a charset, not a secret.
   '''ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789''',
+  # F110 PR-B: the two synthetic, obviously-fake Steam-Web-API-key-shaped literals used across the Workshop
+  # settings/search/Settings-page tests to prove key handling. Never real credentials, never deployed.
+  '''ABCDEF0123456789ABCDEF0123456789''',
+  '''FEDCBA9876543210FEDCBA9876543210''',
 ]

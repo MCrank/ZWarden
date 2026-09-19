@@ -127,6 +127,72 @@ public sealed class SettingsPageTests
         await Assert.That(html).Contains("Northwind PZ");
     }
 
+    [Test]
+    public async Task An_owner_sees_the_workshop_search_section_keyless_by_default()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOwnerAsync(factory, "owner@zwarden.test");
+
+        string html = await GetStringAsync(client, "/settings");
+
+        await Assert.That(html).Contains("data-settings-workshop");
+        await Assert.That(html).Contains("data-settings-workshop-status");
+        await Assert.That(html).Contains("No search key configured");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task An_administrator_does_not_see_the_owner_only_workshop_section()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInWithRoleAsync(factory, "admin@zwarden.test", BuiltInRoleKind.Administrator);
+
+        string html = await GetStringAsync(client, "/settings");
+
+        // Workshop search is gated on Tenant.Manage — Owner only, not Administrator.
+        await Assert.That(html).DoesNotContain("data-settings-workshop");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task An_owner_can_configure_then_clear_the_search_key_without_the_key_ever_being_echoed()
+    {
+        const string key = "ABCDEF0123456789ABCDEF0123456789";
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOwnerAsync(factory, "owner@zwarden.test");
+
+        // Configure the key via the write-only form.
+        string afterSet = await SubmitWorkshopFormAsync(client, "settings-workshop-key", ("Input.ApiKey", key));
+        await Assert.That(afterSet).Contains("A search key is configured");
+        await Assert.That(afterSet).DoesNotContain(key); // write-only: never echoed back
+
+        // A reload still reports configured and still never shows the key.
+        string reloaded = await GetStringAsync(client, "/settings");
+        await Assert.That(reloaded).Contains("A search key is configured");
+        await Assert.That(reloaded).DoesNotContain(key);
+
+        // Clear it.
+        string afterClear = await SubmitWorkshopFormAsync(client, "settings-workshop-clear");
+        await Assert.That(afterClear).Contains("No search key configured");
+        client.Dispose();
+    }
+
+    // Posts one of the Settings-page SSR forms, carrying the antiforgery token and form handler the page emitted.
+    private static async Task<string> SubmitWorkshopFormAsync(
+        HttpClient client, string formName, params (string Key, string Value)[] fields)
+    {
+        HttpResponseMessage page = await client.GetAsync(new Uri("/settings", UriKind.Relative));
+        Dictionary<string, string> form = ParseHiddenInputs(await page.Content.ReadAsStringAsync());
+        form["_handler"] = formName;
+        foreach ((string key, string value) in fields)
+        {
+            form[key] = value;
+        }
+
+        HttpResponseMessage response = await client.PostAsync(new Uri("/settings", UriKind.Relative), new FormUrlEncodedContent(form));
+        return await response.Content.ReadAsStringAsync();
+    }
+
     private static async Task<HttpClient> SignedInOwnerAsync(ZWardenWebAppFactory factory, string email)
     {
         await factory.CreateConfirmedUserAsync(email, StrongPassword);

@@ -32,6 +32,8 @@ public class RedactionTests
     [Arguments("DbConnectionString")]
     [Arguments("Authorization")]
     [Arguments("api_key")]
+    [Arguments("SteamWebApiKey")]
+    [Arguments("WorkshopApiKey")]
     public async Task IsSensitiveKey_matches_known_tokens_case_insensitively(string key)
     {
         await Assert.That(Redaction.IsSensitiveKey(key)).IsTrue();

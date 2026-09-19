@@ -38,6 +38,14 @@ public class SupportPackageRedactorTests
     }
 
     [Test]
+    public async Task A_steam_workshop_api_key_is_masked()
+    {
+        // F110/ADR 0044: the tenant's Steam Web API search key must never survive into a support package.
+        await Assert.That(SupportPackageRedactor.RedactText("SteamWebApiKey=ABCDEF0123456789ABCDEF0123456789"))
+            .IsEqualTo("SteamWebApiKey=" + Redaction.Mask);
+    }
+
+    [Test]
     public async Task A_benign_key_passes_through()
     {
         await Assert.That(SupportPackageRedactor.RedactText("MaxPlayers=32")).IsEqualTo("MaxPlayers=32");
