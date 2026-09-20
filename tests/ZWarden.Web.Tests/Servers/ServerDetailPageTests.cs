@@ -745,7 +745,7 @@ public sealed class ServerDetailPageTests
     [Test]
     public async Task The_graceful_restart_control_shows_for_a_permitted_operator()
     {
-        // #114: the restart-options disclosure lets the operator warn players or skip the warning.
+        // #114/#213: the always-visible restart panel lets the operator pick a countdown and warn players.
         await using ZWardenWebAppFactory factory = new();
         HttpClient client = await SignedInOperatorAsync(factory);
         ServerId serverId = await SeedServerAsync(factory, "gracefully-restartable");
@@ -755,6 +755,34 @@ public sealed class ServerDetailPageTests
         await Assert.That(html).Contains("data-graceful-restart");
         await Assert.That(html).Contains("data-action=\"graceful-restart\"");
         await Assert.That(html).Contains("name=\"_gracefulForm.Message\"");
+        // #213: the adjustable countdown preset selector is present.
+        await Assert.That(html).Contains("name=\"_gracefulForm.Countdown\"");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task The_graceful_restart_immediate_preset_enqueues_an_empty_countdown()
+    {
+        // #213: choosing "Immediately" restarts with no warning broadcast (an empty countdown schedule).
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "graceful-immediate");
+
+        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+        Dictionary<string, string> form = new(StringComparer.Ordinal)
+        {
+            ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
+            ["_handler"] = "server-graceful-restart",
+            ["_gracefulForm.Countdown"] = "immediate",
+        };
+        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}", UriKind.Relative), new FormUrlEncodedContent(form));
+
+        await Assert.That((int)post.StatusCode).IsLessThan(400);
+        await Assert.That(EnqueuedKind(factory, serverId, OperationKind.RestartServer)).IsTrue();
+        string? payload = EnqueuedPayload(factory, serverId, OperationKind.RestartServer);
+        await Assert.That(payload).IsNotNull();
+        await Assert.That(payload!).Contains("\"warningLeadSeconds\":[]");
+        await Assert.That(payload!).DoesNotContain("300");
         client.Dispose();
     }
 
