@@ -106,31 +106,43 @@ else
         </div>
     }
 
-    @* Graceful restart (#114): the header Restart button already warns players with the Agent's default countdown;
-       this control lets the operator add a message, or skip the warning and restart immediately. Static-SSR form,
-       gated on the same server-scoped Server.Restart permission the service re-checks on submit. *@
+    @* Graceful restart (#114, #213): warn connected players with a countdown before the restart. Surfaced as an
+       always-visible panel (not a collapsed disclosure) so it is discoverable, and the operator picks how long to
+       warn. Static-SSR form, gated on the same server-scoped Server.Restart the service re-checks on submit. *@
     @if (_canRestartServer)
     {
-        <details class="mt-3" data-graceful-restart>
-            <summary class="text-sm text-muted-foreground cursor-pointer">Restart options (warn players)</summary>
-            <EditForm Model="_gracefulForm" FormName="server-graceful-restart" OnValidSubmit="GracefulRestartAsync" class="mt-2">
+        <div class="mt-3 rounded-md border border-border bg-card p-4" data-graceful-restart>
+            <h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Restart with a countdown</h2>
+            <p class="mt-1 text-xs text-muted-foreground">
+                Warn connected players in-game, then safely restart. Choose how long to warn before the restart —
+                mods and sandbox changes take effect on the next start.
+            </p>
+            <EditForm Model="_gracefulForm" FormName="server-graceful-restart" OnValidSubmit="GracefulRestartAsync" class="mt-3">
                 <DataAnnotationsValidator />
-                <div class="flex flex-col gap-2 sm:flex-row sm:items-end">
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-end">
+                    <div class="flex flex-col text-sm">
+                        <BbLabel For="graceful-countdown" Class="mb-1 text-muted-foreground">Countdown</BbLabel>
+                        @* Explicit Name for static-SSR binding on BbNativeSelect (#84). *@
+                        @* Default (5 minutes) first: under static SSR BbNativeSelect shows the first option, so the
+                           default option leads to keep the shown value and the model default in agreement (#84). *@
+                        <BbNativeSelect TValue="string" Id="graceful-countdown" Name="_gracefulForm.Countdown" @bind-Value="_gracefulForm.Countdown">
+                            <option value="5m">5 minutes</option>
+                            <option value="15m">15 minutes</option>
+                            <option value="1m">1 minute</option>
+                            <option value="immediate">Immediately (no warning)</option>
+                        </BbNativeSelect>
+                    </div>
                     <div class="flex flex-1 flex-col text-sm">
                         <BbLabel For="graceful-message" Class="mb-1 text-muted-foreground">Message to players (optional)</BbLabel>
                         @* BbInput auto-derives the model-path Name (_gracefulForm.Message) under the EditForm (#121). *@
                         <BbInput Id="graceful-message" @bind-Value="_gracefulForm.Message" autocomplete="off"
                                  Placeholder="Scheduled maintenance." />
                     </div>
-                    <label class="flex items-center gap-2 text-sm">
-                        <BbCheckbox @bind-Value="_gracefulForm.SkipWarning" />
-                        <span>Skip warning (restart now)</span>
-                    </label>
                     <BbButton Variant="ButtonVariant.Secondary" Type="ButtonType.Submit" Size="ButtonSize.Small"
                               Disabled="@(!RestartEnabled)" data-action="graceful-restart">Restart</BbButton>
                 </div>
             </EditForm>
-        </details>
+        </div>
     }
 
     <div class="zw-srvlayout mt-6">
@@ -1464,8 +1476,15 @@ else
             return;
         }
 
-        // Skip ⇒ an empty schedule (restart immediately, no broadcast); otherwise the default descending countdown.
-        IReadOnlyList<int> leads = _gracefulForm?.SkipWarning == true ? [] : DefaultRestartWarning;
+        // Map the operator's chosen preset to a descending countdown schedule (#213). "immediate" ⇒ an empty
+        // schedule (restart now, no broadcast); anything else warns players for that long before the stop.
+        IReadOnlyList<int> leads = _gracefulForm?.Countdown switch
+        {
+            "immediate" => [],
+            "1m" => [60, 30, 10],
+            "15m" => [900, 300, 60, 30, 10],
+            _ => DefaultRestartWarning, // "5m" and any unexpected value ⇒ the default five-minute schedule.
+        };
         var plan = new GracefulRestartPayload(leads, message);
 
         UserId user = await CurrentUserAsync();
@@ -2697,8 +2716,9 @@ else
         // An optional message broadcast to players during the restart countdown (#114).
         public string? Message { get; set; }
 
-        // When true, restart immediately without warning players (empty countdown schedule).
-        public bool SkipWarning { get; set; }
+        // The chosen countdown preset (#213): "15m" / "5m" / "1m" / "immediate". Defaults to the five-minute
+        // warning; mapped to a descending schedule in GracefulRestartAsync.
+        public string Countdown { get; set; } = "5m";
     }
 
     private readonly record struct BackupPermissions(bool CanView, bool CanCreate, bool CanRestore, bool CanDelete);
