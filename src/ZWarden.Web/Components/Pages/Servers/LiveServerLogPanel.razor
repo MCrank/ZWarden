@@ -1,5 +1,6 @@
 @using ZWarden.Domain.Ids
 @using ZWarden.Web.Agents
+@using ZWarden.Web.Time
 @implements IAsyncDisposable
 @inject IServerLogBuffer LogBuffer
 @inject IServerLogSubscriptionCoordinator Coordinator
@@ -73,6 +74,11 @@
     [EditorRequired]
     public string AgentId { get; set; } = string.Empty;
 
+    /// <summary>The operator's display time-zone id, resolved by the static parent from the cookie (#211). A circuit
+    /// has no <c>HttpContext</c>, so the zone is handed in as a string; null/blank ⇒ UTC.</summary>
+    [Parameter]
+    public string? TimeZoneId { get; set; }
+
     private const int DisplayCap = 500;
 
     private ServerId _server;
@@ -90,9 +96,11 @@
     private ElementReference _root;
     private bool _jsReady;
     private bool _scrollPending;
+    private TimeZoneInfo _zone = TimeZoneInfo.Utc;
 
     protected override async Task OnInitializedAsync()
     {
+        _zone = OperatorTimeZone.Resolve(TimeZoneId);
         _parsed = Domain.Ids.ServerId.TryParse(ServerId, out _server)
             & Domain.Ids.AgentId.TryParse(AgentId, out _agent);
         if (!_parsed)
@@ -226,8 +234,7 @@
         ? "Waiting for log output…"
         : "Live logs are unavailable for this server.";
 
-    private static string Time(DateTimeOffset at) =>
-        at.UtcDateTime.ToString("HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture) + " UTC";
+    private string Time(DateTimeOffset at) => OperatorTimeZone.Format(at, _zone, "HH:mm:ss");
 
     public async ValueTask DisposeAsync()
     {

@@ -16,6 +16,7 @@
 @using ZWarden.Domain.Configuration
 @using ZWarden.Domain.Ids
 @using ZWarden.Domain.Operations
+@using ZWarden.Web.Time
 @inject IServerInventory Inventory
 @inject IServerBackup ServerBackups
 @inject IServerRestore ServerRestores
@@ -35,6 +36,7 @@
 @inject IWorkshopSearchService WorkshopSearch
 @inject IWorkshopSettingsService WorkshopSettings
 @inject IPermissionChecker PermissionChecker
+@inject IOperatorTimeZoneProvider OperatorTz
 @inject UserManager<ApplicationUser> Users
 
 @* The server-detail page (F16/F19). Static server render like /servers: it runs per request with a live
@@ -269,7 +271,8 @@ else
             <div class="mt-4">
                 <LiveServerLogPanel @rendermode="InteractiveServer"
                                     ServerId="@_server.Id.ToString()"
-                                    AgentId="@_server.AgentId.ToString()" />
+                                    AgentId="@_server.AgentId.ToString()"
+                                    TimeZoneId="@OperatorTz.Zone.Id" />
             </div>
         </BbCard>
     }

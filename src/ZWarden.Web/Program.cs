@@ -85,6 +85,10 @@ builder.Services.AddAgentControlPlane();            // F10: Agent hub, handshake
 builder.Services.AddOperationDispatch();            // F11 PR-B: real operation dispatcher over the SignalR connection
 builder.Services.AddZWardenTelemetry(builder.Configuration, builder.Environment); // F16: OpenTelemetry baseline (opt-in OTLP)
 builder.Services.AddProxyForwardedHeaders();       // F32: trust the reference Caddy ingress' X-Forwarded-* (ADR 0035)
+// #211: resolve the operator's display time zone from the per-browser cookie, so audit/log timestamps can render
+// in local time (default UTC). Static-SSR pages read it per request; interactive islands are handed the zone id.
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<ZWarden.Web.Time.IOperatorTimeZoneProvider, ZWarden.Web.Time.OperatorTimeZoneProvider>();
 
 WebApplication app = builder.Build();
 

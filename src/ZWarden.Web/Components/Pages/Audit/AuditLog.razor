@@ -5,11 +5,13 @@
 @using ZWarden.Domain.Audit
 @using ZWarden.Domain.Ids
 @using ZWarden.Web.Components.Audit
+@using ZWarden.Web.Time
 @attribute [Authorize(Policy = "Audit.View")]
 @inject IAuditQuery Audit
 @inject IServerInventory Servers
 @inject UserManager<ApplicationUser> Users
 @inject AuthenticationStateProvider AuthProvider
+@inject IOperatorTimeZoneProvider OperatorTz
 
 @* The audit viewer (#161), re-skinned from the F6 raw-HTML table into the Signal filter-bar + dense BbDataGrid
    (ADR 0003 — Bb over raw HTML for tables). Static server render (no @rendermode): the page runs per request with
@@ -200,8 +202,9 @@
             serverNames = (await Servers.ListVisibleAsync(user)).ToDictionary(s => s.Id, s => s.Name);
         }
 
+        TimeZoneInfo zone = OperatorTz.Zone; // resolved once per page from the operator's cookie (#211)
         return events.Select(e => new AuditRow(
-            Time: e.OccurredAt.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss"),
+            Time: OperatorTimeZone.Format(e.OccurredAt, zone),
             Actor: e.ActorUserId is { } a
                 ? actorNames.TryGetValue(a.Value, out string? an) ? an : a.ToString()
                 : null,

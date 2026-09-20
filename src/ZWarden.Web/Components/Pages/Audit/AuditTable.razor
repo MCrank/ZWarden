@@ -19,7 +19,7 @@
             </div>
         </EmptyTemplate>
         <Columns>
-            <BbDataGridTemplateColumn TData="AuditRow" Title="Time (UTC)" Sortable="true" SortBy="@(r => (object)r.Time)">
+            <BbDataGridTemplateColumn TData="AuditRow" Title="Time" Sortable="true" SortBy="@(r => (object)r.Time)">
                 <ChildContent Context="r"><span class="font-mono text-xs tabular-nums text-foreground" data-audit-row>@r.Time</span></ChildContent>
             </BbDataGridTemplateColumn>
 
