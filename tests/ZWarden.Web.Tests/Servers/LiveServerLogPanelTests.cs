@@ -52,6 +52,11 @@ public class LiveServerLogPanelTests
         await Assert.That(markup).DoesNotContain("<b>boom</b>");
         await Assert.That(markup).Contains("data-stream=\"stderr\"");
         await Assert.That(markup).Contains("data-stream=\"stdout\"");
+        // Lines use the two-column grid so a wrapped message aligns under the message, not the timestamp (#212).
+        await Assert.That(markup).Contains("grid-cols-[max-content_1fr]");
+        // The scroll viewport is tagged for the stick-to-bottom tail helper, invoked to open at the newest line.
+        await Assert.That(markup).Contains("zw-log-viewport");
+        cut.WaitForState(() => ctx.JSInterop.Invocations.Any(i => i.Identifier == "zwLiveLogs.scrollToBottom"));
     }
 
     [Test]
