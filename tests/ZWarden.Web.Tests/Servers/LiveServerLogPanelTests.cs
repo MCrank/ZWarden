@@ -60,6 +60,31 @@ public class LiveServerLogPanelTests
     }
 
     [Test]
+    public async Task It_renders_timestamps_in_the_supplied_time_zone()
+    {
+        using BunitContext ctx = new();
+        ServerLogBuffer buffer = Register(ctx, new RecordingCoordinator());
+        AgentId agent = AgentId.New();
+        ServerId server = ServerId.New();
+        buffer.Append(agent, server, [Line(1, isStderr: false, "world loaded")], dropped: false);
+
+        var cut = ctx.Render<LiveServerLogPanel>(p => p
+            .Add(c => c.ServerId, server.ToString())
+            .Add(c => c.AgentId, agent.ToString())
+            .Add(c => c.TimeZoneId, "America/New_York"));
+
+        // The panel formats the line's timestamp in the supplied zone (#211), not a hardcoded UTC — assert it
+        // matches the same helper the panel uses, so the test is robust to the platform's tz database.
+        TimeZoneInfo zone = ZWarden.Web.Time.OperatorTimeZone.Resolve("America/New_York");
+        string expected = ZWarden.Web.Time.OperatorTimeZone.Format(At, zone, "HH:mm:ss");
+        await Assert.That(cut.Markup).Contains(expected);
+        if (zone != TimeZoneInfo.Utc)
+        {
+            await Assert.That(cut.Markup).DoesNotContain("12:00:00 UTC");
+        }
+    }
+
+    [Test]
     public async Task It_shows_the_waiting_state_when_the_buffer_is_empty()
     {
         using BunitContext ctx = new();

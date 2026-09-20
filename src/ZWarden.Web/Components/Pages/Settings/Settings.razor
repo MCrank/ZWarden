@@ -10,11 +10,13 @@
 @using ZWarden.Domain.Setup
 @using ZWarden.Infrastructure.Identity
 @using ZWarden.Web.Configuration
+@using ZWarden.Web.Time
 @attribute [Authorize(Policy = "User.Manage")]
 @inject IOptions<InstanceOptions> Instance
 @inject IOptions<ForwardedHeadersOptions> Forwarded
 @inject ISetupState SetupState
 @inject IWorkshopSettingsService Workshop
+@inject IOperatorTimeZoneProvider OperatorTz
 @inject UserManager<ApplicationUser> Users
 
 @* Control-plane Settings landing (#160, renamed from "Config" — per-server config stays inside Server Detail).
@@ -81,6 +83,39 @@
                 <p class="mt-4 text-xs text-muted-foreground">
                     ZWarden does not terminate TLS itself; these reflect the deploy-time configuration and are
                     changed with the deployment, not here.
+                </p>
+            </BbCardContent>
+        </BbCard>
+
+        @* Time display (#211) — a per-operator, per-browser preference (stored in a cookie, not the tenant), so it
+           is visible to anyone who can reach Settings. Toggling is client-side (shell.js sets/clears the cookie
+           with the browser's detected zone, then reloads); the server reads the cookie to render audit/log times. *@
+        <BbCard data-settings-time>
+            <BbCardHeader>
+                <BbCardTitle>Time display</BbCardTitle>
+                <BbCardDescription>Show timestamps in your local time zone instead of UTC.</BbCardDescription>
+            </BbCardHeader>
+            <BbCardContent>
+                <div class="flex flex-wrap items-center gap-3">
+                    <button type="button" data-shell-tz-toggle data-tz-on="@(_localTime ? "true" : "false")"
+                            aria-pressed="@(_localTime ? "true" : "false")"
+                            class="inline-flex items-center gap-2 rounded border border-border px-3 py-1.5 text-sm font-medium text-foreground hover:bg-muted">
+                        @(_localTime ? "Switch to UTC" : "Use my local time")
+                    </button>
+                    <span class="text-sm text-muted-foreground" data-settings-time-status>
+                        @if (_localTime)
+                        {
+                            <text>Showing <span class="text-foreground">@_zoneLabel</span></text>
+                        }
+                        else
+                        {
+                            <text>Showing UTC</text>
+                        }
+                    </span>
+                </div>
+                <p class="mt-3 text-xs text-muted-foreground">
+                    Applies to the audit log and live server logs. Your zone is detected from this browser and stored
+                    in a cookie here; CSV exports stay in UTC.
                 </p>
             </BbCardContent>
         </BbCard>
@@ -214,6 +249,8 @@
     private bool _saved;
     private string? _savedMessage;
     private string? _error;
+    private bool _localTime;
+    private string? _zoneLabel;
 
     [CascadingParameter]
     private Task<AuthenticationState>? AuthState { get; set; }
@@ -231,6 +268,13 @@
         ClearInput ??= new();
         _tlsMode = await SetupState.GetTlsModeAsync();
         _keyConfigured = await Workshop.IsSearchAvailableAsync();
+
+        _localTime = OperatorTz.IsLocal;
+        if (_localTime)
+        {
+            TimeZoneInfo zone = OperatorTz.Zone;
+            _zoneLabel = $"{zone.Id} ({OperatorTimeZone.OffsetLabel(zone.GetUtcOffset(DateTimeOffset.UtcNow))})";
+        }
     }
 
     private async Task SaveAsync()

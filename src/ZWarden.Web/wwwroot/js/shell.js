@@ -76,6 +76,26 @@
     navigator.clipboard.writeText(text).then(function () { flashCopied(btn); }).catch(function () { /* denied */ });
   }
 
+  // Time-display preference (#211): opt in/out of local-time rendering. The zone id is written raw (IANA ids are
+  // cookie-safe) so the server reads it back verbatim; clearing reverts to UTC. Reload so the server re-renders.
+  function setTzCookie(value, days) {
+    var d = new Date();
+    d.setTime(d.getTime() + days * 864e5);
+    doc.cookie = 'zw-tz=' + value + '; expires=' + d.toUTCString() + '; path=/; SameSite=Lax';
+  }
+
+  function toggleTimeZone(btn) {
+    var on = btn.getAttribute('data-tz-on') === 'true';
+    if (on) {
+      setTzCookie('', -1); // clear the cookie ⇒ back to UTC
+    } else {
+      var zone = 'UTC';
+      try { zone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch (e) { /* fall back to UTC */ }
+      setTzCookie(zone, 365);
+    }
+    location.reload();
+  }
+
   doc.addEventListener('click', function (e) {
     var t = e.target;
     if (!(t instanceof Element)) { return; }
@@ -87,6 +107,9 @@
 
     var copyBtn = t.closest('[data-shell-copy]');
     if (copyBtn) { e.preventDefault(); copyFrom(copyBtn); return; }
+
+    var tzBtn = t.closest('[data-shell-tz-toggle]');
+    if (tzBtn) { e.preventDefault(); toggleTimeZone(tzBtn); return; }
 
     if (t.closest('[data-shell-drawer-toggle]')) {
       e.preventDefault();

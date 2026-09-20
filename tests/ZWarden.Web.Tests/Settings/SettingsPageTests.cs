@@ -75,6 +75,7 @@ public sealed class SettingsPageTests
         await Assert.That(html).Contains("data-settings-general");
         await Assert.That(html).Contains("data-settings-security");
         await Assert.That(html).Contains("data-settings-backups");
+        await Assert.That(html).Contains("data-settings-time");          // #211: local-time toggle (all operators)
         // Owner-gated sections.
         await Assert.That(html).Contains("data-settings-enrollment");
         await Assert.That(html).Contains("data-settings-users");
