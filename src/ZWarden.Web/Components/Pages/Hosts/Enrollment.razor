@@ -1,0 +1,123 @@
+@page "/enrollment"
+@attribute [Authorize(Policy = "Tenant.Enrollment.Manage")]
+@using System.Security.Claims
+@using ZWarden.Application.Agents
+@using ZWarden.Domain.Ids
+@inject IEnrollmentService EnrollmentService
+@inject UserManager<ApplicationUser> Users
+
+@* The permanent, post-setup agent-enrollment surface. Token issuance was originally built only into the
+   first-run wizard (/setup/enroll), which redirects to Fleet once setup is complete — leaving no way to bring a
+   new host under management afterwards. This is the standalone equivalent: the same IEnrollmentService flow in
+   the normal app shell, with no wizard chrome and no setup-complete gate. Static server render like the other
+   operator pages (Settings, Hosts): it runs per request with a live HttpContext so the session-derived tenant
+   resolves. Gated at the route on Tenant.Enrollment.Manage (Owner-only; the service re-checks server-side and
+   audits — PRD 12). The secret is shown exactly once, here, over HTTPS — it is never stored raw or logged. *@
+
+<PageTitle>Enrollment — ZWarden</PageTitle>
+
+<div data-enrollment-page>
+    <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <h1 class="text-2xl font-semibold tracking-tight">Agent enrollment</h1>
+        <p class="text-sm text-muted-foreground">Bring a host under management.</p>
+    </div>
+    <p class="mt-1 text-sm text-muted-foreground">
+        Generate a one-time enrollment token, then run the ZWarden.Agent on the host with it. The host appears on
+        <a href="/hosts" class="text-foreground underline hover:no-underline">Hosts</a> once its Agent connects.
+    </p>
+
+    @if (_secret is not null)
+    {
+        <div class="mt-6" data-enrollment-secret>
+            <BbAlert Variant="AlertVariant.Success" AccentBorder>
+                <BbAlertDescription>
+                    <p class="font-medium">Enrollment token created. Copy it now — it is shown only once.</p>
+                    <code class="mt-2 block break-all rounded bg-muted px-2 py-1 font-mono text-xs">@_secret</code>
+                    <p class="mt-2 text-xs text-muted-foreground">Expires @_expiresAt?.UtcDateTime.ToString("yyyy-MM-dd HH:mm") UTC.</p>
+                </BbAlertDescription>
+            </BbAlert>
+        </div>
+    }
+
+    <EditForm class="mt-6 flex flex-wrap items-end gap-3" Model="Input" method="post" OnValidSubmit="IssueAsync" FormName="enroll-agent" data-enrollment-generate>
+        <DataAnnotationsValidator />
+        <div class="flex flex-col text-sm">
+            <BbLabel For="label" Class="mb-1 text-muted-foreground">Label (optional)</BbLabel>
+            <BbInput Id="label" @bind-Value="Input.Label" Placeholder="e.g. host-alpha" />
+        </div>
+        <BbButton Type="ButtonType.Submit">Generate token</BbButton>
+    </EditForm>
+
+    @if (_enrollments.Count > 0)
+    {
+        <div class="mt-8 block overflow-x-auto">
+            <table class="w-full border-collapse text-left text-sm">
+                <thead>
+                    <tr class="border-b border-border text-muted-foreground">
+                        <th class="py-2 pr-4 font-medium">Label</th>
+                        <th class="py-2 pr-4 font-medium">Status</th>
+                        <th class="py-2 pr-4 font-medium">Expires (UTC)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (EnrollmentSummary e in _enrollments)
+                    {
+                        <tr class="border-b border-border" data-enrollment-row>
+                            <td class="py-2 pr-4">@(string.IsNullOrWhiteSpace(e.Label) ? "—" : e.Label)</td>
+                            <td class="py-2 pr-4 text-muted-foreground">@e.Status</td>
+                            <td class="py-2 pr-4 tabular-nums text-muted-foreground">@e.ExpiresAt.UtcDateTime.ToString("yyyy-MM-dd HH:mm")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+    else
+    {
+        <p class="mt-8 text-sm text-muted-foreground" data-enrollment-empty>
+            No enrollments yet. Generate a token above to bring your first host under management.
+        </p>
+    }
+</div>
+
+@code {
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthState { get; set; }
+
+    [SupplyParameterFromForm(FormName = "enroll-agent")]
+    private InputModel Input { get; set; } = default!;
+
+    private IReadOnlyList<EnrollmentSummary> _enrollments = [];
+    private string? _secret;
+    private DateTimeOffset? _expiresAt;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Input ??= new();
+        _enrollments = await EnrollmentService.ListAsync(await CurrentUserAsync());
+    }
+
+    private async Task IssueAsync()
+    {
+        UserId actor = await CurrentUserAsync();
+        string? label = string.IsNullOrWhiteSpace(Input.Label) ? null : Input.Label.Trim();
+        EnrollmentTokenResult result = await EnrollmentService.IssueAsync(actor, lifetime: null, label);
+
+        _secret = result.Secret.Reveal(); // shown once — never persisted raw, never logged.
+        _expiresAt = result.ExpiresAt;
+        _enrollments = await EnrollmentService.ListAsync(actor);
+    }
+
+    private async Task<UserId> CurrentUserAsync()
+    {
+        ClaimsPrincipal principal = (await AuthState!).User;
+        return Guid.TryParse(Users.GetUserId(principal), out Guid id)
+            ? UserId.FromGuid(id)
+            : throw new InvalidOperationException("Authenticated request carries no user id claim.");
+    }
+
+    private sealed class InputModel
+    {
+        public string? Label { get; set; }
+    }
+}

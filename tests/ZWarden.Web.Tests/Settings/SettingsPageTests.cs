@@ -96,7 +96,7 @@ public sealed class SettingsPageTests
         string html = await GetStringAsync(client, "/settings");
 
         await Assert.That(html).Contains("data-settings-enrollment-link");
-        await Assert.That(html).Contains("/setup/enroll");
+        await Assert.That(html).Contains("/enrollment");
         client.Dispose();
     }
 

@@ -71,7 +71,7 @@ public sealed class HostInventoryPageTests
         string html = await (await client.GetAsync(new Uri("/hosts", UriKind.Relative))).Content.ReadAsStringAsync();
 
         await Assert.That(html).Contains("data-hosts-enroll");
-        await Assert.That(html).Contains("/setup/enroll");
+        await Assert.That(html).Contains("/enrollment");
         client.Dispose();
     }
 

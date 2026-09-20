@@ -30,10 +30,9 @@
             @_hosts.Count @(_hosts.Count == 1 ? "host" : "hosts") · @_connected connected
         </p>
     </div>
-    @* Enroll host → the F9 enrollment surface. It lives under /setup for now; the standalone Settings →
-       Enrollment section is #160 (this link moves there once it lands). The target enforces
-       Tenant.Enrollment.Manage. *@
-    <a href="/setup/enroll"
+    @* Enroll host → the standalone enrollment surface (/enrollment), which works post-setup. The target
+       enforces Tenant.Enrollment.Manage (Owner-only), so a non-owner viewer following it is denied server-side. *@
+    <a href="/enrollment"
        class="inline-flex items-center gap-1.5 rounded bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90"
        data-hosts-enroll>
         Enroll host
