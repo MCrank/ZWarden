@@ -99,6 +99,9 @@ public sealed class EnrollmentPageTests
         await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
         await Assert.That(html).Contains("data-enrollment-secret");
         await Assert.That(html).Contains("data-enrollment-row");
+        // The one-time token carries a copy-to-clipboard control (#210) targeting the token element.
+        await Assert.That(html).Contains("data-enrollment-token");
+        await Assert.That(html).Contains("data-shell-copy");
         client.Dispose();
     }
 

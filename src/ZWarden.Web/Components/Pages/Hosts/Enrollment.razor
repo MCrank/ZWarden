@@ -32,7 +32,17 @@
             <BbAlert Variant="AlertVariant.Success" AccentBorder>
                 <BbAlertDescription>
                     <p class="font-medium">Enrollment token created. Copy it now — it is shown only once.</p>
-                    <code class="mt-2 block break-all rounded bg-muted px-2 py-1 font-mono text-xs">@_secret</code>
+                    <div class="mt-2 flex items-start gap-2">
+                        <code class="block flex-1 break-all rounded bg-muted px-2 py-1 font-mono text-xs" data-enrollment-token>@_secret</code>
+                        @* Copy-to-clipboard is progressive enhancement handled in shell.js (delegated on document,
+                           no circuit); the token stays selectable if the clipboard API is unavailable. *@
+                        <button type="button"
+                                class="inline-flex shrink-0 items-center gap-1.5 rounded border border-border px-2.5 py-1 text-xs font-medium text-foreground hover:bg-muted"
+                                data-shell-copy="[data-enrollment-token]" data-copy-done="Copied"
+                                aria-label="Copy enrollment token">
+                            <span data-copy-label>Copy</span>
+                        </button>
+                    </div>
                     <p class="mt-2 text-xs text-muted-foreground">Expires @_expiresAt?.UtcDateTime.ToString("yyyy-MM-dd HH:mm") UTC.</p>
                 </BbAlertDescription>
             </BbAlert>
