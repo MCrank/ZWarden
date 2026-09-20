@@ -95,7 +95,6 @@
     private Task? _loop;
     private ElementReference _root;
     private bool _jsReady;
-    private bool _scrollPending;
     private TimeZoneInfo _zone = TimeZoneInfo.Utc;
 
     protected override async Task OnInitializedAsync()
@@ -121,18 +120,14 @@
         {
             while (await _timer!.WaitForNextTickAsync().ConfigureAwait(false))
             {
-                await InvokeAsync(async () =>
+                // Append new lines and re-render; the post-render tail() re-pins to the newest line while the
+                // operator is at the bottom (JS tracks that via a scroll listener), so the tail follows live (#212).
+                await InvokeAsync(() =>
                 {
-                    if (!Refresh())
+                    if (Refresh())
                     {
-                        return;
+                        StateHasChanged();
                     }
-
-                    // Measure BEFORE re-rendering (the DOM still shows the pre-append content): only keep the
-                    // tail pinned if the operator was already at the bottom, so scrolling up to read history
-                    // is never interrupted (#212).
-                    _scrollPending = await IsAtBottomAsync().ConfigureAwait(false);
-                    StateHasChanged();
                 }).ConfigureAwait(false);
             }
         }
@@ -172,42 +167,21 @@
         if (firstRender)
         {
             _jsReady = true;
-            // Open at the newest line, mirroring a terminal tail.
+            // Attach the scroll listener that tracks the pinned state, then open at the newest line.
+            await CallAsync("zwLiveLogs.attach").ConfigureAwait(false);
             if (_lines.Count > 0)
             {
-                await ScrollToBottomAsync().ConfigureAwait(false);
+                await CallAsync("zwLiveLogs.toBottom").ConfigureAwait(false);
             }
 
             return;
         }
 
-        if (_scrollPending)
-        {
-            _scrollPending = false;
-            await ScrollToBottomAsync().ConfigureAwait(false);
-        }
+        // After every subsequent render (a new-line batch), re-pin to the bottom if the operator hasn't scrolled up.
+        await CallAsync("zwLiveLogs.tail").ConfigureAwait(false);
     }
 
-    private async Task<bool> IsAtBottomAsync()
-    {
-        if (!_jsReady)
-        {
-            return true; // Before the first interactive render there is nothing to scroll — treat as pinned.
-        }
-
-        try
-        {
-            return await JS.InvokeAsync<bool>("zwLiveLogs.isAtBottom", _root).ConfigureAwait(false);
-        }
-#pragma warning disable CA1031 // A best-effort scroll probe must never surface as an error; default to pinned.
-        catch (Exception)
-        {
-            return true;
-        }
-#pragma warning restore CA1031
-    }
-
-    private async Task ScrollToBottomAsync()
+    private async Task CallAsync(string fn)
     {
         if (!_jsReady)
         {
@@ -216,12 +190,12 @@
 
         try
         {
-            await JS.InvokeVoidAsync("zwLiveLogs.scrollToBottom", _root).ConfigureAwait(false);
+            await JS.InvokeVoidAsync(fn, _root).ConfigureAwait(false);
         }
 #pragma warning disable CA1031 // Best-effort: a failed scroll (disconnected circuit, teardown) must not throw.
         catch (Exception)
         {
-            // Ignore — the tail resumes on the next tick.
+            // Ignore — the tail resumes on the next render.
         }
 #pragma warning restore CA1031
     }
