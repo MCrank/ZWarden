@@ -2120,6 +2120,10 @@ html {
   grid-template-columns: auto 1fr;
 }
 
+.grid-cols-\[max-content_1fr\] {
+  grid-template-columns: max-content 1fr;
+}
+
 .flex-col {
   flex-direction: column;
 }
@@ -2174,6 +2178,11 @@ html {
 
 .gap-6 {
   gap: 1.5rem;
+}
+
+.gap-x-2 {
+  -moz-column-gap: 0.5rem;
+       column-gap: 0.5rem;
 }
 
 .gap-x-3 {
@@ -2249,6 +2258,10 @@ html {
 
 .whitespace-pre-wrap {
   white-space: pre-wrap;
+}
+
+.break-words {
+  overflow-wrap: break-word;
 }
 
 .break-all {

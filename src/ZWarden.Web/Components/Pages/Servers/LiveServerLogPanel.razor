@@ -3,6 +3,7 @@
 @implements IAsyncDisposable
 @inject IServerLogBuffer LogBuffer
 @inject IServerLogSubscriptionCoordinator Coordinator
+@inject IJSRuntime JS
 
 @* The live-logs island (F27): an interactive island embedded in the static server-detail page, mirroring
    LiveServerPanel / LivePlayerRosterPanel. On open it subscribes through the coordinator (which ref-counts viewers
@@ -15,7 +16,7 @@
    Blueprint wrappers (ADR 0003): BbScrollArea for the tail, BbCheckbox for the stream toggles, BbInput to filter.
    Log text is Chivo Mono (the style guide's data face); stderr carries the semantic destructive ink. *@
 
-<div data-live-logs>
+<div data-live-logs @ref="_root">
     <div class="flex flex-wrap items-center gap-4">
         <div class="flex items-center gap-1.5">
             <BbCheckbox @bind-Checked="_showStdout" Id="log-stdout" AriaLabel="Show stdout" />
@@ -35,7 +36,7 @@
 
     <BbScrollArea Type="ScrollAreaType.Always" MaxHeight="24rem"
                   Class="mt-3 rounded-md border border-border bg-muted/30"
-                  ViewportClass="p-3 font-mono text-xs leading-relaxed">
+                  ViewportClass="zw-log-viewport p-3 font-mono text-xs leading-relaxed">
         @{
             IReadOnlyList<ServerLogLineView> visible = Visible();
         }
@@ -47,14 +48,14 @@
         {
             @foreach (ServerLogLineView line in visible)
             {
-                <div class="whitespace-pre-wrap @(line.IsStderr ? "text-destructive" : "text-foreground")"
+                @* Two-column grid: a fixed timestamp column (max-content, so every row's time aligns) and the
+                   message column (1fr). Wrapped long messages stay in the message column instead of flowing
+                   back under the timestamp (#212). *@
+                <div class="grid grid-cols-[max-content_1fr] gap-x-2 @(line.IsStderr ? "text-destructive" : "text-foreground")"
                      data-log-line data-stream="@(line.IsStderr ? "stderr" : "stdout")">
-                    <span class="text-muted-foreground">@Time(line.Timestamp)</span>
-                    <span>@line.Text</span>
-                    @if (line.Truncated)
-                    {
-                        <span class="text-muted-foreground"> …</span>
-                    }
+                    <span class="text-muted-foreground tabular-nums">@Time(line.Timestamp)</span>
+                    <span class="whitespace-pre-wrap break-words">@line.Text@if (line.Truncated)
+                        {<span class="text-muted-foreground"> …</span>}</span>
                 </div>
             }
         }
@@ -86,6 +87,9 @@
     private readonly List<ServerLogLineView> _lines = [];
     private PeriodicTimer? _timer;
     private Task? _loop;
+    private ElementReference _root;
+    private bool _jsReady;
+    private bool _scrollPending;
 
     protected override async Task OnInitializedAsync()
     {
@@ -109,8 +113,19 @@
         {
             while (await _timer!.WaitForNextTickAsync().ConfigureAwait(false))
             {
-                Refresh();
-                await InvokeAsync(StateHasChanged).ConfigureAwait(false);
+                await InvokeAsync(async () =>
+                {
+                    if (!Refresh())
+                    {
+                        return;
+                    }
+
+                    // Measure BEFORE re-rendering (the DOM still shows the pre-append content): only keep the
+                    // tail pinned if the operator was already at the bottom, so scrolling up to read history
+                    // is never interrupted (#212).
+                    _scrollPending = await IsAtBottomAsync().ConfigureAwait(false);
+                    StateHasChanged();
+                }).ConfigureAwait(false);
             }
         }
         catch (ObjectDisposedException)
@@ -119,15 +134,17 @@
         }
     }
 
-    private void Refresh()
+    // Appends any new buffered lines; returns whether anything changed (new lines or a flipped dropped flag).
+    private bool Refresh()
     {
         if (!_parsed)
         {
-            return;
+            return false;
         }
 
         ServerLogSlice slice = LogBuffer.Read(_server, _agent, _cursor);
-        if (slice.Lines.Count > 0)
+        bool hadNew = slice.Lines.Count > 0;
+        if (hadNew)
         {
             _lines.AddRange(slice.Lines);
             _cursor = slice.Lines[^1].Sequence;
@@ -137,7 +154,68 @@
             }
         }
 
+        bool changed = hadNew || _dropped != slice.Dropped;
         _dropped = slice.Dropped;
+        return changed;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _jsReady = true;
+            // Open at the newest line, mirroring a terminal tail.
+            if (_lines.Count > 0)
+            {
+                await ScrollToBottomAsync().ConfigureAwait(false);
+            }
+
+            return;
+        }
+
+        if (_scrollPending)
+        {
+            _scrollPending = false;
+            await ScrollToBottomAsync().ConfigureAwait(false);
+        }
+    }
+
+    private async Task<bool> IsAtBottomAsync()
+    {
+        if (!_jsReady)
+        {
+            return true; // Before the first interactive render there is nothing to scroll — treat as pinned.
+        }
+
+        try
+        {
+            return await JS.InvokeAsync<bool>("zwLiveLogs.isAtBottom", _root).ConfigureAwait(false);
+        }
+#pragma warning disable CA1031 // A best-effort scroll probe must never surface as an error; default to pinned.
+        catch (Exception)
+        {
+            return true;
+        }
+#pragma warning restore CA1031
+    }
+
+    private async Task ScrollToBottomAsync()
+    {
+        if (!_jsReady)
+        {
+            return;
+        }
+
+        try
+        {
+            await JS.InvokeVoidAsync("zwLiveLogs.scrollToBottom", _root).ConfigureAwait(false);
+        }
+#pragma warning disable CA1031 // Best-effort: a failed scroll (disconnected circuit, teardown) must not throw.
+        catch (Exception)
+        {
+            // Ignore — the tail resumes on the next tick.
+        }
+#pragma warning restore CA1031
     }
 
     // The on-screen tail after the stdout/stderr toggles and the text filter (LogLineFilter is unit-tested directly).
