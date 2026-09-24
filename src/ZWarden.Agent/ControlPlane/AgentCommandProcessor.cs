@@ -28,7 +28,7 @@ namespace ZWarden.Agent.ControlPlane;
 /// transport-free, so it is unit tested without a live connection; the connection wires it to the
 /// <see cref="AgentHubProtocol.ReceiveCommand"/> channel.
 /// </summary>
-public sealed class AgentCommandProcessor
+public sealed partial class AgentCommandProcessor
 {
     private readonly TimeProvider _timeProvider;
     private readonly IContainerRuntime _containerRuntime;
@@ -48,6 +48,7 @@ public sealed class AgentCommandProcessor
     private readonly IHostDiagnosticsGatherer _hostDiagnostics;
     private readonly IServerDiagnosticsGatherer _serverDiagnostics;
     private readonly AgentOptions _options;
+    private readonly ILogger<AgentCommandProcessor> _logger;
     private readonly ConcurrentDictionary<OperationId, byte> _handled = new();
 
     public AgentCommandProcessor(
@@ -68,7 +69,8 @@ public sealed class AgentCommandProcessor
         IModDiscovery modDiscovery,
         IHostDiagnosticsGatherer hostDiagnostics,
         IServerDiagnosticsGatherer serverDiagnostics,
-        IOptions<AgentOptions> options)
+        IOptions<AgentOptions> options,
+        ILogger<AgentCommandProcessor> logger)
     {
         ArgumentNullException.ThrowIfNull(timeProvider);
         ArgumentNullException.ThrowIfNull(containerRuntime);
@@ -88,6 +90,7 @@ public sealed class AgentCommandProcessor
         ArgumentNullException.ThrowIfNull(hostDiagnostics);
         ArgumentNullException.ThrowIfNull(serverDiagnostics);
         ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(logger);
         _timeProvider = timeProvider;
         _containerRuntime = containerRuntime;
         _hostDirectories = hostDirectories;
@@ -106,6 +109,7 @@ public sealed class AgentCommandProcessor
         _hostDiagnostics = hostDiagnostics;
         _serverDiagnostics = serverDiagnostics;
         _options = options.Value;
+        _logger = logger;
     }
 
     /// <summary>
@@ -423,6 +427,7 @@ public sealed class AgentCommandProcessor
                     .ConfigureAwait(false);
                 // A drift refusal (ADR 0011) and any other failure are both a failed Operation whose non-secret
                 // reason the operator reads; only a write that applied carries the recorded revision.
+                LogConfigWriteOutcome(configServerId, operationId, apply.File, "surgical", config.Succeeded, config.ChangedCount, config.FailureReason);
                 return config.Succeeded
                     ? await ConfigAppliedAsync(configServerId, operationId, apply.File, config, cancellationToken).ConfigureAwait(false)
                     : Completed(OperationOutcome.Failed, config.FailureReason, operationId, configServerId);
@@ -454,6 +459,7 @@ public sealed class AgentCommandProcessor
                 ConfigApplyOutcome rawOutcome = await _configWriter
                     .ApplyRawAsync(rawServerId, raw.File, raw.BaselineHash, rawContent, cancellationToken)
                     .ConfigureAwait(false);
+                LogConfigWriteOutcome(rawServerId, operationId, raw.File, "raw", rawOutcome.Succeeded, rawOutcome.ChangedCount, rawOutcome.FailureReason);
                 return rawOutcome.Succeeded
                     ? await ConfigAppliedAsync(rawServerId, operationId, raw.File, rawOutcome, cancellationToken).ConfigureAwait(false)
                     : Completed(OperationOutcome.Failed, rawOutcome.FailureReason, operationId, rawServerId);
@@ -654,11 +660,43 @@ public sealed class AgentCommandProcessor
             }
         }
 
+        if (reload.Outcome != ConfigReloadOutcome.NotAttempted)
+        {
+            LogConfigReload(serverId, operationId, reload.Outcome, reload.Detail ?? string.Empty);
+        }
+
         return Completed(
             OperationOutcome.Succeeded, failureReason: null, operationId, serverId,
             config: new ConfigApplyResult(
                 file, outcome.SnapshotHash!, outcome.CanonicalSnapshot!, outcome.ChangedCount, reload.Outcome, reload.Detail));
     }
+
+    // One structured line per configuration write outcome (#226), so a failed apply is diagnosable from the Agent's
+    // own log, not only from the Operation's failure reason. The reason is the writer's non-secret text.
+    private void LogConfigWriteOutcome(
+        ServerId serverId, OperationId operationId, PzConfigFile file, string mode, bool succeeded, int changed, string? reason)
+    {
+        if (succeeded)
+        {
+            LogConfigWritten(serverId, operationId, file, mode, changed);
+        }
+        else
+        {
+            LogConfigWriteFailed(serverId, operationId, file, mode, reason ?? "unknown");
+        }
+    }
+
+    [LoggerMessage(Level = LogLevel.Information,
+        Message = "Configuration write ({Mode}) applied to {File} for server {ServerId} (operation {OperationId}): {ChangedCount} value(s) changed")]
+    private partial void LogConfigWritten(ServerId serverId, OperationId operationId, PzConfigFile file, string mode, int changedCount);
+
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "Configuration write ({Mode}) to {File} for server {ServerId} (operation {OperationId}) was not applied: {Reason}")]
+    private partial void LogConfigWriteFailed(ServerId serverId, OperationId operationId, PzConfigFile file, string mode, string reason);
+
+    [LoggerMessage(Level = LogLevel.Information,
+        Message = "Live config reload for server {ServerId} (operation {OperationId}): {Outcome} {Detail}")]
+    private partial void LogConfigReload(ServerId serverId, OperationId operationId, ConfigReloadOutcome outcome, string detail);
 
     private Envelope<OperationCompleted> Completed(
         OperationOutcome outcome,
