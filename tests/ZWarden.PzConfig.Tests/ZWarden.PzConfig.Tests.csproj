@@ -6,7 +6,8 @@
     half: the INI and Lua edit backings (surgical, BOM-less), the value-level diff, the canonical
     snapshot + hash and the restore plan (F20b) - all against hand-written synthetic fixtures that mirror
     the shapes measured in docs/research/pz-lua-config.md. No PZ-derived artefact is committed (F12
-    testing rule; ADR 0010 §6.5) - the fixtures are ZWarden's. MTP test app; LangVersion pinned (ADR 0002
+    testing rule; ADR 0010 §6.5) - the fixtures are ZWarden's, including the full-key B42-shaped files under
+    Fixtures/ (#227), which mirror only the game's key set, value shapes and stated ranges. MTP test app; LangVersion pinned (ADR 0002
     item 6).
   -->
   <PropertyGroup>
@@ -15,11 +16,15 @@
     <IsTestProject>true</IsTestProject>
     <LangVersion>14.0</LangVersion>
     <!-- Silent-drop floor (ADR 0002). Update when tests are added or removed. -->
-    <TestingPlatformCommandLineArguments>--minimum-expected-tests 149</TestingPlatformCommandLineArguments>
+    <TestingPlatformCommandLineArguments>--minimum-expected-tests 191</TestingPlatformCommandLineArguments>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="TUnit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="Fixtures\**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
