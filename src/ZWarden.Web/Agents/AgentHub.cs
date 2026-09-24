@@ -15,6 +15,7 @@ using ZWarden.Contracts.Protocol.Messages;
 using ZWarden.Domain.Audit;
 using ZWarden.Domain.Ids;
 using ZWarden.Infrastructure.Agents;
+using ZWarden.Infrastructure.Configuration;
 using ZWarden.Web.Diagnostics;
 using ZWarden.Web.Observability;
 using ZWarden.Web.Servers;
@@ -426,6 +427,25 @@ public sealed partial class AgentHub : Hub
                 await _configRevisions.RecordAsync(
                     configServerId, config.File, config.CanonicalSnapshot, config.SnapshotHash, Context.ConnectionAborted)
                     .ConfigureAwait(false);
+
+                // Whether the change is live (#225): the Operation's result line says so, and an attempted INI reload
+                // is audited. The Agent's detail is untrusted display text (bounded by the status-line cap).
+                if (ConfigReloadText.Describe(config) is { } summary)
+                {
+                    await _operations.ApplyProgressAsync(operationId, 100, summary, Context.ConnectionAborted)
+                        .ConfigureAwait(false);
+                }
+
+                if (config.Reload is ConfigReloadOutcome.Reloaded or ConfigReloadOutcome.Failed or ConfigReloadOutcome.NotRunning)
+                {
+                    await _audit.WriteAsync(
+                        new AuditEntry(
+                            ConfigurationAuditActions.LiveReload,
+                            config.Reload == ConfigReloadOutcome.Failed ? AuditOutcome.Failed : AuditOutcome.Succeeded,
+                            ServerId: configServerId,
+                            Detail: ConfigReloadText.Describe(config)),
+                        Context.ConnectionAborted).ConfigureAwait(false);
+                }
             }
 
             // A successful mod discovery carries the Workshop-and-mod inventory the Agent observed on disk (F21);

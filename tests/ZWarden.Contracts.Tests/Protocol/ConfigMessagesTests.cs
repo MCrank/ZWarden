@@ -100,4 +100,45 @@ public class ConfigMessagesTests
 
         await Assert.That(back.Payload.Config).IsNull();
     }
+
+    [Test]
+    public async Task OperationCompleted_round_trips_a_config_live_reload_outcome()
+    {
+        // #225: the Agent reports whether an INI write was made live with reloadoptions, and why not when it was not.
+        Envelope<OperationCompleted> original = Envelope.Create(
+            new OperationCompleted(
+                OperationOutcome.Succeeded,
+                Config: new ConfigApplyResult(
+                    PzConfigFile.Ini, "h", "[]", 1, ConfigReloadOutcome.Failed, "RCON is disabled on this server.")),
+            At,
+            serverId: ServerId.New(),
+            operationId: OperationId.New());
+
+        string json = ProtocolJson.Serialize(original);
+        Envelope<OperationCompleted> back = ProtocolJson.Deserialize<OperationCompleted>(json);
+
+        await Assert.That(json).Contains("\"Failed\"");
+        await Assert.That(back.Payload.Config!.Reload).IsEqualTo(ConfigReloadOutcome.Failed);
+        await Assert.That(back.Payload.Config!.ReloadDetail).IsEqualTo("RCON is disabled on this server.");
+    }
+
+    [Test]
+    public async Task A_config_result_from_an_agent_without_reload_reporting_reads_as_not_attempted()
+    {
+        // Additive (#225): a completion serialized without the reload fields still deserializes, defaulting them.
+        Envelope<OperationCompleted> original = Envelope.Create(
+            new OperationCompleted(
+                OperationOutcome.Succeeded, Config: new ConfigApplyResult(PzConfigFile.Ini, "h", "[]", 1)),
+            At,
+            operationId: OperationId.New());
+        string json = ProtocolJson.Serialize(original)
+            .Replace(",\"reload\":\"NotAttempted\"", string.Empty, StringComparison.OrdinalIgnoreCase)
+            .Replace(",\"Reload\":\"NotAttempted\"", string.Empty, StringComparison.Ordinal);
+
+        Envelope<OperationCompleted> back = ProtocolJson.Deserialize<OperationCompleted>(json);
+
+        await Assert.That(json).DoesNotContain("NotAttempted");
+        await Assert.That(back.Payload.Config!.Reload).IsEqualTo(ConfigReloadOutcome.NotAttempted);
+        await Assert.That(back.Payload.Config!.ReloadDetail).IsNull();
+    }
 }

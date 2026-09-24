@@ -14,6 +14,7 @@ using ZWarden.Agent.ServerConfig;
 using ZWarden.Agent.SteamCmd;
 using ZWarden.Contracts.Protocol;
 using ZWarden.Contracts.Protocol.Messages;
+using ZWarden.Domain.Configuration;
 using ZWarden.Domain.Ids;
 
 namespace ZWarden.Agent.ControlPlane;
@@ -42,6 +43,7 @@ public sealed class AgentCommandProcessor
     private readonly IConsoleAdministration _console;
     private readonly IServerConfigWriter _configWriter;
     private readonly IServerConfigRawEditStaging _rawStaging;
+    private readonly IServerConfigReloader _configReloader;
     private readonly IModDiscovery _modDiscovery;
     private readonly IHostDiagnosticsGatherer _hostDiagnostics;
     private readonly IServerDiagnosticsGatherer _serverDiagnostics;
@@ -62,6 +64,7 @@ public sealed class AgentCommandProcessor
         IConsoleAdministration console,
         IServerConfigWriter configWriter,
         IServerConfigRawEditStaging rawStaging,
+        IServerConfigReloader configReloader,
         IModDiscovery modDiscovery,
         IHostDiagnosticsGatherer hostDiagnostics,
         IServerDiagnosticsGatherer serverDiagnostics,
@@ -80,6 +83,7 @@ public sealed class AgentCommandProcessor
         ArgumentNullException.ThrowIfNull(console);
         ArgumentNullException.ThrowIfNull(configWriter);
         ArgumentNullException.ThrowIfNull(rawStaging);
+        ArgumentNullException.ThrowIfNull(configReloader);
         ArgumentNullException.ThrowIfNull(modDiscovery);
         ArgumentNullException.ThrowIfNull(hostDiagnostics);
         ArgumentNullException.ThrowIfNull(serverDiagnostics);
@@ -97,6 +101,7 @@ public sealed class AgentCommandProcessor
         _console = console;
         _configWriter = configWriter;
         _rawStaging = rawStaging;
+        _configReloader = configReloader;
         _modDiscovery = modDiscovery;
         _hostDiagnostics = hostDiagnostics;
         _serverDiagnostics = serverDiagnostics;
@@ -419,9 +424,7 @@ public sealed class AgentCommandProcessor
                 // A drift refusal (ADR 0011) and any other failure are both a failed Operation whose non-secret
                 // reason the operator reads; only a write that applied carries the recorded revision.
                 return config.Succeeded
-                    ? Completed(
-                        OperationOutcome.Succeeded, failureReason: null, operationId, configServerId,
-                        config: new ConfigApplyResult(apply.File, config.SnapshotHash!, config.CanonicalSnapshot!, config.ChangedCount))
+                    ? await ConfigAppliedAsync(configServerId, operationId, apply.File, config, cancellationToken).ConfigureAwait(false)
                     : Completed(OperationOutcome.Failed, config.FailureReason, operationId, configServerId);
 
             case ConfigApplyRaw raw:
@@ -452,9 +455,7 @@ public sealed class AgentCommandProcessor
                     .ApplyRawAsync(rawServerId, raw.File, raw.BaselineHash, rawContent, cancellationToken)
                     .ConfigureAwait(false);
                 return rawOutcome.Succeeded
-                    ? Completed(
-                        OperationOutcome.Succeeded, failureReason: null, operationId, rawServerId,
-                        config: new ConfigApplyResult(raw.File, rawOutcome.SnapshotHash!, rawOutcome.CanonicalSnapshot!, rawOutcome.ChangedCount))
+                    ? await ConfigAppliedAsync(rawServerId, operationId, raw.File, rawOutcome, cancellationToken).ConfigureAwait(false)
                     : Completed(OperationOutcome.Failed, rawOutcome.FailureReason, operationId, rawServerId);
 
             default:
@@ -623,6 +624,40 @@ public sealed class AgentCommandProcessor
         {
             return Completed(OperationOutcome.Failed, ex.Message, operationId, serverId);
         }
+    }
+
+    /// <summary>
+    /// Completes a successful configuration write (surgical or raw). An INI write that changed something is then made
+    /// live with RCON <c>reloadoptions</c> (#225) — best-effort: the write stands whatever the reload does, and the
+    /// outcome rides the result so the operator knows whether the change is live or waits for a restart. The revision
+    /// is the writer's post-write snapshot, not a re-read after PZ rewrites the INI on reload; the two hold the same
+    /// values, and revisions are value-hashed (ADR 0011).
+    /// </summary>
+    private async Task<Envelope<OperationCompleted>> ConfigAppliedAsync(
+        ServerId serverId,
+        OperationId operationId,
+        PzConfigFile file,
+        ConfigApplyOutcome outcome,
+        CancellationToken cancellationToken)
+    {
+        ConfigReloadAttempt reload = new(ConfigReloadOutcome.NotAttempted);
+        if (file == PzConfigFile.Ini && outcome.ChangedCount > 0)
+        {
+            try
+            {
+                reload = await _configReloader.ReloadAsync(serverId, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // The file is already written: still report the write (so its revision is recorded), not a hang.
+                reload = new ConfigReloadAttempt(ConfigReloadOutcome.Failed, "The live reload was interrupted.");
+            }
+        }
+
+        return Completed(
+            OperationOutcome.Succeeded, failureReason: null, operationId, serverId,
+            config: new ConfigApplyResult(
+                file, outcome.SnapshotHash!, outcome.CanonicalSnapshot!, outcome.ChangedCount, reload.Outcome, reload.Detail));
     }
 
     private Envelope<OperationCompleted> Completed(

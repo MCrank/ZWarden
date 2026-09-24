@@ -139,6 +139,9 @@ public static class HostingExtensions
         // The read-only schema validator (F29 config diagnostics): reports Error/Info findings without mutating.
         services.AddSingleton<IPzConfigValidator, PzConfigValidator>();
         services.AddSingleton<IServerConfigWriter, ServerConfigWriter>();
+        // Live INI reload (#225): after a successful INI write on a running server, RCON reloadoptions makes it live.
+        // Best-effort — the write stands whatever the reload does.
+        services.AddSingleton<IServerConfigReloader, ServerConfigReloader>();
         // Live configuration read (F20c, ADR 0041): the read sibling of the writer, over the same parser seam. The
         // reply rides the non-Operation read channel, wired in the control-plane connection below.
         services.AddSingleton<IServerConfigReader, ServerConfigReader>();
