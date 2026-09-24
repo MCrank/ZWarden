@@ -115,36 +115,100 @@ public class DiagnosticsGathererTests
     }
 
     [Test]
-    public async Task Server_gather_passes_the_game_port_when_the_published_udp_port_is_reachable()
+    public async Task Server_gather_passes_the_game_port_with_the_host_port_when_the_server_answers_a_steam_query()
     {
+        // #231: a genuine Pass — published on the host (with the port players dial) and PZ answering A2S_INFO.
         ServerId server = ServerId.New();
-        FakeContainerRuntime runtime = new()
-        {
-            Observed = [new ObservedContainer(server, new ContainerHealthFacts(
-                "running", "healthy", 0, false, [new PublishedPort(27015, 16261, "udp")],
-                new Dictionary<string, string>(StringComparer.Ordinal) { ["zwarden"] = "172.22.0.3" }))],
-        };
-        ServerDiagnosticsResult result = await ServerGatherer(runtime: runtime, portReachable: true)
+        ServerDiagnosticsResult result = await ServerGatherer(
+                runtime: Running(server, [new PublishedPort(16265, 16261, "udp")]),
+                steamQuery: new SteamQueryResult(SteamQueryStatus.Answered, new SteamServerInfo("ZBeta", "Muldraugh, KY", 2, 32)))
             .GatherAsync(server, CancellationToken.None);
 
-        await Assert.That(Check(result.Checks, DiagnosticDomain.GamePort).Status).IsEqualTo(ProbeStatus.Pass);
+        DiagnosticCheckFact port = Check(result.Checks, DiagnosticDomain.GamePort);
+        await Assert.That(port.Status).IsEqualTo(ProbeStatus.Pass);
+        await Assert.That(port.Summary).Contains("host port 16265/udp");
+        await Assert.That(port.Summary).Contains("\"ZBeta\"");
+        await Assert.That(port.Detail!).Contains("internet");
     }
 
     [Test]
-    public async Task Server_gather_skips_the_game_port_when_the_container_has_no_zwarden_network_address()
+    public async Task Server_gather_passes_the_game_port_with_a_note_when_the_query_goes_unanswered()
     {
-        // #199: with no resolvable address on the ZWarden network, the probe is skipped rather than falsely failed.
+        // No answer is not proof of anything (Steam queries off, still starting); nothing refused the port.
+        ServerId server = ServerId.New();
+        ServerDiagnosticsResult result = await ServerGatherer(
+                runtime: Running(server, [new PublishedPort(16261, 16261, "udp")]),
+                steamQuery: new SteamQueryResult(SteamQueryStatus.NoAnswer))
+            .GatherAsync(server, CancellationToken.None);
+
+        DiagnosticCheckFact port = Check(result.Checks, DiagnosticDomain.GamePort);
+        await Assert.That(port.Status).IsEqualTo(ProbeStatus.Pass);
+        await Assert.That(port.Summary).Contains("did not answer a Steam query");
+    }
+
+    [Test]
+    public async Task Server_gather_fails_the_game_port_when_the_port_is_refused()
+    {
+        ServerId server = ServerId.New();
+        ServerDiagnosticsResult result = await ServerGatherer(
+                runtime: Running(server, [new PublishedPort(16261, 16261, "udp")]),
+                steamQuery: new SteamQueryResult(SteamQueryStatus.Refused))
+            .GatherAsync(server, CancellationToken.None);
+
+        await Assert.That(Check(result.Checks, DiagnosticDomain.GamePort).Status).IsEqualTo(ProbeStatus.Fail);
+    }
+
+    [Test]
+    public async Task Server_gather_fails_the_game_port_when_it_is_not_published()
+    {
+        // Only RCON-ish or TCP bindings: players have nothing to connect to.
+        ServerId server = ServerId.New();
+        ServerDiagnosticsResult result = await ServerGatherer(
+                runtime: Running(server, [new PublishedPort(16261, 16261, "tcp")]),
+                steamQuery: new SteamQueryResult(SteamQueryStatus.Answered, new SteamServerInfo("x", "y", 0, 1)))
+            .GatherAsync(server, CancellationToken.None);
+
+        DiagnosticCheckFact port = Check(result.Checks, DiagnosticDomain.GamePort);
+        await Assert.That(port.Status).IsEqualTo(ProbeStatus.Fail);
+        await Assert.That(port.Summary).Contains("not published");
+    }
+
+    [Test]
+    public async Task Server_gather_fails_the_game_port_when_the_container_is_stopped()
+    {
+        ServerId server = ServerId.New();
+        FakeContainerRuntime runtime = new()
+        {
+            Observed = [new ObservedContainer(server, new ContainerHealthFacts("exited", null, 0, false, [], NetworkAddresses: null))],
+        };
+        ServerDiagnosticsResult result = await ServerGatherer(runtime: runtime).GatherAsync(server, CancellationToken.None);
+
+        await Assert.That(Check(result.Checks, DiagnosticDomain.GamePort).Status).IsEqualTo(ProbeStatus.Fail);
+    }
+
+    [Test]
+    public async Task Server_gather_warns_when_the_port_is_published_but_the_container_has_no_zwarden_network_address()
+    {
+        // #199: with no resolvable address the listening half cannot run — the published half is still reported.
         ServerId server = ServerId.New();
         FakeContainerRuntime runtime = new()
         {
             Observed = [new ObservedContainer(server, new ContainerHealthFacts(
-                "running", "healthy", 0, false, [new PublishedPort(27015, 16261, "udp")], NetworkAddresses: null))],
+                "running", "healthy", 0, false, [new PublishedPort(16265, 16261, "udp")], NetworkAddresses: null))],
         };
-        ServerDiagnosticsResult result = await ServerGatherer(runtime: runtime, portReachable: false)
-            .GatherAsync(server, CancellationToken.None);
+        ServerDiagnosticsResult result = await ServerGatherer(runtime: runtime).GatherAsync(server, CancellationToken.None);
 
-        await Assert.That(Check(result.Checks, DiagnosticDomain.GamePort).Status).IsEqualTo(ProbeStatus.Skipped);
+        DiagnosticCheckFact port = Check(result.Checks, DiagnosticDomain.GamePort);
+        await Assert.That(port.Status).IsEqualTo(ProbeStatus.Warn);
+        await Assert.That(port.Summary).Contains("host port 16265/udp");
     }
+
+    private static FakeContainerRuntime Running(ServerId server, IReadOnlyList<PublishedPort> ports) => new()
+    {
+        Observed = [new ObservedContainer(server, new ContainerHealthFacts(
+            "running", "healthy", 0, false, ports,
+            new Dictionary<string, string>(StringComparer.Ordinal) { ["zwarden"] = "172.22.0.3" }))],
+    };
 
     [Test]
     public async Task Server_gather_reports_an_installed_build_as_a_pass_and_a_missing_one_as_a_warn()
@@ -213,13 +277,13 @@ public class DiagnosticsGathererTests
     private static ServerDiagnosticsGatherer ServerGatherer(
         RconHealthResult? rcon = null,
         FakeContainerRuntime? runtime = null,
-        bool? portReachable = null,
+        SteamQueryResult? steamQuery = null,
         string? buildId = null,
         IModDiscovery? mods = null) =>
         new(
             new StubRcon(rcon ?? new RconHealthResult(true, true, null)),
             runtime ?? new FakeContainerRuntime(),
-            new StubNetwork(portReachable),
+            new StubSteamQuery(steamQuery ?? new SteamQueryResult(SteamQueryStatus.NoAnswer)),
             new StubDisk(Healthy),
             new StubInstallPaths(buildId),
             mods ?? new FakeModDiscovery(),
@@ -240,10 +304,10 @@ public class DiagnosticsGathererTests
             Task.FromResult(result);
     }
 
-    private sealed class StubNetwork(bool? reachable) : INetworkReachabilityProbe
+    private sealed class StubSteamQuery(SteamQueryResult result) : ISteamQueryProbe
     {
-        public Task<bool?> IsUdpPortReachableAsync(string host, int port, CancellationToken cancellationToken) =>
-            Task.FromResult(reachable);
+        public Task<SteamQueryResult> QueryInfoAsync(string host, int port, CancellationToken cancellationToken) =>
+            Task.FromResult(result);
     }
 
     private sealed class StubDisk(DiskUsage usage) : IServerDiskUsageReader

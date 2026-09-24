@@ -33,9 +33,13 @@ public sealed class ServerDiagnosticsGatherer : IServerDiagnosticsGatherer
     private const string ConfigDirName = "Server";
     private const string ServerName = "servertest";
 
+    // What no host-side check can prove (#231): the path from the internet to the published port.
+    private const string InternetCaveat =
+        "Reachability from the internet (router port-forward, NAT, firewall) cannot be verified from the host.";
+
     private readonly IRconHealthProbe _rcon;
     private readonly IContainerRuntime _runtime;
-    private readonly INetworkReachabilityProbe _network;
+    private readonly ISteamQueryProbe _steamQuery;
     private readonly IServerDiskUsageReader _disk;
     private readonly IServerInstallPaths _installPaths;
     private readonly IModDiscovery _mods;
@@ -46,7 +50,7 @@ public sealed class ServerDiagnosticsGatherer : IServerDiagnosticsGatherer
     public ServerDiagnosticsGatherer(
         IRconHealthProbe rcon,
         IContainerRuntime runtime,
-        INetworkReachabilityProbe network,
+        ISteamQueryProbe steamQuery,
         IServerDiskUsageReader disk,
         IServerInstallPaths installPaths,
         IModDiscovery mods,
@@ -56,7 +60,7 @@ public sealed class ServerDiagnosticsGatherer : IServerDiagnosticsGatherer
     {
         ArgumentNullException.ThrowIfNull(rcon);
         ArgumentNullException.ThrowIfNull(runtime);
-        ArgumentNullException.ThrowIfNull(network);
+        ArgumentNullException.ThrowIfNull(steamQuery);
         ArgumentNullException.ThrowIfNull(disk);
         ArgumentNullException.ThrowIfNull(installPaths);
         ArgumentNullException.ThrowIfNull(mods);
@@ -65,7 +69,7 @@ public sealed class ServerDiagnosticsGatherer : IServerDiagnosticsGatherer
         ArgumentNullException.ThrowIfNull(options);
         _rcon = rcon;
         _runtime = runtime;
-        _network = network;
+        _steamQuery = steamQuery;
         _disk = disk;
         _installPaths = installPaths;
         _mods = mods;
@@ -180,22 +184,50 @@ public sealed class ServerDiagnosticsGatherer : IServerDiagnosticsGatherer
                 return Fact(DiagnosticDomain.GamePort, ProbeStatus.Skipped, "No running container for this server on this host.");
             }
 
-            // #199: reach the game port at the container's own ZWarden-network IP, not the Agent's loopback — the
-            // published host port is not on a containerized Agent's loopback. No address on the network → skip.
+            // #231: two facts instead of one inconclusive probe. A bare UDP probe can only ever prove a port closed,
+            // so it was Warn on every healthy server. First: is the game port published on the host, and where?
+            int gamePort = PortStrideAllocator.BaseGamePort;
+            if (!string.Equals(container.Facts.State, "running", StringComparison.OrdinalIgnoreCase))
+            {
+                return Fact(DiagnosticDomain.GamePort, ProbeStatus.Fail,
+                    $"The server's container is {container.Facts.State}, so its game port is closed.");
+            }
+
+            PublishedPort? published = container.Facts.Ports
+                .Where(p => p.ContainerPort == gamePort && string.Equals(p.Protocol, "udp", StringComparison.OrdinalIgnoreCase))
+                .Select(p => (PublishedPort?)p)
+                .FirstOrDefault();
+            if (published is not { } binding)
+            {
+                return Fact(DiagnosticDomain.GamePort, ProbeStatus.Fail,
+                    $"The game port {gamePort}/udp is not published on the host, so players cannot connect.");
+            }
+
+            string where = $"Published on host port {binding.HostPort}/udp (container {gamePort})";
+
+            // Second: is PZ listening? Ask it over the ZWarden network (#199: the container's own IP, not the Agent's
+            // loopback) with a Steam A2S_INFO query, which B42 answers on the game port.
             if (container.Facts.NetworkAddresses is not { } addresses
                 || !addresses.TryGetValue(_options.NetworkName, out string? address)
                 || string.IsNullOrEmpty(address))
             {
-                return Fact(DiagnosticDomain.GamePort, ProbeStatus.Skipped, "The server has no address on the ZWarden network.");
+                return Fact(DiagnosticDomain.GamePort, ProbeStatus.Warn,
+                    $"{where}; whether the server is listening could not be checked (no address on the ZWarden network).",
+                    InternetCaveat);
             }
 
-            int gamePort = PortStrideAllocator.BaseGamePort;
-            bool? reachable = await _network.IsUdpPortReachableAsync(address, gamePort, cancellationToken).ConfigureAwait(false);
-            return reachable switch
+            SteamQueryResult query = await _steamQuery.QueryInfoAsync(address, gamePort, cancellationToken).ConfigureAwait(false);
+            return query switch
             {
-                true => Fact(DiagnosticDomain.GamePort, ProbeStatus.Pass, $"The game UDP port {gamePort} is reachable."),
-                false => Fact(DiagnosticDomain.GamePort, ProbeStatus.Fail, $"The game UDP port {gamePort} is unreachable."),
-                null => Fact(DiagnosticDomain.GamePort, ProbeStatus.Warn, $"The game UDP port {gamePort} reachability is unknown."),
+                { Status: SteamQueryStatus.Answered, Info: { } info } => Fact(DiagnosticDomain.GamePort, ProbeStatus.Pass,
+                    $"{where} and answering Steam queries as \"{info.Name}\" ({info.Map}, {info.Players}/{info.MaxPlayers} players).",
+                    InternetCaveat),
+                { Status: SteamQueryStatus.Refused } => Fact(DiagnosticDomain.GamePort, ProbeStatus.Fail,
+                    $"{where}, but nothing is listening on it inside the container.", InternetCaveat),
+                _ => Fact(DiagnosticDomain.GamePort, ProbeStatus.Pass,
+                    $"{where}. The server did not answer a Steam query but did not refuse the port either "
+                    + "(it may still be starting, or run without Steam).",
+                    InternetCaveat),
             };
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
