@@ -16,6 +16,25 @@ public static class AgentHubProtocol
     public const string Path = "/agent/hub";
 
     /// <summary>
+    /// The budget every <b>streamed</b> Agent→Web message stays under (#232): a message the Agent sends
+    /// repeatedly and whose size follows untrusted input — log batches (split by the Agent's emitter) and config
+    /// content chunks (<see cref="ServerConfigContentCodec"/>, base64 under 24,000 chars). Kept well below
+    /// <see cref="MaxReceiveMessageBytes"/> so a burst never approaches the hub's limit.
+    /// </summary>
+    public const int StreamedMessageBudgetBytes = 24 * 1024;
+
+    /// <summary>
+    /// The hub's receive limit for one Agent→Web message (#232) — an explicit, bounded backstop over SignalR's 32 KB
+    /// default, which closed the Agent's connection on a large log burst (the connection "flap"). Streamed messages
+    /// stay under <see cref="StreamedMessageBudgetBytes"/>. One-shot results are bounded by their producers, and the
+    /// largest sets this size: a console reply is capped at 64K characters, which the protocol JSON can escape to ~384 KB
+    /// (six bytes per HTML-sensitive or non-ASCII character). Config snapshots, rosters (≤256 entries), diagnostics
+    /// (≤512-char details) and mod inventories (≤256-char fields) sit far below it in practice. A message over this
+    /// still closes the connection, and both sides log the close at Warning.
+    /// </summary>
+    public const long MaxReceiveMessageBytes = 1024 * 1024;
+
+    /// <summary>
     /// The Agent's opening call: it sends its <c>Envelope&lt;AgentHello&gt;</c> and receives a
     /// <see cref="ProtocolNegotiationResult"/>. On an incompatible result the server aborts the connection
     /// (ADR 0020); negotiation is this first exchange, not the handshake.

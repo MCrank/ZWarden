@@ -256,14 +256,24 @@ public sealed partial class SignalRControlPlaneConnection : IAgentControlPlaneCo
         // A terminal close (auto-reconnect gave up, or an explicit stop) tears down every follow, so none lingers
         // against a dead connection; a transient drop keeps them — auto-reconnect reuses this same connection and
         // the emitter resumes once it is Connected again.
-        connection.Closed += async _ =>
+        connection.Closed += async error =>
         {
+            // #232: a close is never silent — the reason (e.g. the hub refusing an oversized message) is logged.
+            LogConnectionClosed(error);
             await _logSubscriptions.StopAllAsync().ConfigureAwait(false);
+        };
+
+        // #232: a transient drop (auto-reconnect is about to retry) and its recovery are logged, with the cause.
+        connection.Reconnecting += error =>
+        {
+            LogConnectionReconnecting(error);
+            return Task.CompletedTask;
         };
 
         // On every reconnect, re-negotiate and resend the snapshot so the server never trusts stale state.
         connection.Reconnected += async _ =>
         {
+            LogConnectionReconnected();
             try
             {
                 await HelloAndSnapshotAsync(agentId, CancellationToken.None).ConfigureAwait(false);
@@ -330,6 +340,15 @@ public sealed partial class SignalRControlPlaneConnection : IAgentControlPlaneCo
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Control-plane protocol negotiation was rejected: {Reason}")]
     private partial void LogIncompatible(string reason);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The control-plane connection closed.")]
+    private partial void LogConnectionClosed(Exception? ex);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The control-plane connection dropped; reconnecting.")]
+    private partial void LogConnectionReconnecting(Exception? ex);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "The control-plane connection was re-established.")]
+    private partial void LogConnectionReconnected();
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Re-handshake after reconnect failed; will retry on the next reconnect.")]
     private partial void LogReconnectHandshakeFailed(Exception ex);

@@ -217,6 +217,41 @@ public class AgentHubIntegrationTests
     }
 
     [Test]
+    public async Task A_log_batch_over_signalrs_default_32kb_limit_does_not_drop_the_connection()
+    {
+        // #232 repro: a PZ start/stop burst (≈125 lines per 250 ms flush) with HTML-sensitive characters that the
+        // protocol's JSON escapes to six bytes each serializes well past SignalR's default 32 KB receive limit, and the
+        // hub used to close the Agent's connection on it — the live "flapping". The hub's explicit backstop must
+        // carry it (the Agent also splits batches under its budget).
+        await using ZWardenWebAppFactory factory = new();
+        (AgentId agentId, string credential) = await SeedTrustedAgentAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, agentId);
+        await using HubConnection connection = BuildConnection(factory, credential);
+
+        await connection.StartAsync();
+        await connection.InvokeAsync<ProtocolNegotiationResult>(
+            AgentHubProtocol.Hello, Hello(agentId, ProtocolVersion.Current));
+
+        string burst = string.Concat(Enumerable.Repeat("LOG  : General <Server> 'loading' cell & chunk > ", 6));
+        List<ServerLogLine> lines = [.. Enumerable.Range(1, 125)
+            .Select(i => new ServerLogLine(i, Now, LogStreamKind.Stdout, $"{i}: {burst}", Truncated: false))];
+        var envelope = Envelope.Create(new ServerLogBatch(serverId, lines, Dropped: false), Now, agentId, serverId);
+        await Assert.That(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(envelope, ProtocolJson.Options).Length)
+            .IsGreaterThan(32 * 1024);
+
+        await connection.InvokeAsync(AgentHubProtocol.ServerLogBatch, envelope);
+
+        // Still connected and still serving: a follow-up invocation round-trips.
+        await connection.InvokeAsync<ProtocolNegotiationResult>(
+            AgentHubProtocol.Hello, Hello(agentId, ProtocolVersion.Current));
+        await Assert.That(connection.State).IsEqualTo(HubConnectionState.Connected);
+        IServerLogBuffer buffer = factory.Services.GetRequiredService<IServerLogBuffer>();
+        await WaitUntilAsync(() => Task.FromResult(buffer.Read(serverId, agentId, 0).Lines.Count == 125));
+
+        await connection.StopAsync();
+    }
+
+    [Test]
     public async Task A_live_config_read_round_trips_from_request_to_reassembled_view()
     {
         await using ZWardenWebAppFactory factory = new();
