@@ -92,6 +92,7 @@ public static class HostingExtensions
         // Health and observability (F16): the pure rollup's inputs — the best-effort network probe and the
         // observer that inspects owned containers and evaluates their hierarchical health.
         services.AddSingleton<INetworkReachabilityProbe, UdpNetworkReachabilityProbe>();
+        services.AddSingleton<ISteamQueryProbe, SteamQueryProbe>();    // #231: the diagnostics game-port "listening" check
         services.AddSingleton<IServerHealthObserver, ServerHealthObserver>();
         services.AddSingleton<IServerDiskUsageReader, ServerDiskUsageReader>();
         services.AddSingleton<IServerMetricsSampler, ServerMetricsSampler>();
