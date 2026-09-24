@@ -448,6 +448,47 @@ public sealed class ServerDetailPageTests
     }
 
     [Test]
+    public async Task The_configuration_editor_shows_managed_ports_read_only_with_the_host_port_players_use()
+    {
+        // #228: the INI ports are ZWarden's; the file's 16261 is the container port, not what players dial on a
+        // second server, so the row names the host port from the container's published binding.
+        ConfigDocumentView view = new(
+            ConfigReadOutcome.Read,
+            [
+                new ConfigSection("Details",
+                [
+                    new ConfigSettingView("DefaultPort", "Game port", ConfigEditKind.Number, ConfigValueShape.Whole, "16261",
+                        0, 65535, "16261", null, [], KnownToSchema: true, Managed: true),
+                    new ConfigSettingView("MaxPlayers", "Max players", ConfigEditKind.Number, ConfigValueShape.Whole, "16",
+                        1, 254, "32", null, [], KnownToSchema: true),
+                ]),
+                new ConfigSection("RCON",
+                [
+                    new ConfigSettingView("RCONPort", "RCON port", ConfigEditKind.Number, ConfigValueShape.Whole, "27015",
+                        0, 65535, "27015", null, [], KnownToSchema: true, Managed: true),
+                ]),
+            ],
+            "DefaultPort=16261\nMaxPlayers=16\nRCONPort=27015\n", "hash-ini", [], null);
+        await using ZWardenWebAppFactory factory = new()
+        {
+            ConfigureTestServicesHook = s => s.AddSingleton<IServerConfigurationReader>(new FakeConfigReader(view)),
+        };
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "ports", gamePort: 16265, queryPort: 16266);
+
+        string html = await (await client.GetAsync(
+            new Uri($"/servers/{serverId}?section=config&file=Ini", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        await Assert.That(html).Contains("name=\"_editorForm.Rows[0].Value\" value=\"16261\" readonly");
+        await Assert.That(html).DoesNotContain("name=\"_editorForm.Rows[1].Value\" value=\"16\" readonly");
+        await Assert.That(html).Contains("name=\"_editorForm.Rows[2].Value\" value=\"27015\" readonly");
+        string text = System.Net.WebUtility.HtmlDecode(html);
+        await Assert.That(text).Contains("Managed by ZWarden · players connect on host port 16265");
+        await Assert.That(text).Contains("Managed by ZWarden · used by ZWarden's RCON connection, not published on the host");
+        client.Dispose();
+    }
+
+    [Test]
     public async Task The_configuration_editor_leaves_an_untouched_damaged_boolean_alone_on_an_unrelated_apply()
     {
         // #223 recovery: applying an unrelated change must not write the damaged boolean (it used to post "" and,
@@ -1512,11 +1553,17 @@ public sealed class ServerDetailPageTests
         return client;
     }
 
-    private static async Task<ServerId> SeedServerAsync(ZWardenWebAppFactory factory, string name)
+    private static async Task<ServerId> SeedServerAsync(
+        ZWardenWebAppFactory factory, string name, int? gamePort = null, int? queryPort = null)
     {
         using IServiceScope scope = factory.Services.CreateScope();
         ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
         Server server = Server.Import(AgentId.New(), ServerId.New(), name, DateTimeOffset.UtcNow);
+        if (gamePort is int game && queryPort is int query)
+        {
+            server.RecordContainer($"pz-{name}", game, query);
+        }
+
         db.Set<Server>().Add(server);
         await db.SaveChangesAsync();
         return server.Id;

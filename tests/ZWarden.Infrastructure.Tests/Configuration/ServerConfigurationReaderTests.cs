@@ -152,6 +152,12 @@ public class ServerConfigurationReaderTests
             await Assert.That(timer.Default).IsEqualTo("2");
             await Assert.That(timer.Tooltip!).DoesNotContain("Min:");
 
+            // #228: the ports are flagged ZWarden-managed so the editor renders them read-only; nothing else is.
+            await Assert.That(iniByPath["DefaultPort"].Managed).IsTrue();
+            await Assert.That(iniByPath["UDPPort"].Managed).IsTrue();
+            await Assert.That(iniByPath["RCONPort"].Managed).IsTrue();
+            await Assert.That(ini.Sections.SelectMany(s => s.Settings).Count(s => s.Managed)).IsEqualTo(3);
+
             // Sections follow the in-game order, with the mod's own table after every vanilla section.
             await Assert.That(ini.Sections[0].Name).IsEqualTo("Details");
             await Assert.That(sandbox.Sections[0].Name).IsEqualTo("Zombies");

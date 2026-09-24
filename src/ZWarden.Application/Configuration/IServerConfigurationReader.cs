@@ -80,7 +80,8 @@ public sealed record ConfigDiagnosticView(string Message, int? Line, int? Column
 /// <paramref name="Kind"/>), the widget-relevant <paramref name="Shape"/> and numeric range/default from the schema,
 /// a resolved <paramref name="Tooltip"/> (schema description, else the sanitized file comment, else none), and any
 /// enum <paramref name="Options"/>. <paramref name="KnownToSchema"/> is false for a key ZWarden has no schema entry
-/// for — it is shown in the "Other" section with a comment-only tooltip and passes through unvalidated (F20a).
+/// for — it passes through unvalidated (F20a). <paramref name="Managed"/> marks a key ZWarden owns (the INI ports,
+/// #228): the editor shows it read-only and every apply path refuses a change to it.
 /// </summary>
 public sealed record ConfigSettingView(
     string Path,
@@ -93,7 +94,8 @@ public sealed record ConfigSettingView(
     string? Default,
     string? Tooltip,
     IReadOnlyList<ConfigOption> Options,
-    bool KnownToSchema);
+    bool KnownToSchema,
+    bool Managed = false);
 
 /// <summary>One named group of settings in a <see cref="ConfigDocumentView"/> (F20c) — a schema-authored section, or
 /// the catch-all "Other" for keys with no schema entry.</summary>

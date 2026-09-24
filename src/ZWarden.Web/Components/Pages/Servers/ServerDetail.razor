@@ -997,6 +997,10 @@ else
                                             {
                                                 <span class="zw-cfg-path">@setting.Path</span>
                                             }
+                                            @if (setting.Managed)
+                                            {
+                                                <span class="zw-cfg-path" data-cfg-managed>@ManagedNote(setting.Path)</span>
+                                            }
                                         </div>
                                         @if (HasHelp(setting))
                                         {
@@ -1028,7 +1032,14 @@ else
                                     </div>
 
                                     <div class="zw-cfg-control">
-                                        @if (setting.Options.Count > 0)
+                                        @if (setting.Managed)
+                                        {
+                                            @* #228: ZWarden-managed (the INI ports). Read-only, so it posts its unchanged value and
+                                               never becomes an edit; every apply path refuses a change regardless. *@
+                                            <input type="text" class="zw-cfg-input" name="_editorForm.Rows[@i].Value"
+                                                   value="@row.Value" readonly aria-readonly="true" data-cfg-value />
+                                        }
+                                        else if (setting.Options.Count > 0)
                                         {
                                             <select class="zw-cfg-input" name="_editorForm.Rows[@i].Value" data-cfg-value>
                                                 @foreach (ConfigOption opt in setting.Options)
@@ -2598,6 +2609,16 @@ else
             _ => "The action could not be completed.",
         };
     }
+
+    // #228: why a managed port row is read-only, naming the host port players actually dial. The file holds the
+    // container's fixed port; the host side is the stride-allocated binding recorded on the Server.
+    private string ManagedNote(string path) => path switch
+    {
+        "DefaultPort" when _server?.GamePort is { } game => $"Managed by ZWarden · players connect on host port {game}",
+        "UDPPort" when _server?.QueryPort is { } query => $"Managed by ZWarden · published on host port {query}",
+        "RCONPort" => "Managed by ZWarden · used by ZWarden's RCON connection, not published on the host",
+        _ => "Managed by ZWarden · the server's container depends on it",
+    };
 
     private string Ports() => _server is { GamePort: { } game, QueryPort: { } query }
         ? $"{game} / {query} udp"
