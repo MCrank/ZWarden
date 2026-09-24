@@ -48,6 +48,7 @@ public class AgentCommandProcessorTests
         IConsoleAdministration? console = null,
         IServerConfigWriter? configWriter = null,
         IServerConfigRawEditStaging? rawStaging = null,
+        IServerConfigReloader? configReloader = null,
         IModDiscovery? modDiscovery = null,
         IHostDiagnosticsGatherer? hostDiagnostics = null,
         IServerDiagnosticsGatherer? serverDiagnostics = null)
@@ -85,6 +86,7 @@ public class AgentCommandProcessorTests
             console ?? new FakeConsoleAdministration(),
             configWriter ?? new FakeServerConfigWriter(),
             rawStaging ?? new ServerConfigRawEditStaging(TimeProvider.System),
+            configReloader ?? new FakeServerConfigReloader(),
             modDiscovery ?? new FakeModDiscovery(),
             hostDiagnostics ?? new FakeHostDiagnosticsGatherer(),
             serverDiagnostics ?? new FakeServerDiagnosticsGatherer(),
@@ -902,6 +904,93 @@ public class AgentCommandProcessorTests
         await Assert.That(writer.LastFile).IsEqualTo(PzConfigFile.SandboxVars);
         await Assert.That(writer.LastBaselineHash).IsEqualTo("base-1");
         await Assert.That(writer.LastEdits!.Count).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task An_ini_config_apply_that_changed_values_is_reloaded_live_and_reports_it()
+    {
+        // #225: after a successful INI write the Agent sends reloadoptions (best-effort) and reports the outcome.
+        var writer = new FakeServerConfigWriter { Outcome = ConfigApplyOutcome.Applied("[[\"MaxPlayers\",\"s:20\"]]", "hash-ini", 1) };
+        var reloader = new FakeServerConfigReloader();
+        ServerId server = ServerId.New();
+        var command = new ConfigApply(PzConfigFile.Ini, "base-1", [new ConfigValueEdit("MaxPlayers", ConfigValueKind.Number, "20")]);
+
+        Envelope<OperationCompleted>? reply = await Processor(configWriter: writer, configReloader: reloader)
+            .ProcessAsync(Json(command, OperationId.New(), server), CancellationToken.None);
+
+        await Assert.That(reply!.Payload.Outcome).IsEqualTo(OperationOutcome.Succeeded);
+        await Assert.That(reloader.LastServerId).IsEqualTo(server);
+        await Assert.That(reply.Payload.Config!.Reload).IsEqualTo(ConfigReloadOutcome.Reloaded);
+        // The revision is the writer's post-write snapshot, independent of the reload.
+        await Assert.That(reply.Payload.Config!.SnapshotHash).IsEqualTo("hash-ini");
+    }
+
+    [Test]
+    public async Task A_failed_live_reload_still_succeeds_the_write_and_carries_the_reason()
+    {
+        var writer = new FakeServerConfigWriter { Outcome = ConfigApplyOutcome.Applied("[]", "hash-ini", 1) };
+        var reloader = new FakeServerConfigReloader { Attempt = new(ConfigReloadOutcome.Failed, "RCON is disabled on this server.") };
+        var command = new ConfigApply(PzConfigFile.Ini, "base-1", [new ConfigValueEdit("MaxPlayers", ConfigValueKind.Number, "20")]);
+
+        Envelope<OperationCompleted>? reply = await Processor(configWriter: writer, configReloader: reloader)
+            .ProcessAsync(Json(command, OperationId.New(), ServerId.New()), CancellationToken.None);
+
+        await Assert.That(reply!.Payload.Outcome).IsEqualTo(OperationOutcome.Succeeded);
+        await Assert.That(reply.Payload.Config!.Reload).IsEqualTo(ConfigReloadOutcome.Failed);
+        await Assert.That(reply.Payload.Config!.ReloadDetail).IsEqualTo("RCON is disabled on this server.");
+    }
+
+    [Test]
+    public async Task An_interrupted_live_reload_still_reports_the_write()
+    {
+        var writer = new FakeServerConfigWriter { Outcome = ConfigApplyOutcome.Applied("[]", "hash-ini", 1) };
+        var reloader = new FakeServerConfigReloader { Throw = new OperationCanceledException() };
+        var command = new ConfigApply(PzConfigFile.Ini, "base-1", [new ConfigValueEdit("MaxPlayers", ConfigValueKind.Number, "20")]);
+
+        Envelope<OperationCompleted>? reply = await Processor(configWriter: writer, configReloader: reloader)
+            .ProcessAsync(Json(command, OperationId.New(), ServerId.New()), CancellationToken.None);
+
+        await Assert.That(reply!.Payload.Outcome).IsEqualTo(OperationOutcome.Succeeded);
+        await Assert.That(reply.Payload.Config!.Reload).IsEqualTo(ConfigReloadOutcome.Failed);
+    }
+
+    [Test]
+    public async Task A_sandbox_apply_or_an_unchanged_ini_apply_is_not_reloaded()
+    {
+        // reloadoptions does not cover SandboxVars, and an INI write that changed nothing has nothing to reload.
+        var reloader = new FakeServerConfigReloader();
+
+        Envelope<OperationCompleted>? sandbox = await Processor(
+                configWriter: new FakeServerConfigWriter { Outcome = ConfigApplyOutcome.Applied("[]", "h", 1) },
+                configReloader: reloader)
+            .ProcessAsync(Json(new ConfigApply(PzConfigFile.SandboxVars, "b", []), OperationId.New(), ServerId.New()), CancellationToken.None);
+        Envelope<OperationCompleted>? unchanged = await Processor(
+                configWriter: new FakeServerConfigWriter { Outcome = ConfigApplyOutcome.Applied("[]", "h", 0) },
+                configReloader: reloader)
+            .ProcessAsync(Json(new ConfigApply(PzConfigFile.Ini, "b", []), OperationId.New(), ServerId.New()), CancellationToken.None);
+
+        await Assert.That(reloader.CallCount).IsEqualTo(0);
+        await Assert.That(sandbox!.Payload.Config!.Reload).IsEqualTo(ConfigReloadOutcome.NotAttempted);
+        await Assert.That(unchanged!.Payload.Config!.Reload).IsEqualTo(ConfigReloadOutcome.NotAttempted);
+    }
+
+    [Test]
+    public async Task A_raw_ini_apply_is_reloaded_live()
+    {
+        var staging = new ServerConfigRawEditStaging(TimeProvider.System);
+        foreach (ServerConfigRawEditChunk chunk in ServerConfigRawEditCodec.Encode("corr-ini", "MaxPlayers=20\n"))
+        {
+            staging.Accept(chunk);
+        }
+
+        var writer = new FakeServerConfigWriter { RawOutcome = ConfigApplyOutcome.Applied("[]", "hash-raw", 1) };
+        var reloader = new FakeServerConfigReloader();
+
+        Envelope<OperationCompleted>? reply = await Processor(configWriter: writer, rawStaging: staging, configReloader: reloader)
+            .ProcessAsync(Json(new ConfigApplyRaw(PzConfigFile.Ini, "b", "corr-ini"), OperationId.New(), ServerId.New()), CancellationToken.None);
+
+        await Assert.That(reloader.CallCount).IsEqualTo(1);
+        await Assert.That(reply!.Payload.Config!.Reload).IsEqualTo(ConfigReloadOutcome.Reloaded);
     }
 
     [Test]

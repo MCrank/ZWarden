@@ -230,7 +230,37 @@ public sealed record ConsoleCommandResult(string Output, bool Truncated);
 /// <param name="CanonicalSnapshot">The order-normalized serialization of the file's scalar values after the
 /// write (from <c>PzValueSnapshot</c>) — the "state" the recorded revision holds.</param>
 /// <param name="ChangedCount">How many edits the Agent applied to the file.</param>
-public sealed record ConfigApplyResult(PzConfigFile File, string SnapshotHash, string CanonicalSnapshot, int ChangedCount);
+/// <param name="Reload">Whether the write was made live with RCON <c>reloadoptions</c> (#225) — attempted only for an
+/// INI write that changed something. Best-effort: the write stands whatever this says. Absent from an older Agent,
+/// so it defaults to <see cref="ConfigReloadOutcome.NotAttempted"/>.</param>
+/// <param name="ReloadDetail">Why a reload did not happen, when it did not — the Agent's non-secret reason or PZ's
+/// reply (untrusted, bounded); otherwise <c>null</c>.</param>
+public sealed record ConfigApplyResult(
+    PzConfigFile File,
+    string SnapshotHash,
+    string CanonicalSnapshot,
+    int ChangedCount,
+    ConfigReloadOutcome Reload = ConfigReloadOutcome.NotAttempted,
+    string? ReloadDetail = null);
+
+/// <summary>What became of the live reload after a successful configuration write (#225). Only the INI reloads live
+/// (<c>reloadoptions</c> does not cover sandbox or spawn files), and only while the server is running; a write that is
+/// not reloaded takes effect on the next start, which re-reads the file.</summary>
+public enum ConfigReloadOutcome
+{
+    /// <summary>No reload was attempted: not the INI, or nothing changed.</summary>
+    NotAttempted,
+
+    /// <summary>PZ confirmed <c>reloadoptions</c>; the change is live.</summary>
+    Reloaded,
+
+    /// <summary>The server is not running, so the change takes effect when it next starts.</summary>
+    NotRunning,
+
+    /// <summary>The server was running but the reload did not succeed (RCON disabled, unreachable, or refused); the
+    /// change takes effect on the next restart.</summary>
+    Failed,
+}
 
 /// <summary>What a successful <see cref="DiscoverMods"/> Operation observed (F21): the Workshop items installed on
 /// disk and the mods each provides, the Server's own <c>WorkshopItems=</c>/<c>Mods=</c> lists as read through the

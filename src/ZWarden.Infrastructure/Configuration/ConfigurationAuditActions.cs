@@ -18,4 +18,10 @@ public static class ConfigurationAuditActions
     /// to the Agent and a mutating raw-apply Operation was enqueued — a distinct, riskier surface than a surgical
     /// apply, so it carries its own audit action.</summary>
     public const string RawApplied = "Server.ConfigurationRawApplied";
+
+    /// <summary>What became of the live reload after the Agent wrote an INI change (#225): Succeeded when RCON
+    /// <c>reloadoptions</c> made it live, Failed when the server was running but the reload did not succeed. Written by
+    /// the control plane on the Operation's completion; the detail says whether the change is live or waits for a
+    /// restart.</summary>
+    public const string LiveReload = "Server.ConfigurationLiveReload";
 }

@@ -8,6 +8,7 @@ using ZWarden.Application.Operations;
 using ZWarden.Contracts.Protocol;
 using ZWarden.Contracts.Protocol.Messages;
 using ZWarden.Domain.Agents;
+using ZWarden.Domain.Audit;
 using ZWarden.Domain.Configuration;
 using ZWarden.Domain.Ids;
 using ZWarden.Domain.Operations;
@@ -167,6 +168,65 @@ public class OperationDispatchIntegrationTests
             await Assert.That(latest).IsNotNull();
             await Assert.That(latest!.SnapshotHash).IsEqualTo("new-hash-42");
             await Assert.That(latest.CanonicalSnapshot).IsEqualTo("[[\"Zombies\",\"n:1:i\"]]");
+            // #225: a sandbox write is never reloaded live — the result line says it waits for a restart.
+            await Assert.That(final!.StatusLine!).Contains("next restart");
+        }
+
+        await connection.StopAsync();
+    }
+
+    [Test]
+    public async Task A_live_reloaded_ini_apply_says_so_on_the_operation_and_in_the_audit_trail()
+    {
+        // #225: the Agent reports the INI write was made live with reloadoptions; the control plane records that as
+        // the Operation's result line and a Server.ConfigurationLiveReload audit entry.
+        await using ZWardenWebAppFactory factory = new();
+        (AgentId agentId, string credential) = await SeedTrustedAgentAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, agentId);
+        await using HubConnection connection = BuildConnection(factory, credential);
+
+        connection.On<string>(AgentHubProtocol.ReceiveCommand, async json =>
+        {
+            Envelope<IProtocolMessage> command = ProtocolJson.Deserialize(json);
+            if (command.Payload is ConfigApply apply && command.OperationId is { } operationId)
+            {
+                Envelope<OperationCompleted> reply = Envelope.Create(
+                    new OperationCompleted(
+                        OperationOutcome.Succeeded,
+                        Config: new ConfigApplyResult(
+                            apply.File, "ini-hash", "[[\"MaxPlayers\",\"s:20\"]]", 1, ConfigReloadOutcome.Reloaded)),
+                    Now, serverId: command.ServerId, operationId: operationId);
+                await connection.SendAsync(AgentHubProtocol.OperationCompleted, reply);
+            }
+        });
+
+        await connection.StartAsync();
+        await connection.InvokeAsync<ProtocolNegotiationResult>(AgentHubProtocol.Hello, Hello(agentId));
+
+        OperationId operationId;
+        using (IServiceScope scope = factory.Services.CreateScope())
+        {
+            IOperationCoordinator coordinator = scope.ServiceProvider.GetRequiredService<IOperationCoordinator>();
+            string payload = new ConfigApplyPayload(
+                PzConfigFile.Ini, "base-1", [new ConfigApplyEdit("MaxPlayers", ConfigEditKind.Number, "20")]).ToJson();
+            Operation op = await coordinator.EnqueueAsync(
+                new EnqueueOperationRequest(
+                    agentId, OperationKind.ConfigApply, IsMutating: true, "e2e-config-reload",
+                    ServerId: serverId, CommandPayload: payload));
+            operationId = op.Id;
+        }
+
+        Operation? final = await WaitForStateAsync(factory, operationId, OperationState.Succeeded);
+        await Assert.That(final!.StatusLine).IsEqualTo("Applied and reloaded live on the running server.");
+
+        using (IServiceScope scope = factory.Services.CreateScope())
+        {
+            ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
+            AuditEvent? reload = db.Set<AuditEvent>().AsEnumerable()
+                .FirstOrDefault(e => e.Action == ConfigurationAuditActions.LiveReload && e.ServerId == serverId);
+            await Assert.That(reload).IsNotNull();
+            await Assert.That(reload!.Outcome).IsEqualTo(AuditOutcome.Succeeded);
+            await Assert.That(reload.Detail!).Contains("reloaded live");
         }
 
         await connection.StopAsync();

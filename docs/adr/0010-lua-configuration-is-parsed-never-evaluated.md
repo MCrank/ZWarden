@@ -137,5 +137,12 @@ be written against.
 - **`reloadoptions` does not extend to sandbox vars** (`SandboxOptions` is absent from
   `ReloadOptionsCommand`'s entire reference set), so sandbox editing is inherently
   edit-then-restart. `<name>.ini` remains live-reloadable.
+
+  > **Amendment ([#225](https://github.com/MCrank/ZWarden/issues/225)):** verified live on B42 42.20.4. RCON
+  > `reloadoptions` makes an INI edit live (`showoptions` shows it) and PZ rewrites the INI right away, keeping
+  > the value. A safe stop writes neither file, and a start rewrites both keeping the on-disk values, so PZ
+  > never overwrites an edit. The Agent now sends `reloadoptions` after every successful INI write that changed
+  > something, best-effort (the write stands whatever the reload does), and reports whether the change is live.
+  > The full table is in `docs/research/pz-lua-config.md` §3.5.
 - Line endings are tolerated by the game and normalised to the host separator, so they are not
   something ZWarden must preserve — but the BOM absolutely is something ZWarden must never write.

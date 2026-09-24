@@ -448,6 +448,20 @@ which applies the change and calls `saveServerLuaFile`. **A third party can chan
 under ZWarden's feet**, which bears on PRD 33: a revision chain must be able to detect
 out-of-band change (an mtime/parsed-value fingerprint), not assume ZWarden is the sole author.
 
+**Verified on B42 42.20.4 (live spike on the DMZ deployment, 2026-09-24,
+[#225](https://github.com/MCrank/ZWarden/issues/225)):**
+
+| Action | `<name>.ini` | `<name>_SandboxVars.lua` |
+|---|---|---|
+| Edit while **stopped**, then start | Rewritten on start **keeping the on-disk values**. Only the random `Default:` in the ResetID comment changes. | Rewritten on start, content identical |
+| Edit while **running**, then safe stop (F15 FIFO save/quit) | **Not written on stop**; the edit survives | **Not written on stop**; the edit survives |
+| Edit while running, then RCON `reloadoptions` | Reply `Options reloaded`; `showoptions` shows the new value **live**; PZ rewrites the file right away, keeping the edit | Not affected |
+| Stop after `reloadoptions` | Not written; the value persists | n/a |
+
+So PZ never overwrites an edit, and there is no data-loss path on stop. ZWarden sends `reloadoptions`
+after every successful INI write that changed something, best-effort: the write stands whatever the
+reload does. Revisions stay value-hashed, so PZ's comment churn on the rewrite is not drift (ADR 0011).
+
 ### 3.6 Therefore: round-tripping is a nicety, atomicity is a requirement
 
 Stated plainly, because the ticket asks:

@@ -837,7 +837,7 @@ else
                 editing. Change as many settings as you like, then <span class="font-medium">Apply changes</span> —
                 each changed value is re-checked against the live file and refused if it changed outside ZWarden
                 (fail-closed), then written byte-for-byte and recorded as a revision. Adding or removing keys is not
-                supported — the game owns the key set. <span class="font-mono">.ini</span> changes reload live;
+                supported — the game owns the key set. <span class="font-mono">.ini</span> changes are reloaded live on a running server (mods and ports still need a restart);
                 sandbox and spawn changes take effect on the next restart.
             </p>
 
@@ -2352,7 +2352,7 @@ else
     private string ConfigFileHref(PzConfigFile file) => $"/servers/{Id}?section=config&file={file}";
 
     private static string RestartHint(PzConfigFile file) => file == PzConfigFile.Ini
-        ? "servertest.ini changes reload live on the running server."
+        ? "servertest.ini changes are reloaded live on a running server (RCON reloadoptions); if that is not possible they take effect on the next restart. Mods and ports always need a restart."
         : "Sandbox and spawn changes take effect on the next server restart.";
 
     // The lower-cased haystack the client-side search filters each row against (label + dotted path).
