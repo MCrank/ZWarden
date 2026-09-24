@@ -59,6 +59,12 @@ public sealed record PzSchemaEntry
     /// </summary>
     public string? Description { get; init; }
 
+    /// <summary>
+    /// True when ZWarden owns this key's value and no operator edit may change it (#228) — the INI ports, which the
+    /// container template and the Agent's RCON connection depend on.
+    /// </summary>
+    public bool Managed { get; init; }
+
     /// <summary>Returns a copy with display metadata set; leaves type, range and default untouched.</summary>
     public PzSchemaEntry Display(string section, string label, string? description = null) =>
         this with { Section = section, Label = label, Description = description };
@@ -69,6 +75,9 @@ public sealed record PzSchemaEntry
     /// </summary>
     public PzSchemaEntry Named(string label, string? description = null) =>
         this with { Label = label, Description = description };
+
+    /// <summary>Returns a copy marked <see cref="Managed"/>.</summary>
+    public PzSchemaEntry ManagedByZWarden() => this with { Managed = true };
 
     /// <summary>A boolean rule.</summary>
     public static PzSchemaEntry Bool(string path, bool? @default = null) =>
@@ -115,6 +124,10 @@ public sealed class PzSchema
 
     /// <summary>Looks up the rule for a dotted path.</summary>
     public bool TryGet(string path, out PzSchemaEntry entry) => _entries.TryGetValue(path, out entry!);
+
+    /// <summary>True when the key's value is owned by ZWarden and no edit may change it (#228).</summary>
+    public static bool IsManaged(PzConfigKind kind, string path) =>
+        For(kind) is { } schema && schema.TryGet(path, out PzSchemaEntry entry) && entry.Managed;
 
     /// <summary>Every rule in the schema.</summary>
     public IEnumerable<PzSchemaEntry> Entries => _entries.Values;
@@ -167,9 +180,9 @@ public sealed class PzSchema
         PzSchemaEntry.Text("PublicName").Named("Public name"),
         PzSchemaEntry.Text("ServerWelcomeMessage").Named("Welcome message"),
         PzSchemaEntry.Whole("MaxPlayers", min: 1, max: 254, @default: 32).Named("Max players"),
-        PzSchemaEntry.Whole("DefaultPort", min: 0, max: 65535, @default: 16261).Named("Game port"),
-        PzSchemaEntry.Whole("UDPPort", min: 0, max: 65535, @default: 16262).Named("UDP port"),
-        PzSchemaEntry.Whole("RCONPort", min: 0, max: 65535, @default: 27015).Named("RCON port"),
+        PzSchemaEntry.Whole("DefaultPort", min: 0, max: 65535, @default: 16261).Named("Game port").ManagedByZWarden(),
+        PzSchemaEntry.Whole("UDPPort", min: 0, max: 65535, @default: 16262).Named("UDP port").ManagedByZWarden(),
+        PzSchemaEntry.Whole("RCONPort", min: 0, max: 65535, @default: 27015).Named("RCON port").ManagedByZWarden(),
         PzSchemaEntry.Text("RCONPassword").Named("RCON password"),
     ]);
 }

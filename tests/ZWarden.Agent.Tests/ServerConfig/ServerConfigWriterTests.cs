@@ -268,6 +268,80 @@ public class ServerConfigWriterTests
         }
     }
 
+    private const string IniWithPorts = "DefaultPort=16261\nUDPPort=16262\nRCONPort=27015\nMaxPlayers=16\n";
+
+    [Test]
+    public async Task ApplyAsync_refuses_an_edit_to_a_zwarden_managed_port_and_leaves_the_file_untouched()
+    {
+        // #228 defense in depth: the control plane already refuses this; the Agent never writes it either.
+        string root = NewRoot();
+        try
+        {
+            ServerId server = ServerId.New();
+            string path = Seed(root, server, "servertest.ini", IniWithPorts);
+
+            ConfigApplyOutcome outcome = await WriterOver(root).ApplyAsync(
+                server, PzConfigFile.Ini, BaselineHash(PzConfigKind.Ini, IniWithPorts),
+                [
+                    new ConfigValueEdit("MaxPlayers", ConfigValueKind.Number, "20"),
+                    new ConfigValueEdit("RCONPort", ConfigValueKind.Number, "27016"),
+                ],
+                CancellationToken.None);
+
+            await Assert.That(outcome.Succeeded).IsFalse();
+            await Assert.That(outcome.FailureReason!).Contains("RCONPort");
+            await Assert.That(await File.ReadAllTextAsync(path)).IsEqualTo(IniWithPorts);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Test]
+    public async Task ApplyRawAsync_refuses_text_that_changes_a_zwarden_managed_port()
+    {
+        string root = NewRoot();
+        try
+        {
+            ServerId server = ServerId.New();
+            string path = Seed(root, server, "servertest.ini", IniWithPorts);
+            string edited = IniWithPorts.Replace("DefaultPort=16261", "DefaultPort=16300", StringComparison.Ordinal);
+
+            ConfigApplyOutcome outcome = await WriterOver(root).ApplyRawAsync(
+                server, PzConfigFile.Ini, BaselineHash(PzConfigKind.Ini, IniWithPorts), edited, CancellationToken.None);
+
+            await Assert.That(outcome.Succeeded).IsFalse();
+            await Assert.That(outcome.FailureReason!).Contains("DefaultPort");
+            await Assert.That(await File.ReadAllTextAsync(path)).IsEqualTo(IniWithPorts);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Test]
+    public async Task ApplyRawAsync_allows_text_that_keeps_the_managed_ports()
+    {
+        string root = NewRoot();
+        try
+        {
+            ServerId server = ServerId.New();
+            Seed(root, server, "servertest.ini", IniWithPorts);
+            string edited = IniWithPorts.Replace("MaxPlayers=16", "MaxPlayers=24", StringComparison.Ordinal);
+
+            ConfigApplyOutcome outcome = await WriterOver(root).ApplyRawAsync(
+                server, PzConfigFile.Ini, BaselineHash(PzConfigKind.Ini, IniWithPorts), edited, CancellationToken.None);
+
+            await Assert.That(outcome.Succeeded).IsTrue();
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
     [Test]
     public async Task ApplyRawAsync_refuses_text_that_does_not_parse_and_leaves_the_file_untouched()
     {

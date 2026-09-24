@@ -59,5 +59,8 @@ public sealed record PzConfigDiagnostic(
 
         /// <summary>A key ZWarden has no schema entry for; it is preserved and left unvalidated.</summary>
         public const string UnknownKey = "config.unknown-key";
+
+        /// <summary>An edit targeted a key ZWarden manages (the INI ports, #228); it is never applied.</summary>
+        public const string ManagedKey = "config.managed-key";
     }
 }
