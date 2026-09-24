@@ -160,4 +160,36 @@ public class PzConfigValidatorTests
 
         await Assert.That(diagnostics.Any(d => d.Code == PzConfigDiagnostic.Codes.Missing)).IsTrue();
     }
+
+    // #223: a single wire-form edit value is checked against the schema before it is enqueued, so an empty INI
+    // boolean (the "PVP=" bug) can never reach the file. Unknown keys stay unvalidated (ADR 0010).
+    [Test]
+    [Arguments(PzConfigKind.Ini, "PVP", "")]
+    [Arguments(PzConfigKind.Ini, "PVP", "yes")]
+    [Arguments(PzConfigKind.Ini, "MaxPlayers", "")]
+    [Arguments(PzConfigKind.Ini, "MaxPlayers", "12.5")]
+    [Arguments(PzConfigKind.Ini, "MaxPlayers", "500")]
+    [Arguments(PzConfigKind.SandboxVars, "Zombies", "abc")]
+    [Arguments(PzConfigKind.SandboxVars, "Map", "1")]
+    public async Task An_invalid_edit_value_for_a_known_key_is_rejected(PzConfigKind kind, string path, string value)
+    {
+        PzConfigDiagnostic? diagnostic = PzConfigValidator.ValidateEdit(kind, path, value);
+
+        await Assert.That(diagnostic).IsNotNull();
+        await Assert.That(diagnostic!.Severity).IsEqualTo(PzDiagnosticSeverity.Error);
+        await Assert.That(diagnostic.Message).Contains(path);
+    }
+
+    [Test]
+    [Arguments(PzConfigKind.Ini, "PVP", "false")]
+    [Arguments(PzConfigKind.Ini, "MaxPlayers", "16")]
+    [Arguments(PzConfigKind.Ini, "PublicName", "")]
+    [Arguments(PzConfigKind.Ini, "SomeUnknownKey", "")]
+    [Arguments(PzConfigKind.SandboxVars, "Zombies", "2")]
+    [Arguments(PzConfigKind.SandboxVars, "Map.AllowMiniMap", "true")]
+    [Arguments(PzConfigKind.SpawnRegions, "anything", "")]
+    public async Task A_valid_or_unknown_edit_value_is_accepted(PzConfigKind kind, string path, string value)
+    {
+        await Assert.That(PzConfigValidator.ValidateEdit(kind, path, value)).IsNull();
+    }
 }

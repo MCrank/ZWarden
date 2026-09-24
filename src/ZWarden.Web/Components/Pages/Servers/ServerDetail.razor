@@ -907,6 +907,10 @@ else
                                     <input type="hidden" name="_editorForm.Rows[@i].Path" value="@row.Path" />
                                     <input type="hidden" name="_editorForm.Rows[@i].Kind" value="@row.Kind" />
                                     <input type="hidden" name="_editorForm.Rows[@i].Original" value="@row.Original" />
+                                    @if (row.Toggle)
+                                    {
+                                        <input type="hidden" name="_editorForm.Rows[@i].Toggle" value="true" />
+                                    }
 
                                     <div class="zw-cfg-name">
                                         <span class="zw-cfg-changed-dot" aria-hidden="true">•</span>
@@ -956,7 +960,7 @@ else
                                                 }
                                                 @if (!setting.Options.Any(o => string.Equals(o.Value, row.Value, StringComparison.Ordinal)))
                                                 {
-                                                    <option value="@row.Value" selected>@row.Value</option>
+                                                    <option value="@row.Value" selected>@(string.IsNullOrEmpty(row.Value) ? "(empty)" : row.Value)</option>
                                                 }
                                             </select>
                                         }
@@ -2128,14 +2132,17 @@ else
         {
             foreach (ConfigSettingView setting in section.Settings)
             {
-                bool isBool = setting.Shape == ConfigValueShape.Boolean;
+                // Mirrors the markup: a choice list wins over the toggle, so only a Boolean with no options renders
+                // (and posts) the switch.
+                bool toggle = setting.Shape == ConfigValueShape.Boolean && setting.Options.Count == 0;
                 rows.Add(new ConfigEditorRow
                 {
                     Path = setting.Path,
                     Kind = setting.Kind.ToString(),
                     Original = setting.Value,
                     Value = setting.Value,
-                    Flag = isBool && string.Equals(setting.Value, "true", StringComparison.OrdinalIgnoreCase),
+                    Toggle = toggle,
+                    Flag = toggle && string.Equals(setting.Value, "true", StringComparison.Ordinal),
                 });
             }
         }
@@ -2163,8 +2170,10 @@ else
                 continue;
             }
 
+            // The posted value comes from the control the row rendered, not its Kind (#223): a toggle posts Flag, every
+            // other control (including a boolean offered as a choice list) posts Value.
             ConfigEditKind kind = ParseKind(row.Kind);
-            string current = kind == ConfigEditKind.Bool ? (row.Flag ? "true" : "false") : row.Value ?? string.Empty;
+            string current = row.Toggle ? (row.Flag ? "true" : "false") : row.Value ?? string.Empty;
             if (!string.Equals(current, row.Original ?? string.Empty, StringComparison.Ordinal))
             {
                 edits.Add(new ConfigApplyEdit(row.Path!, kind, current));
@@ -2653,6 +2662,9 @@ else
 
         // The edited value for a boolean toggle (a checkbox posts nothing when off, binding to false).
         public bool Flag { get; set; }
+
+        // Whether this row rendered the boolean toggle (hidden), so the post reads Flag rather than Value (#223).
+        public bool Toggle { get; set; }
     }
 
     // The mod-discovery form carries no fields — its single Refresh button enqueues a discovery.

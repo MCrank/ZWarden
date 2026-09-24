@@ -259,6 +259,7 @@ public sealed class ServerDetailPageTests
             // Row 0 — PVP boolean, was true; its Flag is omitted (toggled off) so it must apply as false.
             ["_editorForm.Rows[0].Path"] = "PVP",
             ["_editorForm.Rows[0].Kind"] = "Bool",
+            ["_editorForm.Rows[0].Toggle"] = "true",
             ["_editorForm.Rows[0].Original"] = "true",
             // Row 1 — PublicName unchanged.
             ["_editorForm.Rows[1].Path"] = "PublicName",
@@ -295,6 +296,126 @@ public sealed class ServerDetailPageTests
     }
 
     [Test]
+    public async Task The_configuration_editor_offers_a_damaged_boolean_as_a_choice_and_only_toggles_post_flags()
+    {
+        // #223: a toggle row carries the hidden Toggle marker; a schema boolean already damaged to "" is a choice list
+        // with the empty value still selected, never an Off toggle.
+        await using ZWardenWebAppFactory factory = new()
+        {
+            ConfigureTestServicesHook = static s =>
+                s.AddSingleton<IServerConfigurationReader>(new FakeConfigReader(IniView())),
+        };
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "ini-render");
+
+        string html = await (await client.GetAsync(
+            new Uri($"/servers/{serverId}?section=config&file=Ini", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        await Assert.That(html).Contains("name=\"_editorForm.Rows[0].Toggle\"");
+        await Assert.That(html).DoesNotContain("name=\"_editorForm.Rows[1].Toggle\"");
+        await Assert.That(html).Contains("<select class=\"zw-cfg-input\" name=\"_editorForm.Rows[1].Value\"");
+        await Assert.That(html).Contains(">(empty)<");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task The_configuration_editor_leaves_an_untouched_damaged_boolean_alone_on_an_unrelated_apply()
+    {
+        // #223 recovery: applying an unrelated change must not write the damaged boolean (it used to post "" and,
+        // once typed as a toggle, would have posted "false").
+        await using ZWardenWebAppFactory factory = new()
+        {
+            ConfigureTestServicesHook = static s =>
+                s.AddSingleton<IServerConfigurationReader>(new FakeConfigReader(IniView())),
+        };
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "ini-unrelated");
+
+        Uri url = new($"/servers/{serverId}?section=config&file=Ini", UriKind.Relative);
+        string page = await (await client.GetAsync(url)).Content.ReadAsStringAsync();
+        Dictionary<string, string> form = IniEditorForm(page);
+        form["_editorForm.Rows[2].Value"] = "20";
+        HttpResponseMessage post = await client.PostAsync(url, new FormUrlEncodedContent(form));
+
+        await Assert.That((int)post.StatusCode).IsLessThan(400);
+        Operation? op = FirstOperation(factory, serverId, OperationKind.ConfigApply);
+        await Assert.That(op).IsNotNull();
+        await Assert.That(op!.CommandPayload).Contains("MaxPlayers");
+        await Assert.That(op.CommandPayload).DoesNotContain("PVP");
+        await Assert.That(op.CommandPayload).DoesNotContain("Open");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task The_configuration_editor_surfaces_a_schema_rejection_and_applies_nothing()
+    {
+        await using ZWardenWebAppFactory factory = new()
+        {
+            ConfigureTestServicesHook = static s =>
+                s.AddSingleton<IServerConfigurationReader>(new FakeConfigReader(IniView())),
+        };
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "ini-reject");
+
+        Uri url = new($"/servers/{serverId}?section=config&file=Ini", UriKind.Relative);
+        string page = await (await client.GetAsync(url)).Content.ReadAsStringAsync();
+        Dictionary<string, string> form = IniEditorForm(page);
+        form["_editorForm.Rows[2].Value"] = "5000"; // MaxPlayers is 1..100.
+        HttpResponseMessage post = await client.PostAsync(url, new FormUrlEncodedContent(form));
+        string html = await post.Content.ReadAsStringAsync();
+
+        await Assert.That(html).Contains("data-config-message");
+        await Assert.That(html).Contains("MaxPlayers");
+        await Assert.That(html).Contains("outside the allowed range");
+        await Assert.That(FirstOperation(factory, serverId, OperationKind.ConfigApply)).IsNull();
+        client.Dispose();
+    }
+
+    // The unchanged IniView form as the browser would post it: PVP toggle on, Open an untouched (empty) choice,
+    // MaxPlayers unchanged.
+    private static Dictionary<string, string> IniEditorForm(string page) => new(StringComparer.Ordinal)
+    {
+        ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
+        ["_handler"] = "config-editor",
+        ["_editorForm.File"] = "Ini",
+        ["_editorForm.BaselineHash"] = "hash-ini",
+        ["_editorForm.Target"] = "apply",
+        ["_editorForm.Rows[0].Path"] = "PVP",
+        ["_editorForm.Rows[0].Kind"] = "Bool",
+        ["_editorForm.Rows[0].Original"] = "true",
+        ["_editorForm.Rows[0].Toggle"] = "true",
+        ["_editorForm.Rows[0].Flag"] = "true",
+        ["_editorForm.Rows[1].Path"] = "Open",
+        ["_editorForm.Rows[1].Kind"] = "Bool",
+        ["_editorForm.Rows[1].Original"] = "",
+        ["_editorForm.Rows[1].Value"] = "",
+        ["_editorForm.Rows[2].Path"] = "MaxPlayers",
+        ["_editorForm.Rows[2].Kind"] = "Number",
+        ["_editorForm.Rows[2].Original"] = "16",
+        ["_editorForm.Rows[2].Value"] = "16",
+    };
+
+    // What the reader produces for an INI with PVP=true, a damaged Open= and MaxPlayers=16 (#223).
+    private static ConfigDocumentView IniView() => new(
+        ConfigReadOutcome.Read,
+        [
+            new ConfigSection("Access",
+            [
+                new ConfigSettingView("PVP", "PVP", ConfigEditKind.Bool, ConfigValueShape.Boolean, "true",
+                    null, null, "true", null, [], KnownToSchema: true),
+                new ConfigSettingView("Open", "Open server", ConfigEditKind.Bool, ConfigValueShape.Boolean, "",
+                    null, null, "true", null, [new ConfigOption("true", "On"), new ConfigOption("false", "Off")],
+                    KnownToSchema: true),
+                new ConfigSettingView("MaxPlayers", "Max players", ConfigEditKind.Number, ConfigValueShape.Whole, "16",
+                    1, 100, "32", null, [], KnownToSchema: true),
+            ]),
+        ],
+        "PVP=true\nOpen=\nMaxPlayers=16\n",
+        "hash-ini",
+        [],
+        null);
+
+    [Test]
     public async Task The_configuration_editor_refuses_and_shows_the_drift_banner_when_the_file_changed()
     {
         await using ZWardenWebAppFactory factory = new()
@@ -318,6 +439,7 @@ public sealed class ServerDetailPageTests
             ["_editorForm.Target"] = "apply",
             ["_editorForm.Rows[0].Path"] = "PVP",
             ["_editorForm.Rows[0].Kind"] = "Bool",
+            ["_editorForm.Rows[0].Toggle"] = "true",
             ["_editorForm.Rows[0].Original"] = "true",
             ["_editorForm.Rows[2].Path"] = "Zombies",
             ["_editorForm.Rows[2].Kind"] = "Number",

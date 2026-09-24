@@ -26,6 +26,9 @@ public sealed class ServerConfigurationReader : IServerConfigurationReader
 {
     private const string OtherSection = "Other";
 
+    // Key-name fragments marking an INI value as free text whatever it currently looks like (#223).
+    private static readonly string[] FreeTextKeyHints = ["Password", "Token", "Secret", "Name", "Message", "Description"];
+
     private readonly ServerRepository _servers;
     private readonly IPermissionChecker _permissions;
     private readonly IServerConfigReadChannel _channel;
@@ -100,14 +103,28 @@ public sealed class ServerConfigurationReader : IServerConfigurationReader
                 ? [.. help.Options.Select(o => new ConfigOption(o.Value, o.Label))]
                 : [];
 
+            ConfigEditKind kind = file == PzConfigFile.Ini
+                ? IniKindOf(setting.Path, setting.Value, schemaEntry?.Type)
+                : setting.Kind;
+            ConfigValueShape shape = ShapeOf(schemaEntry?.Type, kind, setting.Value);
+
+            // A boolean key whose current value is not a boolean (e.g. an INI already damaged to "PVP=", #223) is
+            // offered as an On/Off choice rather than a toggle: the choice keeps the current value selected, so
+            // it only changes when the operator picks one. A toggle would read it as Off and an unrelated apply
+            // would silently write false.
+            if (shape == ConfigValueShape.Boolean && options.Count == 0 && !IsBoolean(setting.Value))
+            {
+                options = [new ConfigOption("true", "On"), new ConfigOption("false", "Off")];
+            }
+
             string section = schemaEntry?.Section ?? OtherSection;
             string label = schemaEntry?.Label ?? setting.Path;
 
             var view = new ConfigSettingView(
                 setting.Path,
                 label,
-                setting.Kind,
-                ShapeOf(schemaEntry?.Type, setting.Kind, setting.Value),
+                kind,
+                shape,
                 setting.Value,
                 schemaEntry?.Min,
                 schemaEntry?.Max,
@@ -133,6 +150,58 @@ public sealed class ServerConfigurationReader : IServerConfigurationReader
         return new ConfigDocumentView(
             ConfigReadOutcome.Read, sections, transfer.RawText, transfer.BaselineHash,
             MapDiagnostics(transfer.Diagnostics), null);
+    }
+
+    // The INI has no value types, so the Agent reports every INI value as Text (#223). Re-type it for the editor:
+    // the schema's type when the key is known, else what the value reads as — a bare true/false is a boolean and an
+    // integer/decimal string a number (#227). Credential and free-text keys are never inferred, so a numeric
+    // password or a server named "true" stays a text box. The write side renders Bool/Number back to the same text.
+    private static ConfigEditKind IniKindOf(string path, string value, PzValueType? schemaType)
+    {
+        switch (schemaType)
+        {
+            case PzValueType.Boolean:
+                return ConfigEditKind.Bool;
+            case PzValueType.Whole or PzValueType.Number:
+                return ConfigEditKind.Number;
+            case PzValueType.Text or PzValueType.Table:
+                return ConfigEditKind.Text;
+            default:
+                break;
+        }
+
+        if (FreeTextKeyHints.Any(hint => path.Contains(hint, StringComparison.OrdinalIgnoreCase)))
+        {
+            return ConfigEditKind.Text;
+        }
+
+        if (IsBoolean(value))
+        {
+            return ConfigEditKind.Bool;
+        }
+
+        return IsIniNumber(value) ? ConfigEditKind.Number : ConfigEditKind.Text;
+    }
+
+    // PZ writes INI booleans as lowercase keywords; only those exact forms are toggles, so a toggle round-trips the
+    // value it was rendered from without a spurious edit.
+    private static bool IsBoolean(string value) => value is "true" or "false";
+
+    // An optionally signed integer or plain decimal (PZ writes 6 and 1.0) — no exponent, hex or padding.
+    private static bool IsIniNumber(string value)
+    {
+        ReadOnlySpan<char> digits = value.AsSpan();
+        if (digits.Length > 0 && digits[0] == '-')
+        {
+            digits = digits[1..];
+        }
+
+        int dot = digits.IndexOf('.');
+        ReadOnlySpan<char> whole = dot < 0 ? digits : digits[..dot];
+        ReadOnlySpan<char> fraction = dot < 0 ? [] : digits[(dot + 1)..];
+        return whole.Length > 0
+            && !whole.ContainsAnyExceptInRange('0', '9')
+            && (dot < 0 || (fraction.Length > 0 && !fraction.ContainsAnyExceptInRange('0', '9')));
     }
 
     private static string? FirstNonEmpty(string? preferred, string? fallback)

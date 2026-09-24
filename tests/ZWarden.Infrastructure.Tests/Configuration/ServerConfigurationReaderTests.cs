@@ -111,6 +111,84 @@ public class ServerConfigurationReaderTests
     }
 
     [Test]
+    public async Task Read_types_ini_text_values_as_booleans_and_numbers_for_the_editor()
+    {
+        // #223/#227: the Agent's INI reader reports every value as Text (the INI has no types). The view must
+        // re-type them — schema booleans and bare true/false as Bool toggles, integer/decimal strings as numbers —
+        // so a toggle's posted value is interpreted as a boolean. Credential/free-text keys stay text boxes.
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            ServerId serverId = await SeedServerAsync(options, AgentId.New());
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ServerConfigurationEdit);
+
+            FakeReadChannel channel = new(new ConfigReadTransfer(
+                ConfigTransferStatus.Read,
+                [
+                    new ConfigTransferSetting("PVP", ConfigEditKind.Text, "true", null),
+                    new ConfigTransferSetting("AdminSafehouse", ConfigEditKind.Text, "false", null),
+                    new ConfigTransferSetting("MaxPlayers", ConfigEditKind.Text, "16", null),
+                    new ConfigTransferSetting("PingLimit", ConfigEditKind.Text, "400", null),
+                    new ConfigTransferSetting("SafehouseDaySurvivedToClaim", ConfigEditKind.Text, "0.5", null),
+                    new ConfigTransferSetting("Password", ConfigEditKind.Text, "1234", null),
+                    new ConfigTransferSetting("DiscordToken", ConfigEditKind.Text, "true", null),
+                    new ConfigTransferSetting("Mods", ConfigEditKind.Text, "", null),
+                ],
+                "PVP=true\n", "h", []));
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            ConfigDocumentView view = await Reader(db, channel).ReadAsync(user, serverId, PzConfigFile.Ini);
+            Dictionary<string, ConfigSettingView> byPath = view.Sections
+                .SelectMany(s => s.Settings).ToDictionary(s => s.Path, StringComparer.Ordinal);
+
+            await AssertTyped(byPath["PVP"], ConfigEditKind.Bool, ConfigValueShape.Boolean);
+            await AssertTyped(byPath["AdminSafehouse"], ConfigEditKind.Bool, ConfigValueShape.Boolean);
+            await AssertTyped(byPath["MaxPlayers"], ConfigEditKind.Number, ConfigValueShape.Whole);
+            await AssertTyped(byPath["PingLimit"], ConfigEditKind.Number, ConfigValueShape.Whole);
+            await AssertTyped(byPath["SafehouseDaySurvivedToClaim"], ConfigEditKind.Number, ConfigValueShape.Fractional);
+            await AssertTyped(byPath["Password"], ConfigEditKind.Text, ConfigValueShape.Text);
+            await AssertTyped(byPath["DiscordToken"], ConfigEditKind.Text, ConfigValueShape.Text);
+            await AssertTyped(byPath["Mods"], ConfigEditKind.Text, ConfigValueShape.Text);
+
+            // A well-formed boolean renders as a plain toggle — no choice list.
+            await Assert.That(byPath["PVP"].Options).IsEmpty();
+        });
+    }
+
+    [Test]
+    public async Task Read_offers_an_on_off_choice_for_a_schema_boolean_whose_value_is_not_a_boolean()
+    {
+        // #223 recovery: a file already damaged to "PVP=" must not render as an Off toggle — an unrelated apply
+        // would then silently write PVP=false. It is offered as an On/Off choice that keeps the current (empty)
+        // value selected, so it only changes when the operator picks one.
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            ServerId serverId = await SeedServerAsync(options, AgentId.New());
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ServerConfigurationEdit);
+
+            FakeReadChannel channel = new(new ConfigReadTransfer(
+                ConfigTransferStatus.Read,
+                [new ConfigTransferSetting("PVP", ConfigEditKind.Text, "", null)],
+                "PVP=\n", "h", []));
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            ConfigDocumentView view = await Reader(db, channel).ReadAsync(user, serverId, PzConfigFile.Ini);
+            ConfigSettingView pvp = view.Sections.SelectMany(s => s.Settings).Single();
+
+            await Assert.That(pvp.Kind).IsEqualTo(ConfigEditKind.Bool);
+            await Assert.That(pvp.Value).IsEqualTo(string.Empty);
+            await Assert.That(string.Join(",", pvp.Options.Select(o => o.Value))).IsEqualTo("true,false");
+        });
+    }
+
+    private static async Task AssertTyped(ConfigSettingView setting, ConfigEditKind kind, ConfigValueShape shape)
+    {
+        await Assert.That(setting.Kind).IsEqualTo(kind).Because(setting.Path);
+        await Assert.That(setting.Shape).IsEqualTo(shape).Because(setting.Path);
+    }
+
+    [Test]
     public async Task Read_denies_without_the_server_scoped_config_edit_permission_and_never_reads()
     {
         await WithSqlite(async options =>

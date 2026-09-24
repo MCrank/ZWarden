@@ -7,8 +7,10 @@ using ZWarden.Domain.Configuration;
 using ZWarden.Domain.Ids;
 using ZWarden.Domain.Servers;
 using ZWarden.Infrastructure.Servers;
+using ZWarden.PzConfig;
 using ZWarden.PzConfig.Model;
 using ZWarden.PzConfig.Revisions;
+using ZWarden.PzConfig.Validation;
 
 namespace ZWarden.Infrastructure.Configuration;
 
@@ -90,6 +92,18 @@ public sealed class ServerConfigurationEditor : IServerConfigurationEditor
         if (edits.Any(e => string.IsNullOrWhiteSpace(e.Path)))
         {
             return ServerConfigurationResult.Denied(ServerConfigurationFailure.InvalidInput, "An edit has an empty configuration path.");
+        }
+
+        // Check every edit against ZWarden's schema before anything is enqueued (#223): a wrong-typed or out-of-range
+        // value for a known key (e.g. an empty INI boolean) refuses the whole batch. Unknown keys pass through (ADR 0010).
+        PzConfigKind kind = ToKind(file);
+        foreach (ConfigApplyEdit edit in edits)
+        {
+            if (PzConfigValidator.ValidateEdit(kind, edit.Path, edit.Value) is { } invalid)
+            {
+                return ServerConfigurationResult.Denied(
+                    ServerConfigurationFailure.InvalidInput, $"Nothing was applied: {invalid.Message}");
+            }
         }
 
         return await EnqueueAsync(
@@ -222,6 +236,15 @@ public sealed class ServerConfigurationEditor : IServerConfigurationEditor
         CancellationToken cancellationToken)
         => _enqueuer.EnqueueAsync(
             user, resolved, file, edits, auditAction, $"{file}, {edits.Count} edit(s)", expectedBaselineHash, cancellationToken);
+
+    private static PzConfigKind ToKind(PzConfigFile file) => file switch
+    {
+        PzConfigFile.Ini => PzConfigKind.Ini,
+        PzConfigFile.SandboxVars => PzConfigKind.SandboxVars,
+        PzConfigFile.SpawnRegions => PzConfigKind.SpawnRegions,
+        PzConfigFile.SpawnPoints => PzConfigKind.SpawnPoints,
+        _ => throw new ArgumentOutOfRangeException(nameof(file), file, "Unknown configuration file."),
+    };
 
     private static ConfigEditKind KindOf(PzValue value) => value switch
     {

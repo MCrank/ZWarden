@@ -50,6 +50,26 @@ public sealed class PzConfigValidator : IPzConfigValidator
         return diagnostics;
     }
 
+    /// <summary>
+    /// Checks one edit's wire-form value against the kind's schema before it is written (#223): the first
+    /// type or range error, or <see langword="null"/> when the value fits or the key has no schema entry (an
+    /// unknown key is applied as-is, ADR 0010). The value is read as text, the way the edit travels.
+    /// </summary>
+    public static PzConfigDiagnostic? ValidateEdit(PzConfigKind kind, string path, string value)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        ArgumentNullException.ThrowIfNull(value);
+
+        if (PzSchema.For(kind) is not { } schema || !schema.TryGet(path, out PzSchemaEntry rule))
+        {
+            return null;
+        }
+
+        var diagnostics = new List<PzConfigDiagnostic>();
+        ValidateScalar(path, new PzString(value), rule, coerceFromString: true, diagnostics);
+        return diagnostics.Count == 0 ? null : diagnostics[0];
+    }
+
     // Breadth-first over the named entries, building dotted paths, with no recursion. An unknown key is
     // informational and its subtree is not descended (one note per unknown container, not per leaf).
     private static void ValidateAgainstSchema(PzTable root, PzSchema schema, bool coerceFromString, List<PzConfigDiagnostic> diagnostics)
