@@ -115,6 +115,9 @@ app.UseSetupGate();
 
 app.UseAuthentication();
 app.UseAuthorization();
+// #224: a browser form post over the form reader's limits is logged and redirected back with an operator message,
+// rather than ending on a bare, unlogged 400. Before antiforgery, which then reuses the already-read form.
+app.UseFormLimitGuard();
 app.UseAntiforgery();
 
 // F34: an unauthenticated, dependency-free container liveness probe for the reference Compose healthcheck
