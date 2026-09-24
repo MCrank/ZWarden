@@ -988,6 +988,15 @@ html:not(.dark) .zw-ico-moon {
   box-shadow: 0 0 0 2px color-mix(in oklab, var(--primary) 30%, transparent);
 }
 
+/* A ZWarden-managed value (#228) is shown but not editable — visibly so. */
+
+.zw-cfg-input[readonly] {
+  color: var(--muted-foreground);
+  background: var(--muted);
+  border-style: dashed;
+  cursor: not-allowed;
+}
+
 /* Boolean toggle — a styled native checkbox; unchecked simply posts nothing and binds to false because
    the row's hidden Path field materialises the element regardless. */
 
