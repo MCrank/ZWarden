@@ -296,6 +296,135 @@ public sealed class ServerDetailPageTests
     }
 
     [Test]
+    public async Task The_configuration_editor_applies_a_full_size_sandbox_file_posted_without_script()
+    {
+        // #224: a real B42 SandboxVars has ~280 scalars; posted whole (the no-JS path) that is well over the form
+        // reader's default 1024-value limit, which used to reject the POST with a bare 400 before the handler ran.
+        await using ZWardenWebAppFactory factory = new()
+        {
+            ConfigureTestServicesHook = static s =>
+                s.AddSingleton<IServerConfigurationReader>(new FakeConfigReader(LargeSandboxView(300))),
+        };
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "large-sandbox");
+
+        Uri url = new($"/servers/{serverId}?section=config&file=SandboxVars", UriKind.Relative);
+        string page = await (await client.GetAsync(url)).Content.ReadAsStringAsync();
+        List<KeyValuePair<string, string>> form =
+        [
+            new("__RequestVerificationToken", ParseHiddenInputs(page)["__RequestVerificationToken"]),
+            new("_handler", "config-editor"),
+            new("_editorForm.File", "SandboxVars"),
+            new("_editorForm.BaselineHash", "hash-large"),
+            new("_editorForm.Target", "apply"),
+        ];
+        for (int i = 0; i < 300; i++)
+        {
+            form.Add(new($"_editorForm.Rows[{i}].Path", $"Custom.Key{i}"));
+            form.Add(new($"_editorForm.Rows[{i}].Kind", "Number"));
+            form.Add(new($"_editorForm.Rows[{i}].Original", "1"));
+            form.Add(new($"_editorForm.Rows[{i}].Value", i == 150 ? "2" : "1"));
+        }
+
+        HttpResponseMessage post = await client.PostAsync(url, new FormUrlEncodedContent(form));
+
+        await Assert.That((int)post.StatusCode).IsLessThan(400);
+        Operation? op = FirstOperation(factory, serverId, OperationKind.ConfigApply);
+        await Assert.That(op).IsNotNull();
+        await Assert.That(op!.CommandPayload).Contains("Custom.Key150");
+        await Assert.That(op.CommandPayload).DoesNotContain("Custom.Key149");
+        client.Dispose();
+    }
+
+    // A SandboxVars view with the given number of unknown numeric scalars (#224 full-size fixture).
+    private static ConfigDocumentView LargeSandboxView(int count) => new(
+        ConfigReadOutcome.Read,
+        [
+            new ConfigSection("Other",
+            [
+                .. Enumerable.Range(0, count).Select(i => new ConfigSettingView(
+                    $"Custom.Key{i}", $"Custom.Key{i}", ConfigEditKind.Number, ConfigValueShape.Whole, "1",
+                    null, null, null, null, [], KnownToSchema: false)),
+            ]),
+        ],
+        "SandboxVars = {}\n",
+        "hash-large",
+        [],
+        null);
+
+    [Test]
+    public async Task The_configuration_editor_applies_the_changed_rows_only_post_that_config_editor_js_sends()
+    {
+        // #224: with scripts on, config-editor.js disables untouched rows and renumbers the changed ones from 0, so
+        // setting #150 of a 300-row file arrives as Rows[0]. The handler keys on each row's Path, not its index.
+        await using ZWardenWebAppFactory factory = new()
+        {
+            ConfigureTestServicesHook = static s =>
+                s.AddSingleton<IServerConfigurationReader>(new FakeConfigReader(LargeSandboxView(300))),
+        };
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "trimmed-post");
+
+        Uri url = new($"/servers/{serverId}?section=config&file=SandboxVars", UriKind.Relative);
+        string page = await (await client.GetAsync(url)).Content.ReadAsStringAsync();
+        Dictionary<string, string> form = new(StringComparer.Ordinal)
+        {
+            ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
+            ["_handler"] = "config-editor",
+            ["_editorForm.File"] = "SandboxVars",
+            ["_editorForm.BaselineHash"] = "hash-large",
+            ["_editorForm.Target"] = "apply",
+            ["_editorForm.Rows[0].Path"] = "Custom.Key150",
+            ["_editorForm.Rows[0].Kind"] = "Number",
+            ["_editorForm.Rows[0].Original"] = "1",
+            ["_editorForm.Rows[0].Value"] = "2",
+        };
+        HttpResponseMessage post = await client.PostAsync(url, new FormUrlEncodedContent(form));
+
+        await Assert.That((int)post.StatusCode).IsLessThan(400);
+        Operation? op = FirstOperation(factory, serverId, OperationKind.ConfigApply);
+        await Assert.That(op).IsNotNull();
+        await Assert.That(op!.CommandPayload).Contains("Custom.Key150");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task An_oversized_form_post_redirects_back_with_an_operator_message_instead_of_a_bare_400()
+    {
+        // #224: a form the reader still refuses (past the page's raised limit) must not end on a bare browser 400 —
+        // it redirects back to the same page, which explains that nothing was applied.
+        await using ZWardenWebAppFactory factory = new()
+        {
+            ConfigureTestServicesHook = static s =>
+                s.AddSingleton<IServerConfigurationReader>(new FakeConfigReader(SampleView())),
+        };
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "oversized-post");
+
+        Uri url = new($"/servers/{serverId}?section=config&file=SandboxVars", UriKind.Relative);
+        string page = await (await client.GetAsync(url)).Content.ReadAsStringAsync();
+        List<KeyValuePair<string, string>> form =
+        [
+            new("__RequestVerificationToken", ParseHiddenInputs(page)["__RequestVerificationToken"]),
+            new("_handler", "config-editor"),
+        ];
+        form.AddRange(Enumerable.Range(0, 10_000).Select(i => new KeyValuePair<string, string>($"x{i}", "1")));
+
+        HttpResponseMessage post = await client.PostAsync(url, new FormUrlEncodedContent(form));
+
+        await Assert.That((int)post.StatusCode).IsEqualTo(303);
+        string location = post.Headers.Location!.OriginalString;
+        await Assert.That(location).StartsWith($"/servers/{serverId}?section=config&file=SandboxVars");
+        await Assert.That(location).Contains("formRejected=too-large");
+
+        string html = await (await client.GetAsync(new Uri(location, UriKind.Relative))).Content.ReadAsStringAsync();
+        await Assert.That(html).Contains("data-config-form-rejected");
+        await Assert.That(html).Contains("nothing was applied");
+        await Assert.That(FirstOperation(factory, serverId, OperationKind.ConfigApply)).IsNull();
+        client.Dispose();
+    }
+
+    [Test]
     public async Task The_configuration_editor_offers_a_damaged_boolean_as_a_choice_and_only_toggles_post_flags()
     {
         // #223: a toggle row carries the hidden Toggle marker; a schema boolean already damaged to "" is a choice list

@@ -1,5 +1,10 @@
 @page "/servers/{Id}"
 @attribute [Authorize]
+@* #224: the config editor posts ~5 values per setting, so a full B42 SandboxVars (~280 settings) posted whole (the
+   no-JS path) exceeds the form reader's default 1024-value limit. Raised for this page only and bounded to Blazor's
+   1024-element form-collection limit (~5 values x 1024 rows); a larger post is refused by FormLimitGuardMiddleware with
+   an operator message. config-editor.js normally posts just the changed rows. *@
+@attribute [Microsoft.AspNetCore.Mvc.RequestFormLimits(ValueCountLimit = 6144)]
 @using System.Security.Claims
 @using ZWarden.Application.Authorization
 @using ZWarden.Application.Backups
@@ -16,6 +21,7 @@
 @using ZWarden.Domain.Configuration
 @using ZWarden.Domain.Ids
 @using ZWarden.Domain.Operations
+@using ZWarden.Web.Hosting
 @using ZWarden.Web.Time
 @inject IServerInventory Inventory
 @inject IServerBackup ServerBackups
@@ -849,6 +855,19 @@ else
                 </div>
             }
 
+            @if (!string.IsNullOrEmpty(FormRejected) && _configMessage is null)
+            {
+                <div class="mt-3" data-config-form-rejected>
+                    <BbAlert Variant="AlertVariant.Warning" AccentBorder>
+                        <BbAlertDescription>
+                            That submission was too large for the server to accept, so nothing was applied. Reload
+                            from host and apply your changes again — with scripts enabled only the changed settings
+                            are sent.
+                        </BbAlertDescription>
+                    </BbAlert>
+                </div>
+            }
+
             @if (_configMessage is not null)
             {
                 <div class="mt-3" data-config-message>
@@ -1251,6 +1270,11 @@ else
     // Which config file the live editor shows (F20c). Bookmarkable, GET-switched like ?section=; Ini by default.
     [SupplyParameterFromQuery(Name = "file")]
     public string? FileParam { get; set; }
+
+    // Set by the form-limit guard (#224) when a post was refused before it reached this page; any value shows the
+    // "nothing was applied" notice.
+    [SupplyParameterFromQuery(Name = FormLimitGuardMiddleware.RejectedQueryKey)]
+    public string? FormRejected { get; set; }
 
     [CascadingParameter]
     private Task<AuthenticationState>? AuthState { get; set; }
