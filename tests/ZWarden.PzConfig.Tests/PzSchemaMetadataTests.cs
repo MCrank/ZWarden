@@ -4,7 +4,8 @@ namespace ZWarden.PzConfig.Tests;
 
 /// <summary>
 /// The schema carries operator-facing display metadata — a friendly <see cref="PzSchemaEntry.Label"/>,
-/// a grouping <see cref="PzSchemaEntry.Section"/>, and an optional authored <see cref="PzSchemaEntry.Description"/>
+/// an optional grouping override <see cref="PzSchemaEntry.Section"/> (normally null: sections come from
+/// <see cref="PzSettingCatalog"/>, #227), and an optional authored <see cref="PzSchemaEntry.Description"/>
 /// that overrides the file comment — so a config editor can group settings and label them without the
 /// operator reading dotted paths (F20c, PR-A slice 3). Metadata is additive: it never affects
 /// validation, and an unknown key still has no entry.
@@ -26,26 +27,26 @@ public class PzSchemaMetadataTests
     }
 
     [Test]
-    public async Task Sandbox_schema_groups_and_labels_known_keys()
+    public async Task Sandbox_schema_labels_known_keys_and_leaves_sections_to_the_catalog()
     {
         await Assert.That(PzSchema.SandboxVars.TryGet("Zombies", out PzSchemaEntry zombies)).IsTrue();
-        await Assert.That(zombies.Section).IsEqualTo("Zombies");
+        await Assert.That(zombies.Section).IsNull(); // sections come from PzSettingCatalog (#227)
         await Assert.That(zombies.Label).IsEqualTo("Population");
 
         await Assert.That(PzSchema.SandboxVars.TryGet("Map.AllowMiniMap", out PzSchemaEntry miniMap)).IsTrue();
-        await Assert.That(miniMap.Section).IsEqualTo("World & Map");
+        await Assert.That(miniMap.Section).IsNull();
         await Assert.That(miniMap.Label).IsEqualTo("Allow mini-map");
     }
 
     [Test]
-    public async Task Ini_schema_groups_and_labels_known_keys()
+    public async Task Ini_schema_labels_known_keys_and_leaves_sections_to_the_catalog()
     {
         await Assert.That(PzSchema.Ini.TryGet("MaxPlayers", out PzSchemaEntry maxPlayers)).IsTrue();
-        await Assert.That(maxPlayers.Section).IsEqualTo("Access");
+        await Assert.That(maxPlayers.Section).IsNull();
         await Assert.That(maxPlayers.Label).IsEqualTo("Max players");
 
         await Assert.That(PzSchema.Ini.TryGet("RCONPort", out PzSchemaEntry rcon)).IsTrue();
-        await Assert.That(rcon.Section).IsEqualTo("Networking");
+        await Assert.That(rcon.Label).IsEqualTo("RCON port");
     }
 
     [Test]
@@ -56,7 +57,7 @@ public class PzSchemaMetadataTests
 
         await Assert.That(PzSchema.SandboxVars.TryGet("MultiplierConfig.Glassmaking", out PzSchemaEntry glass)).IsTrue();
         await Assert.That(glass.Type).IsEqualTo(PzValueType.Number);
-        await Assert.That(glass.Section).IsEqualTo("Multipliers");
+        await Assert.That(glass.Label).IsEqualTo("Glassmaking XP");
     }
 
     [Test]

@@ -6,7 +6,7 @@
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
     <LangVersion>14.0</LangVersion>
-    <TestingPlatformCommandLineArguments>--minimum-expected-tests 417</TestingPlatformCommandLineArguments>
+    <TestingPlatformCommandLineArguments>--minimum-expected-tests 418</TestingPlatformCommandLineArguments>
   </PropertyGroup>
 
   <ItemGroup>
@@ -21,6 +21,11 @@
     <!-- F40 migration-drift drill: both providers' migration snapshots are checked for model drift offline
          (HasPendingModelChanges compares the model to the snapshot; it opens no connection). -->
     <ProjectReference Include="..\..\src\ZWarden.Migrations.Postgres\ZWarden.Migrations.Postgres.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- #227: the full-key B42 fixtures (ZWarden-authored, ADR 0009) drive the Configuration View reader end to end. -->
+    <None Include="..\ZWarden.PzConfig.Tests\Fixtures\**" LinkBase="Fixtures" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

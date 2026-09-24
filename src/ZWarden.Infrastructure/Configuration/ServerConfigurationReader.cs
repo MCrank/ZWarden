@@ -19,13 +19,13 @@ namespace ZWarden.Infrastructure.Configuration;
 /// <see cref="ServerConfigurationHistory"/> read seam. It then asks the Server's owning Agent for the live file over
 /// the non-Operation read channel and, on a successful read, overlays the ZWarden schema (friendly label, section,
 /// widget shape, range, default) and turns each setting's raw harvested comment into a sanitized Setting Tooltip —
-/// schema description first, else the file comment, else none. A key with no schema entry falls into the "Other"
-/// section with a comment-only tooltip and passes through unvalidated (F20a). The read persists nothing (ADR 0011).
+/// schema description first, else the file comment, else none. Sections and labels come from the setting catalog
+/// (#227) — the in-game grouping, name-prefix rules, a mod's own table — so only a truly unmatched key lands in
+/// "Other"; a key with no schema entry keeps its file-comment range and passes through unvalidated (F20a). The read
+/// persists nothing (ADR 0011).
 /// </summary>
 public sealed class ServerConfigurationReader : IServerConfigurationReader
 {
-    private const string OtherSection = "Other";
-
     // Key-name fragments marking an INI value as free text whatever it currently looks like (#223).
     private static readonly string[] FreeTextKeyHints = ["Password", "Token", "Secret", "Name", "Message", "Description"];
 
@@ -80,9 +80,10 @@ public sealed class ServerConfigurationReader : IServerConfigurationReader
 
     private static ConfigDocumentView BuildView(PzConfigFile file, ConfigReadTransfer transfer)
     {
-        PzSchema? schema = PzSchema.For(ToKind(file));
+        PzConfigKind configKind = ToKind(file);
+        PzSchema? schema = PzSchema.For(configKind);
 
-        // Group settings by section, first-appearance order, with "Other" (unknown keys) pinned last.
+        // Group settings by section; the sections are ordered once every setting is placed.
         var order = new List<string>();
         var bySection = new Dictionary<string, List<ConfigSettingView>>(StringComparer.Ordinal);
 
@@ -117,8 +118,11 @@ public sealed class ServerConfigurationReader : IServerConfigurationReader
                 options = [new ConfigOption("true", "On"), new ConfigOption("false", "Off")];
             }
 
-            string section = schemaEntry?.Section ?? OtherSection;
-            string label = schemaEntry?.Label ?? setting.Path;
+            // Sections and labels come from the setting catalog (#227) unless the schema overrides them; the range and
+            // default fall back to the file's own "Min: … Max: … Default: …" comment phrase.
+            string section = schemaEntry?.Section ?? PzSettingCatalog.SectionOf(configKind, setting.Path);
+            string label = schemaEntry?.Label ?? PzSettingCatalog.LabelOf(setting.Path);
+            string? defaultValue = schemaEntry?.Default is { } def ? WireValueOf(def) : help?.Default;
 
             var view = new ConfigSettingView(
                 setting.Path,
@@ -126,9 +130,9 @@ public sealed class ServerConfigurationReader : IServerConfigurationReader
                 kind,
                 shape,
                 setting.Value,
-                schemaEntry?.Min,
-                schemaEntry?.Max,
-                schemaEntry?.Default is { } def ? WireValueOf(def) : null,
+                schemaEntry?.Min ?? help?.Min,
+                schemaEntry?.Max ?? help?.Max,
+                defaultValue,
                 tooltip,
                 options,
                 schemaEntry is not null);
@@ -143,10 +147,13 @@ public sealed class ServerConfigurationReader : IServerConfigurationReader
             list.Add(view);
         }
 
-        order.Sort(static (a, b) =>
-            a == OtherSection ? (b == OtherSection ? 0 : 1) : (b == OtherSection ? -1 : 0));
-
-        List<ConfigSection> sections = [.. order.Select(name => new ConfigSection(name, bySection[name]))];
+        // The game's section order, then mod sections in file order (a stable sort), then "Other".
+        List<ConfigSection> sections =
+        [
+            .. order
+                .OrderBy(name => PzSettingCatalog.SectionRank(configKind, name))
+                .Select(name => new ConfigSection(name, bySection[name])),
+        ];
         return new ConfigDocumentView(
             ConfigReadOutcome.Read, sections, transfer.RawText, transfer.BaselineHash,
             MapDiagnostics(transfer.Diagnostics), null);

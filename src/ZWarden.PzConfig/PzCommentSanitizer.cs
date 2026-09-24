@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
 
 namespace ZWarden.PzConfig;
@@ -13,7 +14,17 @@ public sealed record PzEnumOption(string Value, string Label);
 /// </summary>
 /// <param name="Text">The description, markup-stripped and whitespace-collapsed; empty when the comment was only options or only markup.</param>
 /// <param name="Options">The <c>N = Label</c> options, in file order; empty when the setting is not an enumeration.</param>
-public sealed record PzSettingHelp(string Text, IReadOnlyList<PzEnumOption> Options);
+public sealed record PzSettingHelp(string Text, IReadOnlyList<PzEnumOption> Options)
+{
+    /// <summary>The inclusive minimum the comment states (<c>Min: 0</c>), or null when it states none.</summary>
+    public double? Min { get; init; }
+
+    /// <summary>The inclusive maximum the comment states (<c>Max: 1000</c>), or null when it states none.</summary>
+    public double? Max { get; init; }
+
+    /// <summary>The default the comment states, verbatim (<c>Default: 1.00</c> → <c>"1.00"</c>), or null.</summary>
+    public string? Default { get; init; }
+}
 
 /// <summary>
 /// Turns a harvested raw comment (see <see cref="PzConfigReadResult.Comments"/>) into
@@ -33,6 +44,11 @@ public static class PzCommentSanitizer
     private static readonly Regex Tag = new(@"<[^>]*>", RegexOptions.Compiled);
 
     private static readonly Regex Whitespace = new(@"\s+", RegexOptions.Compiled);
+
+    // PZ's generated range phrase on a numeric setting, in both files: "Min: 0 Max: 1000 Default: 2" (#227).
+    private static readonly Regex Range = new(
+        @"\bMin:\s*(-?\d+(?:\.\d+)?)\s+Max:\s*(-?\d+(?:\.\d+)?)(?:\s+Default:\s*(-?\d+(?:\.\d+)?))?",
+        RegexOptions.Compiled);
 
     /// <summary>Parses a harvested comment into display help. Never throws on shape; empty in, empty out.</summary>
     public static PzSettingHelp Sanitize(string rawComment)
@@ -59,7 +75,21 @@ public static class PzCommentSanitizer
             }
         }
 
-        return new PzSettingHelp(string.Join(' ', textParts), options);
+        // Lift the range phrase out of the prose: the editor shows it as the setting's range and default, so leaving
+        // it in the tooltip would say it twice.
+        string prose = string.Join(' ', textParts);
+        Match range = Range.Match(prose);
+        if (!range.Success)
+        {
+            return new PzSettingHelp(prose, options);
+        }
+
+        return new PzSettingHelp(Whitespace.Replace(prose.Remove(range.Index, range.Length), " ").Trim(), options)
+        {
+            Min = double.Parse(range.Groups[1].Value, CultureInfo.InvariantCulture),
+            Max = double.Parse(range.Groups[2].Value, CultureInfo.InvariantCulture),
+            Default = range.Groups[3].Success ? range.Groups[3].Value : null,
+        };
     }
 
     // Removes markup and collapses runs of whitespace to a single space.

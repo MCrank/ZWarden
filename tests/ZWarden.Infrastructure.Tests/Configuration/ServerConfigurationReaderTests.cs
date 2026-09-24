@@ -8,6 +8,9 @@ using ZWarden.Infrastructure.Authorization;
 using ZWarden.Infrastructure.Configuration;
 using ZWarden.Infrastructure.Persistence;
 using ZWarden.Infrastructure.Servers;
+using ZWarden.PzConfig;
+using ZWarden.PzConfig.Model;
+using ZWarden.PzConfig.Revisions;
 using ZWarden.TestSupport;
 
 namespace ZWarden.Infrastructure.Tests.Configuration;
@@ -80,7 +83,7 @@ public class ServerConfigurationReaderTests
     }
 
     [Test]
-    public async Task Read_puts_an_unknown_key_in_other_unvalidated_with_a_comment_only_tooltip()
+    public async Task Read_files_a_mod_table_in_its_own_section_and_an_unmatched_key_in_other_both_unvalidated()
     {
         await WithSqlite(async options =>
         {
@@ -91,23 +94,96 @@ public class ServerConfigurationReaderTests
             FakeReadChannel channel = new(new ConfigReadTransfer(
                 ConfigTransferStatus.Read,
                 [
+                    new ConfigTransferSetting("Zzyzx", ConfigEditKind.Text, "?", null),
+                    new ConfigTransferSetting("SomeMod.CustomOption", ConfigEditKind.Text, "hi", "A mod-added key."),
                     new ConfigTransferSetting("Zombies", ConfigEditKind.Number, "2", null),
-                    new ConfigTransferSetting("SomeMod.Custom", ConfigEditKind.Text, "hi", "A mod-added key."),
                 ],
                 "x", "h", []));
 
             await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
             ConfigDocumentView view = await Reader(db, channel).ReadAsync(user, serverId, PzConfigFile.SandboxVars);
 
-            ConfigSection other = view.Sections.Single(s => s.Name == "Other");
-            ConfigSettingView unknown = other.Settings.Single(s => s.Path == "SomeMod.Custom");
-            await Assert.That(unknown.KnownToSchema).IsFalse();
-            await Assert.That(unknown.Min).IsNull();
-            await Assert.That(unknown.Tooltip).IsEqualTo("A mod-added key.");
+            // #227: a mod's nested sandbox table becomes its own section, with a humanized label.
+            ConfigSettingView mod = view.Sections.Single(s => s.Name == "Some mod").Settings.Single();
+            await Assert.That(mod.Path).IsEqualTo("SomeMod.CustomOption");
+            await Assert.That(mod.Label).IsEqualTo("Custom option");
+            await Assert.That(mod.KnownToSchema).IsFalse();
+            await Assert.That(mod.Min).IsNull();
+            await Assert.That(mod.Tooltip).IsEqualTo("A mod-added key.");
 
-            // "Other" always sorts last.
-            await Assert.That(view.Sections[^1].Name).IsEqualTo("Other");
+            ConfigSettingView unknown = view.Sections.Single(s => s.Name == "Other").Settings.Single();
+            await Assert.That(unknown.Path).IsEqualTo("Zzyzx");
+
+            // Vanilla sections first, then mod sections, then "Other" — whatever the file order.
+            await Assert.That(string.Join(" | ", view.Sections.Select(s => s.Name))).IsEqualTo("Zombies | Some mod | Other");
         });
+    }
+
+    [Test]
+    public async Task Read_of_a_full_b42_file_classifies_every_vanilla_key_and_types_ini_values()
+    {
+        // #227: against every vanilla key of a B42 file (the live pass found 132 INI / 260 sandbox keys in "Other").
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            ServerId serverId = await SeedServerAsync(options, AgentId.New());
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ServerConfigurationEdit);
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+
+            ConfigDocumentView ini = await Reader(db, new FakeReadChannel(FixtureTransfer(PzConfigKind.Ini, "b42-servertest.ini")))
+                .ReadAsync(user, serverId, PzConfigFile.Ini);
+            ConfigDocumentView sandbox = await Reader(db, new FakeReadChannel(FixtureTransfer(PzConfigKind.SandboxVars, "b42-SandboxVars.lua")))
+                .ReadAsync(user, serverId, PzConfigFile.SandboxVars);
+
+            await Assert.That(ini.Sections.Any(s => s.Name == "Other")).IsFalse();
+            await Assert.That(sandbox.Sections.Any(s => s.Name == "Other")).IsFalse();
+
+            Dictionary<string, ConfigSettingView> iniByPath = ini.Sections.SelectMany(s => s.Settings).ToDictionary(s => s.Path);
+            ConfigSettingView adminSafehouse = iniByPath["AdminSafehouse"];
+            await Assert.That(adminSafehouse.Label).IsEqualTo("Admin safehouse");
+            await Assert.That(adminSafehouse.Shape).IsEqualTo(ConfigValueShape.Boolean);
+            await Assert.That(ini.Sections.Single(s => s.Settings.Contains(adminSafehouse)).Name).IsEqualTo("Safehouse");
+
+            // An unschema'd number takes the game's range and default from its comment, which leaves the tooltip.
+            ConfigSettingView timer = iniByPath["SafetyToggleTimer"];
+            await Assert.That(timer.Shape).IsEqualTo(ConfigValueShape.Whole);
+            await Assert.That(timer.Min).IsEqualTo(0d);
+            await Assert.That(timer.Max).IsEqualTo(1000d);
+            await Assert.That(timer.Default).IsEqualTo("2");
+            await Assert.That(timer.Tooltip!).DoesNotContain("Min:");
+
+            // Sections follow the in-game order, with the mod's own table after every vanilla section.
+            await Assert.That(ini.Sections[0].Name).IsEqualTo("Details");
+            await Assert.That(sandbox.Sections[0].Name).IsEqualTo("Zombies");
+            await Assert.That(sandbox.Sections[^1].Name).IsEqualTo("Better lockpicking");
+        });
+    }
+
+    // Parses a fixture the way the Agent's config reader does (ServerConfigReader) and hands the reader its settings.
+    private static ConfigReadTransfer FixtureTransfer(PzConfigKind kind, string fixture)
+    {
+        byte[] bytes = File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Fixtures", fixture));
+        PzConfigReadResult read = new PzConfigParser().Open(kind, bytes);
+        List<ConfigTransferSetting> settings =
+        [
+            .. PzValueSnapshot.Of(read.Document!).Scalars.Select(s => new ConfigTransferSetting(
+                s.Path,
+                s.Value switch
+                {
+                    PzBoolean => ConfigEditKind.Bool,
+                    PzNumber => ConfigEditKind.Number,
+                    _ => ConfigEditKind.Text,
+                },
+                s.Value switch
+                {
+                    PzBoolean b => b.Value ? "true" : "false",
+                    PzNumber n => n.Lexeme,
+                    PzString str => str.Value,
+                    _ => string.Empty,
+                },
+                read.Comments.TryGetValue(s.Path, out string? comment) ? comment : null)),
+        ];
+        return new ConfigReadTransfer(ConfigTransferStatus.Read, settings, "raw", "hash", []);
     }
 
     [Test]
