@@ -60,6 +60,14 @@ flagged, and spending bandwidth on Servers nobody is looking at.
   per-Server per-second ceiling are coalesced away and the batch flagged `Dropped`, so a flooding server cannot storm
   the socket and the loss is visible rather than silent. ZWarden.Web still renders every line as **data**, never
   markup — defense in depth, not a substitute for output encoding.
+
+  > **Amendment ([#232](https://github.com/MCrank/ZWarden/issues/232)):** the rate cap bounds lines, not bytes. A PZ
+  > start/stop burst (≈125 lines per 250 ms flush, with HTML-sensitive characters escaped to six bytes each)
+  > serialized past SignalR's default 32 KB receive limit, and the hub closed the Agent's connection on it, every
+  > 1–2 s while the Logs page was open. Each flush is now split into `ServerLogBatch` messages under
+  > `AgentHubProtocol.StreamedMessageBudgetBytes` (24 KB), with `Dropped` on the first part only. The Agent hub also
+  > sets an explicit, bounded `MaximumReceiveMessageSize` (`AgentHubProtocol.MaxReceiveMessageBytes`, 1 MB) as a
+  > backstop, and both sides log an abnormal close at Warning.
 - **Bounded, ownership-partitioned tail on the Web.** Lines land in a process-local ring buffer keyed by **both** the
   Server and the reporting Agent, capped per partition (the "bounded buffering" the feature requires). Partitioning
   by owner is the ownership guard: a batch forged by one Agent for a Server owned by another lands in its own

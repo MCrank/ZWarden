@@ -27,19 +27,23 @@ internal sealed class ServerLogEmitter : IServerLogEmitter
     }
 
     /// <inheritdoc />
-    public Task EmitAsync(ServerId serverId, IReadOnlyList<ServerLogLine> lines, bool dropped, CancellationToken cancellationToken)
+    public async Task EmitAsync(ServerId serverId, IReadOnlyList<ServerLogLine> lines, bool dropped, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(lines);
 
-        // A send while disconnected would throw; the stream is transient and Web re-subscribes on reconnect, so
-        // drop the batch rather than fault the flush loop.
-        if (_connection.State != HubConnectionState.Connected)
+        // One flush may be several messages, each under the streamed-message budget (#232): a single oversized send
+        // used to exceed the hub's receive limit and close the whole connection.
+        foreach (ServerLogBatch part in ServerLogBatchSplitter.Split(serverId, lines, dropped))
         {
-            return Task.CompletedTask;
-        }
+            // A send while disconnected would throw; the stream is transient and Web re-subscribes on reconnect, so
+            // drop the rest of the flush rather than fault the flush loop.
+            if (_connection.State != HubConnectionState.Connected)
+            {
+                return;
+            }
 
-        Envelope<ServerLogBatch> envelope = Envelope.Create(
-            new ServerLogBatch(serverId, lines, dropped), _timeProvider.GetUtcNow(), serverId: serverId);
-        return _connection.SendAsync(AgentHubProtocol.ServerLogBatch, envelope, cancellationToken);
+            Envelope<ServerLogBatch> envelope = Envelope.Create(part, _timeProvider.GetUtcNow(), serverId: serverId);
+            await _connection.SendAsync(AgentHubProtocol.ServerLogBatch, envelope, cancellationToken).ConfigureAwait(false);
+        }
     }
 }

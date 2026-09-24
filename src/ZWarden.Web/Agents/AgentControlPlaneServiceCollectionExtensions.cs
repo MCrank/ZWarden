@@ -47,7 +47,10 @@ public static class AgentControlPlaneServiceCollectionExtensions
         // Messages travel as Envelope<T> arguments serialized with the canonical protocol options (typed ids
         // as prefixed strings, enums by name) so both ends agree on the wire (ADR 0020).
         services.AddSignalR()
-            .AddJsonProtocol(options => options.PayloadSerializerOptions = ProtocolJson.Options);
+            .AddJsonProtocol(options => options.PayloadSerializerOptions = ProtocolJson.Options)
+            // #232: an explicit, bounded receive limit for the Agent hub (SignalR's 32 KB default closed the Agent's
+            // connection on a log burst). Scoped to AgentHub only; see AgentHubProtocol for the message budgets.
+            .AddHubOptions<AgentHub>(options => options.MaximumReceiveMessageSize = AgentHubProtocol.MaxReceiveMessageBytes);
 
         // The connection monitor: reconciles stale/silent connections to disconnected (the sweeper itself and
         // its options are registered by AddZWardenEnrollment).

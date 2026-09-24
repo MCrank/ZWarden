@@ -135,6 +135,11 @@ public sealed partial class AgentHub : Hub
             await _audit.WriteAsync(Entry(AgentConnectionAuditActions.Disconnected, agentId), CancellationToken.None)
                 .ConfigureAwait(false);
             LogDisconnected(agentId);
+            if (exception is not null)
+            {
+                // #232: an abnormal close (e.g. a message over the hub's receive limit) is never silent.
+                LogDisconnectedWithError(agentId, exception);
+            }
         }
 
         await base.OnDisconnectedAsync(exception).ConfigureAwait(false);
@@ -542,6 +547,9 @@ public sealed partial class AgentHub : Hub
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Agent {AgentId} disconnected from the control plane.")]
     private partial void LogDisconnected(AgentId agentId);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Agent {AgentId} disconnected abnormally.")]
+    private partial void LogDisconnectedWithError(AgentId agentId, Exception exception);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Agent {AgentId} rejected at negotiation: {Reason}")]
     private partial void LogProtocolRejected(AgentId agentId, string reason);
