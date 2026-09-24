@@ -88,7 +88,7 @@ home). **No new entity, no migration** — a run is transient (F30 owns `Diagnos
 | 3 | **Agent** | in-proc (+ gather round-trip) | agent registry last-seen + the host gather itself | connected; last-seen freshness; command round-trips | A / B |
 | 4 | **Docker** | host gather | `IContainerRuntime.ProbeHealthAsync` → `DockerHealth` | daemon reachable; negotiated API version | B |
 | 5 | **RCON** | server gather | `IRconHealthProbe` → `RconHealthResult` | reachable; authenticated | B |
-| 6 | **Game port** | server gather | `INetworkReachabilityProbe` (F16 UDP probe) | server UDP port reachable | B |
+| 6 | **Game port** | server gather | container port bindings + `ISteamQueryProbe` (A2S_INFO; was the F16 UDP probe — #231, ADR 0033 amendment) | published on the host; server answering Steam queries | B |
 | 7 | **Filesystem** | host + server gather | `IServerDiskUsageReader` + a mount-permission probe | disk space (Warn under a free-space threshold); `/pz` mounts + `BackupRoot` present/writable | B |
 | 8 | **SteamCMD** | host gather | `IServerUpdateRunner` availability + `SteamAppManifest` | SteamCMD usable; installed build id present/parseable | B |
 | 9 | **Mod (validate)** | server gather | `IModDiscovery` + `ModInfoReader` | mods on disk parse; enabled-but-missing Workshop items | C |

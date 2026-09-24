@@ -88,3 +88,23 @@ evaluation with read-only Agent round-trips.
   justification, because inspecting an invalid certificate to report *why* it is invalid is the point of the check
   and no data is sent over the connection. This is the documented targeted-suppression path (ADR 0013), not a
   widening of the warnings policy.
+
+## Amendment (2026-09-24, #231): the game-port check reports two facts
+
+The game-port domain originally called the F16 `INetworkReachabilityProbe`. That is a bare UDP probe, which can
+only ever prove a port *closed* (ICMP refused), never open. So every healthy server reported Warn "reachability
+unknown". Health keeps that probe, where null correctly means not-degraded (#199).
+
+Diagnostics now reports two facts instead:
+
+1. **Published:** the container's `16261/udp` binding from its inspect, naming the **host** port players dial.
+   The check is Fail if the binding is missing or the container is not running.
+2. **Listening:** a Steam **A2S_INFO** query (`ISteamQueryProbe`) at the container's ZWarden-network IP.
+   Project Zomboid B42 in Steam mode answers it on the game port with the challenge handshake, verified against a
+   live 42.20.4 server; 16262 does not answer. The outcomes are:
+   - an answer is a genuine Pass, showing the name, map and players;
+   - an ICMP refusal is Fail;
+   - no answer is Pass with a note, since PZ may be starting or running without Steam.
+
+Every result states that reachability from the internet (NAT, firewall, port-forward) cannot be verified from
+the host.
