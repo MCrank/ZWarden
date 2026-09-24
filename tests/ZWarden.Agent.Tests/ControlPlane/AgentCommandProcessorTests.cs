@@ -90,7 +90,8 @@ public class AgentCommandProcessorTests
             modDiscovery ?? new FakeModDiscovery(),
             hostDiagnostics ?? new FakeHostDiagnosticsGatherer(),
             serverDiagnostics ?? new FakeServerDiagnosticsGatherer(),
-            options);
+            options,
+            NullLogger<AgentCommandProcessor>.Instance);
     }
 
     private static string Json(AgentCommand command, OperationId? operationId = null, ServerId? serverId = null)

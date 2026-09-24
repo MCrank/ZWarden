@@ -545,6 +545,213 @@ public sealed class ServerDetailPageTests
         null);
 
     [Test]
+    public async Task A_config_apply_redirects_to_the_section_tracking_the_write_and_withholds_the_stale_editor()
+    {
+        // #226: after enqueue the page Post/Redirect/Gets onto ?op=, and while the write is still running it shows
+        // "Applying…" with a self-refresh instead of re-rendering the pre-write values.
+        await using ZWardenWebAppFactory factory = new()
+        {
+            ConfigureTestServicesHook = static s =>
+                s.AddSingleton<IServerConfigurationReader>(new FakeConfigReader(SampleView())),
+        };
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "prg-apply");
+
+        string location = await PostZombiesChangeAsync(client, serverId);
+
+        await Assert.That(location).StartsWith($"/servers/{serverId}?section=config&file=SandboxVars&op=");
+        Operation op = FirstOperation(factory, serverId, OperationKind.ConfigApply)!;
+        await Assert.That(location).EndsWith(op.Id.ToString());
+
+        string html = await (await client.GetAsync(new Uri(location, UriKind.Relative))).Content.ReadAsStringAsync();
+        await Assert.That(html).Contains("data-config-applying");
+        await Assert.That(html).Contains("data-cfg-refresh=\"2\"");
+        await Assert.That(html).DoesNotContain("data-cfg-form");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task A_finished_config_write_shows_its_result_line_and_the_fresh_editor()
+    {
+        await using ZWardenWebAppFactory factory = new()
+        {
+            ConfigureTestServicesHook = static s =>
+                s.AddSingleton<IServerConfigurationReader>(new FakeConfigReader(SampleView())),
+        };
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "prg-done");
+        string location = await PostZombiesChangeAsync(client, serverId);
+        await FinishOperationAsync(factory, serverId, succeeded: true, "Applied and reloaded live on the running server.");
+
+        string html = await (await client.GetAsync(new Uri(location, UriKind.Relative))).Content.ReadAsStringAsync();
+
+        await Assert.That(html).Contains("data-config-applied");
+        await Assert.That(html).Contains("Applied and reloaded live on the running server.");
+        await Assert.That(html).DoesNotContain("data-cfg-refresh");
+        await Assert.That(html).Contains("data-cfg-form");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task A_failed_config_write_shows_its_failure_reason_in_the_editor()
+    {
+        await using ZWardenWebAppFactory factory = new()
+        {
+            ConfigureTestServicesHook = static s =>
+                s.AddSingleton<IServerConfigurationReader>(new FakeConfigReader(SampleView())),
+        };
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "prg-failed");
+        string location = await PostZombiesChangeAsync(client, serverId);
+        await FinishOperationAsync(factory, serverId, succeeded: false, "The configuration on disk changed outside ZWarden.");
+
+        string html = await (await client.GetAsync(new Uri(location, UriKind.Relative))).Content.ReadAsStringAsync();
+
+        await Assert.That(html).Contains("data-config-apply-failed");
+        await Assert.That(html).Contains("The configuration on disk changed outside ZWarden.");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task An_op_parameter_for_another_servers_operation_is_ignored()
+    {
+        await using ZWardenWebAppFactory factory = new()
+        {
+            ConfigureTestServicesHook = static s =>
+                s.AddSingleton<IServerConfigurationReader>(new FakeConfigReader(SampleView())),
+        };
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId first = await SeedServerAsync(factory, "op-owner");
+        ServerId second = await SeedServerAsync(factory, "op-other");
+        await PostZombiesChangeAsync(client, first);
+        Operation op = FirstOperation(factory, first, OperationKind.ConfigApply)!;
+
+        string html = await (await client.GetAsync(new Uri(
+            $"/servers/{second}?section=config&file=SandboxVars&op={op.Id}", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        await Assert.That(html).DoesNotContain("data-config-applying");
+        await Assert.That(html).Contains("data-cfg-form");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task A_drift_refusal_keeps_the_typed_edits_on_the_fresh_rows()
+    {
+        // #226: the refused edit (Zombies 4 → 2) is carried onto the re-rendered row, whose Original is the current
+        // host value, so it stays highlighted and a second Apply writes it — the typed edit is not thrown away.
+        await using ZWardenWebAppFactory factory = new()
+        {
+            ConfigureTestServicesHook = static s =>
+                s.AddSingleton<IServerConfigurationReader>(new FakeConfigReader(SampleView())),
+        };
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "drift-keep");
+
+        Uri url = new($"/servers/{serverId}?section=config&file=SandboxVars", UriKind.Relative);
+        string page = await (await client.GetAsync(url)).Content.ReadAsStringAsync();
+        Dictionary<string, string> form = new(StringComparer.Ordinal)
+        {
+            ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
+            ["_handler"] = "config-editor",
+            ["_editorForm.File"] = "SandboxVars",
+            ["_editorForm.BaselineHash"] = "stale-hash",
+            ["_editorForm.Target"] = "apply",
+            ["_editorForm.Rows[0].Path"] = "Zombies",
+            ["_editorForm.Rows[0].Kind"] = "Number",
+            ["_editorForm.Rows[0].Original"] = "4",
+            ["_editorForm.Rows[0].Value"] = "2",
+        };
+        string html = await (await client.PostAsync(url, new FormUrlEncodedContent(form))).Content.ReadAsStringAsync();
+
+        await Assert.That(html).Contains("data-config-drift");
+        // Zombies is row 2 in SampleView: its Original is still the host value, and the carried value "2" is the
+        // selected choice (appended, since SampleView offers only 1/4/6).
+        await Assert.That(html).Contains("name=\"_editorForm.Rows[2].Original\" value=\"4\"");
+        await Assert.That(html).Contains("<option value=\"2\" selected>2</option>");
+        await Assert.That(FirstOperation(factory, serverId, OperationKind.ConfigApply)).IsNull();
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task The_advanced_by_path_apply_drift_checks_against_the_live_read()
+    {
+        // #226: the by-path form carries the live read's baseline, not the last recorded revision's.
+        await using ZWardenWebAppFactory factory = new()
+        {
+            ConfigureTestServicesHook = static s =>
+                s.AddSingleton<IServerConfigurationReader>(new FakeConfigReader(SampleView())),
+        };
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "advanced-live");
+
+        Uri url = new($"/servers/{serverId}?section=config&file=SandboxVars", UriKind.Relative);
+        string page = await (await client.GetAsync(url)).Content.ReadAsStringAsync();
+        Dictionary<string, string> form = new(StringComparer.Ordinal)
+        {
+            ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
+            ["_handler"] = "server-config",
+            ["_configForm.File"] = "SandboxVars",
+            ["_configForm.Path"] = "Zombies",
+            ["_configForm.Kind"] = "Number",
+            ["_configForm.Value"] = "3",
+            ["_configForm.Target"] = "apply",
+        };
+        HttpResponseMessage post = await client.PostAsync(url, new FormUrlEncodedContent(form));
+
+        await Assert.That((int)post.StatusCode).IsLessThan(400);
+        Operation? op = FirstOperation(factory, serverId, OperationKind.ConfigApply);
+        await Assert.That(op).IsNotNull();
+        await Assert.That(op!.CommandPayload).Contains("hash-abc");
+        client.Dispose();
+    }
+
+    // Posts a Zombies 4 → 2 change through the editor (in sync with SampleView's baseline) and returns the
+    // post-apply redirect target (#226).
+    private static async Task<string> PostZombiesChangeAsync(HttpClient client, ServerId serverId)
+    {
+        Uri url = new($"/servers/{serverId}?section=config&file=SandboxVars", UriKind.Relative);
+        string page = await (await client.GetAsync(url)).Content.ReadAsStringAsync();
+        Dictionary<string, string> form = new(StringComparer.Ordinal)
+        {
+            ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
+            ["_handler"] = "config-editor",
+            ["_editorForm.File"] = "SandboxVars",
+            ["_editorForm.BaselineHash"] = "hash-abc",
+            ["_editorForm.Target"] = "apply",
+            ["_editorForm.Rows[0].Path"] = "Zombies",
+            ["_editorForm.Rows[0].Kind"] = "Number",
+            ["_editorForm.Rows[0].Original"] = "4",
+            ["_editorForm.Rows[0].Value"] = "2",
+        };
+        HttpResponseMessage post = await client.PostAsync(url, new FormUrlEncodedContent(form));
+        await Assert.That((int)post.StatusCode).IsBetween(300, 399);
+        // Blazor redirects to an absolute URL on the same origin; the tests navigate by its path and query.
+        Uri location = post.Headers.Location!;
+        return location.IsAbsoluteUri ? location.PathAndQuery : location.OriginalString;
+    }
+
+    // Drives the Server's pending config write to a terminal state, as the Agent's completion would (#226).
+    private static async Task FinishOperationAsync(ZWardenWebAppFactory factory, ServerId serverId, bool succeeded, string text)
+    {
+        using IServiceScope scope = factory.Services.CreateScope();
+        ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
+        Operation op = db.Set<Operation>().First(o => o.ServerId == serverId && o.Kind == OperationKind.ConfigApply);
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        op.MarkDispatched(now.AddMinutes(5), now);
+        if (succeeded)
+        {
+            op.ReportProgress(100, text, now.AddMinutes(5), now);
+            op.Succeed(now);
+        }
+        else
+        {
+            op.Fail(text, now);
+        }
+
+        await db.SaveChangesAsync();
+    }
+
+    [Test]
     public async Task The_configuration_editor_refuses_and_shows_the_drift_banner_when_the_file_changed()
     {
         await using ZWardenWebAppFactory factory = new()

@@ -31,6 +31,8 @@
 @inject IBanQuery Bans
 @inject IConsoleCommandService ConsoleService
 @inject IOperationCoordinator Operations
+@inject IOperationStore OperationStore
+@inject NavigationManager Navigation
 @inject IServerConfigurationEditor ConfigEditor
 @inject IServerConfigurationReader ConfigReader
 @inject IServerConfigurationHistory ConfigHistory
@@ -848,11 +850,67 @@ else
                         <BbAlertDescription>
                             This file changed on the host since you loaded it — another operator or the in-game admin
                             panel wrote it, or the server rewrote it on start. Nothing was applied. The editor below now
-                            shows the <span class="font-medium">current</span> values; review your changes and
-                            <span class="font-medium">Apply changes</span> again to write on top of them.
+                            shows the <span class="font-medium">current</span> values with your changes kept on top
+                            (highlighted); review them and <span class="font-medium">Apply changes</span> again to write them.
                         </BbAlertDescription>
                     </BbAlert>
                 </div>
+            }
+
+            @if (_configOperation is { } configOp && _configMessage is null)
+            {
+                @if (!configOp.IsTerminal)
+                {
+                    <div class="mt-3" data-config-applying data-cfg-refresh="@(_configAutoRefresh ? "2" : null)">
+                        <BbAlert Variant="AlertVariant.Info" AccentBorder>
+                            <BbAlertDescription>
+                                @if (_configAutoRefresh)
+                                {
+                                    <span>Applying your changes… This page refreshes when the host has written them.</span>
+                                }
+                                else
+                                {
+                                    <span>This change is still waiting to be applied — the host may be offline or busy.
+                                        <a class="underline hover:no-underline" href="@ConfigOperationHref(_selectedFile, configOp.Id)">Check again</a>.</span>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(configOp.StatusLine))
+                                {
+                                    <span class="block text-xs">@configOp.StatusLine</span>
+                                }
+                                <span class="block font-mono text-xs text-muted-foreground">operation @configOp.Id</span>
+                            </BbAlertDescription>
+                        </BbAlert>
+                        @if (_configAutoRefresh)
+                        {
+                            <noscript><meta http-equiv="refresh" content="2" /></noscript>
+                        }
+                    </div>
+                }
+                else if (configOp.State == OperationState.Succeeded)
+                {
+                    <div class="mt-3" data-config-applied>
+                        <BbAlert Variant="AlertVariant.Success" AccentBorder>
+                            <BbAlertDescription>
+                                @(string.IsNullOrWhiteSpace(configOp.StatusLine) ? "Applied." : configOp.StatusLine)
+                                The editor shows the values now on the host.
+                            </BbAlertDescription>
+                        </BbAlert>
+                    </div>
+                }
+                else
+                {
+                    <div class="mt-3" data-config-apply-failed>
+                        <BbAlert Variant="AlertVariant.Warning" AccentBorder>
+                            <BbAlertDescription>
+                                The change was not applied:
+                                @(configOp.State == OperationState.Cancelled
+                                    ? "the operation was cancelled."
+                                    : configOp.FailureReason ?? "the host reported a failure.")
+                                The editor shows the values currently on the host.
+                            </BbAlertDescription>
+                        </BbAlert>
+                    </div>
+                }
             }
 
             @if (!string.IsNullOrEmpty(FormRejected) && _configMessage is null)
@@ -1276,6 +1334,11 @@ else
     [SupplyParameterFromQuery(Name = FormLimitGuardMiddleware.RejectedQueryKey)]
     public string? FormRejected { get; set; }
 
+    // The configuration write this page is tracking (#226), set by the post-apply redirect. Only a config write for
+    // this Server, visible in the tenant, is honoured; anything else is ignored (fail-closed).
+    [SupplyParameterFromQuery(Name = "op")]
+    public string? OperationParam { get; set; }
+
     [CascadingParameter]
     private Task<AuthenticationState>? AuthState { get; set; }
 
@@ -1366,6 +1429,13 @@ else
     private AlertVariant _configAlert = AlertVariant.Warning;
     private bool _configDrift;
 
+    // The tracked configuration write (#226) and whether the page should keep refreshing while it runs.
+    private Operation? _configOperation;
+    private bool _configAutoRefresh;
+
+    // How long the page keeps auto-refreshing a write that has not finished (e.g. a queued write to an offline host).
+    private static readonly TimeSpan ConfigRefreshWindow = TimeSpan.FromMinutes(2);
+
     private BackupPermissions _backupPerm;
     private IReadOnlyList<BackupSummary> _backups = [];
     private string? _backupMessage;
@@ -1434,11 +1504,17 @@ else
             {
                 _selectedFile = ParseFile(FileParam ?? _editorForm.File ?? _configForm.File);
                 await LoadHistoryAsync(user, serverId);
+                await LoadConfigOperationAsync(serverId);
                 // Always read so the editor form is present in this render — static SSR dispatches a form's
                 // submit handler only to a form that is actually rendered. Rebuild the editable row list from
                 // the read on a GET (or a post from another form); on a config-editor post the rows are already
                 // bound with the operator's edits, so preserve them for the submit handler to diff.
-                await ReadConfigViewAsync(user, serverId, rebuildRows: _editorForm.Rows.Count == 0);
+                // While a tracked write is still running (#226) the host still holds the old values, so the editor is
+                // withheld rather than shown stale; the page refreshes and reads once the Agent is done.
+                if (!_configAutoRefresh)
+                {
+                    await ReadConfigViewAsync(user, serverId, rebuildRows: _editorForm.Rows.Count == 0);
+                }
             }
         }
     }
@@ -2089,8 +2165,17 @@ else
             }
             else
             {
+                // Drift-check against the file as it is now (#226), not ZWarden's last recorded revision — PZ or an
+                // in-game editor may have changed values since, which would refuse every by-path edit. Reuse this
+                // request's read when it is of the same file; otherwise read that file. No read ⇒ the recorded
+                // revision (the enqueuer's fallback), so an edit to an offline host still queues.
+                ConfigDocumentView live = _configView is { IsRead: true } && string.Equals(
+                        _editorForm.File, _selectedFile.ToString(), StringComparison.Ordinal)
+                    ? _configView
+                    : await ConfigReader.ReadAsync(user, serverId, _selectedFile);
                 ConfigApplyEdit edit = new(path, ParseKind(form.Kind), form.Value ?? string.Empty);
-                ServerConfigurationResult result = await ConfigEditor.ApplyAsync(user, serverId, _selectedFile, [edit]);
+                ServerConfigurationResult result = await ConfigEditor.ApplyAsync(
+                    user, serverId, _selectedFile, [edit], expectedBaselineHash: live.IsRead ? live.BaselineHash : null);
                 SetConfigResult(result, $"Edit to {path} enqueued");
             }
         }
@@ -2117,6 +2202,28 @@ else
             SetConfigResult(result, "Restore enqueued");
             await LoadHistoryAsync(user, serverId);
         }
+    }
+
+    // Resolves the ?op= write this page is tracking (#226): a ConfigApply/ConfigApplyRaw for this Server, visible
+    // through the tenant filter; anything else is ignored. While it runs the page refreshes itself (for a bounded
+    // window), so the editor is re-read — showing the written values and a fresh baseline — once the Agent is done.
+    private async Task LoadConfigOperationAsync(ServerId serverId)
+    {
+        if (!OperationId.TryParse(OperationParam, out OperationId operationId))
+        {
+            return;
+        }
+
+        Operation? operation = await OperationStore.FindAsync(operationId);
+        if (operation is null || operation.ServerId != serverId
+            || operation.Kind is not (OperationKind.ConfigApply or OperationKind.ConfigApplyRaw))
+        {
+            return;
+        }
+
+        _configOperation = operation;
+        _configAutoRefresh = !operation.IsTerminal
+            && TimeProvider.System.GetUtcNow() - operation.EnqueuedAt < ConfigRefreshWindow;
     }
 
     // Reads the live Configuration View of the selected file from the host and rebuilds the editor's row list
@@ -2240,14 +2347,43 @@ else
             SetConfigResult(result, $"{edits.Count} change{(edits.Count == 1 ? string.Empty : "s")} enqueued");
         }
 
-        // Refresh the editor from the view already read for this request (OnInitializedAsync read it so the form
-        // could render). The apply is enqueued, so the live values are unchanged until the Agent writes them and
-        // the next read runs — no second host round-trip is needed here. Refreshing the baseline too means a
+        // Nothing was enqueued (a successful apply redirects, #226): refresh the editor from the view already read for
+        // this request (OnInitializedAsync read it so the form could render). Refreshing the baseline too means a
         // reapply after drift carries the current hash (the operator is now writing on top of the live state).
         ConfigDocumentView refreshed = _configView ?? ConfigDocumentView.OfOutcome(ConfigReadOutcome.Read);
         _editorForm.Rows = BuildRows(refreshed);
         _editorForm.BaselineHash = refreshed.IsRead ? refreshed.BaselineHash : null;
+        if (_configDrift)
+        {
+            // Keep the operator's edits across a drift refusal (#226): carry each onto the fresh row, whose Original
+            // is now the current host value, so it shows as changed and a second Apply writes it on top.
+            CarryEdits(_editorForm.Rows, edits);
+        }
+
         await LoadHistoryAsync(user, serverId);
+    }
+
+    private static void CarryEdits(List<ConfigEditorRow> rows, List<ConfigApplyEdit> edits)
+    {
+        Dictionary<string, string> byPath = edits
+            .GroupBy(e => e.Path, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.Last().Value, StringComparer.Ordinal);
+        foreach (ConfigEditorRow row in rows)
+        {
+            if (row.Path is null || !byPath.TryGetValue(row.Path, out string? value))
+            {
+                continue;
+            }
+
+            if (row.Toggle)
+            {
+                row.Flag = string.Equals(value, "true", StringComparison.Ordinal);
+            }
+            else
+            {
+                row.Value = value;
+            }
+        }
     }
 
     // The gated raw whole-file edit submit handler (F20c PR-D, ADR 0042). Requires the explicit acknowledgement,
@@ -2308,7 +2444,16 @@ else
     {
         if (result.Succeeded)
         {
-            SetConfigMessage($"{success} (operation {result.Operation}). The outcome appears on that operation shortly.", ok: true);
+            if (result.Operation is { } operation)
+            {
+                // Post/Redirect/Get onto the config section tracking this write (#226): it shows "Applying…" until
+                // the Agent finishes, then re-reads the host, so the operator sees the written values and a fresh
+                // baseline, never the pre-write read this POST rendered from.
+                Navigation.NavigateTo(ConfigOperationHref(_selectedFile, operation));
+                return;
+            }
+
+            SetConfigMessage($"{success}. The outcome appears on that operation shortly.", ok: true);
             return;
         }
 
@@ -2350,6 +2495,10 @@ else
         [PzConfigFile.Ini, PzConfigFile.SandboxVars, PzConfigFile.SpawnRegions, PzConfigFile.SpawnPoints];
 
     private string ConfigFileHref(PzConfigFile file) => $"/servers/{Id}?section=config&file={file}";
+
+    // The config section tracking one enqueued write (#226): the page shows it applying, then its outcome.
+    private string ConfigOperationHref(PzConfigFile file, OperationId operation) =>
+        $"/servers/{Id}?section=config&file={file}&op={operation}";
 
     private static string RestartHint(PzConfigFile file) => file == PzConfigFile.Ini
         ? "servertest.ini changes are reloaded live on a running server (RCON reloadoptions); if that is not possible they take effect on the next restart. Mods and ports always need a restart."

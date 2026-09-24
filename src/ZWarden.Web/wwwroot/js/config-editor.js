@@ -115,8 +115,19 @@
     }
   });
 
+  // ---- refresh while a configuration write is applying (#226) ----
+  // The server marks the page while a tracked write is still running; reload (a GET) until it has finished, when
+  // the server stops emitting the marker and the editor shows the written values. <noscript> covers the no-JS path.
+  var refreshTimer = null;
+  function scheduleRefresh() {
+    var marker = doc.querySelector('[data-cfg-refresh]');
+    if (!marker || refreshTimer !== null) { return; }
+    var seconds = parseInt(marker.getAttribute('data-cfg-refresh'), 10) || 2;
+    refreshTimer = window.setTimeout(function () { window.location.reload(); }, seconds * 1000);
+  }
+
   // Initial pass on load / after enhanced navigation so a re-rendered editor reflects any bound state.
-  function init() { doc.querySelectorAll('[data-cfg-form]').forEach(markAll); }
+  function init() { doc.querySelectorAll('[data-cfg-form]').forEach(markAll); scheduleRefresh(); }
   doc.addEventListener('DOMContentLoaded', init);
   doc.addEventListener('enhancedload', init);
 })();

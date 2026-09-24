@@ -414,6 +414,64 @@ public class ServerConfigurationEditorTests
     }
 
     [Test]
+    public async Task Restore_plans_against_the_live_file_and_carries_its_baseline()
+    {
+        // #226: the file changed after ZWarden's last revision (Zombies 1 → 2 on disk). Planning against the stale
+        // revision would be refused as drift; the restore plans against the live values and their baseline instead.
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            ServerId serverId = await SeedServerAsync(options, AgentId.New());
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ServerConfigurationEdit);
+            ConfigurationRevisionId target = await SeedSnapshotRevisionAsync(
+                options, serverId, PzConfigFile.SandboxVars, "[[\"Distribution\",\"n:1:i\"],[\"Zombies\",\"n:4:i\"]]", Now);
+            await SeedSnapshotRevisionAsync(
+                options, serverId, PzConfigFile.SandboxVars, "[[\"Distribution\",\"n:1:i\"],[\"Zombies\",\"n:1:i\"]]", Now.AddMinutes(5));
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            RecordingCoordinator coordinator = new();
+            ServerConfigurationEditor sut = Editor(
+                db, coordinator, new CapturingAuditWriter(),
+                reader: new FixedReader(LiveView("live-hash", ("Distribution", "1"), ("Zombies", "2"))));
+
+            ServerConfigurationResult result = await sut.RestoreAsync(user, serverId, target);
+
+            await Assert.That(result.Succeeded).IsTrue();
+            ConfigApplyPayload payload = ConfigApplyPayload.FromJson(coordinator.LastRequest!.CommandPayload!);
+            await Assert.That(payload.BaselineHash).IsEqualTo("live-hash");
+            await Assert.That(payload.Edits.Count).IsEqualTo(1);
+            await Assert.That(payload.Edits[0].Path).IsEqualTo("Zombies");
+            await Assert.That(payload.Edits[0].Value).IsEqualTo("4");
+        });
+    }
+
+    [Test]
+    public async Task Restore_reports_already_matching_when_the_live_file_holds_the_target_values()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            ServerId serverId = await SeedServerAsync(options, AgentId.New());
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ServerConfigurationEdit);
+            ConfigurationRevisionId target = await SeedSnapshotRevisionAsync(
+                options, serverId, PzConfigFile.SandboxVars, "[[\"Zombies\",\"n:4:i\"]]", Now);
+            await SeedSnapshotRevisionAsync(
+                options, serverId, PzConfigFile.SandboxVars, "[[\"Zombies\",\"n:1:i\"]]", Now.AddMinutes(5));
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            RecordingCoordinator coordinator = new();
+            ServerConfigurationEditor sut = Editor(
+                db, coordinator, new CapturingAuditWriter(), reader: new FixedReader(LiveView("h", ("Zombies", "4"))));
+
+            ServerConfigurationResult result = await sut.RestoreAsync(user, serverId, target);
+
+            await Assert.That(result.Failure).IsEqualTo(ServerConfigurationFailure.InvalidInput);
+            await Assert.That(result.Message!).Contains("already matches");
+            await Assert.That(coordinator.LastRequest).IsNull();
+        });
+    }
+
+    [Test]
     public async Task Restore_denies_when_the_revision_already_matches_the_current_state()
     {
         await WithSqlite(async options =>
@@ -514,14 +572,39 @@ public class ServerConfigurationEditorTests
     }
 
     private static ServerConfigurationEditor Editor(
-        ZWardenDbContext db, RecordingCoordinator coordinator, CapturingAuditWriter audit, RecordingRawEditChannel? rawChannel = null)
+        ZWardenDbContext db, RecordingCoordinator coordinator, CapturingAuditWriter audit, RecordingRawEditChannel? rawChannel = null,
+        IServerConfigurationReader? reader = null)
         => new(
             new ServerRepository(db),
             new PermissionChecker(db, new TestTenantContext(Tenant)),
             coordinator,
             new ConfigurationRevisionRepository(db),
             rawChannel ?? new RecordingRawEditChannel(),
+            reader ?? new FixedReader(ConfigDocumentView.OfOutcome(ConfigReadOutcome.AgentOffline)),
             audit);
+
+    // A reader returning a fixed view (#226); the default is an offline host, so restore falls back to the recorded
+    // revision exactly as before.
+    private sealed class FixedReader(ConfigDocumentView view) : IServerConfigurationReader
+    {
+        public Task<ConfigDocumentView> ReadAsync(
+            UserId user, ServerId server, PzConfigFile file, CancellationToken cancellationToken = default) =>
+            Task.FromResult(view);
+    }
+
+    private static ConfigDocumentView LiveView(string baseline, params (string Path, string Value)[] settings) => new(
+        ConfigReadOutcome.Read,
+        [
+            new ConfigSection("Other",
+            [
+                .. settings.Select(s => new ConfigSettingView(
+                    s.Path, s.Path, ConfigEditKind.Number, ConfigValueShape.Whole, s.Value, null, null, null, null, [], false)),
+            ]),
+        ],
+        "raw",
+        baseline,
+        [],
+        null);
 
     private sealed class RecordingRawEditChannel : IServerConfigRawEditChannel
     {

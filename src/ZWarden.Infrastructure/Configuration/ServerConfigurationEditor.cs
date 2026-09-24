@@ -35,6 +35,7 @@ public sealed class ServerConfigurationEditor : IServerConfigurationEditor
     private readonly IPermissionChecker _permissions;
     private readonly ConfigurationRevisionRepository _revisions;
     private readonly IServerConfigRawEditChannel _rawChannel;
+    private readonly IServerConfigurationReader _reader;
     private readonly ConfigApplyEnqueuer _enqueuer;
 
     public ServerConfigurationEditor(
@@ -43,6 +44,7 @@ public sealed class ServerConfigurationEditor : IServerConfigurationEditor
         IOperationCoordinator operations,
         ConfigurationRevisionRepository revisions,
         IServerConfigRawEditChannel rawChannel,
+        IServerConfigurationReader reader,
         IAuditWriter audit)
     {
         ArgumentNullException.ThrowIfNull(servers);
@@ -50,11 +52,13 @@ public sealed class ServerConfigurationEditor : IServerConfigurationEditor
         ArgumentNullException.ThrowIfNull(operations);
         ArgumentNullException.ThrowIfNull(revisions);
         ArgumentNullException.ThrowIfNull(rawChannel);
+        ArgumentNullException.ThrowIfNull(reader);
         ArgumentNullException.ThrowIfNull(audit);
         _servers = servers;
         _permissions = permissions;
         _revisions = revisions;
         _rawChannel = rawChannel;
+        _reader = reader;
         _enqueuer = new ConfigApplyEnqueuer(operations, revisions, audit);
     }
 
@@ -141,31 +145,48 @@ public sealed class ServerConfigurationEditor : IServerConfigurationEditor
         }
 
         PzConfigFile file = target.File;
-
-        // The current recorded state of this file is both what we restore *from* and the drift baseline the
-        // Agent re-checks. Restoring the current revision itself is a no-op.
-        ConfigurationRevision? current = await _revisions.FindLatestAsync(server, file, cancellationToken).ConfigureAwait(false);
         PzValueSnapshot targetSnapshot = PzValueSnapshot.Parse(target.CanonicalSnapshot);
-        PzValueSnapshot currentSnapshot = current is null
-            ? targetSnapshot
-            : PzValueSnapshot.Parse(current.CanonicalSnapshot);
 
-        // Only the differing scalars become edits — a whole-file resend would blow the payload cap, and PZ owns
-        // the key set, so a structural add/remove is reported rather than applied (values-only writer, ADR 0010).
-        PzRestorePlan plan = PzRestore.PlanTo(targetSnapshot, currentSnapshot);
-        if (plan.Edits.Count == 0)
+        // Plan against the file as it is now (#226): PZ or an in-game editor can change values after ZWarden's last
+        // recorded revision, and a restore planned against that stale revision would always be refused as drift.
+        // The live read's baseline then rides the apply, so the Agent still fails closed if the file changes again
+        // before the write. If the host cannot be read (offline), fall back to the recorded revision, which queues.
+        ConfigDocumentView live = await _reader.ReadAsync(user, server, file, cancellationToken).ConfigureAwait(false);
+        List<ConfigApplyEdit> edits;
+        int obstacles;
+        string? baseline;
+        if (live.IsRead)
         {
-            string reason = plan.Obstacles.Count > 0
+            (edits, obstacles) = PlanAgainstLive(targetSnapshot, live);
+            baseline = live.BaselineHash;
+        }
+        else
+        {
+            // The current recorded state of this file is what we restore *from*; the enqueuer uses it as the drift
+            // baseline. Restoring the current revision itself is a no-op.
+            ConfigurationRevision? current = await _revisions.FindLatestAsync(server, file, cancellationToken).ConfigureAwait(false);
+            PzValueSnapshot currentSnapshot = current is null
+                ? targetSnapshot
+                : PzValueSnapshot.Parse(current.CanonicalSnapshot);
+
+            // Only the differing scalars become edits — a whole-file resend would blow the payload cap, and PZ owns
+            // the key set, so a structural add/remove is reported rather than applied (values-only writer, ADR 0010).
+            PzRestorePlan plan = PzRestore.PlanTo(targetSnapshot, currentSnapshot);
+            edits = [.. plan.Edits.Select(e => new ConfigApplyEdit(e.Path, KindOf(e.Value), WireValueOf(e.Value)))];
+            obstacles = plan.Obstacles.Count;
+            baseline = null;
+        }
+
+        if (edits.Count == 0)
+        {
+            string reason = obstacles > 0
                 ? "That revision differs from the current configuration only by keys that cannot be restored surgically."
                 : "That revision already matches the current configuration.";
             return ServerConfigurationResult.Denied(ServerConfigurationFailure.InvalidInput, reason);
         }
 
-        List<ConfigApplyEdit> edits = [.. plan.Edits.Select(e => new ConfigApplyEdit(e.Path, KindOf(e.Value), WireValueOf(e.Value)))];
-        // Restore's baseline is the current recorded state it planned against, so it supplies none and the enqueuer
-        // uses the recorded revision (a restore is not an interactive live-read edit).
         return await EnqueueAsync(
-            user, resolved, file, edits, ConfigurationAuditActions.Restored, expectedBaselineHash: null, cancellationToken)
+            user, resolved, file, edits, ConfigurationAuditActions.Restored, baseline, cancellationToken)
             .ConfigureAwait(false);
     }
 
@@ -236,6 +257,39 @@ public sealed class ServerConfigurationEditor : IServerConfigurationEditor
         CancellationToken cancellationToken)
         => _enqueuer.EnqueueAsync(
             user, resolved, file, edits, auditAction, $"{file}, {edits.Count} edit(s)", expectedBaselineHash, cancellationToken);
+
+    // The restore edits that move the live file to the target (#226): every target scalar whose wire text differs
+    // from the live value. Compared as wire text because the live view re-types INI values for the editor (#223)
+    // while a revision holds them as the file's own types. A target key the file lacks, or a live key the target
+    // lacks, is a structural obstacle the values-only writer cannot restore (ADR 0010).
+    private static (List<ConfigApplyEdit> Edits, int Obstacles) PlanAgainstLive(PzValueSnapshot target, ConfigDocumentView live)
+    {
+        Dictionary<string, string> liveByPath = live.Sections
+            .SelectMany(s => s.Settings)
+            .GroupBy(s => s.Path, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.First().Value, StringComparer.Ordinal);
+
+        List<ConfigApplyEdit> edits = [];
+        int obstacles = 0;
+        var targetPaths = new HashSet<string>(StringComparer.Ordinal);
+        foreach (PzScalarEntry wanted in target.Scalars)
+        {
+            targetPaths.Add(wanted.Path);
+            string wire = WireValueOf(wanted.Value);
+            if (!liveByPath.TryGetValue(wanted.Path, out string? have))
+            {
+                obstacles++;
+            }
+            else if (!string.Equals(have, wire, StringComparison.Ordinal))
+            {
+                edits.Add(new ConfigApplyEdit(wanted.Path, KindOf(wanted.Value), wire));
+            }
+        }
+
+        obstacles += liveByPath.Keys.Count(path => !targetPaths.Contains(path));
+        edits.Sort(static (x, y) => string.CompareOrdinal(x.Path, y.Path));
+        return (edits, obstacles);
+    }
 
     private static PzConfigKind ToKind(PzConfigFile file) => file switch
     {
