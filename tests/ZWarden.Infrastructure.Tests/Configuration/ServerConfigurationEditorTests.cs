@@ -254,6 +254,54 @@ public class ServerConfigurationEditorTests
     }
 
     [Test]
+    public async Task Apply_rejects_an_edit_that_breaks_the_schema_and_enqueues_nothing()
+    {
+        // #223: an empty value for a schema boolean ("PVP=") is refused before it can reach the file, with a
+        // message naming the key — even alongside a valid edit (the whole batch is refused).
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            ServerId serverId = await SeedServerAsync(options, AgentId.New());
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ServerConfigurationEdit);
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            RecordingCoordinator coordinator = new();
+            ServerConfigurationEditor sut = Editor(db, coordinator, new CapturingAuditWriter());
+
+            ServerConfigurationResult result = await sut.ApplyAsync(
+                user, serverId, PzConfigFile.Ini,
+                [
+                    new ConfigApplyEdit("MaxPlayers", ConfigEditKind.Number, "16"),
+                    new ConfigApplyEdit("PVP", ConfigEditKind.Text, ""),
+                ]);
+
+            await Assert.That(result.Failure).IsEqualTo(ServerConfigurationFailure.InvalidInput);
+            await Assert.That(result.Message!).Contains("PVP");
+            await Assert.That(coordinator.LastRequest).IsNull();
+        });
+    }
+
+    [Test]
+    public async Task Apply_passes_an_unknown_key_through_unvalidated()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            ServerId serverId = await SeedServerAsync(options, AgentId.New());
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ServerConfigurationEdit);
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            RecordingCoordinator coordinator = new();
+            ServerConfigurationEditor sut = Editor(db, coordinator, new CapturingAuditWriter());
+
+            ServerConfigurationResult result = await sut.ApplyAsync(
+                user, serverId, PzConfigFile.Ini, [new ConfigApplyEdit("SomeModKey", ConfigEditKind.Text, "")]);
+
+            await Assert.That(result.Succeeded).IsTrue();
+        });
+    }
+
+    [Test]
     public async Task ApplyRaw_stages_the_text_then_enqueues_a_mutating_raw_operation()
     {
         await WithSqlite(async options =>
