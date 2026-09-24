@@ -135,7 +135,8 @@ public sealed class ServerConfigurationReader : IServerConfigurationReader
                 defaultValue,
                 tooltip,
                 options,
-                schemaEntry is not null);
+                schemaEntry is not null,
+                schemaEntry?.Managed ?? false);
 
             if (!bySection.TryGetValue(section, out List<ConfigSettingView>? list))
             {

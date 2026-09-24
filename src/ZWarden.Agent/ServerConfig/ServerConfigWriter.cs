@@ -8,6 +8,7 @@ using ZWarden.Domain.Ids;
 using ZWarden.PzConfig;
 using ZWarden.PzConfig.Model;
 using ZWarden.PzConfig.Revisions;
+using ZWarden.PzConfig.Validation;
 
 namespace ZWarden.Agent.ServerConfig;
 
@@ -116,6 +117,14 @@ public sealed class ServerConfigWriter : IServerConfigWriter
                 + "was refused to avoid discarding that change. Reconcile the drift and try again.");
         }
 
+        // A ZWarden-managed key (the INI ports, #228) is never written: the container publishes PZ's fixed ports and
+        // this Agent dials RCON at 27015. The control plane refuses these first; this is the authoritative check.
+        PzConfigKind kind = ServerConfigFiles.ToKind(file);
+        if (edits.FirstOrDefault(e => PzSchema.IsManaged(kind, e.Path)) is { } managed)
+        {
+            return ConfigApplyOutcome.Failed(ManagedKeyMessage(managed.Path));
+        }
+
         int applied = 0;
         foreach (ConfigValueEdit edit in edits)
         {
@@ -190,6 +199,15 @@ public sealed class ServerConfigWriter : IServerConfigWriter
         }
 
         PzValueSnapshot newSnapshot = PzValueSnapshot.Of(newDocument);
+
+        // A raw edit may not change or remove a ZWarden-managed key (#228), whatever else it changes.
+        if (currentSnapshot is not null
+            && PzValueDiff.Compare(currentSnapshot, newSnapshot)
+                .FirstOrDefault(c => PzSchema.IsManaged(ServerConfigFiles.ToKind(file), c.Path)) is { } managedChange)
+        {
+            return ConfigApplyOutcome.Failed(ManagedKeyMessage(managedChange.Path) + " The raw edit was not written.");
+        }
+
         PzDriftResult drift = PzDriftCheck.Compare(baselineHash, currentSnapshot ?? newSnapshot);
         if (!drift.WriteAllowed)
         {
@@ -212,6 +230,9 @@ public sealed class ServerConfigWriter : IServerConfigWriter
         int changed = currentSnapshot is null ? newSnapshot.Scalars.Count : PzValueDiff.Compare(currentSnapshot, newSnapshot).Count;
         return ConfigApplyOutcome.Applied(newSnapshot.CanonicalText, newSnapshot.Hash, changed);
     }
+
+    private static string ManagedKeyMessage(string path) =>
+        $"'{path}' is managed by ZWarden and cannot be changed: the server's container ports and RCON connection depend on it.";
 
     // Drop a leading UTF-8 BOM the operator's editor may have inserted; the write is BOM-less (ADR 0011).
     private static string StripBom(string text) => text.Length > 0 && text[0] == '﻿' ? text[1..] : text;

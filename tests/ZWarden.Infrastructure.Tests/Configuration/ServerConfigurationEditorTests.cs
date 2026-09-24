@@ -282,6 +282,89 @@ public class ServerConfigurationEditorTests
     }
 
     [Test]
+    [Arguments("DefaultPort", "16300")]
+    [Arguments("UDPPort", "16301")]
+    [Arguments("RCONPort", "27016")]
+    public async Task Apply_refuses_an_edit_to_a_zwarden_managed_port_and_enqueues_nothing(string path, string value)
+    {
+        // #228: the container publishes PZ's fixed ports and the Agent dials RCON at 27015; the whole batch is refused.
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            ServerId serverId = await SeedServerAsync(options, AgentId.New());
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ServerConfigurationEdit);
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            RecordingCoordinator coordinator = new();
+            ServerConfigurationEditor sut = Editor(db, coordinator, new CapturingAuditWriter());
+
+            ServerConfigurationResult result = await sut.ApplyAsync(
+                user, serverId, PzConfigFile.Ini,
+                [
+                    new ConfigApplyEdit("MaxPlayers", ConfigEditKind.Number, "16"),
+                    new ConfigApplyEdit(path, ConfigEditKind.Number, value),
+                ]);
+
+            await Assert.That(result.Failure).IsEqualTo(ServerConfigurationFailure.InvalidInput);
+            await Assert.That(result.Message!).Contains(path);
+            await Assert.That(result.Message!).Contains("managed by ZWarden");
+            await Assert.That(coordinator.LastRequest).IsNull();
+        });
+    }
+
+    [Test]
+    public async Task Restore_leaves_zwarden_managed_ports_as_they_are_and_restores_the_rest()
+    {
+        // #228: an old revision may hold a different port; restoring it would break the container mapping, so the
+        // port is skipped and every other differing value is still restored.
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            ServerId serverId = await SeedServerAsync(options, AgentId.New());
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ServerConfigurationEdit);
+            ConfigurationRevisionId target = await SeedSnapshotRevisionAsync(
+                options, serverId, PzConfigFile.Ini, "[[\"DefaultPort\",\"s:16300\"],[\"MaxPlayers\",\"s:8\"]]", Now);
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            RecordingCoordinator coordinator = new();
+            ServerConfigurationEditor sut = Editor(
+                db, coordinator, new CapturingAuditWriter(),
+                reader: new FixedReader(LiveView("live", ("DefaultPort", "16261"), ("MaxPlayers", "16"))));
+
+            ServerConfigurationResult result = await sut.RestoreAsync(user, serverId, target);
+
+            await Assert.That(result.Succeeded).IsTrue();
+            ConfigApplyPayload payload = ConfigApplyPayload.FromJson(coordinator.LastRequest!.CommandPayload!);
+            await Assert.That(payload.Edits.Count).IsEqualTo(1);
+            await Assert.That(payload.Edits[0].Path).IsEqualTo("MaxPlayers");
+        });
+    }
+
+    [Test]
+    public async Task Restore_says_so_when_a_revision_differs_only_by_a_managed_port()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            ServerId serverId = await SeedServerAsync(options, AgentId.New());
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ServerConfigurationEdit);
+            ConfigurationRevisionId target = await SeedSnapshotRevisionAsync(
+                options, serverId, PzConfigFile.Ini, "[[\"RCONPort\",\"s:27016\"]]", Now);
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            RecordingCoordinator coordinator = new();
+            ServerConfigurationEditor sut = Editor(
+                db, coordinator, new CapturingAuditWriter(), reader: new FixedReader(LiveView("live", ("RCONPort", "27015"))));
+
+            ServerConfigurationResult result = await sut.RestoreAsync(user, serverId, target);
+
+            await Assert.That(result.Failure).IsEqualTo(ServerConfigurationFailure.InvalidInput);
+            await Assert.That(result.Message!).Contains("managed by ZWarden");
+            await Assert.That(coordinator.LastRequest).IsNull();
+        });
+    }
+
+    [Test]
     public async Task Apply_passes_an_unknown_key_through_unvalidated()
     {
         await WithSqlite(async options =>

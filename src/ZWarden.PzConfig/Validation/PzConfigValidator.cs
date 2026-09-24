@@ -65,6 +65,15 @@ public sealed class PzConfigValidator : IPzConfigValidator
             return null;
         }
 
+        // A ZWarden-managed key (#228) is refused outright: the container mapping and the Agent's RCON depend on it.
+        if (rule.Managed)
+        {
+            return new PzConfigDiagnostic(
+                PzDiagnosticSeverity.Error,
+                PzConfigDiagnostic.Codes.ManagedKey,
+                $"'{path}' is managed by ZWarden and cannot be changed here: the server's container and RCON connection depend on it.");
+        }
+
         var diagnostics = new List<PzConfigDiagnostic>();
         ValidateScalar(path, new PzString(value), rule, coerceFromString: true, diagnostics);
         return diagnostics.Count == 0 ? null : diagnostics[0];

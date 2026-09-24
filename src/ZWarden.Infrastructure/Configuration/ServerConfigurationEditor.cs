@@ -177,9 +177,15 @@ public sealed class ServerConfigurationEditor : IServerConfigurationEditor
             baseline = null;
         }
 
+        // A ZWarden-managed key (the INI ports, #228) is never restored: an older revision's port would break the
+        // container mapping or the Agent's RCON. The rest of the revision is still restored.
+        int managed = edits.RemoveAll(e => PzSchema.IsManaged(ToKind(file), e.Path));
+
         if (edits.Count == 0)
         {
-            string reason = obstacles > 0
+            string reason = managed > 0
+                ? "That revision differs from the current configuration only by ports, which are managed by ZWarden and are left as they are."
+                : obstacles > 0
                 ? "That revision differs from the current configuration only by keys that cannot be restored surgically."
                 : "That revision already matches the current configuration.";
             return ServerConfigurationResult.Denied(ServerConfigurationFailure.InvalidInput, reason);
