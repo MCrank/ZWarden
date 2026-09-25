@@ -20,6 +20,11 @@ public interface IOperationStore
     /// its per-server lock (ADR 0022) — or <c>null</c>. Feeds the live header's transitional state (#249).</summary>
     Task<Operation?> FindActiveForServerAsync(ServerId serverId, CancellationToken cancellationToken = default);
 
+    /// <summary>The Server's most recent finished mutating Operation <b>if it failed</b>, or <c>null</c> — a later
+    /// success or cancellation resolves it (#266). Feeds the server page's "last action failed" alert, so a refusal
+    /// (e.g. a Recreate's port pre-flight) is never a silent no-op.</summary>
+    Task<Operation?> FindUnresolvedFailureForServerAsync(ServerId serverId, CancellationToken cancellationToken = default);
+
     /// <summary>Every in-flight (non-terminal) mutating Operation in the current tenant — at most one per Server —
     /// in one read. Feeds the fleet board's live status (#253); the caller filters to the Servers it may view.</summary>
     Task<IReadOnlyList<Operation>> ListActiveAsync(CancellationToken cancellationToken = default);

@@ -404,6 +404,65 @@ public sealed class ServerLifecycleEndpointsTests
         client.Dispose();
     }
 
+    [Test]
+    public async Task The_header_status_carries_the_last_failed_action_and_its_reason()
+    {
+        // #266: a refused Recreate used to look like a silent no-op — the status now says what failed and why.
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, ServerRunState.Running);
+        OperationId failed = await SeedFinishedOperationAsync(
+            factory, serverId, OperationKind.RecreateServer, "Host port 16261/udp is already published by another container on this host.");
+
+        using JsonDocument body = JsonDocument.Parse(
+            await (await client.GetAsync(new Uri($"/api/servers/{serverId}/status", UriKind.Relative))).Content.ReadAsStringAsync());
+        JsonElement failure = body.RootElement.GetProperty("failure");
+
+        await Assert.That(failure.GetProperty("operationId").GetString()).IsEqualTo(failed.ToString());
+        await Assert.That(failure.GetProperty("action").GetString()).IsEqualTo("Recreate");
+        await Assert.That(failure.GetProperty("reason").GetString()).Contains("16261/udp is already published");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task A_later_success_clears_the_failure_from_the_header_status()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, ServerRunState.Running);
+        await SeedFinishedOperationAsync(factory, serverId, OperationKind.RecreateServer, "refused");
+        await Task.Delay(5); // UUIDv7 ids order by millisecond only (ADR 0004).
+        await SeedFinishedOperationAsync(factory, serverId, OperationKind.RecreateServer, failureReason: null);
+
+        using JsonDocument body = JsonDocument.Parse(
+            await (await client.GetAsync(new Uri($"/api/servers/{serverId}/status", UriKind.Relative))).Content.ReadAsStringAsync());
+
+        await Assert.That(body.RootElement.GetProperty("failure").ValueKind).IsEqualTo(JsonValueKind.Null);
+        client.Dispose();
+    }
+
+    // A finished mutating Operation on the Server: failed with the reason, or succeeded when the reason is null.
+    private static async Task<OperationId> SeedFinishedOperationAsync(
+        ZWardenWebAppFactory factory, ServerId serverId, OperationKind kind, string? failureReason)
+    {
+        using IServiceScope scope = factory.Services.CreateScope();
+        ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
+        Operation op = Operation.Enqueue(AgentId.New(), kind, isMutating: true, Guid.NewGuid().ToString("N"), Now, serverId);
+        op.MarkDispatched(Now.AddMinutes(5), Now);
+        if (failureReason is null)
+        {
+            op.Succeed(Now);
+        }
+        else
+        {
+            op.Fail(failureReason, Now);
+        }
+
+        db.Add(op);
+        await db.SaveChangesAsync();
+        return op.Id;
+    }
+
     private static StringContent JsonContent(string json) => new(json, System.Text.Encoding.UTF8, "application/json");
     private static async Task<ServerId> SeedServerAsync(ZWardenWebAppFactory factory, ServerRunState? state = null)
     {

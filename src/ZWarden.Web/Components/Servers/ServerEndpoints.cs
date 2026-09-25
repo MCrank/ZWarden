@@ -10,6 +10,7 @@ using ZWarden.Domain.Ids;
 using ZWarden.Domain.Operations;
 using ZWarden.Domain.Servers;
 using ZWarden.Infrastructure.Identity;
+using ZWarden.Web.Time;
 
 namespace ZWarden.Web.Components.Servers;
 
@@ -139,7 +140,8 @@ public static class ServerEndpoints
         // Operation, polled by live-status.js on the server-detail page. Fail-closed on Server.View (the inventory's
         // per-Server gate): an unknown or unviewable Server is 404, never a hint that it exists. Never cached.
         lifecycle.MapGet("/{id}/status", async (string id, ClaimsPrincipal principal, UserManager<ApplicationUser> users,
-            IServerInventory inventory, IOperationStore operations, HttpContext http, CancellationToken ct) =>
+            IServerInventory inventory, IOperationStore operations, IOperatorTimeZoneProvider operatorTz, HttpContext http,
+            CancellationToken ct) =>
         {
             if (!ServerId.TryParse(id, out ServerId serverId))
             {
@@ -154,8 +156,12 @@ public static class ServerEndpoints
 
             Operation? active = await operations.FindActiveForServerAsync(serverId, ct).ConfigureAwait(false);
             ServerStatusView view = ServerLiveStatus.Resolve(server.LastRunState, active?.Kind, active?.StatusLine);
+            // #266: the last action's failure, unless a new action is already in flight (it supersedes the old one).
+            ServerFailureView? failure = active is null
+                ? ServerFailureView.From(await operations.FindUnresolvedFailureForServerAsync(serverId, ct).ConfigureAwait(false), operatorTz.Zone)
+                : null;
             http.Response.Headers.CacheControl = "no-store";
-            return Results.Ok(StatusBody(serverId, view));
+            return Results.Ok(StatusBody(serverId, view, failure));
         });
 
         lifecycle.MapPost("/{id}/start", (string id, ClaimsPrincipal principal, UserManager<ApplicationUser> users,
@@ -375,7 +381,9 @@ public static class ServerEndpoints
     };
 
     // The live-status wire shape live-status.js reads, shared by the header (#249) and fleet (#253) endpoints.
-    private static object StatusBody(ServerId id, ServerStatusView view) => new
+    // #266: the header body also carries the last action's failure (null when there is none); the script writes it
+    // with textContent only.
+    private static object StatusBody(ServerId id, ServerStatusView view, ServerFailureView? failure = null) => new
     {
         id = id.ToString(),
         label = view.Label,
@@ -385,6 +393,7 @@ public static class ServerEndpoints
         canStop = view.CanStop,
         canRestart = view.CanRestart,
         detail = view.Detail,
+        failure = failure is null ? null : new { operationId = failure.OperationId, action = failure.Action, reason = failure.Reason, at = failure.At },
     };
 
     // One fleet-board entry (#257): the #253 status fields plus the fleet facts. Every value is observed data; the
