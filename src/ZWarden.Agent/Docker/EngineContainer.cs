@@ -29,6 +29,9 @@ public readonly record struct PublishedPort(ushort HostPort, ushort ContainerPor
 /// name (inspect <c>NetworkSettings.Networks[name].IPAddress</c>). <c>null</c> when produced by the list API
 /// (which does not carry it) and empty when the container is not running. F18 reads the ZWarden-network address
 /// here to reach the private, never-host-published RCON port.</param>
+/// <param name="StartedAt">When the container last started (inspect <c>State.StartedAt</c>, UTC), or <c>null</c> when it
+/// is not running, the list API produced this record, or Docker reported its zero time. The fleet uptime source
+/// (#257).</param>
 public sealed record EngineContainer(
     string Id,
     IReadOnlyDictionary<string, string> Labels,
@@ -37,4 +40,5 @@ public sealed record EngineContainer(
     string? HealthStatus = null,
     long ExitCode = 0,
     bool OomKilled = false,
-    IReadOnlyDictionary<string, string>? NetworkAddresses = null);
+    IReadOnlyDictionary<string, string>? NetworkAddresses = null,
+    DateTimeOffset? StartedAt = null);

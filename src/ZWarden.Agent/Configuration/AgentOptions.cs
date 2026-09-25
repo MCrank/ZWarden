@@ -152,6 +152,14 @@ public sealed class AgentOptions
     /// window. Must be positive; defaults to 15s.</summary>
     public TimeSpan MetricsReportInterval { get; set; } = TimeSpan.FromSeconds(15);
 
+    /// <summary>How often the Agent reads each Running server's player count over RCON (#257). The last count rides
+    /// every metrics report, so this bounds the RCON load per server, not how fresh the fleet board looks. At least
+    /// <see cref="MinimumPlayerCountSampleInterval"/>; defaults to 180s.</summary>
+    public TimeSpan PlayerCountSampleInterval { get; set; } = TimeSpan.FromSeconds(180);
+
+    /// <summary>The floor on <see cref="PlayerCountSampleInterval"/> (#257): 60s.</summary>
+    public static readonly TimeSpan MinimumPlayerCountSampleInterval = TimeSpan.FromSeconds(60);
+
     /// <summary>How long graceful shutdown may take before the host stops forcibly. Must be positive.</summary>
     public TimeSpan ShutdownTimeout { get; set; } = TimeSpan.FromSeconds(10);
 

@@ -123,6 +123,11 @@ public static class HostingExtensions
         // F19) and parsing PZ's untrusted replies into typed results.
         services.AddSingleton<IPlayerAdministration, PlayerAdministration>();
 
+        // Fleet player counts (#257): a slow per-server RCON `players` sample whose last value rides the metrics
+        // report, so the fleet board never makes the Web (or a page viewer) reach the Agent.
+        services.AddSingleton<PlayerCountSampler>();
+        services.AddSingleton<IServerPlayerCounts>(sp => sp.GetRequiredService<PlayerCountSampler>());
+
         // Graceful restart (#114): broadcasts a servermsg countdown to connected players before a restart-causing
         // Operation takes the server down, then runs the F15 safe restart. Best-effort — an RCON failure never
         // blocks the restart. Shared by the F15 RestartServer command and F17's SteamCMD update.
@@ -181,6 +186,7 @@ public static class HostingExtensions
         // no-op while disconnected, so ordering is a convenience, not a correctness requirement.
         services.AddHostedService<ServerHealthMonitor>();
         services.AddHostedService<ServerMetricsMonitor>();
+        services.AddHostedService<PlayerCountMonitor>();
         services.AddHostedService<AgentWorker>();
 
         return services;

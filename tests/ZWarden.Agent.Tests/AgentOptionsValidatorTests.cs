@@ -47,6 +47,27 @@ public class AgentOptionsValidatorTests
     }
 
     [Test]
+    public async Task The_default_player_count_cadence_is_180_seconds()
+    {
+        // #257: one RCON `players` per Running server every three minutes by default.
+        await Assert.That(new AgentOptions().PlayerCountSampleInterval).IsEqualTo(TimeSpan.FromSeconds(180));
+    }
+
+    [Test]
+    [Arguments(59)]
+    [Arguments(0)]
+    public async Task A_player_count_cadence_under_a_minute_fails(int seconds)
+    {
+        var options = Valid();
+        options.PlayerCountSampleInterval = TimeSpan.FromSeconds(seconds);
+
+        var result = new AgentOptionsValidator().Validate(name: null, options);
+
+        await Assert.That(result.Failed).IsTrue();
+        await Assert.That(result.FailureMessage!).Contains(nameof(AgentOptions.PlayerCountSampleInterval));
+    }
+
+    [Test]
     public async Task The_default_restart_warning_schedule_is_valid()
     {
         // #114: the shipped default [300, 60, 30, 10] is a valid, bounded, descending countdown.

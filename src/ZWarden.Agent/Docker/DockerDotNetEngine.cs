@@ -74,7 +74,7 @@ public sealed class DockerDotNetEngine : IDockerEngine
         bool oomKilled = r.State?.OOMKilled ?? false;
         return new EngineContainer(
             r.ID, labels, state, MapPorts(r.NetworkSettings?.Ports), health, exitCode, oomKilled,
-            MapNetworkAddresses(r.NetworkSettings?.Networks));
+            MapNetworkAddresses(r.NetworkSettings?.Networks), ReadStartedAt(r));
     }
 
     /// <inheritdoc />
@@ -106,6 +106,11 @@ public sealed class DockerDotNetEngine : IDockerEngine
             MemoryCache: ReclaimableCache(r.MemoryStats?.Stats),
             MemoryLimit: r.MemoryStats?.Limit ?? 0);
     }
+
+    // State.StartedAt is Docker's RFC 3339 start time. An exited container keeps its last start, which is not an
+    // uptime, so only a running container yields one (#257).
+    private static DateTimeOffset? ReadStartedAt(ContainerInspectResponse r) =>
+        r.State is { Running: true } state ? ContainerStartTime.Parse(state.StartedAt) : null;
 
     // The docker CLI subtracts reclaimable page cache from memory usage: cgroup v1 exposes it as "cache",
     // cgroup v2 as "inactive_file". Prefer whichever the daemon reported; 0 if neither.
