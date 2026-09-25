@@ -11,6 +11,12 @@ public enum ServerRegisterFailure
 
     /// <summary>No such Agent in the current tenant.</summary>
     AgentNotFound,
+
+    /// <summary>The requested host game port is outside the allowed range (<c>HostPortRules</c>, #229).</summary>
+    InvalidPort,
+
+    /// <summary>The requested host port pair overlaps another Server's recorded pair on the chosen host (#229).</summary>
+    PortInUse,
 }
 
 /// <summary>The outcome of registering a new Server (F14 PR-B): on success, the new Server and the

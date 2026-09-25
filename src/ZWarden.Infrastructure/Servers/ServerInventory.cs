@@ -186,6 +186,7 @@ public sealed class ServerInventory : IServerInventory
         UserId user,
         AgentId agentId,
         string name,
+        int? gamePort = null,
         CancellationToken cancellationToken = default)
     {
         AuthorizationDecision decision = await _permissions
@@ -199,6 +200,22 @@ public sealed class ServerInventory : IServerInventory
         if (agent is null)
         {
             return ServerRegisterResult.Denied(ServerRegisterFailure.AgentNotFound);
+        }
+
+        // The fast control-plane port refusal (#229) — before anything is created. The Agent stays authoritative: it
+        // re-checks the pair against every container on the daemon at provisioning.
+        if (gamePort is { } port)
+        {
+            if (HostPortRules.ValidateGamePort(port) is not null)
+            {
+                return ServerRegisterResult.Denied(ServerRegisterFailure.InvalidPort);
+            }
+
+            IReadOnlyList<Server> onHost = await _servers.ListByAgentAsync(agentId, cancellationToken).ConfigureAwait(false);
+            if (onHost.Any(s => s.GamePort is { } taken && HostPortRules.PairsOverlap(taken, port)))
+            {
+                return ServerRegisterResult.Denied(ServerRegisterFailure.PortInUse);
+            }
         }
 
         Server server = Server.Register(agentId, name, _clock.GetUtcNow());
@@ -215,7 +232,8 @@ public sealed class ServerInventory : IServerInventory
                 OperationKind.ProvisionServer,
                 IsMutating: true,
                 Guid.NewGuid().ToString("N"),
-                ServerId: server.Id),
+                ServerId: server.Id,
+                CommandPayload: gamePort is null ? null : new ServerContainerPayload(gamePort).ToJson()),
             user,
             cancellationToken).ConfigureAwait(false);
 

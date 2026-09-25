@@ -62,6 +62,34 @@ public sealed class ServerLifecycle : IServerLifecycle
     public Task<ServerLifecycleResult> UpdateAsync(UserId user, ServerId server, CancellationToken cancellationToken = default)
         => RunAsync(user, server, Permissions.ServerUpdate, OperationKind.UpdateServer, ServerAuditActions.Updated, cancellationToken);
 
+    /// <inheritdoc />
+    public Task<ServerLifecycleResult> RecreateAsync(
+        UserId user,
+        ServerId server,
+        int? gamePort,
+        GracefulRestartPayload? plan,
+        CancellationToken cancellationToken = default)
+        => RunAsync(
+            user, server, Permissions.ServerRecreate, OperationKind.RecreateServer, ServerAuditActions.Recreated,
+            cancellationToken,
+            commandPayload: new ServerContainerPayload(gamePort, plan).ToJson(),
+            precheck: gamePort is { } port ? (resolved, ct) => CheckPortAsync(resolved, port, ct) : null);
+
+    // The fast control-plane port refusal (#229): the range, then no overlap with another Server's recorded pair on the
+    // same host. The Agent stays authoritative — it re-checks against every container on the daemon.
+    private async Task<ServerLifecycleFailure?> CheckPortAsync(Server server, int gamePort, CancellationToken cancellationToken)
+    {
+        if (HostPortRules.ValidateGamePort(gamePort) is not null)
+        {
+            return ServerLifecycleFailure.InvalidPort;
+        }
+
+        IReadOnlyList<Server> siblings = await _servers.ListByAgentAsync(server.AgentId, cancellationToken).ConfigureAwait(false);
+        return siblings.Any(s => s.Id != server.Id && s.GamePort is { } taken && HostPortRules.PairsOverlap(taken, gamePort))
+            ? ServerLifecycleFailure.PortInUse
+            : null;
+    }
+
     private async Task<ServerLifecycleResult> RunAsync(
         UserId user,
         ServerId serverId,
@@ -69,7 +97,8 @@ public sealed class ServerLifecycle : IServerLifecycle
         OperationKind kind,
         string auditAction,
         CancellationToken cancellationToken,
-        string? commandPayload = null)
+        string? commandPayload = null,
+        Func<Server, CancellationToken, Task<ServerLifecycleFailure?>>? precheck = null)
     {
         // Resolve first, through the tenant filter: an unknown or foreign-tenant Server is ServerNotFound, and
         // gives the server-scoped authorization a concrete resource to check.
@@ -84,6 +113,11 @@ public sealed class ServerLifecycle : IServerLifecycle
         if (!decision.IsAllowed)
         {
             return ServerLifecycleResult.Denied(ServerLifecycleFailure.NotAuthorized);
+        }
+
+        if (precheck is not null && await precheck(server, cancellationToken).ConfigureAwait(false) is { } refused)
+        {
+            return ServerLifecycleResult.Denied(refused);
         }
 
         try
