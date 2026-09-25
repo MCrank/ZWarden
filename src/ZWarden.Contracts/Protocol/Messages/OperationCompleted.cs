@@ -151,7 +151,9 @@ public sealed record RestoreResult(string RestoredArchiveName, BackupResult Prot
 /// <param name="GamePort">The allocated game UDP port.</param>
 /// <param name="QueryPort">The allocated query/direct-connect UDP port.</param>
 /// <param name="ContainerId">The created container's Docker id (observed; untrusted, stored length-bounded).</param>
-public sealed record ProvisionResult(int GamePort, int QueryPort, string ContainerId);
+/// <param name="HeapSizeBytes">The JVM heap the container was built with (#230) — the one the Server now runs with, even
+/// after a rolled-back Recreate. <c>null</c> from an older Agent. Additive (ADR 0020).</param>
+public sealed record ProvisionResult(int GamePort, int QueryPort, string ContainerId, long? HeapSizeBytes = null);
 
 /// <summary>The install facts a successful <see cref="UpdateServer"/> Operation observed (F17): the Project
 /// Zomboid build now on disk, read from the Steam app manifest (<c>appmanifest_380870.acf</c>) after SteamCMD

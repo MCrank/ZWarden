@@ -90,4 +90,17 @@ public class NewServerMessagesTests
         await Assert.That(ProtocolJson.MessageTypes.ContainsKey("agent.host-capacity")).IsTrue();
         await Assert.That(ProtocolVersionRange.Supported.Current).IsEqualTo(1);
     }
+
+    [Test]
+    public async Task ProvisionResult_round_trips_the_heap_the_container_runs_with_and_an_older_agent_omits_it()
+    {
+        Envelope<OperationCompleted> original = Envelope.Create(
+            new OperationCompleted(OperationOutcome.Succeeded, null, new ProvisionResult(16261, 16262, "c1", 6 * GiB)),
+            At, serverId: ServerId.New(), operationId: OperationId.New());
+
+        Envelope<OperationCompleted> back = ProtocolJson.Deserialize<OperationCompleted>(ProtocolJson.Serialize(original));
+
+        await Assert.That(back.Payload.Provision!.HeapSizeBytes).IsEqualTo(6 * GiB);
+        await Assert.That(new ProvisionResult(16261, 16262, "c1").HeapSizeBytes).IsNull();
+    }
 }

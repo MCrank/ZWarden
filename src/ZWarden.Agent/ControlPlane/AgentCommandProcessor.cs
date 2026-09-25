@@ -521,7 +521,7 @@ public sealed partial class AgentCommandProcessor
     private Envelope<OperationCompleted> Provisioned(ServerProvisionOutcome outcome, OperationId operationId, ServerId serverId)
     {
         ProvisionResult? result = outcome is { Ports: { } ports, ContainerId: { } containerId }
-            ? new ProvisionResult(ports.GamePort, ports.DirectPort, containerId)
+            ? new ProvisionResult(ports.GamePort, ports.DirectPort, containerId, outcome.HeapSizeBytes)
             : null;
         return Completed(
             outcome.Succeeded ? OperationOutcome.Succeeded : OperationOutcome.Failed,

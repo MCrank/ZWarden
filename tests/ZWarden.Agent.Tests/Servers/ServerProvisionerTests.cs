@@ -341,6 +341,7 @@ public class ServerProvisionerTests
         await Assert.That(outcome.Succeeded).IsTrue();
         await Assert.That(runtime.LastSpec!.HeapSizeBytes).IsEqualTo(8 * GiB);
         await Assert.That(runtime.LastSpec.MemoryLimitBytes).IsEqualTo((8 * GiB) + Defaults.MemoryOverheadBytes);
+        await Assert.That(outcome.HeapSizeBytes).IsEqualTo(8 * GiB);
     }
 
     [Test]
@@ -406,6 +407,7 @@ public class ServerProvisionerTests
         await Assert.That(outcome.Succeeded).IsTrue();
         await Assert.That(runtime.LastSpec!.HeapSizeBytes).IsEqualTo(10 * GiB);
         await Assert.That(runtime.LastSpec.MemoryLimitBytes).IsEqualTo((10 * GiB) + Defaults.MemoryOverheadBytes);
+        await Assert.That(outcome.HeapSizeBytes).IsEqualTo(10 * GiB);
         await Assert.That(runtime.LastSpec.Ports).IsEqualTo(OldPorts);
     }
 
@@ -447,6 +449,7 @@ public class ServerProvisionerTests
         await Assert.That(runtime.CreatedSpecs[0].HeapSizeBytes).IsEqualTo(12 * GiB);
         await Assert.That(runtime.CreatedSpecs[^1].HeapSizeBytes).IsEqualTo(6 * GiB);
         await Assert.That(runtime.CreatedSpecs[^1].Ports).IsEqualTo(OldPorts);
+        await Assert.That(outcome.HeapSizeBytes).IsEqualTo(6 * GiB);
     }
 
     [Test]

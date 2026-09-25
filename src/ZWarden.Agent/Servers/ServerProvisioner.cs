@@ -20,7 +20,9 @@ namespace ZWarden.Agent.Servers;
 /// rolled-back Recreate — or <c>null</c> when the Server is left without a container.</param>
 /// <param name="ContainerId">The Docker id of the container the Server ends on, or <c>null</c> when it has none.</param>
 /// <param name="FailureReason">On failure, an actionable, Agent-authored reason; <c>null</c> on success.</param>
-public sealed record ServerProvisionOutcome(bool Succeeded, PortAllocation? Ports, string? ContainerId, string? FailureReason);
+/// <param name="HeapSizeBytes">The JVM heap of the container the Server ends on (#230), or <c>null</c> when it has none.</param>
+public sealed record ServerProvisionOutcome(
+    bool Succeeded, PortAllocation? Ports, string? ContainerId, string? FailureReason, long? HeapSizeBytes = null);
 
 /// <summary>
 /// Builds a Server's canonical container from F13's closed create-template: the first time (<see cref="ProvisionAsync"/>,
@@ -117,11 +119,11 @@ public sealed partial class ServerProvisioner : IServerProvisioner
             return Failed(ex.Message);
         }
 
-        (string? containerId, string? failure) = await CreateAndStartAsync(
-                SpecFor(serverId, ports, request.HeapSizeBytes), start: true, cancellationToken, request.Settings)
+        PzContainerSpec spec = SpecFor(serverId, ports, request.HeapSizeBytes);
+        (string? containerId, string? failure) = await CreateAndStartAsync(spec, start: true, cancellationToken, request.Settings)
             .ConfigureAwait(false);
         return failure is null
-            ? new ServerProvisionOutcome(true, ports, containerId, null)
+            ? new ServerProvisionOutcome(true, ports, containerId, null, spec.HeapSizeBytes)
             : Failed(failure);
     }
 
@@ -199,12 +201,12 @@ public sealed partial class ServerProvisioner : IServerProvisioner
         await ReportAsync(progress, operationId, 75, $"Creating the container on ports {target.GamePort}/{target.DirectPort}.", cancellationToken)
             .ConfigureAwait(false);
         // The requested heap, else the heap the old container ran with (a port change must not reset it), else the default.
-        long? heap = request.HeapSizeBytes ?? current?.HeapSizeBytes;
+        PzContainerSpec spec = SpecFor(serverId, target, request.HeapSizeBytes ?? current?.HeapSizeBytes);
         (string? containerId, string? failure) = await CreateAndStartAsync(
-            SpecFor(serverId, target, heap), start: current is null || wasRunning, cancellationToken).ConfigureAwait(false);
+            spec, start: current is null || wasRunning, cancellationToken).ConfigureAwait(false);
         if (failure is null)
         {
-            return new ServerProvisionOutcome(true, target, containerId, null);
+            return new ServerProvisionOutcome(true, target, containerId, null, spec.HeapSizeBytes);
         }
 
         // 4. Roll back to the previous pair and run state, so a failed port change leaves the server as it was.
@@ -214,10 +216,13 @@ public sealed partial class ServerProvisioner : IServerProvisioner
         }
 
         LogRollingBack(serverId, previous.GamePort, failure);
+        PzContainerSpec previousSpec = SpecFor(serverId, previous, current.HeapSizeBytes);
         (string? rolledBackId, string? rollbackFailure) = await CreateAndStartAsync(
-            SpecFor(serverId, previous, current.HeapSizeBytes), start: wasRunning, cancellationToken).ConfigureAwait(false);
+            previousSpec, start: wasRunning, cancellationToken).ConfigureAwait(false);
         return rollbackFailure is null
-            ? new ServerProvisionOutcome(false, previous, rolledBackId, $"{failure} The server was rolled back to ports {previous.GamePort}/{previous.DirectPort}.")
+            ? new ServerProvisionOutcome(
+                false, previous, rolledBackId, $"{failure} The server was rolled back to ports {previous.GamePort}/{previous.DirectPort}.",
+                previousSpec.HeapSizeBytes)
             : Failed($"{failure} Rolling back to ports {previous.GamePort}/{previous.DirectPort} also failed ({rollbackFailure}); "
                 + "the server has no container — recreate it again to repair it.");
     }

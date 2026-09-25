@@ -391,6 +391,8 @@ public class AgentCommandProcessorTests
         await Assert.That(reply.Payload.Provision!.GamePort).IsEqualTo(16265);
         await Assert.That(reply.Payload.Provision!.QueryPort).IsEqualTo(16266);
         await Assert.That(reply.Payload.Provision!.ContainerId).IsEqualTo("c-1");
+        // #230: the completion reports the heap the container was built with (here the Agent default), so Web records it.
+        await Assert.That(reply.Payload.Provision!.HeapSizeBytes).IsEqualTo(new AgentOptions().DefaultHeapSizeBytes);
         // The container was created for this Server and then started.
         await Assert.That(runtime.LastSpec!.ServerId).IsEqualTo(serverId);
         await Assert.That(runtime.StartedContainerId).IsEqualTo("c-1");
@@ -472,7 +474,7 @@ public class AgentCommandProcessorTests
         await Assert.That(reply!.OperationId).IsEqualTo(operationId);
         await Assert.That(reply.ServerId).IsEqualTo(server);
         await Assert.That(reply.Payload.Outcome).IsEqualTo(OperationOutcome.Succeeded);
-        await Assert.That(reply.Payload.Provision).IsEqualTo(new ProvisionResult(27015, 27016, "new-id"));
+        await Assert.That(reply.Payload.Provision).IsEqualTo(new ProvisionResult(27015, 27016, "new-id", new AgentOptions().DefaultHeapSizeBytes));
         await Assert.That(runtime.RemovedServerId).IsEqualTo(server);
     }
 
