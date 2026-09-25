@@ -271,29 +271,47 @@ public sealed partial class AgentHub : Hub
     /// The Agent's periodic runtime-metrics report (F16): the latest CPU/memory/disk sample per Server. Metrics
     /// are transient — recorded in the in-memory <see cref="IServerMetricsCache"/> (latest-sample-only) and pushed
     /// to the live UI, never persisted or audited. Each sample is stamped with the reporting Agent so the cache
-    /// can refuse a sample forged for a Server this Agent does not own (trust-boundaries.md §8).
+    /// can refuse a sample forged for a Server this Agent does not own (trust-boundaries.md §8). The one persisted
+    /// fact is the manifest build id (#257): when it differs from this Agent's previous sample (or there is none,
+    /// e.g. after a Web restart) it is recorded on the owned Server, so the DB is touched only on a change.
     /// </summary>
-    public Task MetricsReport(Envelope<ServerMetricsReport> report)
+    public async Task MetricsReport(Envelope<ServerMetricsReport> report)
     {
         ArgumentNullException.ThrowIfNull(report);
-        if (AgentClaims.TryGetAgentId(Context.User, out AgentId agentId))
+        if (!AgentClaims.TryGetAgentId(Context.User, out AgentId agentId))
         {
-            List<Application.Servers.ServerMetrics> mapped = report.Payload.Samples
-                .Select(s => new Application.Servers.ServerMetrics(
-                    agentId,
-                    s.ServerId,
-                    s.CpuPercent,
-                    s.MemoryUsedBytes,
-                    s.MemoryLimitBytes,
-                    s.DiskUsedBytes,
-                    s.DiskCapacityBytes,
-                    s.PlayerCount,
-                    s.SampledAt))
-                .ToList();
-            _metrics.Record(mapped);
+            return;
         }
 
-        return Task.CompletedTask;
+        List<Application.Servers.ServerMetrics> mapped = report.Payload.Samples
+            .Select(s => new Application.Servers.ServerMetrics(
+                agentId,
+                s.ServerId,
+                s.CpuPercent,
+                s.MemoryUsedBytes,
+                s.MemoryLimitBytes,
+                s.DiskUsedBytes,
+                s.DiskCapacityBytes,
+                s.PlayerCount,
+                s.SampledAt,
+                s.PlayerCountSampledAt,
+                s.StartedAt,
+                s.InstalledBuildId))
+            .ToList();
+
+        List<(ServerId ServerId, string BuildId)> changedBuilds = mapped
+            .Where(m => m.InstalledBuildId is not null
+                && _metrics.GetLatest(m.ServerId, agentId)?.InstalledBuildId != m.InstalledBuildId)
+            .Select(m => (m.ServerId, m.InstalledBuildId!))
+            .ToList();
+
+        _metrics.Record(mapped);
+
+        foreach ((ServerId serverId, string buildId) in changedBuilds)
+        {
+            await _servers.RecordReportedBuildAsync(agentId, serverId, buildId, Context.ConnectionAborted)
+                .ConfigureAwait(false);
+        }
     }
 
     /// <summary>

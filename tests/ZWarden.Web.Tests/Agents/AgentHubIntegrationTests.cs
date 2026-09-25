@@ -184,6 +184,40 @@ public class AgentHubIntegrationTests
     }
 
     [Test]
+    public async Task A_metrics_report_carries_the_fleet_facts_and_records_the_build_on_the_server()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        (AgentId agentId, string credential) = await SeedTrustedAgentAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, agentId);
+        await using HubConnection connection = BuildConnection(factory, credential);
+
+        await connection.StartAsync();
+        await connection.InvokeAsync<ProtocolNegotiationResult>(
+            AgentHubProtocol.Hello, Hello(agentId, ProtocolVersion.Current));
+
+        DateTimeOffset started = Now.AddHours(-2);
+        DateTimeOffset counted = Now.AddMinutes(-1);
+        await connection.InvokeAsync(
+            AgentHubProtocol.MetricsReport,
+            Envelope.Create(
+                new ServerMetricsReport(
+                    [new ServerMetricsSample(serverId, 5, 1, 2, null, null, 6, Now, counted, started, "24909836")]),
+                Now, agentId));
+
+        // #257: players, sample time and start time are cache-only; the manifest build is persisted on the Server.
+        await WaitUntilAsync(async () => (await LoadServerAsync(factory, serverId)).InstalledBuildId is not null);
+
+        Application.Servers.ServerMetrics latest =
+            factory.Services.GetRequiredService<IServerMetricsCache>().GetLatest(serverId, agentId)!;
+        await Assert.That(latest.PlayerCount).IsEqualTo(6);
+        await Assert.That(latest.PlayerCountSampledAt).IsEqualTo(counted);
+        await Assert.That(latest.StartedAt).IsEqualTo(started);
+        await Assert.That((await LoadServerAsync(factory, serverId)).InstalledBuildId).IsEqualTo("24909836");
+
+        await connection.StopAsync();
+    }
+
+    [Test]
     public async Task An_agent_log_batch_lands_in_the_buffer_under_ownership()
     {
         await using ZWardenWebAppFactory factory = new();

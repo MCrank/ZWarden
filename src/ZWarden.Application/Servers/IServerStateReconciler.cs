@@ -62,4 +62,16 @@ public interface IServerStateReconciler
         ServerId serverId,
         string? buildId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Records the Steam build id an Agent read from a Server's install manifest and reported in its metrics
+    /// (#257), so a server installed by its first boot shows a Version without a manual Update. Tenant-scoped and
+    /// ownership-guarded like <see cref="RecordObservedStateAsync"/>. An unchanged build is not re-written (the
+    /// report time keeps meaning "when this build was first seen"), and a value over the stored bound is ignored.
+    /// </summary>
+    Task RecordReportedBuildAsync(
+        AgentId agentId,
+        ServerId serverId,
+        string buildId,
+        CancellationToken cancellationToken = default);
 }

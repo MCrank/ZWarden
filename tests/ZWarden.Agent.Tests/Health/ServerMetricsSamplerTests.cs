@@ -2,6 +2,8 @@ using Microsoft.Extensions.Options;
 using ZWarden.Agent.Configuration;
 using ZWarden.Agent.Docker;
 using ZWarden.Agent.Health;
+using ZWarden.Agent.Players;
+using ZWarden.Agent.SteamCmd;
 using ZWarden.Agent.Tests.Docker;
 using ZWarden.Contracts.Protocol.Messages;
 using ZWarden.Domain.Ids;
@@ -10,15 +12,18 @@ namespace ZWarden.Agent.Tests.Health;
 
 /// <summary>
 /// F16 PR-B: the metrics sampler reads CPU/memory from docker stats for running containers (via the pure
-/// calculator), disk from the bind-mount, and never player count (F18). A stopped container samples as zeros
-/// without touching stats.
+/// calculator) and disk from the bind-mount. A stopped container samples as zeros without touching stats. #257 adds
+/// the fleet facts: the last RCON player count, the container start time (running only) and the manifest build id.
 /// </summary>
 public class ServerMetricsSamplerTests
 {
     private static readonly ServerId RunningServer = ServerId.New();
     private static readonly ServerId StoppedServer = ServerId.New();
 
-    private static ServerMetricsSampler Build(FakeDockerEngine engine)
+    private static readonly DateTimeOffset Now = new(2026, 9, 25, 12, 0, 0, TimeSpan.Zero);
+
+    private static ServerMetricsSampler Build(
+        FakeDockerEngine engine, StubPlayerCounts? players = null, string? buildId = null)
     {
         FakeListRuntime runtime = new(
         [
@@ -29,6 +34,8 @@ public class ServerMetricsSamplerTests
             runtime,
             engine,
             new StubDiskReader(new DiskUsage(1_000, 50_000)),
+            players ?? new StubPlayerCounts(),
+            new StubInstallPaths(buildId),
             Options.Create(new AgentOptions { DataMountRoot = Path.GetTempPath() }),
             TimeProvider.System);
     }
@@ -40,6 +47,7 @@ public class ServerMetricsSamplerTests
         {
             // 20/100 * 4 CPUs * 100 = 80%; mem used = 3000 - 1000 = 2000; limit 4000.
             StatsResult = new ContainerStatsSnapshot(120, 100, 1_100, 1_000, 4, 3_000, 1_000, 4_000),
+            InspectResult = Inspected(startedAt: null),
         };
         ServerMetricsSampler sampler = Build(engine);
 
@@ -62,6 +70,7 @@ public class ServerMetricsSamplerTests
         FakeDockerEngine engine = new()
         {
             StatsResult = new ContainerStatsSnapshot(120, 100, 1_100, 1_000, 4, 3_000, 1_000, 4_000),
+            InspectResult = Inspected(startedAt: null),
         };
         ServerMetricsSampler sampler = Build(engine);
 
@@ -73,6 +82,70 @@ public class ServerMetricsSamplerTests
         await Assert.That(stopped.MemoryLimitBytes).IsEqualTo(0);
         // Disk is still read for a stopped server (its files exist on disk).
         await Assert.That(stopped.DiskUsedBytes).IsEqualTo(1_000);
+    }
+
+    [Test]
+    public async Task A_running_container_carries_its_player_count_start_time_and_build()
+    {
+        DateTimeOffset started = Now.AddHours(-2);
+        DateTimeOffset counted = Now.AddMinutes(-1);
+        FakeDockerEngine engine = new()
+        {
+            StatsResult = new ContainerStatsSnapshot(120, 100, 1_100, 1_000, 4, 3_000, 1_000, 4_000),
+            InspectResult = Inspected(started),
+        };
+        StubPlayerCounts players = new();
+        players.Readings[RunningServer] = new PlayerCountReading(7, counted);
+        ServerMetricsSampler sampler = Build(engine, players, buildId: "19876543");
+
+        IReadOnlyList<ServerMetricsSample> samples = await sampler.SampleAllAsync(CancellationToken.None);
+        ServerMetricsSample running = samples.First(s => s.ServerId == RunningServer);
+
+        await Assert.That(running.PlayerCount).IsEqualTo(7);
+        await Assert.That(running.PlayerCountSampledAt).IsEqualTo(counted);
+        await Assert.That(running.StartedAt).IsEqualTo(started);
+        await Assert.That(running.InstalledBuildId).IsEqualTo("19876543");
+    }
+
+    [Test]
+    public async Task A_stopped_container_has_no_players_or_start_time_but_still_reports_its_build()
+    {
+        FakeDockerEngine engine = new()
+        {
+            StatsResult = new ContainerStatsSnapshot(120, 100, 1_100, 1_000, 4, 3_000, 1_000, 4_000),
+            InspectResult = Inspected(Now.AddHours(-2)),
+        };
+        StubPlayerCounts players = new();
+        players.Readings[StoppedServer] = new PlayerCountReading(2, Now);
+        ServerMetricsSampler sampler = Build(engine, players, buildId: "19876543");
+
+        IReadOnlyList<ServerMetricsSample> samples = await sampler.SampleAllAsync(CancellationToken.None);
+        ServerMetricsSample stopped = samples.First(s => s.ServerId == StoppedServer);
+
+        await Assert.That(stopped.PlayerCount).IsNull();
+        await Assert.That(stopped.PlayerCountSampledAt).IsNull();
+        await Assert.That(stopped.StartedAt).IsNull();
+        await Assert.That(stopped.InstalledBuildId).IsEqualTo("19876543");
+    }
+
+    private static EngineContainer Inspected(DateTimeOffset? startedAt) =>
+        new("run1", new Dictionary<string, string>(), "running", [], StartedAt: startedAt);
+
+    private sealed class StubPlayerCounts : IServerPlayerCounts
+    {
+        public Dictionary<ServerId, PlayerCountReading> Readings { get; } = [];
+
+        public PlayerCountReading? GetLatest(ServerId serverId) =>
+            Readings.TryGetValue(serverId, out PlayerCountReading reading) ? reading : null;
+    }
+
+    private sealed class StubInstallPaths(string? buildId) : IServerInstallPaths
+    {
+        public void WriteUpdateRequest(ServerId serverId, OperationId operationId) => throw new NotSupportedException();
+
+        public string? ReadInstalledBuildId(ServerId serverId) => buildId;
+
+        public string GetWorkshopContentRoot(ServerId serverId) => throw new NotSupportedException();
     }
 
     private sealed class FakeListRuntime(IReadOnlyList<ManagedContainer> managed) : IContainerRuntime

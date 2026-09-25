@@ -15,8 +15,14 @@ namespace ZWarden.Application.Servers;
 /// <param name="MemoryLimitBytes">The container's memory limit, in bytes.</param>
 /// <param name="DiskUsedBytes">Bytes used under the Server's data directory, or <c>null</c> when not measured.</param>
 /// <param name="DiskCapacityBytes">The data volume's capacity in bytes, or <c>null</c> when not measured.</param>
-/// <param name="PlayerCount">Connected players, or <c>null</c> (always null in v1.0 — RCON is F18).</param>
+/// <param name="PlayerCount">Connected players from the Agent's last RCON sample (#257), or <c>null</c> when there is
+/// none (not running, RCON unavailable, or not sampled yet).</param>
 /// <param name="SampledAt">When the Agent took the sample (UTC).</param>
+/// <param name="PlayerCountSampledAt">When <paramref name="PlayerCount"/> was read (UTC) — it is sampled on a slower
+/// cadence than the rest, so the UI can say "as of N min ago" — or <c>null</c> with no count.</param>
+/// <param name="StartedAt">The container's start time (UTC) while running — uptime is <c>now − StartedAt</c> — or
+/// <c>null</c>. Cache-only: the next report re-reads it from Docker after a Web restart (#257).</param>
+/// <param name="InstalledBuildId">The Steam build id from the install manifest (observed, untrusted), or <c>null</c>.</param>
 public sealed record ServerMetrics(
     AgentId AgentId,
     ServerId ServerId,
@@ -26,4 +32,7 @@ public sealed record ServerMetrics(
     long? DiskUsedBytes,
     long? DiskCapacityBytes,
     int? PlayerCount,
-    DateTimeOffset SampledAt);
+    DateTimeOffset SampledAt,
+    DateTimeOffset? PlayerCountSampledAt = null,
+    DateTimeOffset? StartedAt = null,
+    string? InstalledBuildId = null);
