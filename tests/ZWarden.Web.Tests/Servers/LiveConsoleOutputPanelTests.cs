@@ -94,6 +94,91 @@ public class LiveConsoleOutputPanelTests
         await Assert.That(markup).DoesNotContain("<script>alert(1)");
     }
 
+    private static IRenderedComponent<LiveConsoleOutputPanel> RenderPanel(
+        BunitContext ctx, ConsoleOutputCache cache, ServerId server, AgentId agent,
+        string? operationId = null, string? command = null, string? timeZoneId = null)
+    {
+        ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+        ctx.Services.AddSingleton<IConsoleOutputCache>(cache);
+        return ctx.Render<LiveConsoleOutputPanel>(p => p
+            .Add(c => c.ServerId, server.ToString())
+            .Add(c => c.AgentId, agent.ToString())
+            .Add(c => c.OperationId, operationId)
+            .Add(c => c.Command, command)
+            .Add(c => c.TimeZoneId, timeZoneId));
+    }
+
+    [Test]
+    public async Task Only_the_latest_reply_is_shown_not_every_earlier_one()
+    {
+        // #242: the pane used to append every cached reply, so the one just asked for was buried at the bottom.
+        AgentId agent = AgentId.New();
+        ServerId server = ServerId.New();
+        ConsoleOutputCache cache = new();
+        cache.Record(server, agent, OperationId.New(), "first reply", truncated: false, At);
+        cache.Record(server, agent, OperationId.New(), "second reply", truncated: false, At);
+
+        using BunitContext ctx = new();
+        var cut = RenderPanel(ctx, cache, server, agent);
+
+        await Assert.That(cut.Markup).Contains("second reply");
+        await Assert.That(cut.Markup).DoesNotContain("first reply");
+    }
+
+    [Test]
+    public async Task The_command_just_run_waits_for_its_own_reply_instead_of_showing_an_older_one()
+    {
+        AgentId agent = AgentId.New();
+        ServerId server = ServerId.New();
+        OperationId justRun = OperationId.New();
+        ConsoleOutputCache cache = new();
+        cache.Record(server, agent, OperationId.New(), "older reply", truncated: false, At);
+
+        using BunitContext ctx = new();
+        var cut = RenderPanel(ctx, cache, server, agent, justRun.ToString(), "showoptions");
+
+        await Assert.That(cut.Markup).Contains("data-console-waiting");
+        await Assert.That(cut.Markup).Contains("showoptions");
+        await Assert.That(cut.Markup).DoesNotContain("older reply");
+
+        // The reply arrives; the next poll swaps the waiting state for it.
+        cache.Record(server, agent, justRun, "Options: MaxPlayers=16", truncated: false, At);
+        cut.WaitForState(() => cut.Markup.Contains("Options: MaxPlayers=16"), TimeSpan.FromSeconds(5));
+        await Assert.That(cut.Markup).DoesNotContain("data-console-waiting");
+        await Assert.That(cut.Markup).Contains("data-console-command");
+    }
+
+    [Test]
+    public async Task A_later_reply_replaces_the_one_shown()
+    {
+        AgentId agent = AgentId.New();
+        ServerId server = ServerId.New();
+        ConsoleOutputCache cache = new();
+        cache.Record(server, agent, OperationId.New(), "first reply", truncated: false, At);
+
+        using BunitContext ctx = new();
+        var cut = RenderPanel(ctx, cache, server, agent);
+        cache.Record(server, agent, OperationId.New(), "second reply", truncated: false, At);
+
+        cut.WaitForState(() => cut.Markup.Contains("second reply"), TimeSpan.FromSeconds(5));
+        await Assert.That(cut.Markup).DoesNotContain("first reply");
+    }
+
+    [Test]
+    public async Task The_reply_time_uses_the_operators_time_zone()
+    {
+        AgentId agent = AgentId.New();
+        ServerId server = ServerId.New();
+        ConsoleOutputCache cache = new();
+        cache.Record(server, agent, OperationId.New(), "reply", truncated: false, At);
+
+        using BunitContext ctx = new();
+        var cut = RenderPanel(ctx, cache, server, agent, timeZoneId: "America/New_York");
+
+        TimeZoneInfo zone = ZWarden.Web.Time.OperatorTimeZone.Resolve("America/New_York");
+        await Assert.That(cut.Markup).Contains(ZWarden.Web.Time.OperatorTimeZone.Format(At, zone, "HH:mm:ss"));
+    }
+
     [Test]
     public async Task A_truncated_reply_is_flagged()
     {

@@ -1,5 +1,6 @@
 @using ZWarden.Application.Console
 @using ZWarden.Domain.Ids
+@using ZWarden.Web.Time
 @implements IDisposable
 @inject IConsoleOutputCache Output
 
@@ -7,38 +8,50 @@
    mirroring LivePlayerRosterPanel / LiveServerLogPanel. The parent did the authorized, tenant-filtered load and
    the Console.Execute gate; this child carries no tenant context — which a circuit lacks — and only reads the
    process-local, ownership-guarded output cache (keyed by ServerId + owning AgentId) by a monotonic sequence
-   cursor once per second, appending each command's observed reply and holding a bounded on-screen tail. Ids arrive
-   as strings so they cross the static→interactive boundary cleanly. Every reply is untrusted PZ output, bounded at
-   the Agent and rendered here as data (trust-boundaries.md §8). Output text is Chivo Mono (the data face). *@
+   cursor once per second. It shows ONE reply (#242): the reply to the command just run (the parent hands in its
+   OperationId and text; until it arrives the pane waits for it), else the latest one — a later reply replaces it
+   rather than appending, so the operator never scrolls to find the answer. Ids arrive as strings so they cross the
+   static→interactive boundary cleanly. Every reply is untrusted PZ output, bounded at the Agent and rendered here
+   as data (trust-boundaries.md §8). Output text is Chivo Mono (the data face). *@
 
 <div data-console-output>
     <BbScrollArea Type="ScrollAreaType.Always" MaxHeight="24rem"
                   Class="rounded-md border border-border bg-muted/30"
                   ViewportClass="p-3 font-mono text-xs leading-relaxed">
-        @if (_entries.Count == 0)
+        @if (_entry is null && !_awaiting)
         {
             <p class="text-muted-foreground" data-console-empty>@EmptyText</p>
         }
         else
         {
-            @foreach (ConsoleOutputEntry entry in _entries)
-            {
-                <div class="mb-2 last:mb-0" data-console-entry>
-                    <div class="text-muted-foreground">@Time(entry.ObservedAt)</div>
-                    @if (entry.Output.Length == 0)
+            <div data-console-entry>
+                <div class="flex flex-wrap gap-x-3 text-muted-foreground">
+                    @if (ShowsCommand)
                     {
-                        <div class="italic text-muted-foreground" data-console-noreply>(no output)</div>
+                        <span class="text-foreground" data-console-command>&gt; @Command</span>
                     }
-                    else
+                    @if (_entry is not null)
                     {
-                        <div class="whitespace-pre-wrap text-foreground" data-console-reply>@entry.Output</div>
-                    }
-                    @if (entry.Truncated)
-                    {
-                        <div class="text-muted-foreground" data-console-truncated>… output truncated</div>
+                        <span>@Time(_entry.ObservedAt)</span>
                     }
                 </div>
-            }
+                @if (_entry is null)
+                {
+                    <div class="italic text-muted-foreground" data-console-waiting>Waiting for the server's reply…</div>
+                }
+                else if (_entry.Output.Length == 0)
+                {
+                    <div class="italic text-muted-foreground" data-console-noreply>(no output)</div>
+                }
+                else
+                {
+                    <div class="whitespace-pre-wrap text-foreground" data-console-reply>@_entry.Output</div>
+                }
+                @if (_entry is { Truncated: true })
+                {
+                    <div class="text-muted-foreground" data-console-truncated>… output truncated</div>
+                }
+            </div>
         }
     </BbScrollArea>
 </div>
@@ -54,20 +67,38 @@
     [EditorRequired]
     public string AgentId { get; set; } = string.Empty;
 
-    private const int DisplayCap = 200;
+    /// <summary>The console Operation the operator just enqueued, if any (#242): the pane waits for and shows its
+    /// reply rather than an older one. Null on a plain visit, which shows the latest reply.</summary>
+    [Parameter]
+    public string? OperationId { get; set; }
+
+    /// <summary>The command line that <see cref="OperationId"/> ran, shown above its reply. Operator-authored text,
+    /// rendered as data.</summary>
+    [Parameter]
+    public string? Command { get; set; }
+
+    /// <summary>The operator's display time-zone id, resolved by the static parent from the cookie (#211); null or
+    /// blank ⇒ UTC.</summary>
+    [Parameter]
+    public string? TimeZoneId { get; set; }
 
     private ZWarden.Domain.Ids.ServerId _server;
     private ZWarden.Domain.Ids.AgentId _agent;
+    private ZWarden.Domain.Ids.OperationId _focus;
     private bool _parsed;
+    private bool _awaiting;
     private long _cursor;
-    private readonly List<ConsoleOutputEntry> _entries = [];
+    private ConsoleOutputEntry? _entry;
+    private TimeZoneInfo _zone = TimeZoneInfo.Utc;
     private PeriodicTimer? _timer;
     private Task? _loop;
 
     protected override void OnInitialized()
     {
+        _zone = OperatorTimeZone.Resolve(TimeZoneId);
         _parsed = ZWarden.Domain.Ids.ServerId.TryParse(ServerId, out _server)
             & ZWarden.Domain.Ids.AgentId.TryParse(AgentId, out _agent);
+        _awaiting = _parsed && ZWarden.Domain.Ids.OperationId.TryParse(OperationId, out _focus);
         Refresh();
         _timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
         _loop = RunAsync();
@@ -79,8 +110,13 @@
         {
             while (await _timer!.WaitForNextTickAsync().ConfigureAwait(false))
             {
-                Refresh();
-                await InvokeAsync(StateHasChanged).ConfigureAwait(false);
+                await InvokeAsync(() =>
+                {
+                    if (Refresh())
+                    {
+                        StateHasChanged();
+                    }
+                }).ConfigureAwait(false);
             }
         }
         catch (ObjectDisposedException)
@@ -89,31 +125,52 @@
         }
     }
 
-    private void Refresh()
+    // Reads replies past the cursor; returns whether the shown reply changed. While awaiting the command just run,
+    // only its own reply is taken (earlier ones are skipped); after that, the latest reply wins.
+    private bool Refresh()
     {
         if (!_parsed)
         {
-            return;
+            return false;
         }
 
         IReadOnlyList<ConsoleOutputEntry> next = Output.GetSince(_server, _agent, _cursor);
-        if (next.Count > 0)
+        if (next.Count == 0)
         {
-            _entries.AddRange(next);
-            _cursor = next[^1].Sequence;
-            if (_entries.Count > DisplayCap)
-            {
-                _entries.RemoveRange(0, _entries.Count - DisplayCap);
-            }
+            return false;
         }
+
+        _cursor = next[^1].Sequence;
+        ConsoleOutputEntry? pick = null;
+        foreach (ConsoleOutputEntry entry in next)
+        {
+            if (_awaiting && entry.OperationId != _focus)
+            {
+                continue;
+            }
+
+            _awaiting = false;
+            pick = entry;
+        }
+
+        if (pick is null)
+        {
+            return false;
+        }
+
+        _entry = pick;
+        return true;
     }
+
+    // The command label belongs to the command just run: shown while waiting for it and beside its own reply.
+    private bool ShowsCommand => !string.IsNullOrWhiteSpace(Command)
+        && (_awaiting || (_entry is not null && _entry.OperationId == _focus));
 
     private string EmptyText => _parsed
         ? "No output yet — run a command to see the server's reply here."
         : "Console output is unavailable for this server.";
 
-    private static string Time(DateTimeOffset at) =>
-        at.UtcDateTime.ToString("HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture) + " UTC";
+    private string Time(DateTimeOffset at) => OperatorTimeZone.Format(at, _zone, "HH:mm:ss");
 
     public void Dispose() => _timer?.Dispose();
 }
