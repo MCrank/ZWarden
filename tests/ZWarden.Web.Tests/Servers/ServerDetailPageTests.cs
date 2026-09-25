@@ -264,6 +264,25 @@ public sealed class ServerDetailPageTests
     }
 
     [Test]
+    public async Task The_header_shows_the_in_flight_operations_progress_as_text()
+    {
+        // #254: the restart countdown's status line sits beside RESTARTING. It is Agent-supplied, so it renders as
+        // encoded text, never markup.
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "countdown");
+        await client.PostAsync(new Uri($"/api/servers/{serverId}/restart", UriKind.Relative), content: null);
+        await ServerLifecycleEndpointsTests.ReportProgressAsync(factory, serverId, "Restarting in 240 seconds <b>now</b>");
+
+        string html = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        await Assert.That(html).Contains("data-status-detail");
+        await Assert.That(html).Contains("Restarting in 240 seconds &lt;b&gt;now&lt;/b&gt;");
+        await Assert.That(html).DoesNotContain("<b>now</b>");
+        client.Dispose();
+    }
+
+    [Test]
     public async Task The_configuration_editor_offers_collapse_and_expand_all_as_a_js_enhancement()
     {
         await using ZWardenWebAppFactory factory = new()

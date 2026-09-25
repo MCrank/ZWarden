@@ -92,4 +92,25 @@ public class PlayerResponseParserTests
     {
         await Assert.That(PlayerResponseParser.ParseProseAction(string.Empty).Detail).IsNull();
     }
+
+    [Test]
+    [Arguments("Players connected (0): \n", 0)]
+    [Arguments("Players connected (2): \n-alice\n-bob\n", 2)]
+    public async Task The_strict_count_reads_pzs_header(string reply, int expected)
+    {
+        bool parsed = PlayerResponseParser.TryParseConnectedCount(reply, out int count);
+
+        await Assert.That(parsed).IsTrue();
+        await Assert.That(count).IsEqualTo(expected);
+    }
+
+    [Test]
+    [Arguments("")]
+    [Arguments("Unknown command players")]
+    [Arguments("-alice\n")]
+    public async Task The_strict_count_refuses_a_reply_without_the_header(string reply)
+    {
+        // #254 fails safe on this: an unrecognised reply must never read as "nobody online".
+        await Assert.That(PlayerResponseParser.TryParseConnectedCount(reply, out _)).IsFalse();
+    }
 }
