@@ -396,17 +396,19 @@ public sealed partial class AgentHub : Hub
             return;
         }
 
+        // A provisioning or recreate Operation carries the container facts the Agent observed; record the Server's
+        // container linkage before marking the operation done (F14 PR-B). A rolled-back recreate (#229) fails yet still
+        // reports the pair and the rollback container the Server ended on, so this is recorded whatever the outcome.
+        // Observed, tenant-scoped.
+        if (completed.Payload.Provision is { } provision && completed.ServerId is { } serverId)
+        {
+            await _servers.RecordProvisionedAsync(
+                serverId, provision.GamePort, provision.QueryPort, provision.ContainerId, Context.ConnectionAborted)
+                .ConfigureAwait(false);
+        }
+
         if (completed.Payload.Outcome == OperationOutcome.Succeeded)
         {
-            // A successful provisioning Operation carries the container facts the Agent observed; record the
-            // Server's container linkage before marking the operation done (F14 PR-B). Observed, tenant-scoped.
-            if (completed.Payload.Provision is { } provision && completed.ServerId is { } serverId)
-            {
-                await _servers.RecordProvisionedAsync(
-                    serverId, provision.GamePort, provision.QueryPort, provision.ContainerId, Context.ConnectionAborted)
-                    .ConfigureAwait(false);
-            }
-
             // A successful update Operation carries the build id the Agent read from the manifest (F17); record
             // it against the Server before the operation is marked done. Observed, tenant-scoped.
             if (completed.Payload.Update is { } update && completed.ServerId is { } updatedServerId)

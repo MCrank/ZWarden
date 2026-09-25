@@ -104,7 +104,8 @@ public sealed class OperationDispatcher : IOperationDispatcher
     {
         OperationKind.DiagnosticsPing => new PingAgent(),
         OperationKind.DiagnosticsDockerHealth => new ProbeDockerHealth(),
-        OperationKind.ProvisionServer => new CreateServer(),
+        OperationKind.ProvisionServer => new CreateServer(ContainerPayload(commandPayload)?.GamePort),
+        OperationKind.RecreateServer => RecreateCommand(commandPayload),
         OperationKind.StartServer => new StartServer(),
         OperationKind.StopServer => new StopServer(),
         OperationKind.RestartServer => RestartCommand(commandPayload),
@@ -127,6 +128,20 @@ public sealed class OperationDispatcher : IOperationDispatcher
         OperationKind.Restore => RestoreCommand(commandPayload),
         _ => throw new NotSupportedException($"No command mapping for operation kind '{kind}'."),
     };
+
+    // The optional container payload (#229): absent on a provision that lets the Agent allocate the next stride.
+    private static ServerContainerPayload? ContainerPayload(string? commandPayload) =>
+        commandPayload is null ? null : ServerContainerPayload.FromJson(commandPayload);
+
+    // Builds the RecreateServer wire command (#229): the optional new game port and the optional graceful plan (null ⇒
+    // the Agent's default warning schedule; an empty schedule skips the warning).
+    private static RecreateServer RecreateCommand(string? commandPayload)
+    {
+        ServerContainerPayload? payload = ContainerPayload(commandPayload);
+        return new RecreateServer(
+            payload?.GamePort,
+            payload?.Plan is { } plan ? new GracefulRestartPlan(plan.WarningLeadSeconds, plan.Reason) : null);
+    }
 
     private static BackupCommandPayload BackupPayload(string? commandPayload) => BackupCommandPayload.FromJson(
         commandPayload ?? throw new InvalidOperationException("A backup-deletion Operation was dispatched with no command payload."));

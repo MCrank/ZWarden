@@ -2075,6 +2075,10 @@ html {
   width: 0.5rem;
 }
 
+.w-32 {
+  width: 8rem;
+}
+
 .w-4 {
   width: 1rem;
 }

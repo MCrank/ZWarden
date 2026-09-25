@@ -198,6 +198,11 @@ and **Deploy**. The server appears immediately and starts once the Agent has bui
 first boot downloads Project Zomboid (~7 GB) via SteamCMD**, so give it time; watch progress with
 `docker logs -f <server-container>`.
 
+Each server listens on a **pair of UDP ports** on the host: the game port and the one above it. If you leave
+**Game port** blank, ZWarden takes the next free pair starting at **16261/16262** (then 16263/16264, …). To match
+an existing firewall or port-forward rule, type the game port you want (1024–65534). Either way, **open or
+forward both UDP ports** to the host so players can connect. RCON is never published.
+
 You're in:
 
 ![The Fleet dashboard after setup, ready to register a server](images/06-fleet.png)
@@ -209,6 +214,11 @@ You're in:
 - **Where your worlds live.** Provisioned servers keep world data and backups on the host under
   **`/srv/zwarden`** (`pz-data/<server-id>` and `pz-backups/`). **Include `/srv/zwarden` in your backup
   routine**, and use the in-app backup/restore features too.
+- **Changing a server's ports.** On the server's **Overview**, **Change host ports** recreates its container on
+  a new UDP pair. The world, config and installed game are kept, so nothing is downloaded again. A running server
+  warns players, stops safely and comes back on the new ports. If the new pair turns out to be taken, the server
+  is rolled back to its old ports. Update your firewall or port-forward afterwards. Tenant Owners and
+  Administrators can do this (`Server.Recreate`).
 - **Health & logs.** `docker compose ps` for health; `docker compose logs -f web|agent|caddy` for live logs.
 - **Upgrades.** Back up first, then `docker compose pull && docker compose build --pull && docker compose
   up -d`. Migrations run automatically on Web startup. (Add the `-f` overlay pair in Postgres mode.)

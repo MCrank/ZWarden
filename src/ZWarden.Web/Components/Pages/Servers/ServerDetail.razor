@@ -5,6 +5,7 @@
    1024-element form-collection limit (~5 values x 1024 rows); a larger post is refused by FormLimitGuardMiddleware with
    an operator message. config-editor.js normally posts just the changed rows. *@
 @attribute [Microsoft.AspNetCore.Mvc.RequestFormLimits(ValueCountLimit = 6144)]
+@using System.Globalization
 @using System.Security.Claims
 @using ZWarden.Application.Authorization
 @using ZWarden.Application.Backups
@@ -260,6 +261,43 @@ else
                         <dd class="tabular-nums">@Reported(_server.LastHealthReportedAt)</dd>
                     </div>
                 </dl>
+
+                @* Change host ports (#229, ADR 0045): a data-preserving recreate of the container on a new host UDP pair.
+                   Static-SSR form, gated on the server-scoped Server.Recreate the service re-checks on submit. *@
+                @if (_canRecreate)
+                {
+                    <div class="mt-5 border-t border-border pt-4" data-recreate>
+                        <h3 class="text-sm font-semibold">Change host ports</h3>
+                        <p class="mt-1 text-xs text-muted-foreground">
+                            Recreates the container on a new host UDP pair (the game port and the one above it). The world,
+                            config and installed game are kept. A running server warns players, stops safely and comes back
+                            on the new ports; a stopped one stays stopped. Update your firewall or port-forward to match.
+                            Leave the port blank to recreate on the current pair.
+                        </p>
+                        <EditForm Model="_recreateForm" FormName="server-recreate" OnValidSubmit="RecreateAsync" class="mt-3">
+                            <DataAnnotationsValidator />
+                            <div class="flex flex-wrap items-end gap-3">
+                                <div class="flex flex-col text-sm">
+                                    <BbLabel For="recreate-port" Class="mb-1 text-muted-foreground">Game port</BbLabel>
+                                    <BbInput Id="recreate-port" Type="InputType.Number" @bind-Value="_recreateForm.GamePort"
+                                             Placeholder="@(_server.GamePort?.ToString(CultureInfo.InvariantCulture) ?? "Auto")" Class="w-32" />
+                                </div>
+                                <div class="flex flex-col text-sm">
+                                    <BbLabel For="recreate-countdown" Class="mb-1 text-muted-foreground">Warn players</BbLabel>
+                                    @* Explicit Name for static-SSR binding on BbNativeSelect; default first (#84). *@
+                                    <BbNativeSelect TValue="string" Id="recreate-countdown" Name="_recreateForm.Countdown" @bind-Value="_recreateForm.Countdown">
+                                        <option value="5m">5 minutes</option>
+                                        <option value="15m">15 minutes</option>
+                                        <option value="1m">1 minute</option>
+                                        <option value="immediate">Immediately (no warning)</option>
+                                    </BbNativeSelect>
+                                </div>
+                                <BbButton Variant="ButtonVariant.Secondary" Type="ButtonType.Submit" Size="ButtonSize.Small"
+                                          Disabled="@_status.Busy" data-action="recreate">Recreate container</BbButton>
+                            </div>
+                        </EditForm>
+                    </div>
+                }
             </BbCard>
 
             <BbCard Class="p-5">
@@ -1383,6 +1421,9 @@ else
     [SupplyParameterFromForm(FormName = "server-graceful-restart")]
     private GracefulRestartFormModel _gracefulForm { get; set; } = default!;
 
+    [SupplyParameterFromForm(FormName = "server-recreate")]
+    private RecreateFormModel _recreateForm { get; set; } = default!;
+
     [SupplyParameterFromForm(FormName = "player-action")]
     private PlayerActionModel _actionForm { get; set; } = default!;
 
@@ -1428,6 +1469,7 @@ else
     private bool _canStop;
     private ServerStatusView _status = ServerLiveStatus.Resolve(ServerRunState.Unknown, activeOperation: null);
     private bool _canRestartServer;
+    private bool _canRecreate;
     private string? _lifecycleMessage;
     private AlertVariant _lifecycleAlert = AlertVariant.Warning;
     private PlayerPermissions _perm;
@@ -1499,6 +1541,7 @@ else
         _diagnosticsForm ??= new DiagnosticsFormModel();
         _lifecycleForm ??= new LifecycleModel();
         _gracefulForm ??= new GracefulRestartFormModel();
+        _recreateForm ??= new RecreateFormModel();
         _configForm.File ??= nameof(PzConfigFile.Ini);
         _configForm.Kind ??= nameof(ConfigEditKind.Bool);
         _selectedFile = ParseFile(_configForm.File);
@@ -1522,6 +1565,7 @@ else
             _canStart = (await PermissionChecker.EvaluateAsync(user, Permissions.ServerStart, serverId)).IsAllowed;
             _canStop = (await PermissionChecker.EvaluateAsync(user, Permissions.ServerStop, serverId)).IsAllowed;
             _canRestartServer = (await PermissionChecker.EvaluateAsync(user, Permissions.ServerRestart, serverId)).IsAllowed;
+            _canRecreate = (await PermissionChecker.EvaluateAsync(user, Permissions.ServerRecreate, serverId)).IsAllowed;
             await LoadModManagementAsync(user, serverId);
             await LoadBackupsAsync(user, serverId);
             await RefreshStatusAsync(serverId);
@@ -1640,19 +1684,42 @@ else
             return;
         }
 
-        // Map the operator's chosen preset to a descending countdown schedule (#213). "immediate" ⇒ an empty
-        // schedule (restart now, no broadcast); anything else warns players for that long before the stop.
-        IReadOnlyList<int> leads = _gracefulForm?.Countdown switch
-        {
-            "immediate" => [],
-            "1m" => [60, 30, 10],
-            "15m" => [900, 300, 60, 30, 10],
-            _ => DefaultRestartWarning, // "5m" and any unexpected value ⇒ the default five-minute schedule.
-        };
-        var plan = new GracefulRestartPayload(leads, message);
+        var plan = new GracefulRestartPayload(CountdownLeads(_gracefulForm?.Countdown), message);
 
         UserId user = await CurrentUserAsync();
         SetLifecycleResult("restart", await Lifecycle.RestartAsync(user, serverId, plan));
+        await RefreshStatusAsync(serverId);
+    }
+
+    // Map the operator's chosen preset to a descending countdown schedule (#213). "immediate" ⇒ an empty schedule
+    // (no broadcast); anything else warns players for that long before the stop.
+    private static IReadOnlyList<int> CountdownLeads(string? preset) => preset switch
+    {
+        "immediate" => [],
+        "1m" => [60, 30, 10],
+        "15m" => [900, 300, 60, 30, 10],
+        _ => DefaultRestartWarning, // "5m" and any unexpected value ⇒ the default five-minute schedule.
+    };
+
+    // Recreate the container on a new host pair (#229, ADR 0045). Blank port ⇒ recreate on the current pair. The
+    // countdown only applies if the server is running — the Agent skips the warning for a stopped one.
+    private async Task RecreateAsync()
+    {
+        if (_server is null || !ServerId.TryParse(Id, out ServerId serverId))
+        {
+            return;
+        }
+
+        if (!HostPortInput.TryParse(_recreateForm?.GamePort, out int? gamePort, out string? portError))
+        {
+            _lifecycleAlert = AlertVariant.Warning;
+            _lifecycleMessage = portError;
+            return;
+        }
+
+        var plan = new GracefulRestartPayload(CountdownLeads(_recreateForm?.Countdown));
+        UserId user = await CurrentUserAsync();
+        SetLifecycleResult("recreate", await Lifecycle.RecreateAsync(user, serverId, gamePort, plan));
         await RefreshStatusAsync(serverId);
     }
 
@@ -1672,6 +1739,7 @@ else
                 "start" => "Start",
                 "stop" => "Stop",
                 "restart" => "Restart",
+                "recreate" => "Recreate",
                 _ => "Action",
             };
             _lifecycleAlert = AlertVariant.Success;
@@ -1685,6 +1753,8 @@ else
             ServerLifecycleFailure.NotAuthorized => "You are not permitted to perform that action on this server.",
             ServerLifecycleFailure.ServerNotFound => "That server is no longer available.",
             ServerLifecycleFailure.ServerBusy => "The server is busy with another operation; try again once it finishes.",
+            ServerLifecycleFailure.InvalidPort => "That game port is not allowed.",
+            ServerLifecycleFailure.PortInUse => "That game port (or the one above it) is already used by another server on this host.",
             _ => "The action could not be started.",
         };
     }
@@ -2970,6 +3040,15 @@ else
     {
         // The header lifecycle button's verb: "start" / "stop" / "restart".
         public string? Command { get; set; }
+    }
+
+    private sealed class RecreateFormModel
+    {
+        // The new host game port (#229) as typed; blank ⇒ recreate on the current pair. Parsed by HostPortInput.
+        public string? GamePort { get; set; }
+
+        // The warning preset before the safe stop, as the graceful-restart panel's (#213). Default first (#84).
+        public string Countdown { get; set; } = "5m";
     }
 
     private sealed class GracefulRestartFormModel

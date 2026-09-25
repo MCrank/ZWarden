@@ -121,6 +121,19 @@ _Avoid_: instance, game, world, box
 The machine an Agent runs on, and where its Servers run.
 _Avoid_: server (in this sense), node, machine
 
+**Port pair**:
+The two host UDP ports a Server publishes: its **game port** and the port directly above it. They map to the
+container's fixed 16261/16262, so choosing or changing the pair never touches the Server's config. The default
+is the next free two-port **stride** from 16261.
+_Avoid_: port range
+
+**Recreate**:
+A mutating Operation that rebuilds a Server's container from the closed template while keeping its data (world,
+config, installed game). It warns players and stops the server safely if it is running, removes the container,
+creates it again (optionally on a new **port pair**), and starts it again only if it was running before. If the
+new container fails, it rolls back to the previous pair. It is how a Server's host ports change.
+_Avoid_: redeploy, reinstall, reprovision
+
 **Operation**:
 A durable, auditable unit of work that runs on an Agent, with its own lifecycle and progress. It acts
 on a Server, or on the host Agent itself for host-level work (e.g. a diagnostic probe). Only one

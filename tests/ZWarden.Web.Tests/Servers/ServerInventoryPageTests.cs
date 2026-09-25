@@ -1,11 +1,13 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.RegularExpressions;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using ZWarden.Application.Servers;
 using ZWarden.Domain.Agents;
 using ZWarden.Domain.Enrollments;
 using ZWarden.Domain.Ids;
+using ZWarden.Domain.Operations;
 using ZWarden.Domain.Servers;
 using ZWarden.Infrastructure.Authorization;
 using ZWarden.Infrastructure.Persistence;
@@ -259,6 +261,61 @@ public sealed class ServerInventoryPageTests
         client.Dispose();
     }
 
+    [Test]
+    public async Task The_register_form_offers_an_optional_game_port_and_posts_it()
+    {
+        // #229: the operator may pick the host pair; blank leaves it to the Agent's next free stride.
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        AgentId agent = await SeedAgentAsync(factory);
+        factory.Services.GetRequiredService<IServerDiscoveryCache>().Record(agent, []);
+
+        string page = await (await client.GetAsync(new Uri("/servers", UriKind.Relative))).Content.ReadAsStringAsync();
+        await Assert.That(page).Contains("name=\"_registerForm.GamePort\"");
+
+        Dictionary<string, string> form = new(StringComparer.Ordinal)
+        {
+            ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
+            ["_handler"] = "register-server",
+            ["_registerForm.AgentId"] = agent.ToString(),
+            ["_registerForm.Name"] = "on-27015",
+            ["_registerForm.GamePort"] = "27015",
+        };
+        await client.PostAsync(new Uri("/servers", UriKind.Relative), new FormUrlEncodedContent(form));
+
+        using IServiceScope scope = factory.Services.CreateScope();
+        ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
+        Operation provision = await db.Set<Operation>().SingleAsync(o => o.Kind == OperationKind.ProvisionServer);
+        await Assert.That(ServerContainerPayload.FromJson(provision.CommandPayload!).GamePort).IsEqualTo(27015);
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task The_register_form_refuses_an_invalid_game_port_with_a_message()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        AgentId agent = await SeedAgentAsync(factory);
+        factory.Services.GetRequiredService<IServerDiscoveryCache>().Record(agent, []);
+
+        string page = await (await client.GetAsync(new Uri("/servers", UriKind.Relative))).Content.ReadAsStringAsync();
+        Dictionary<string, string> form = new(StringComparer.Ordinal)
+        {
+            ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
+            ["_handler"] = "register-server",
+            ["_registerForm.AgentId"] = agent.ToString(),
+            ["_registerForm.Name"] = "bad-port",
+            ["_registerForm.GamePort"] = "80",
+        };
+        HttpResponseMessage response = await client.PostAsync(new Uri("/servers", UriKind.Relative), new FormUrlEncodedContent(form));
+        string html = await response.Content.ReadAsStringAsync();
+
+        await Assert.That(html).Contains("data-register-message");
+        await Assert.That(html).Contains("between 1024 and 65534");
+        using IServiceScope scope = factory.Services.CreateScope();
+        await Assert.That(await scope.ServiceProvider.GetRequiredService<ZWardenDbContext>().Set<Server>().AnyAsync()).IsFalse();
+        client.Dispose();
+    }
     private static async Task<HttpClient> SignedInOperatorAsync(ZWardenWebAppFactory factory)
     {
         await factory.CreateConfirmedUserAsync("op@zwarden.test", StrongPassword);

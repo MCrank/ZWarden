@@ -31,4 +31,16 @@ public interface IServerLifecycle
     /// authorized by the server-scoped <c>Server.Update</c>. Install/update/validate are one SteamCMD verb, so a
     /// repair is this same operation run again.</summary>
     Task<ServerLifecycleResult> UpdateAsync(UserId user, ServerId server, CancellationToken cancellationToken = default);
+
+    /// <summary>Recreates the Server's container preserving its data (#229, ADR 0045), authorized by the server-scoped
+    /// <c>Server.Recreate</c>: optionally on a new host <paramref name="gamePort"/> pair (<c>null</c> keeps the current
+    /// pair), warning players with <paramref name="plan"/> before the safe stop if it is running. A port outside
+    /// <c>HostPortRules</c> is <see cref="ServerLifecycleFailure.InvalidPort"/>; one overlapping another Server's pair on
+    /// the same host is <see cref="ServerLifecycleFailure.PortInUse"/>.</summary>
+    Task<ServerLifecycleResult> RecreateAsync(
+        UserId user,
+        ServerId server,
+        int? gamePort,
+        GracefulRestartPayload? plan,
+        CancellationToken cancellationToken = default);
 }

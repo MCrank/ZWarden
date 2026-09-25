@@ -144,6 +144,89 @@ public class ServerInventoryTests
     }
 
     [Test]
+    public async Task Register_without_a_port_leaves_the_stride_to_the_agent()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            await SeedAssignmentAsync(options, user, server: null, Permissions.ServerRegister);
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            AgentId agent = await PersistAgentAsync(db);
+            StubOperationCoordinator coordinator = new();
+
+            await Inventory(db, new ServerDiscoveryCache(), new CapturingAuditWriter(), coordinator)
+                .RegisterAsync(user, agent, "survivors-new");
+
+            await Assert.That(coordinator.LastRequest!.CommandPayload).IsNull();
+        });
+    }
+
+    [Test]
+    public async Task Register_with_a_game_port_carries_it_to_the_provision_operation()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            await SeedAssignmentAsync(options, user, server: null, Permissions.ServerRegister);
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            AgentId agent = await PersistAgentAsync(db);
+            StubOperationCoordinator coordinator = new();
+
+            ServerRegisterResult result = await Inventory(db, new ServerDiscoveryCache(), new CapturingAuditWriter(), coordinator)
+                .RegisterAsync(user, agent, "survivors-new", gamePort: 27015);
+
+            await Assert.That(result.Succeeded).IsTrue();
+            await Assert.That(ServerContainerPayload.FromJson(coordinator.LastRequest!.CommandPayload!).GamePort).IsEqualTo(27015);
+        });
+    }
+
+    [Test]
+    public async Task Register_rejects_an_out_of_range_game_port_before_creating_anything()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            await SeedAssignmentAsync(options, user, server: null, Permissions.ServerRegister);
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            AgentId agent = await PersistAgentAsync(db);
+            StubOperationCoordinator coordinator = new();
+
+            ServerRegisterResult result = await Inventory(db, new ServerDiscoveryCache(), new CapturingAuditWriter(), coordinator)
+                .RegisterAsync(user, agent, "survivors-new", gamePort: 80);
+
+            await Assert.That(result.Failure).IsEqualTo(ServerRegisterFailure.InvalidPort);
+            await Assert.That(coordinator.LastRequest).IsNull();
+            await Assert.That(await new ServerRepository(db).ListByAgentAsync(agent)).IsEmpty();
+        });
+    }
+
+    [Test]
+    public async Task Register_rejects_a_pair_overlapping_another_server_on_the_host()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            await SeedAssignmentAsync(options, user, server: null, Permissions.ServerRegister);
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            AgentId agent = await PersistAgentAsync(db);
+            Server existing = Server.Import(agent, ServerId.New(), "existing", DateTimeOffset.UtcNow);
+            existing.RecordContainer("c-1", 16261, 16262);
+            new ServerRepository(db).Add(existing);
+            await db.SaveChangesAsync();
+            StubOperationCoordinator coordinator = new();
+
+            ServerRegisterResult result = await Inventory(db, new ServerDiscoveryCache(), new CapturingAuditWriter(), coordinator)
+                .RegisterAsync(user, agent, "survivors-new", gamePort: 16262);
+
+            await Assert.That(result.Failure).IsEqualTo(ServerRegisterFailure.PortInUse);
+            await Assert.That(coordinator.LastRequest).IsNull();
+        });
+    }
+    [Test]
     public async Task Register_denies_without_server_register()
     {
         await WithSqlite(async options =>

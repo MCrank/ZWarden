@@ -79,7 +79,7 @@ public class BuiltInRolesTests
         [
             "Server.Stop", "Server.Configuration.Edit", "Mod.Install", "Mod.Remove",
             "Backup.Restore", "Console.Execute", "Agent.Manage", "User.Manage",
-            "Role.Manage", "Tenant.Manage",
+            "Role.Manage", "Tenant.Manage", "Server.Recreate",
         ];
 
         BuiltInRoleDefinition moderator = BuiltInRoles.Get(BuiltInRoleKind.Moderator);
@@ -96,6 +96,20 @@ public class BuiltInRolesTests
         BuiltInRoleDefinition owner = BuiltInRoles.Get(BuiltInRoleKind.TenantOwner);
 
         await Assert.That(owner.Permissions.Count).IsEqualTo(Permissions.All.Count);
+    }
+
+    [Test]
+    public async Task Recreate_is_granted_to_owner_and_administrator_but_not_operator()
+    {
+        // D2 (#229): recreating a container is effectively re-provisioning and touches host networking.
+        static bool Has(BuiltInRoleKind kind) =>
+            BuiltInRoles.Get(kind).Permissions.Any(p => p == Permissions.ServerRecreate);
+
+        await Assert.That(Has(BuiltInRoleKind.TenantOwner)).IsTrue();
+        await Assert.That(Has(BuiltInRoleKind.Administrator)).IsTrue();
+        await Assert.That(Has(BuiltInRoleKind.Operator)).IsFalse();
+        await Assert.That(Has(BuiltInRoleKind.Moderator)).IsFalse();
+        await Assert.That(Has(BuiltInRoleKind.Viewer)).IsFalse();
     }
 
     [Test]
@@ -123,7 +137,7 @@ public class BuiltInRolesTests
                  {
                      "Server.Start", "Server.Stop", "Server.Restart", "Server.Configuration.Edit",
                      "Console.Execute", "Backup.Create", "Backup.Restore", "Backup.Delete",
-                     "Player.Kick", "Player.Ban", "Mod.Install", "Mod.Remove",
+                     "Player.Kick", "Player.Ban", "Mod.Install", "Mod.Remove", "Server.Recreate",
                  })
         {
             await Assert.That(names).DoesNotContain(mutating);

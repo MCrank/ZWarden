@@ -202,8 +202,135 @@ public class ServerLifecycleTests
         });
     }
 
-    private static ServerLifecycle Lifecycle(
-        ZWardenDbContext db,
+    [Test]
+    public async Task Recreate_enqueues_a_mutating_recreate_carrying_the_port_and_plan_and_audits_it()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            AgentId agent = AgentId.New();
+            ServerId serverId = await SeedServerAsync(options, agent, gamePort: 16261);
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ServerRecreate);
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            RecordingCoordinator coordinator = new();
+            CapturingAuditWriter audit = new();
+            ServerLifecycle sut = Lifecycle(db, coordinator, audit);
+
+            ServerLifecycleResult result = await sut.RecreateAsync(
+                user, serverId, 27015, new GracefulRestartPayload([60, 10], "Changing ports."));
+
+            await Assert.That(result.Succeeded).IsTrue();
+            await Assert.That(coordinator.LastRequest!.Kind).IsEqualTo(OperationKind.RecreateServer);
+            await Assert.That(coordinator.LastRequest!.IsMutating).IsTrue();
+            await Assert.That(coordinator.LastRequest!.ServerId).IsEqualTo(serverId);
+            ServerContainerPayload payload = ServerContainerPayload.FromJson(coordinator.LastRequest!.CommandPayload!);
+            await Assert.That(payload.GamePort).IsEqualTo(27015);
+            await Assert.That(payload.Plan!.WarningLeadSeconds).IsEquivalentTo([60, 10]);
+            await Assert.That(audit.Actions).Contains(ServerAuditActions.Recreated);
+        });
+    }
+
+    [Test]
+    public async Task Recreate_without_a_port_keeps_the_current_pair()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            ServerId serverId = await SeedServerAsync(options, AgentId.New(), gamePort: 16261);
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ServerRecreate);
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            RecordingCoordinator coordinator = new();
+            ServerLifecycleResult result = await Lifecycle(db, coordinator, new CapturingAuditWriter())
+                .RecreateAsync(user, serverId, gamePort: null, plan: null);
+
+            await Assert.That(result.Succeeded).IsTrue();
+            await Assert.That(ServerContainerPayload.FromJson(coordinator.LastRequest!.CommandPayload!).GamePort).IsNull();
+        });
+    }
+
+    [Test]
+    public async Task Recreate_denies_without_the_server_scoped_recreate_permission()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            ServerId serverId = await SeedServerAsync(options, AgentId.New());
+            // Restart is not enough — recreate is its own, higher capability (D2).
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ServerRestart);
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            RecordingCoordinator coordinator = new();
+            ServerLifecycleResult result = await Lifecycle(db, coordinator, new CapturingAuditWriter())
+                .RecreateAsync(user, serverId, 27015, null);
+
+            await Assert.That(result.Failure).IsEqualTo(ServerLifecycleFailure.NotAuthorized);
+            await Assert.That(coordinator.LastRequest).IsNull();
+        });
+    }
+
+    [Test]
+    [Arguments(80)]
+    [Arguments(65535)]
+    public async Task Recreate_rejects_a_game_port_out_of_range(int port)
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            ServerId serverId = await SeedServerAsync(options, AgentId.New());
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ServerRecreate);
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            RecordingCoordinator coordinator = new();
+            ServerLifecycleResult result = await Lifecycle(db, coordinator, new CapturingAuditWriter())
+                .RecreateAsync(user, serverId, port, null);
+
+            await Assert.That(result.Failure).IsEqualTo(ServerLifecycleFailure.InvalidPort);
+            await Assert.That(coordinator.LastRequest).IsNull();
+        });
+    }
+
+    [Test]
+    public async Task Recreate_rejects_a_pair_overlapping_another_server_on_the_same_host()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            AgentId agent = AgentId.New();
+            ServerId serverId = await SeedServerAsync(options, agent, gamePort: 16261);
+            await SeedServerAsync(options, agent, gamePort: 27016); // 27016/27017 — overlaps 27015/27016
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ServerRecreate);
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            RecordingCoordinator coordinator = new();
+            ServerLifecycleResult result = await Lifecycle(db, coordinator, new CapturingAuditWriter())
+                .RecreateAsync(user, serverId, 27015, null);
+
+            await Assert.That(result.Failure).IsEqualTo(ServerLifecycleFailure.PortInUse);
+            await Assert.That(coordinator.LastRequest).IsNull();
+        });
+    }
+
+    [Test]
+    public async Task Recreate_allows_its_own_pair_and_a_pair_used_on_another_host()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            ServerId serverId = await SeedServerAsync(options, AgentId.New(), gamePort: 27015);
+            await SeedServerAsync(options, AgentId.New(), gamePort: 27015); // a different host — no clash
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ServerRecreate);
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            ServerLifecycleResult result = await Lifecycle(db, new RecordingCoordinator(), new CapturingAuditWriter())
+                .RecreateAsync(user, serverId, 27015, null);
+
+            await Assert.That(result.Succeeded).IsTrue();
+        });
+    }
+
+    private static ServerLifecycle Lifecycle(        ZWardenDbContext db,
         RecordingCoordinator coordinator,
         CapturingAuditWriter audit)
         => new(
@@ -239,10 +366,15 @@ public class ServerLifecycleTests
             CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
-    private static async Task<ServerId> SeedServerAsync(DbContextOptions options, AgentId agent)
+    private static async Task<ServerId> SeedServerAsync(DbContextOptions options, AgentId agent, int? gamePort = null)
     {
         await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
         Server server = Server.Import(agent, ServerId.New(), "survivors", Now);
+        if (gamePort is { } port)
+        {
+            server.RecordContainer($"c-{Guid.NewGuid():N}", port, port + 1);
+        }
+
         new ServerRepository(db).Add(server);
         await db.SaveChangesAsync();
         return server.Id;
