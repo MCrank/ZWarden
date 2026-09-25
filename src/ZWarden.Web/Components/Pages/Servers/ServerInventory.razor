@@ -16,15 +16,17 @@
 @inject IPermissionChecker PermissionChecker
 @inject UserManager<ApplicationUser> Users
 @inject NavigationManager Nav
+@inject TimeProvider Clock
 
 @* The Fleet board (#158; /servers, where / resolves). Static server render (no @rendermode on the page) like
    /audit: it runs per request with a live HttpContext so the session-derived tenant resolves and the read is
    tenant-filtered. Gated by [Authorize] (authenticated) rather than a server-scoped Server.View policy, which
    with no resource denies outright (ADR 0018) — the inventory self-filters to the Servers the caller may view,
    fail-closed. The KPI strip, degraded banner and the Register/Import forms are static SSR; only the fleet
-   TABLE is an interactive island (FleetBoard) for sort + row-click. CPU/Memory are a point-in-time snapshot of
-   the ownership-guarded metrics cache read here (this render has the owning AgentId); the board does not live-
-   refresh (static-snapshot posture) — except the Status badges, which live-status.js polls (#253). Lifecycle controls moved to Server Detail with the redesign (#162); this
+   TABLE is an interactive island (FleetBoard) for sort + row-click. The first render reads the ownership-guarded
+   metrics cache here (this render has the owning AgentId); from then on live-status.js polls the batched status
+   endpoint and updates the Status badges (#253), the fact cells and the Running / Needs attention / Players
+   tiles (#257) in place. Lifecycle controls moved to Server Detail with the redesign (#162); this
    board is display + navigate + deploy. All Agent-reported text is untrusted and rendered as data (§3/§8). *@
 
 <PageTitle>Fleet — ZWarden</PageTitle>
@@ -65,19 +67,18 @@
 <div class="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4" data-kpi-strip>
     <BbCard Class="p-4" data-kpi="running">
         <div class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Running</div>
-        <div class="mt-1 font-mono text-2xl tabular-nums text-status-running">@_running</div>
+        <div class="mt-1 font-mono text-2xl tabular-nums text-status-running" data-kpi-value>@_kpis.Running</div>
         <div class="mt-0.5 text-xs text-muted-foreground">of @_servers.Count @(_servers.Count == 1 ? "server" : "servers")</div>
     </BbCard>
     <BbCard Class="p-4" data-kpi="needs-attention">
         <div class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Needs attention</div>
-        <div class="mt-1 font-mono text-2xl tabular-nums @(_needsAttention > 0 ? "text-status-unhealthy" : "text-foreground")">@_needsAttention</div>
-        <div class="mt-0.5 truncate text-xs text-muted-foreground">
-            @(_needsAttention == 0 ? "all healthy" : (_attentionName is { Length: > 0 } name ? $"{name} · unhealthy" : "unhealthy"))
-        </div>
+        <div class="mt-1 font-mono text-2xl tabular-nums @(_kpis.NeedsAttention > 0 ? "text-status-unhealthy" : "text-foreground")" data-kpi-value>@_kpis.NeedsAttention</div>
+        @* live-status.js rebuilds this line with the same three phrasings (#257). *@
+        <div class="mt-0.5 truncate text-xs text-muted-foreground" data-kpi-sub>@(_kpis.NeedsAttention == 0 ? "all healthy" : (_kpis.AttentionName is { Length: > 0 } name ? $"{name} · unhealthy" : "unhealthy"))</div>
     </BbCard>
     <BbCard Class="p-4" data-kpi="players">
         <div class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Players online</div>
-        <div class="mt-1 font-mono text-2xl tabular-nums text-foreground">—</div>
+        <div class="mt-1 font-mono text-2xl tabular-nums text-foreground" data-kpi-value>@(_kpis.PlayersOnline?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? FleetFacts.Dash)</div>
         <div class="mt-0.5 text-xs text-muted-foreground">across the fleet</div>
     </BbCard>
     <BbCard Class="p-4" data-kpi="hosts">
@@ -208,9 +209,7 @@
     private IReadOnlyList<AgentId> _offlineHosts = [];
     private bool _canRegister;
     private bool _anyBusy;
-    private int _running;
-    private int _needsAttention;
-    private string? _attentionName;
+    private FleetKpis _kpis = new(0, 0, null, null);
     private int _hostsTotal;
     private int _hostsOnline;
     private string? _importMessage;
@@ -224,17 +223,22 @@
 
         _servers = await Inventory.ListVisibleAsync(user);
 
-        // Project each Server into a serializable row, overlaying a point-in-time snapshot of the ownership-
-        // guarded metrics cache (keyed by the Server's owning Agent, which this authorized load knows). A
-        // missing sample renders as — in the island; the board is a snapshot, not a live feed.
+        // Project each Server into a serializable row, overlaying the ownership-guarded metrics cache (keyed by the
+        // Server's owning Agent, which this authorized load knows). A missing sample renders as — in the island.
         // Each row's Status is resolved against the in-flight mutating Operations — one read for the whole fleet
         // (#253) — so a load mid-restart already says RESTARTING; live-status.js keeps it current from there.
         IReadOnlyDictionary<ServerId, Operation> activeByServer = ServerLiveStatus.ActiveByServer(
             _servers.Count == 0 ? [] : await OperationStore.ListActiveAsync());
+        // #257: the fleet facts (players, uptime, version, meters) come from the one FleetFacts projection the
+        // status poll also uses, so the first render and the live updates agree.
+        DateTimeOffset now = Clock.GetUtcNow();
         List<FleetRow> rows = new(_servers.Count);
+        List<(ServerSummary, FleetServerFacts)> fleet = new(_servers.Count);
         foreach (ServerSummary server in _servers)
         {
             ServerMetrics? sample = Metrics.GetLatest(server.Id, server.AgentId);
+            FleetServerFacts facts = FleetFacts.For(server, sample, Connections.IsConnected(server.AgentId));
+            fleet.Add((server, facts));
             ServerStatusView status = ServerLiveStatus.Resolve(server.LastRunState, server.Id, activeByServer);
             _anyBusy |= status.Busy;
             rows.Add(new FleetRow(
@@ -245,23 +249,20 @@
                 server.LastRunState,
                 status.Label,
                 status.Tone,
-                string.IsNullOrWhiteSpace(server.InstalledBuildId) ? "—" : server.InstalledBuildId!,
-                sample?.CpuPercent,
-                sample?.MemoryUsedBytes,
-                sample?.MemoryLimitBytes));
+                facts.Version ?? FleetFacts.Dash,
+                facts.CpuPercent,
+                facts.MemoryUsedBytes,
+                facts.MemoryLimitBytes,
+                facts.Players,
+                facts.PlayersSampledAt is { } counted ? FleetFacts.FormatSampleAge(counted, now) : null,
+                FleetFacts.FormatUptime(facts.StartedAt, now)));
         }
 
         _rows = rows;
 
-        _running = _servers.Count(s => s.LastRunState == ServerRunState.Running);
-
-        // Needs attention: a fatal/impaired health rollup, or a failed run-state — the servers an operator
-        // should look at first. The KPI names the first such server (untrusted data, rendered as data).
-        List<ServerSummary> attention = _servers
-            .Where(s => s.LastHealth is ServerHealth.Failed or ServerHealth.Degraded || s.LastRunState == ServerRunState.Failed)
-            .ToList();
-        _needsAttention = attention.Count;
-        _attentionName = attention.Count > 0 ? attention[0].Name : null;
+        // Running / Needs attention (a fatal or impaired health rollup, or a failed run-state) / Players online —
+        // live-status.js recomputes the same tiles from the poll (#257). The attention name is untrusted data.
+        _kpis = FleetFacts.Kpis(fleet);
 
         // Hosts (online/total): the distinct owning Agents of the visible fleet, "online" per the live F10
         // registry. Deriving from visible Servers keeps this fail-closed and needs no Agent.View (ADR 0018).

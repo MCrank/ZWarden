@@ -7,11 +7,12 @@
    this island adds sort + row-click, not live refresh). It touches no tenant-scoped service — safe in a circuit,
    which has no HttpContext (ADR 0040 posture) — it only renders the rows it was given. Row-click navigates to
    Server Detail; the Server cell is also a real <a> so it works without JS and the URL is in the prerendered
-   HTML. Bb-over-raw-HTML (ADR 0003): BbDataGrid is the sanctioned fleet table. CPU/Memory show the snapshot
-   MeterBar when a sample was cached, else —; Players/Uptime/Tick have no v1.0 data and render —. All row text is
-   untrusted Agent-reported data, rendered as data (trust-boundaries §3/§8). The one live part is the Status
-   badges (#253): the static parent names the batched status endpoint and live-status.js re-tones each row's badge
-   in place by Server id — no tenant work in this circuit. *@
+   HTML. Bb-over-raw-HTML (ADR 0003): BbDataGrid is the sanctioned fleet table. All row text is untrusted
+   Agent-reported data, rendered as data (trust-boundaries §3/§8). The rows are the first render; the live parts
+   are the Status badge (#253) and the fleet facts (#257): the static parent names the batched status endpoint and
+   live-status.js updates each [data-fleet-server] cell (players, CPU, memory, uptime, version) in place by Server
+   id — no tenant work in this circuit. A meter cell renders both the MeterBar and its — so the script can show
+   whichever applies; Tick was dropped (#257: no data source). *@
 
 <div data-fleet-board>
     <BbDataGrid TData="FleetRow"
@@ -44,47 +45,40 @@
                 <ChildContent Context="r"><span data-live-row="@r.Id"><StatusBadge State="r.StatusTone" Text="@r.StatusLabel" /></span></ChildContent>
             </BbDataGridTemplateColumn>
 
-            @* Players has no continuous v1.0 backing data (PlayerCount is always null; the roster is on-demand). *@
-            <BbDataGridTemplateColumn TData="FleetRow" Title="Players">
-                <ChildContent Context="r"><span class="font-mono text-xs tabular-nums text-muted-foreground">—</span></ChildContent>
+            @* #257: players from the Agent's slow RCON sample; the tooltip says how old it is. *@
+            <BbDataGridTemplateColumn TData="FleetRow" Title="Players" Sortable="true" SortBy="@(r => (object)(r.Players ?? -1))">
+                <ChildContent Context="r">
+                    <span class="font-mono text-xs tabular-nums @(r.Players is null ? "text-muted-foreground" : "text-foreground")"
+                          data-fleet-server="@r.Id" data-fleet-cell="players" title="@r.PlayersAge">@(r.Players?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "—")</span>
+                </ChildContent>
             </BbDataGridTemplateColumn>
 
             <BbDataGridTemplateColumn TData="FleetRow" Title="CPU">
                 <ChildContent Context="r">
-                    @if (r.CpuPercent is { } cpu)
-                    {
-                        <MeterBar Value="cpu" Max="100" Label="CPU" />
-                    }
-                    else
-                    {
-                        <span class="font-mono text-xs text-muted-foreground">—</span>
-                    }
+                    <span data-fleet-server="@r.Id" data-fleet-cell="cpu">
+                        <span data-meter-slot hidden="@(r.CpuPercent is null)"><MeterBar Value="@(r.CpuPercent ?? 0)" Max="100" Label="CPU" /></span>
+                        <span data-meter-empty hidden="@(r.CpuPercent is not null)" class="font-mono text-xs text-muted-foreground">—</span>
+                    </span>
                 </ChildContent>
             </BbDataGridTemplateColumn>
 
             <BbDataGridTemplateColumn TData="FleetRow" Title="Memory">
                 <ChildContent Context="r">
-                    @if (r.MemoryUsedBytes is { } used && r.MemoryLimitBytes is { } limit && limit > 0)
-                    {
-                        <MeterBar Value="used" Max="@limit" Label="Memory" />
-                    }
-                    else
-                    {
-                        <span class="font-mono text-xs text-muted-foreground">—</span>
-                    }
+                    @{ bool hasMemory = r.MemoryUsedBytes is not null && r.MemoryLimitBytes is > 0; }
+                    <span data-fleet-server="@r.Id" data-fleet-cell="memory">
+                        <span data-meter-slot hidden="@(!hasMemory)"><MeterBar Value="@(r.MemoryUsedBytes ?? 0)" Max="@(r.MemoryLimitBytes ?? 0)" Label="Memory" /></span>
+                        <span data-meter-empty hidden="@hasMemory" class="font-mono text-xs text-muted-foreground">—</span>
+                    </span>
                 </ChildContent>
             </BbDataGridTemplateColumn>
 
-            @* Uptime and Tick have no v1.0 backing fields yet. *@
+            @* #257: container uptime (Docker StartedAt), so it includes PZ boot time and resets on a restart. *@
             <BbDataGridTemplateColumn TData="FleetRow" Title="Uptime">
-                <ChildContent Context="r"><span class="font-mono text-xs tabular-nums text-muted-foreground">—</span></ChildContent>
-            </BbDataGridTemplateColumn>
-            <BbDataGridTemplateColumn TData="FleetRow" Title="Tick">
-                <ChildContent Context="r"><span class="font-mono text-xs tabular-nums text-muted-foreground">—</span></ChildContent>
+                <ChildContent Context="r"><span class="font-mono text-xs tabular-nums text-muted-foreground" data-fleet-server="@r.Id" data-fleet-cell="uptime">@r.Uptime</span></ChildContent>
             </BbDataGridTemplateColumn>
 
             <BbDataGridTemplateColumn TData="FleetRow" Title="Version" Sortable="true" SortBy="@(r => (object)r.Version)">
-                <ChildContent Context="r"><span class="font-mono text-xs tabular-nums text-muted-foreground">@r.Version</span></ChildContent>
+                <ChildContent Context="r"><span class="font-mono text-xs tabular-nums text-muted-foreground" data-fleet-server="@r.Id" data-fleet-cell="version">@r.Version</span></ChildContent>
             </BbDataGridTemplateColumn>
         </Columns>
     </BbDataGrid>
