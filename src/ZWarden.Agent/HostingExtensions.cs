@@ -134,6 +134,8 @@ public static class HostingExtensions
         // Operation takes the server down, then runs the F15 safe restart. Best-effort — an RCON failure never
         // blocks the restart. Shared by the F15 RestartServer command and F17's SteamCMD update.
         services.AddSingleton<IServerRestartCoordinator, ServerRestartCoordinator>();
+        // Provision + Recreate (F14, #229): the closed-template container build, port choice and data-preserving recreate.
+        services.AddSingleton<IServerProvisioner, ServerProvisioner>();
 
         // Remote administrative console (F28): runs one operator-authored RCON line over the Agent-owned
         // connection, re-checking the F28 input-safety + command policy (ADR 0032) before sending and bounding the

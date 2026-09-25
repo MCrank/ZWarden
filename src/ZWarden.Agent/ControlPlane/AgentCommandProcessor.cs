@@ -32,12 +32,11 @@ public sealed partial class AgentCommandProcessor
 {
     private readonly TimeProvider _timeProvider;
     private readonly IContainerRuntime _containerRuntime;
-    private readonly IServerHostDirectories _hostDirectories;
+    private readonly IServerProvisioner _provisioner;
     private readonly IServerUpdateRunner _updates;
     private readonly IServerBackupRunner _backups;
     private readonly IServerRestoreRunner _restores;
     private readonly IRconHealthProbe _rconProbe;
-    private readonly IRconServerConfig _rconConfig;
     private readonly IPlayerAdministration _players;
     private readonly IServerRestartCoordinator _restartCoordinator;
     private readonly IConsoleAdministration _console;
@@ -54,12 +53,11 @@ public sealed partial class AgentCommandProcessor
     public AgentCommandProcessor(
         TimeProvider timeProvider,
         IContainerRuntime containerRuntime,
-        IServerHostDirectories hostDirectories,
+        IServerProvisioner provisioner,
         IServerUpdateRunner updates,
         IServerBackupRunner backups,
         IServerRestoreRunner restores,
         IRconHealthProbe rconProbe,
-        IRconServerConfig rconConfig,
         IPlayerAdministration players,
         IServerRestartCoordinator restartCoordinator,
         IConsoleAdministration console,
@@ -74,12 +72,11 @@ public sealed partial class AgentCommandProcessor
     {
         ArgumentNullException.ThrowIfNull(timeProvider);
         ArgumentNullException.ThrowIfNull(containerRuntime);
-        ArgumentNullException.ThrowIfNull(hostDirectories);
+        ArgumentNullException.ThrowIfNull(provisioner);
         ArgumentNullException.ThrowIfNull(updates);
         ArgumentNullException.ThrowIfNull(backups);
         ArgumentNullException.ThrowIfNull(restores);
         ArgumentNullException.ThrowIfNull(rconProbe);
-        ArgumentNullException.ThrowIfNull(rconConfig);
         ArgumentNullException.ThrowIfNull(players);
         ArgumentNullException.ThrowIfNull(restartCoordinator);
         ArgumentNullException.ThrowIfNull(console);
@@ -93,12 +90,11 @@ public sealed partial class AgentCommandProcessor
         ArgumentNullException.ThrowIfNull(logger);
         _timeProvider = timeProvider;
         _containerRuntime = containerRuntime;
-        _hostDirectories = hostDirectories;
+        _provisioner = provisioner;
         _updates = updates;
         _backups = backups;
         _restores = restores;
         _rconProbe = rconProbe;
-        _rconConfig = rconConfig;
         _players = players;
         _restartCoordinator = restartCoordinator;
         _console = console;
@@ -199,7 +195,7 @@ public sealed partial class AgentCommandProcessor
                     rconServerId,
                     rcon: rcon);
 
-            case CreateServer:
+            case CreateServer create:
                 if (envelope.ServerId is not { } serverId)
                 {
                     // A provisioning command with no target Server is malformed — fail it explicitly.
@@ -211,7 +207,33 @@ public sealed partial class AgentCommandProcessor
                     return null; // Already handled this operation — a redelivered command (PRD 20).
                 }
 
-                return await ProvisionAsync(serverId, operationId, cancellationToken).ConfigureAwait(false);
+                return Provisioned(
+                    await _provisioner.ProvisionAsync(serverId, create.GamePort, cancellationToken).ConfigureAwait(false),
+                    operationId,
+                    serverId);
+
+            case RecreateServer recreate:
+                if (envelope.ServerId is not { } recreateServerId)
+                {
+                    // A recreate command with no target Server is malformed — fail it explicitly.
+                    return Completed(OperationOutcome.Failed, "No target Server on the recreate command.", operationId);
+                }
+
+                if (!_handled.TryAdd(operationId, 0))
+                {
+                    return null; // Already handling this recreate — a redelivered command (PRD 20).
+                }
+
+                // Recreate (#229, ADR 0045): warn + safe stop → remove → create on the new pair → start, rolling back
+                // on failure. The completion carries the pair and container the Server ends on, even when rolled back.
+                return Provisioned(
+                    await _provisioner
+                        .RecreateAsync(
+                            recreateServerId, recreate.GamePort, recreate.Plan, operationId,
+                            progress ?? NullOperationProgressReporter.Instance, cancellationToken)
+                        .ConfigureAwait(false),
+                    operationId,
+                    recreateServerId);
 
             case StartServer:
                 return await LifecycleAsync(
@@ -471,69 +493,20 @@ public sealed partial class AgentCommandProcessor
         }
     }
 
-    /// <summary>
-    /// Provisions the canonical container for <paramref name="serverId"/> (F14): allocate the port stride from
-    /// the host's live bindings (F13), build the closed create-template from Agent configuration, create and
-    /// start the container, and report the allocated ports and container id. A create failure (e.g. the image
-    /// is not pre-provisioned) becomes a failed completion carrying the actionable, Agent-authored reason.
-    /// </summary>
-    private async Task<Envelope<OperationCompleted>> ProvisionAsync(
-        ServerId serverId,
-        OperationId operationId,
-        CancellationToken cancellationToken)
+    // Maps a provision/recreate outcome to its completion (F14, #229). The Provision result carries the pair and container
+    // the Server ends on — also after a rolled-back Recreate, so the control plane records the rollback container.
+    private Envelope<OperationCompleted> Provisioned(ServerProvisionOutcome outcome, OperationId operationId, ServerId serverId)
     {
-        try
-        {
-            PortAllocation ports = await _containerRuntime.AllocateNextPortsAsync(cancellationToken).ConfigureAwait(false);
-            PzContainerSpec spec = new(
-                serverId,
-                ContainerName: serverId.ToString(),
-                ImageReference: _options.PzImageReference ?? string.Empty,
-                NetworkName: _options.NetworkName,
-                DataMountSource: Path.Combine(_options.DataMountRoot, serverId.ToString()),
-                // The SteamCMD install lives in a host sibling of the data dir (F17): persistent, but outside the
-                // world-data path the disk meter reads (F16), so the ~6.72 GiB install is not counted as world use.
-                ServerMountSource: Path.Combine(_options.DataMountRoot, $"{serverId}.server"),
-                Ports: ports,
-                MemoryLimitBytes: _options.DefaultMemoryLimitBytes,
-                HeapSizeBytes: _options.DefaultHeapSizeBytes);
-
-            // Materialise BOTH host-side bind-mount sources before the create (#184): the Docker Mounts API
-            // never auto-creates them, and the Agent's own container filesystem is not where the daemon resolves
-            // them, so without this the daemon refuses with "bind source path does not exist".
-            _hostDirectories.EnsureCreated(spec);
-
-            // Seed RCON into the Server's config on the (Agent-owned) data mount before the container first
-            // launches, so PZ enables RCON with an Agent-generated password on first boot (F18 D-2). Idempotent:
-            // a re-provision keeps the existing password. Host-side surgical write, no container env var, no exec.
-            _rconConfig.EnsureEnabled(serverId);
-
-            string containerId = await _containerRuntime.CreateAsync(spec, cancellationToken).ConfigureAwait(false);
-            await _containerRuntime.StartAsync(containerId, cancellationToken).ConfigureAwait(false);
-
-            return Completed(
-                OperationOutcome.Succeeded,
-                failureReason: null,
-                operationId,
-                serverId,
-                new ProvisionResult(ports.GamePort, ports.DirectPort, containerId));
-        }
-        catch (ContainerCreateException ex)
-        {
-            // Actionable, Agent-authored reason (e.g. the pinned image is not pre-provisioned, ADR 0008 D5).
-            return Completed(OperationOutcome.Failed, ex.Message, operationId, serverId);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            // The RCON config seed (or a host-path write) failed — report it rather than crash the operation.
-            return Completed(
-                OperationOutcome.Failed,
-                $"Could not prepare the server's host data before launch: {ex.Message}",
-                operationId,
-                serverId);
-        }
+        ProvisionResult? result = outcome is { Ports: { } ports, ContainerId: { } containerId }
+            ? new ProvisionResult(ports.GamePort, ports.DirectPort, containerId)
+            : null;
+        return Completed(
+            outcome.Succeeded ? OperationOutcome.Succeeded : OperationOutcome.Failed,
+            outcome.FailureReason,
+            operationId,
+            serverId,
+            result);
     }
-
     /// <summary>
     /// Runs a lifecycle verb (start/stop/restart, F15) against the target Server on the envelope. The Agent
     /// resolves the container it owns for the Server and issues the guarded Docker verb; a Server with no owned

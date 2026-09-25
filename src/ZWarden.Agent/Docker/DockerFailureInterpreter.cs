@@ -36,4 +36,14 @@ public static class DockerFailureInterpreter
 
         return ContainerCreateFailure.Unknown;
     }
+
+    /// <summary>
+    /// Whether a container <b>start</b> failed because a published host port is taken (#229) — by another container
+    /// (<c>port is already allocated</c>) or by a process outside Docker (<c>address already in use</c>). Docker only
+    /// binds host ports at start, so this is the authoritative clash signal the Agent's pre-flight cannot replace.
+    /// </summary>
+    public static bool IsPortInUse(string? responseBody) =>
+        responseBody is not null
+        && (responseBody.Contains("port is already allocated", StringComparison.OrdinalIgnoreCase)
+            || responseBody.Contains("address already in use", StringComparison.OrdinalIgnoreCase));
 }

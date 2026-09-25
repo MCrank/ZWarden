@@ -42,7 +42,8 @@ Operation + per-server lock + lease), [ADR 0043](../adr/0043-graceful-restart-is
   on the same Agent for a fast form error; the Agent stays authoritative.
 - **Fix: start failure no longer silently hangs the Operation.** Today a start `DockerApiException` in
   `ProvisionAsync` is only logged and the lease reaper fails it. Provision/Recreate now report `Failed` with the
-  cause. On a provision `PortInUse`, the just-created container is removed so a retry isn't a 409.
+  cause, and a container that failed to start is removed again so a retry (Recreate, which repairs an absent
+  container) or a rollback isn't a name clash.
 - **Recreate is also repair.** An absent container is tolerated (skip stop/remove, just create) so a Server left
   containerless by a failed provision or a failed rollback can be recovered with another Recreate.
 - **Recreate refuses a mount mismatch (fail-closed).** Before removing, inspect the container; if its

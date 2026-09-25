@@ -52,4 +52,20 @@ public class DockerFailureInterpreterTests
         await Assert.That(DockerFailureInterpreter.InterpretCreate(HttpStatusCode.NotFound, null))
             .IsEqualTo(ContainerCreateFailure.Unknown);
     }
+
+    [Test]
+    [Arguments("driver failed programming external connectivity on endpoint x: Bind for 0.0.0.0:16261 failed: port is already allocated")]
+    [Arguments("driver failed programming external connectivity on endpoint x: listen udp4 0.0.0.0:16261: bind: address already in use")]
+    public async Task A_start_failure_binding_a_host_port_is_a_port_clash(string body)
+    {
+        await Assert.That(DockerFailureInterpreter.IsPortInUse(body)).IsTrue();
+    }
+
+    [Test]
+    [Arguments("OCI runtime create failed")]
+    [Arguments(null)]
+    public async Task Other_start_failures_are_not_a_port_clash(string? body)
+    {
+        await Assert.That(DockerFailureInterpreter.IsPortInUse(body)).IsFalse();
+    }
 }
