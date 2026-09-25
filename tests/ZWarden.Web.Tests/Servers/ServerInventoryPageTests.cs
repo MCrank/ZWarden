@@ -163,6 +163,26 @@ public sealed class ServerInventoryPageTests
     }
 
     [Test]
+    public async Task The_fleet_board_shows_an_in_flight_stop_and_is_marked_for_live_status()
+    {
+        // #253: each row's badge is rendered from the observed state AND the in-flight lifecycle Operation (so a
+        // load mid-stop already says STOPPING), and the board names the batched endpoint live-status.js polls,
+        // with every badge keyed by its Server id so the script can re-tone that row in place.
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "stopping");
+        await client.PostAsync(new Uri($"/api/servers/{serverId}/stop", UriKind.Relative), content: null);
+
+        string html = await (await client.GetAsync(new Uri("/servers", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        await Assert.That(html).Contains("data-live-fleet=\"/api/servers/status\"");
+        await Assert.That(html).Contains("data-status-busy=\"true\"");
+        await Assert.That(html).Contains($"data-live-row=\"{serverId}\"");
+        await Assert.That(html).Contains("STOPPING");
+        client.Dispose();
+    }
+
+    [Test]
     public async Task The_fleet_board_shows_a_cpu_and_memory_meter_from_the_cached_sample()
     {
         await using ZWardenWebAppFactory factory = new();

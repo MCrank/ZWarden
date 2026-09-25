@@ -20,6 +20,10 @@ public interface IOperationStore
     /// its per-server lock (ADR 0022) — or <c>null</c>. Feeds the live header's transitional state (#249).</summary>
     Task<Operation?> FindActiveForServerAsync(ServerId serverId, CancellationToken cancellationToken = default);
 
+    /// <summary>Every in-flight (non-terminal) mutating Operation in the current tenant — at most one per Server —
+    /// in one read. Feeds the fleet board's live status (#253); the caller filters to the Servers it may view.</summary>
+    Task<IReadOnlyList<Operation>> ListActiveAsync(CancellationToken cancellationToken = default);
+
     /// <summary>Applies an Agent progress report: advances the (clamped) percentage and (truncated) status
     /// line and extends the lease. No-op if the Operation is not visible or is already terminal.</summary>
     Task ApplyProgressAsync(

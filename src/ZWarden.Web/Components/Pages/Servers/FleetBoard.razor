@@ -9,7 +9,9 @@
    Server Detail; the Server cell is also a real <a> so it works without JS and the URL is in the prerendered
    HTML. Bb-over-raw-HTML (ADR 0003): BbDataGrid is the sanctioned fleet table. CPU/Memory show the snapshot
    MeterBar when a sample was cached, else —; Players/Uptime/Tick have no v1.0 data and render —. All row text is
-   untrusted Agent-reported data, rendered as data (trust-boundaries §3/§8). *@
+   untrusted Agent-reported data, rendered as data (trust-boundaries §3/§8). The one live part is the Status
+   badges (#253): the static parent names the batched status endpoint and live-status.js re-tones each row's badge
+   in place by Server id — no tenant work in this circuit. *@
 
 <div data-fleet-board>
     <BbDataGrid TData="FleetRow"
@@ -38,7 +40,8 @@
             </BbDataGridTemplateColumn>
 
             <BbDataGridTemplateColumn TData="FleetRow" Title="Status" Sortable="true" SortBy="@(r => (object)(int)r.RunState)">
-                <ChildContent Context="r"><StatusBadge State="r.RunState" /></ChildContent>
+                @* #253: data-live-row keys the badge by Server id so live-status.js re-tones this row in place. *@
+                <ChildContent Context="r"><span data-live-row="@r.Id"><StatusBadge State="r.StatusTone" Text="@r.StatusLabel" /></span></ChildContent>
             </BbDataGridTemplateColumn>
 
             @* Players has no continuous v1.0 backing data (PlayerCount is always null; the roster is on-demand). *@

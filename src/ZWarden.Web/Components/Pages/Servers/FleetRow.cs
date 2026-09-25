@@ -15,7 +15,10 @@ namespace ZWarden.Web.Components.Pages.Servers;
 /// <param name="Name">The operator-set Server name.</param>
 /// <param name="Description">The optional Server description.</param>
 /// <param name="Host">The owning Agent's id (<c>agt-</c>) as a string.</param>
-/// <param name="RunState">The last-reported coarse run-state (drives the StatusBadge).</param>
+/// <param name="RunState">The last-reported coarse run-state (the Status column's sort key).</param>
+/// <param name="StatusLabel">The badge label at load, resolved against the in-flight Operation (#253), e.g.
+/// <c>RESTARTING</c>; live-status.js keeps it current.</param>
+/// <param name="StatusTone">The run-state whose colour the badge wears at load (#253).</param>
 /// <param name="Version">The installed build id, or <c>—</c> when unknown.</param>
 /// <param name="CpuPercent">The latest CPU sample (0–100), or <c>null</c> when no sample is cached.</param>
 /// <param name="MemoryUsedBytes">The latest resident-memory sample, or <c>null</c> when none is cached.</param>
@@ -26,6 +29,8 @@ public sealed record FleetRow(
     string? Description,
     string Host,
     ServerRunState RunState,
+    string StatusLabel,
+    ServerRunState StatusTone,
     string Version,
     double? CpuPercent,
     long? MemoryUsedBytes,

@@ -106,6 +106,20 @@ public static class ServerEndpoints
         // fresh intent enqueued as a mutating, server-scoped Operation; the caller polls /api/operations/{id}.
         RouteGroupBuilder lifecycle = endpoints.MapGroup("/api/servers").RequireAuthorization();
 
+        // The fleet board's live status (#253): every Server the caller may view (the inventory's fail-closed
+        // Server.View filter), each resolved against the tenant's in-flight mutating Operations — read once for the
+        // whole fleet, not once per row. Polled by live-status.js on /servers. Never cached.
+        lifecycle.MapGet("/status", async (ClaimsPrincipal principal, UserManager<ApplicationUser> users,
+            IServerInventory inventory, IOperationStore operations, HttpContext http, CancellationToken ct) =>
+        {
+            IReadOnlyList<ServerSummary> servers = await inventory.ListVisibleAsync(Actor(principal, users), ct).ConfigureAwait(false);
+            IReadOnlyDictionary<ServerId, OperationKind> activeByServer = ServerLiveStatus.ActiveByServer(
+                servers.Count == 0 ? [] : await operations.ListActiveAsync(ct).ConfigureAwait(false));
+
+            http.Response.Headers.CacheControl = "no-store";
+            return Results.Ok(servers.Select(s => StatusBody(s.Id, ServerLiveStatus.Resolve(s.LastRunState, s.Id, activeByServer))));
+        });
+
         // The live header status (#249): the observed run-state resolved against the Server's in-flight mutating
         // Operation, polled by live-status.js on the server-detail page. Fail-closed on Server.View (the inventory's
         // per-Server gate): an unknown or unviewable Server is 404, never a hint that it exists. Never cached.
@@ -126,15 +140,7 @@ public static class ServerEndpoints
             Operation? active = await operations.FindActiveForServerAsync(serverId, ct).ConfigureAwait(false);
             ServerStatusView view = ServerLiveStatus.Resolve(server.LastRunState, active?.Kind);
             http.Response.Headers.CacheControl = "no-store";
-            return Results.Ok(new
-            {
-                label = view.Label,
-                tone = view.ToneKey,
-                busy = view.Busy,
-                canStart = view.CanStart,
-                canStop = view.CanStop,
-                canRestart = view.CanRestart,
-            });
+            return Results.Ok(StatusBody(serverId, view));
         });
 
         lifecycle.MapPost("/{id}/start", (string id, ClaimsPrincipal principal, UserManager<ApplicationUser> users,
@@ -329,6 +335,18 @@ public static class ServerEndpoints
         lastRunState = s.LastRunState.ToString(),
         lastStateReportedAt = s.LastStateReportedAt,
         installedBuildId = s.InstalledBuildId,
+    };
+
+    // The live-status wire shape live-status.js reads, shared by the header (#249) and fleet (#253) endpoints.
+    private static object StatusBody(ServerId id, ServerStatusView view) => new
+    {
+        id = id.ToString(),
+        label = view.Label,
+        tone = view.ToneKey,
+        busy = view.Busy,
+        canStart = view.CanStart,
+        canStop = view.CanStop,
+        canRestart = view.CanRestart,
     };
 
     private static UserId Actor(ClaimsPrincipal principal, UserManager<ApplicationUser> users)

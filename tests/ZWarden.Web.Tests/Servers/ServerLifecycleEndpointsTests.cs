@@ -192,6 +192,65 @@ public sealed class ServerLifecycleEndpointsTests
         await Assert.That(await response.Content.ReadAsStringAsync()).DoesNotContain("\"canStop\"");
     }
 
+    [Test]
+    public async Task The_fleet_status_reports_every_visible_server_in_one_call()
+    {
+        // #253: the fleet board polls this one endpoint for every row, not one request per Server.
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId idle = await SeedServerAsync(factory, ServerRunState.Running);
+        ServerId restarting = await SeedServerAsync(factory, ServerRunState.Running);
+        await client.PostAsync(new Uri($"/api/servers/{restarting}/restart", UriKind.Relative), content: null);
+
+        HttpResponseMessage response = await client.GetAsync(new Uri("/api/servers/status", UriKind.Relative));
+
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
+        await Assert.That(response.Headers.CacheControl?.NoStore).IsTrue();
+        using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Dictionary<string, JsonElement> byId = body.RootElement.EnumerateArray()
+            .ToDictionary(s => s.GetProperty("id").GetString()!, s => s.Clone());
+        await Assert.That(byId.Count).IsEqualTo(2);
+        await Assert.That(byId[idle.ToString()].GetProperty("label").GetString()).IsEqualTo("RUNNING");
+        await Assert.That(byId[idle.ToString()].GetProperty("tone").GetString()).IsEqualTo("running");
+        await Assert.That(byId[idle.ToString()].GetProperty("busy").GetBoolean()).IsFalse();
+        await Assert.That(byId[idle.ToString()].GetProperty("canRestart").GetBoolean()).IsTrue();
+        await Assert.That(byId[restarting.ToString()].GetProperty("label").GetString()).IsEqualTo("RESTARTING");
+        await Assert.That(byId[restarting.ToString()].GetProperty("tone").GetString()).IsEqualTo("busy");
+        await Assert.That(byId[restarting.ToString()].GetProperty("busy").GetBoolean()).IsTrue();
+        await Assert.That(byId[restarting.ToString()].GetProperty("canRestart").GetBoolean()).IsFalse();
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task The_fleet_status_omits_servers_the_caller_cannot_view()
+    {
+        // Fail-closed on Server.View: a signed-in user with no grant sees no Server, not even that one exists.
+        await using ZWardenWebAppFactory factory = new();
+        await SeedServerAsync(factory, ServerRunState.Running);
+        await factory.CreateConfirmedUserAsync("nobody@zwarden.test", StrongPassword);
+        HttpClient client = factory.CreateWebClient();
+        await LoginAsync(client, "nobody@zwarden.test", StrongPassword);
+
+        HttpResponseMessage response = await client.GetAsync(new Uri("/api/servers/status", UriKind.Relative));
+
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
+        using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        await Assert.That(body.RootElement.GetArrayLength()).IsEqualTo(0);
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task Anonymous_cannot_read_the_fleet_status()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        await SeedServerAsync(factory, ServerRunState.Running);
+        using HttpClient client = factory.CreateWebClient();
+
+        HttpResponseMessage response = await client.GetAsync(new Uri("/api/servers/status", UriKind.Relative));
+
+        await Assert.That(await response.Content.ReadAsStringAsync()).DoesNotContain("\"canStop\"");
+    }
+
     private static async Task<ServerId> SeedServerAsync(ZWardenWebAppFactory factory, ServerRunState? state = null)
     {
         using IServiceScope scope = factory.Services.CreateScope();

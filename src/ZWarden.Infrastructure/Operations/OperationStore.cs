@@ -50,6 +50,10 @@ public sealed class OperationStore : IOperationStore
         => _operations.FindActiveMutatingForServerAsync(serverId, cancellationToken);
 
     /// <inheritdoc />
+    public Task<IReadOnlyList<Operation>> ListActiveAsync(CancellationToken cancellationToken = default)
+        => _operations.ListActiveMutatingAsync(cancellationToken);
+
+    /// <inheritdoc />
     public async Task ApplyProgressAsync(
         OperationId operationId,
         int percentComplete,

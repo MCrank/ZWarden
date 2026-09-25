@@ -3,9 +3,13 @@
 @using System.Security.Claims
 @using ZWarden.Application.Agents
 @using ZWarden.Application.Authorization
+@using ZWarden.Application.Operations
 @using ZWarden.Domain.Authorization
 @using ZWarden.Domain.Ids
+@using ZWarden.Domain.Operations
+@using ZWarden.Web.Components.Servers
 @inject IServerInventory Inventory
+@inject IOperationStore OperationStore
 @inject IServerMetricsCache Metrics
 @inject IAgentConnectionRegistry Connections
 @inject IServerDiscoveryCache Discovery
@@ -20,7 +24,7 @@
    fail-closed. The KPI strip, degraded banner and the Register/Import forms are static SSR; only the fleet
    TABLE is an interactive island (FleetBoard) for sort + row-click. CPU/Memory are a point-in-time snapshot of
    the ownership-guarded metrics cache read here (this render has the owning AgentId); the board does not live-
-   refresh (static-snapshot posture). Lifecycle controls moved to Server Detail with the redesign (#162); this
+   refresh (static-snapshot posture) — except the Status badges, which live-status.js polls (#253). Lifecycle controls moved to Server Detail with the redesign (#162); this
    board is display + navigate + deploy. All Agent-reported text is untrusted and rendered as data (§3/§8). *@
 
 <PageTitle>Fleet — ZWarden</PageTitle>
@@ -85,8 +89,9 @@
 
 @* The fleet table is the page's one interactive island (sort + row-click), reading only the rows projected
    above — no tenant-scoped service in the circuit (ADR 0040). Prerenders with the rows so the URLs and first
-   paint are server-rendered. *@
-<div class="mt-6">
+   paint are server-rendered. #253: data-live-fleet names the batched, Server.View-filtered status endpoint
+   live-status.js polls to re-tone each row's badge in place (a stop, a restart, a boot) — no reload. *@
+<div class="mt-6" data-live-fleet="/api/servers/status" data-status-busy="@(_anyBusy ? "true" : "false")">
     <FleetBoard @rendermode="InteractiveServer" Rows="_rows" />
 </div>
 
@@ -202,6 +207,7 @@
     private IReadOnlyList<AgentId> _knownAgents = [];
     private IReadOnlyList<AgentId> _offlineHosts = [];
     private bool _canRegister;
+    private bool _anyBusy;
     private int _running;
     private int _needsAttention;
     private string? _attentionName;
@@ -221,16 +227,24 @@
         // Project each Server into a serializable row, overlaying a point-in-time snapshot of the ownership-
         // guarded metrics cache (keyed by the Server's owning Agent, which this authorized load knows). A
         // missing sample renders as — in the island; the board is a snapshot, not a live feed.
+        // Each row's Status is resolved against the in-flight mutating Operations — one read for the whole fleet
+        // (#253) — so a load mid-restart already says RESTARTING; live-status.js keeps it current from there.
+        IReadOnlyDictionary<ServerId, OperationKind> activeByServer = ServerLiveStatus.ActiveByServer(
+            _servers.Count == 0 ? [] : await OperationStore.ListActiveAsync());
         List<FleetRow> rows = new(_servers.Count);
         foreach (ServerSummary server in _servers)
         {
             ServerMetrics? sample = Metrics.GetLatest(server.Id, server.AgentId);
+            ServerStatusView status = ServerLiveStatus.Resolve(server.LastRunState, server.Id, activeByServer);
+            _anyBusy |= status.Busy;
             rows.Add(new FleetRow(
                 server.Id.ToString(),
                 server.Name,
                 server.Description,
                 server.AgentId.ToString(),
                 server.LastRunState,
+                status.Label,
+                status.Tone,
                 string.IsNullOrWhiteSpace(server.InstalledBuildId) ? "—" : server.InstalledBuildId!,
                 sample?.CpuPercent,
                 sample?.MemoryUsedBytes,
