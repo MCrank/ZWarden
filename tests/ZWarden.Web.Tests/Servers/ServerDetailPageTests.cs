@@ -1,14 +1,19 @@
 using System.Net;
 using System.Text.RegularExpressions;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using ZWarden.Application.Configuration;
 using ZWarden.Application.Mods;
+using ZWarden.Application.Servers;
+using ZWarden.Domain.Authorization;
 using ZWarden.Domain.Backups;
 using ZWarden.Domain.Configuration;
 using ZWarden.Domain.Ids;
 using ZWarden.Domain.Operations;
 using ZWarden.Domain.Servers;
 using ZWarden.Infrastructure.Authorization;
+using ZWarden.Infrastructure.Identity;
 using ZWarden.Infrastructure.Persistence;
 using ZWarden.PzConfig.Revisions;
 using ZWarden.Web.Tests.Account;
@@ -1614,6 +1619,100 @@ public sealed class ServerDetailPageTests
         return (server.Id, agent);
     }
 
+    [Test]
+    public async Task The_change_ports_control_shows_the_current_pair_for_a_permitted_owner()
+    {
+        // #229: an owner holds Server.Recreate, so the overview offers the data-preserving recreate on a new pair.
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "movable", gamePort: 16261, queryPort: 16262);
+
+        string html = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        await Assert.That(html).Contains("data-recreate");
+        await Assert.That(html).Contains("name=\"_recreateForm.GamePort\"");
+        await Assert.That(html).Contains("name=\"_recreateForm.Countdown\"");
+        await Assert.That(html).Contains("data-action=\"recreate\"");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task The_change_ports_form_enqueues_a_recreate_carrying_the_port_and_countdown()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "move-me", gamePort: 16261, queryPort: 16262);
+
+        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+        Dictionary<string, string> form = new(StringComparer.Ordinal)
+        {
+            ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
+            ["_handler"] = "server-recreate",
+            ["_recreateForm.GamePort"] = "27015",
+            ["_recreateForm.Countdown"] = "1m",
+        };
+        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}", UriKind.Relative), new FormUrlEncodedContent(form));
+
+        await Assert.That((int)post.StatusCode).IsLessThan(400);
+        string? payload = EnqueuedPayload(factory, serverId, OperationKind.RecreateServer);
+        await Assert.That(payload).IsNotNull();
+        ServerContainerPayload parsed = ServerContainerPayload.FromJson(payload!);
+        await Assert.That(parsed.GamePort).IsEqualTo(27015);
+        await Assert.That(parsed.Plan!.WarningLeadSeconds).IsEquivalentTo([60, 30, 10]);
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task The_change_ports_form_refuses_an_invalid_port_without_enqueueing()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "bad-move", gamePort: 16261, queryPort: 16262);
+
+        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+        Dictionary<string, string> form = new(StringComparer.Ordinal)
+        {
+            ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
+            ["_handler"] = "server-recreate",
+            ["_recreateForm.GamePort"] = "80",
+        };
+        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}", UriKind.Relative), new FormUrlEncodedContent(form));
+        string html = await post.Content.ReadAsStringAsync();
+
+        await Assert.That(html).Contains("data-lifecycle-message");
+        await Assert.That(html).Contains("between 1024 and 65534");
+        await Assert.That(EnqueuedKind(factory, serverId, OperationKind.RecreateServer)).IsFalse();
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task An_operator_role_without_server_recreate_does_not_see_the_change_ports_control()
+    {
+        // D2 (#229): Operator runs the server day to day but does not re-provision it.
+        await using ZWardenWebAppFactory factory = new();
+        await factory.CreateConfirmedUserAsync("owner@zwarden.test", StrongPassword);
+        await AuthorizationBootstrapper.EnsureSeededAsync(factory.Services, "owner@zwarden.test");
+        await factory.CreateConfirmedUserAsync("operator@zwarden.test", StrongPassword);
+        using (IServiceScope scope = factory.Services.CreateScope())
+        {
+            ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
+            ApplicationUser user = (await scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>()
+                .FindByEmailAsync("operator@zwarden.test"))!;
+            Role operatorRole = await db.Set<Role>().SingleAsync(r => r.BuiltIn == BuiltInRoleKind.Operator);
+            db.Set<RoleAssignment>().Add(RoleAssignment.TenantWide(operatorRole.TenantId, UserId.FromGuid(user.Id), operatorRole.Id));
+            await db.SaveChangesAsync();
+        }
+
+        ServerId serverId = await SeedServerAsync(factory, "operated", gamePort: 16261, queryPort: 16262);
+        HttpClient client = factory.CreateWebClient();
+        await LoginAsync(client, "operator@zwarden.test", StrongPassword);
+
+        string html = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        await Assert.That(html).Contains("data-graceful-restart"); // the operator does see the restart panel …
+        await Assert.That(html).DoesNotContain("data-recreate");   // … but not the recreate control.
+        client.Dispose();
+    }
     private static async Task<HttpClient> SignedInOperatorAsync(ZWardenWebAppFactory factory)
     {
         await factory.CreateConfirmedUserAsync("op@zwarden.test", StrongPassword);

@@ -5,6 +5,7 @@
 @using ZWarden.Application.Servers
 @using ZWarden.Application.Setup
 @using ZWarden.Domain.Ids
+@using ZWarden.Web.Components.Servers
 @inject IServerInventory Inventory
 @inject IServerDiscoveryCache Discovery
 @inject ISetupState SetupState
@@ -62,6 +63,11 @@
             <div class="flex flex-col text-sm">
                 <BbLabel For="register-name" Class="mb-1 text-muted-foreground">Name</BbLabel>
                 <BbInput Id="register-name" @bind-Value="_registerForm!.Name" />
+            </div>
+            <div class="flex flex-col text-sm">
+                <BbLabel For="register-port" Class="mb-1 text-muted-foreground">Game port (optional)</BbLabel>
+                @* #229: the host UDP pair is this port and the one above; blank = the next free pair. *@
+                <BbInput Id="register-port" Type="InputType.Number" @bind-Value="_registerForm!.GamePort" Placeholder="Auto" Class="w-32" />
             </div>
             <BbButton Type="ButtonType.Submit">Register</BbButton>
         </EditForm>
@@ -148,7 +154,13 @@
             return;
         }
 
-        ServerRegisterResult result = await Inventory.RegisterAsync(await CurrentUserAsync(), agentId, form.Name.Trim());
+        if (!HostPortInput.TryParse(form.GamePort, out int? gamePort, out string? portError))
+        {
+            _message = portError;
+            return;
+        }
+
+        ServerRegisterResult result = await Inventory.RegisterAsync(await CurrentUserAsync(), agentId, form.Name.Trim(), gamePort);
         if (result.Succeeded)
         {
             Nav.NavigateTo("/setup/servers");
@@ -159,6 +171,8 @@
         {
             ServerRegisterFailure.NotAuthorized => "You are not permitted to register servers.",
             ServerRegisterFailure.AgentNotFound => "That host is no longer known.",
+            ServerRegisterFailure.InvalidPort => "That game port is not allowed.",
+            ServerRegisterFailure.PortInUse => "That game port (or the one above it) is already used by another server on this host.",
             _ => "The server could not be registered.",
         };
     }
@@ -210,6 +224,8 @@
         public string? AgentId { get; set; }
 
         public string? Name { get; set; }
+
+        public string? GamePort { get; set; }
     }
 
     private sealed class ImportModel

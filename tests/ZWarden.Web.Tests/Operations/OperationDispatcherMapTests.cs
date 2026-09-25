@@ -29,6 +29,42 @@ public class OperationDispatcherMapTests
     }
 
     [Test]
+    public async Task A_provision_without_a_payload_leaves_the_stride_to_the_agent()
+    {
+        var command = (CreateServer)OperationDispatcher.CommandFor(OperationKind.ProvisionServer);
+        await Assert.That(command.GamePort).IsNull();
+    }
+
+    [Test]
+    public async Task A_provision_payload_carries_the_chosen_game_port()
+    {
+        var command = (CreateServer)OperationDispatcher.CommandFor(
+            OperationKind.ProvisionServer, new ServerContainerPayload(27015).ToJson());
+        await Assert.That(command.GamePort).IsEqualTo(27015);
+    }
+
+    [Test]
+    public async Task A_recreate_payload_maps_to_the_recreate_command_with_its_port_and_plan()
+    {
+        var command = (RecreateServer)OperationDispatcher.CommandFor(
+            OperationKind.RecreateServer,
+            new ServerContainerPayload(27015, new GracefulRestartPayload([60], "Changing ports.")).ToJson());
+
+        await Assert.That(command.GamePort).IsEqualTo(27015);
+        await Assert.That(command.Plan!.WarningLeadSeconds).IsEquivalentTo([60]);
+        await Assert.That(command.Plan!.Reason).IsEqualTo("Changing ports.");
+    }
+
+    [Test]
+    public async Task A_recreate_without_a_plan_uses_the_agents_default_warning()
+    {
+        var command = (RecreateServer)OperationDispatcher.CommandFor(
+            OperationKind.RecreateServer, new ServerContainerPayload(null).ToJson());
+
+        await Assert.That(command.GamePort).IsNull();
+        await Assert.That(command.Plan).IsNull();
+    }
+    [Test]
     public async Task Lifecycle_kinds_map_to_the_lifecycle_commands()
     {
         await Assert.That(OperationDispatcher.CommandFor(OperationKind.StartServer)).IsTypeOf<StartServer>();

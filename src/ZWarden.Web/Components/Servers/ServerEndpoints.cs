@@ -8,6 +8,7 @@ using ZWarden.Domain.Authorization;
 using ZWarden.Domain.Backups;
 using ZWarden.Domain.Ids;
 using ZWarden.Domain.Operations;
+using ZWarden.Domain.Servers;
 using ZWarden.Infrastructure.Identity;
 
 namespace ZWarden.Web.Components.Servers;
@@ -78,7 +79,7 @@ public static class ServerEndpoints
             }
 
             ServerRegisterResult result = await inventory
-                .RegisterAsync(Actor(principal, users), agentId, request.Name.Trim(), cancellationToken)
+                .RegisterAsync(Actor(principal, users), agentId, request.Name.Trim(), request.GamePort, cancellationToken)
                 .ConfigureAwait(false);
 
             if (result.Succeeded)
@@ -97,6 +98,9 @@ public static class ServerEndpoints
                     Results.Json(new { error = "not_authorized" }, statusCode: StatusCodes.Status403Forbidden),
                 ServerRegisterFailure.AgentNotFound =>
                     Results.Json(new { error = "agent_not_found" }, statusCode: StatusCodes.Status404NotFound),
+                ServerRegisterFailure.InvalidPort => Results.BadRequest(new { error = "invalid_port" }),
+                ServerRegisterFailure.PortInUse =>
+                    Results.Json(new { error = "port_in_use" }, statusCode: StatusCodes.Status409Conflict),
                 _ => Results.BadRequest(new { error = "register_failed" }),
             };
         });
@@ -171,6 +175,25 @@ public static class ServerEndpoints
         lifecycle.MapPost("/{id}/update", (string id, ClaimsPrincipal principal, UserManager<ApplicationUser> users,
             IServerLifecycle svc, CancellationToken ct) =>
             RunLifecycleAsync(id, principal, users, (u, s) => svc.UpdateAsync(u, s, ct)));
+
+        // Recreate (#229, ADR 0045): rebuild the Server's container from the closed template, preserving its data —
+        // optionally on a new host port pair, warning players first if it is running. Same fail-closed server-scoped
+        // gate (Server.Recreate) in the service; an empty body keeps the current pair and the default warning.
+        lifecycle.MapPost("/{id}/recreate", (string id, RecreateServerRequest? request, ClaimsPrincipal principal,
+            UserManager<ApplicationUser> users, IServerLifecycle svc, CancellationToken ct) =>
+        {
+            GracefulRestartPayload? plan = request?.WarningLeadSeconds is { } leads
+                ? new GracefulRestartPayload(leads, request.Reason)
+                : null;
+            if (plan is not null
+                && (GracefulRestartRules.ValidateSchedule(plan.WarningLeadSeconds) is not null
+                    || GracefulRestartRules.ValidateReason(plan.Reason) is not null))
+            {
+                return Task.FromResult(Results.BadRequest(new { error = "invalid_plan" }));
+            }
+
+            return RunLifecycleAsync(id, principal, users, (u, s) => svc.RecreateAsync(u, s, request?.GamePort, plan, ct));
+        });
 
         // Backup (F24): take a backup of the Server's world data — a mutating, server-scoped Operation. Fail-closed
         // server-scoped gate (Backup.Create) in the service; poll /api/operations/{id} for the archive result.
@@ -331,6 +354,9 @@ public static class ServerEndpoints
                 Results.Json(new { error = "server_not_found" }, statusCode: StatusCodes.Status404NotFound),
             ServerLifecycleFailure.ServerBusy =>
                 Results.Json(new { error = "server_busy" }, statusCode: StatusCodes.Status409Conflict),
+            ServerLifecycleFailure.InvalidPort => Results.BadRequest(new { error = "invalid_port" }),
+            ServerLifecycleFailure.PortInUse =>
+                Results.Json(new { error = "port_in_use" }, statusCode: StatusCodes.Status409Conflict),
             _ => Results.BadRequest(new { error = "lifecycle_failed" }),
         };
     }
@@ -395,5 +421,10 @@ public static class ServerEndpoints
 /// <summary>The body of an import request: which host, which discovered Server id, and an operator name.</summary>
 public sealed record ImportServerRequest(string AgentId, string ServerId, string Name);
 
-/// <summary>The body of a register request: which host to provision the new Server on, and its name.</summary>
-public sealed record RegisterServerRequest(string AgentId, string Name);
+/// <summary>The body of a register request: which host to provision the new Server on, its name, and optionally the
+/// host game port (#229; the pair is it and the port above — omitted ⇒ the next free stride).</summary>
+public sealed record RegisterServerRequest(string AgentId, string Name, int? GamePort = null);
+
+/// <summary>The optional body of a recreate request (#229): the new host game port (omitted ⇒ keep the current pair),
+/// and an optional graceful-warning schedule and reason (omitted ⇒ the Agent's default warning).</summary>
+public sealed record RecreateServerRequest(int? GamePort = null, IReadOnlyList<int>? WarningLeadSeconds = null, string? Reason = null);

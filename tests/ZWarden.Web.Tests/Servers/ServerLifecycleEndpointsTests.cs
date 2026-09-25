@@ -340,6 +340,71 @@ public sealed class ServerLifecycleEndpointsTests
         await Assert.That(await response.Content.ReadAsStringAsync()).DoesNotContain("\"canStop\"");
     }
 
+    [Test]
+    public async Task The_recreate_endpoint_enqueues_a_recreate_on_the_requested_port()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory);
+
+        HttpResponseMessage response = await client.PostAsync(
+            new Uri($"/api/servers/{serverId}/recreate", UriKind.Relative), JsonContent("""{"gamePort":27015}"""));
+
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.Accepted);
+        string op = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement
+            .GetProperty("operationId").GetString()!;
+        string read = await (await client.GetAsync(new Uri($"/api/operations/{op}", UriKind.Relative)))
+            .Content.ReadAsStringAsync();
+        await Assert.That(read).Contains("RecreateServer");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task The_recreate_endpoint_without_a_body_keeps_the_ports()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory);
+
+        HttpResponseMessage response = await client.PostAsync(
+            new Uri($"/api/servers/{serverId}/recreate", UriKind.Relative), content: null);
+
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.Accepted);
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task The_recreate_endpoint_rejects_an_out_of_range_port()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory);
+
+        HttpResponseMessage response = await client.PostAsync(
+            new Uri($"/api/servers/{serverId}/recreate", UriKind.Relative), JsonContent("""{"gamePort":80}"""));
+
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.BadRequest);
+        await Assert.That(await response.Content.ReadAsStringAsync()).Contains("invalid_port");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task The_recreate_endpoint_rejects_an_invalid_warning_schedule()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory);
+
+        HttpResponseMessage response = await client.PostAsync(
+            new Uri($"/api/servers/{serverId}/recreate", UriKind.Relative),
+            JsonContent("""{"gamePort":27015,"warningLeadSeconds":[10,60]}"""));
+
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.BadRequest);
+        await Assert.That(await response.Content.ReadAsStringAsync()).Contains("invalid_plan");
+        client.Dispose();
+    }
+
+    private static StringContent JsonContent(string json) => new(json, System.Text.Encoding.UTF8, "application/json");
     private static async Task<ServerId> SeedServerAsync(ZWardenWebAppFactory factory, ServerRunState? state = null)
     {
         using IServiceScope scope = factory.Services.CreateScope();
