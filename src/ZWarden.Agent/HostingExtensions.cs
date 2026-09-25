@@ -98,6 +98,7 @@ public static class HostingExtensions
         // #262: the game version from each start's boot log, carried in the metrics report.
         services.AddSingleton<IServerGameVersions, ServerGameVersionReader>();
         services.AddSingleton<IServerMetricsSampler, ServerMetricsSampler>();
+        services.AddSingleton<IHostCapacityReader, HostCapacityReader>();
 
         // SteamCMD lifecycle (F17): the host-side install paths and the update runner that drives an update via
         // the control-file + restart + log-parse loop (no exec — ADR 0008) and reads back the installed build id.
