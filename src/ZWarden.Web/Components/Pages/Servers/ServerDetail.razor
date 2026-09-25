@@ -323,12 +323,16 @@ else
             <div class="mt-4">
                 <h3 class="text-sm font-medium">Output</h3>
                 <p class="mt-1 text-xs text-muted-foreground">
-                    The server's replies, shown as-is and not stored — a live view, not a searchable history.
+                    The server's reply to the last command, shown as-is and not stored — each command replaces it.
+                    The audit log keeps the history of commands run.
                 </p>
                 <div class="mt-3">
                     <LiveConsoleOutputPanel @rendermode="InteractiveServer"
                                             ServerId="@_server.Id.ToString()"
-                                            AgentId="@_server.AgentId.ToString()" />
+                                            AgentId="@_server.AgentId.ToString()"
+                                            OperationId="@_consoleOperationId"
+                                            Command="@_consoleCommand"
+                                            TimeZoneId="@OperatorTz.Zone.Id" />
                 </div>
             </div>
         </BbCard>
@@ -1409,6 +1413,11 @@ else
     private bool _canViewLogs;
     private bool _canExecuteConsole;
     private string? _consoleMessage;
+
+    // The console Operation just enqueued and its command line, handed to the output pane so it shows that reply
+    // alone (#242).
+    private string? _consoleOperationId;
+    private string? _consoleCommand;
     private AlertVariant _consoleAlert = AlertVariant.Warning;
     private bool _canViewDiagnostics;
     private bool _canExportDiagnostics;
@@ -2117,13 +2126,18 @@ else
         ConsoleExecutionResult result = await ConsoleService.ExecuteAsync(user, serverId, input);
         _consoleAlert = result.Succeeded ? AlertVariant.Info : AlertVariant.Warning;
         _consoleMessage = DescribeConsole(result);
+        if (result.Succeeded)
+        {
+            _consoleOperationId = result.Operation!.Value.ToString();
+            _consoleCommand = input;
+        }
     }
 
     private static string DescribeConsole(ConsoleExecutionResult result)
     {
         if (result.Succeeded)
         {
-            return $"Command enqueued (operation {result.Operation}). The server's reply appears in Output shortly.";
+            return $"Command enqueued (operation {result.Operation}). Its reply appears in Output below.";
         }
 
         return result.Failure switch
