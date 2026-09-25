@@ -64,16 +64,82 @@ internal sealed class FakeContainerRuntime : IContainerRuntime
     public Task<IReadOnlyList<ObservedContainer>> InspectManagedAsync(CancellationToken cancellationToken) =>
         Task.FromResult(Observed);
 
-    public Task<PortAllocation> AllocateNextPortsAsync(CancellationToken cancellationToken) =>
-        Task.FromResult(NextPorts);
+    /// <summary>The ordered provisioning/recreate verbs this fake saw (#229), for sequencing assertions: <c>allocate</c>,
+    /// <c>claim:&lt;port&gt;</c>, <c>inspect</c>, <c>create:&lt;game&gt;</c>, <c>start:&lt;id&gt;</c>, <c>stop</c>, <c>remove</c>.</summary>
+    public List<string> Calls { get; } = [];
+
+    /// <summary>Every spec <see cref="CreateAsync"/> was asked to build, in order.</summary>
+    public List<PzContainerSpec> CreatedSpecs { get; } = [];
+
+    /// <summary>When set, decides per spec whether <see cref="CreateAsync"/> throws (return the exception) or succeeds.</summary>
+    public Func<PzContainerSpec, Exception?>? CreateFailure { get; set; }
+
+    /// <summary>When set, decides per container id whether <see cref="StartAsync(string, CancellationToken)"/> throws.</summary>
+    public Func<string, Exception?>? StartFailure { get; set; }
+
+    public int RemoveCount { get; private set; }
+
+    public Task<PortAllocation> AllocateNextPortsAsync(CancellationToken cancellationToken)
+    {
+        Calls.Add("allocate");
+        return Task.FromResult(NextPorts);
+    }
+
+    /// <summary>When set, <see cref="ClaimRequestedPortsAsync"/> throws it (e.g. <see cref="PortUnavailableException"/>).</summary>
+    public Exception? ClaimException { get; set; }
+
+    public int? ClaimedGamePort { get; private set; }
+
+    public Task<PortAllocation> ClaimRequestedPortsAsync(int gamePort, ServerId forServer, CancellationToken cancellationToken)
+    {
+        ClaimedGamePort = gamePort;
+        Calls.Add($"claim:{gamePort}");
+        return ClaimException is not null
+            ? Task.FromException<PortAllocation>(ClaimException)
+            : Task.FromResult(PortStrideAllocator.ForGamePort((ushort)gamePort));
+    }
+
+    /// <summary>What <see cref="InspectServerAsync"/> returns (<c>null</c> = no owned container).</summary>
+    public ServerContainer? ServerContainer { get; set; }
+
+    public Task<ServerContainer?> InspectServerAsync(ServerId serverId, CancellationToken cancellationToken)
+    {
+        Calls.Add("inspect");
+        return Task.FromResult(ServerContainer);
+    }
+
+    /// <summary>When set, <see cref="RemoveAsync(ServerId, CancellationToken)"/> throws it.</summary>
+    public Exception? RemoveException { get; set; }
+
+    public ServerId? RemovedServerId { get; private set; }
+
+    public Task RemoveAsync(ServerId serverId, CancellationToken cancellationToken)
+    {
+        Calls.Add("remove");
+        if (RemoveException is not null)
+        {
+            throw RemoveException;
+        }
+
+        RemoveCount++;
+        RemovedServerId = serverId;
+        return Task.CompletedTask;
+    }
 
     public Task<string> CreateAsync(PzContainerSpec spec, CancellationToken cancellationToken)
     {
         CreateCount++;
         LastSpec = spec;
+        CreatedSpecs.Add(spec);
+        Calls.Add($"create:{spec.Ports.GamePort}");
         if (CreateException is not null)
         {
             throw CreateException;
+        }
+
+        if (CreateFailure?.Invoke(spec) is { } failure)
+        {
+            throw failure;
         }
 
         return Task.FromResult(CreatedContainerId);
@@ -81,6 +147,12 @@ internal sealed class FakeContainerRuntime : IContainerRuntime
 
     public Task StartAsync(string containerId, CancellationToken cancellationToken)
     {
+        Calls.Add($"start:{containerId}");
+        if (StartFailure?.Invoke(containerId) is { } failure)
+        {
+            throw failure;
+        }
+
         StartedContainerId = containerId;
         return Task.CompletedTask;
     }
@@ -105,6 +177,7 @@ internal sealed class FakeContainerRuntime : IContainerRuntime
 
     public Task StopAsync(ServerId serverId, CancellationToken cancellationToken)
     {
+        Calls.Add("stop");
         if (LifecycleException is not null)
         {
             throw LifecycleException;

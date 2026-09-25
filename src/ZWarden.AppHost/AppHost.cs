@@ -61,6 +61,7 @@ IResourceBuilder<ContainerResource> wollomatic = builder
         @"-allowGET=(/v1\.[0-9]+)?/(_ping|version|info|containers/json|containers/[a-zA-Z0-9_.-]+/(json|logs|stats))",
         @"-allowHEAD=(/v1\.[0-9]+)?/_ping",
         @"-allowPOST=(/v1\.[0-9]+)?/(containers/create|containers/[a-zA-Z0-9_.-]+/(start|stop|restart))",
+        @"-allowDELETE=(/v1\.[0-9]+)?/containers/srv-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
         "-allowbindmountfrom=/tmp",
         "-watchdoginterval=0")
     .WithEndpoint(targetPort: 2375, scheme: "tcp", name: "docker");

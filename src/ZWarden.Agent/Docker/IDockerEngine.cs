@@ -8,8 +8,9 @@ namespace ZWarden.Agent.Docker;
 /// recognition, no ownership enforcement, no create-body construction. Those live in
 /// <see cref="ContainerRuntime"/>, which is why this seam exists — it lets the runtime's logic be unit-tested
 /// against a fake engine while the real adapter (<see cref="DockerDotNetEngine"/>) is exercised only in the
-/// integration tier. Every method maps to one allowlisted verb; there is deliberately no delete, exec, kill,
-/// prune, image-pull, volume or network operation here, so the Agent cannot call one even by mistake.
+/// integration tier. Every method maps to one allowlisted verb; there is deliberately no forced delete, exec, kill,
+/// prune, image-pull, volume or network operation here, so the Agent cannot call one even by mistake. The one delete (#229,
+/// ADR 0045) removes a stopped container by its UUID name only.
 /// </summary>
 public interface IDockerEngine
 {
@@ -71,4 +72,8 @@ public interface IDockerEngine
     /// <summary>Restarts a container by id, giving its stop half <paramref name="waitBeforeKillSeconds"/> for a
     /// graceful exit — the same safe stop timeout as <see cref="StopAsync"/> (F15).</summary>
     Task RestartAsync(string containerId, int waitBeforeKillSeconds, CancellationToken cancellationToken);
+
+    /// <summary>Removes a stopped container by <b>name</b> (#229, ADR 0045) — never forced and never removing volumes.
+    /// The socket proxy admits a DELETE only for a UUID-shaped name, so addressing by the hex id would be refused.</summary>
+    Task RemoveAsync(string containerName, CancellationToken cancellationToken);
 }

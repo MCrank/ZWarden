@@ -14,8 +14,10 @@ namespace ZWarden.Agent.Docker;
 /// </summary>
 public sealed class PzContainerFactory
 {
-    private const string DataMountTarget = "/pz/data";
-    private const string ServerMountTarget = "/pz/server";
+    /// <summary>The container path the ServerId-derived world-data bind mounts at.</summary>
+    public const string DataMountTarget = "/pz/data";
+    /// <summary>The container path the ServerId-derived SteamCMD install bind mounts at (F17).</summary>
+    public const string ServerMountTarget = "/pz/server";
     private const string RuntimeTmpfsTarget = "/pz/runtime";
     // #184: SteamCMD needs a writable temp dir (mktemp + its breakpad /tmp/dumps) and a writable $HOME
     // (~/.steam, ~/.local). Under Invariant 8's read-only rootfs those paths would be read-only, so /tmp is an

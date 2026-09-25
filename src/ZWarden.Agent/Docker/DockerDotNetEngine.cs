@@ -74,7 +74,30 @@ public sealed class DockerDotNetEngine : IDockerEngine
         bool oomKilled = r.State?.OOMKilled ?? false;
         return new EngineContainer(
             r.ID, labels, state, MapPorts(r.NetworkSettings?.Ports), health, exitCode, oomKilled,
-            MapNetworkAddresses(r.NetworkSettings?.Networks), ReadStartedAt(r));
+            MapNetworkAddresses(r.NetworkSettings?.Networks), ReadStartedAt(r),
+            MapPorts(r.HostConfig?.PortBindings), MapBindMounts(r.Mounts), r.Name?.TrimStart('/'));
+    }
+
+    // Projects inspect's Mounts into destination -> host source for bind mounts only (#229 recreate mount check).
+    private static IReadOnlyDictionary<string, string> MapBindMounts(IList<MountPoint>? mounts)
+    {
+        if (mounts is null)
+        {
+            return NoLabels; // reuse the shared empty ordinal dictionary
+        }
+
+        Dictionary<string, string> mapped = new(StringComparer.Ordinal);
+        foreach (MountPoint? mount in mounts)
+        {
+            if (mount is not null
+                && string.Equals(mount.Type, "bind", StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrEmpty(mount.Destination))
+            {
+                mapped[mount.Destination] = mount.Source ?? string.Empty;
+            }
+        }
+
+        return mapped;
     }
 
     /// <inheritdoc />
@@ -396,5 +419,12 @@ public sealed class DockerDotNetEngine : IDockerEngine
         _client.Containers.RestartContainerAsync(
             containerId,
             new ContainerRestartParameters { WaitBeforeKillSeconds = (uint)waitBeforeKillSeconds },
+            cancellationToken);
+
+    /// <inheritdoc />
+    public Task RemoveAsync(string containerName, CancellationToken cancellationToken) =>
+        _client.Containers.RemoveContainerAsync(
+            containerName,
+            new ContainerRemoveParameters { Force = false, RemoveVolumes = false, RemoveLinks = false },
             cancellationToken);
 }

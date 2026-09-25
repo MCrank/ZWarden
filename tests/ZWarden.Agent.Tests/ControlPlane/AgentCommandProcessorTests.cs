@@ -72,15 +72,23 @@ public class AgentCommandProcessorTests
             NullLogger<ServerRestartCoordinator>.Instance,
             static (_, _) => Task.CompletedTask);
 
+        // The real provisioner over the same fakes, so the provisioning tests below exercise the command end to end.
+        var provisioner = new ServerProvisioner(
+            effectiveRuntime,
+            hostDirectories ?? new FakeServerHostDirectories(),
+            rconConfig ?? new FakeRconServerConfig(),
+            coordinator,
+            options,
+            NullLogger<ServerProvisioner>.Instance);
+
         return new(
             TimeProvider.System,
             effectiveRuntime,
-            hostDirectories ?? new FakeServerHostDirectories(),
+            provisioner,
             updates ?? new FakeServerUpdateRunner(),
             backups ?? new FakeServerBackupRunner(),
             restores ?? new FakeServerRestoreRunner(),
             rconProbe ?? new FakeRconHealthProbe(),
-            rconConfig ?? new FakeRconServerConfig(),
             players ?? new FakePlayerAdministration(),
             coordinator,
             console ?? new FakeConsoleAdministration(),
@@ -382,6 +390,69 @@ public class AgentCommandProcessorTests
         var runtime = new FakeContainerRuntime();
         AgentCommandProcessor sut = Processor(runtime);
         string json = Json(new CreateServer(), OperationId.New(), ServerId.New());
+
+        await sut.ProcessAsync(json, CancellationToken.None);
+        Envelope<OperationCompleted>? second = await sut.ProcessAsync(json, CancellationToken.None);
+
+        await Assert.That(second).IsNull();
+        await Assert.That(runtime.CreateCount).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task Create_server_with_a_game_port_provisions_on_that_pair()
+    {
+        var runtime = new FakeContainerRuntime();
+
+        Envelope<OperationCompleted>? reply = await Processor(runtime)
+            .ProcessAsync(Json(new CreateServer(GamePort: 27015), OperationId.New(), ServerId.New()), CancellationToken.None);
+
+        await Assert.That(reply!.Payload.Outcome).IsEqualTo(OperationOutcome.Succeeded);
+        await Assert.That(reply.Payload.Provision!.GamePort).IsEqualTo(27015);
+        await Assert.That(reply.Payload.Provision!.QueryPort).IsEqualTo(27016);
+    }
+
+    [Test]
+    public async Task Recreate_server_reports_the_new_pair_and_container()
+    {
+        ServerId server = ServerId.New();
+        string root = OperatingSystem.IsWindows() ? @"C:\pz" : "/pz";
+        var runtime = new FakeContainerRuntime
+        {
+            CreatedContainerId = "new-id",
+            ServerContainer = new ServerContainer("old-id", "exited", new PortAllocation(16261, 16262),
+                new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["/pz/data"] = Path.Combine(root, server.ToString()),
+                    ["/pz/server"] = Path.Combine(root, $"{server}.server"),
+                }),
+        };
+        OperationId operationId = OperationId.New();
+
+        Envelope<OperationCompleted>? reply = await Processor(runtime)
+            .ProcessAsync(Json(new RecreateServer(GamePort: 27015), operationId, server), CancellationToken.None);
+
+        await Assert.That(reply!.OperationId).IsEqualTo(operationId);
+        await Assert.That(reply.ServerId).IsEqualTo(server);
+        await Assert.That(reply.Payload.Outcome).IsEqualTo(OperationOutcome.Succeeded);
+        await Assert.That(reply.Payload.Provision).IsEqualTo(new ProvisionResult(27015, 27016, "new-id"));
+        await Assert.That(runtime.RemovedServerId).IsEqualTo(server);
+    }
+
+    [Test]
+    public async Task Recreate_server_without_a_target_server_fails()
+    {
+        Envelope<OperationCompleted>? reply = await Processor()
+            .ProcessAsync(Json(new RecreateServer(), OperationId.New()), CancellationToken.None);
+
+        await Assert.That(reply!.Payload.Outcome).IsEqualTo(OperationOutcome.Failed);
+    }
+
+    [Test]
+    public async Task A_redelivered_recreate_server_runs_once()
+    {
+        var runtime = new FakeContainerRuntime();
+        AgentCommandProcessor sut = Processor(runtime);
+        string json = Json(new RecreateServer(), OperationId.New(), ServerId.New());
 
         await sut.ProcessAsync(json, CancellationToken.None);
         Envelope<OperationCompleted>? second = await sut.ProcessAsync(json, CancellationToken.None);

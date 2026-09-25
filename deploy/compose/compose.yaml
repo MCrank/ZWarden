@@ -170,6 +170,8 @@ services:
       - '-allowGET=(/v1\.[0-9]+)?/(_ping|version|info|containers/json|containers/[a-zA-Z0-9_.-]+/(json|logs|stats))'
       - '-allowHEAD=(/v1\.[0-9]+)?/_ping'
       - '-allowPOST=(/v1\.[0-9]+)?/(containers/create|containers/[a-zA-Z0-9_.-]+/(start|stop|restart))'
+      # Remove, but only a canonical srv-<uuid> container NAME (ADR 0045, #229 Recreate) — a hex id or other name is 403.
+      - '-allowDELETE=(/v1\.[0-9]+)?/containers/srv-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
       # Bind sources are constrained to the persistent PZ data root (ADR 0008, amended by #184; was /tmp).
       - '-allowbindmountfrom=/srv/zwarden'
       - '-watchdoginterval=0'

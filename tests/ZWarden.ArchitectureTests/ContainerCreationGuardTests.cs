@@ -29,6 +29,21 @@ public class ContainerCreationGuardTests
         "NetworkMode=\"host\"",
     ];
 
+    // ADR 0045 (#229): the one container delete is never forced (so Docker itself refuses a running container) and
+    // never removes volumes. wollomatic matches the path only, so the query string is an Agent-side guarantee.
+    private static readonly string[] ForbiddenRemoveFlags =
+    [
+        "Force=true",
+        "RemoveVolumes=true",
+    ];
+
+    [Test]
+    public async Task No_source_forces_a_container_remove_or_drops_its_volumes()
+    {
+        await AssertNoSourceContains(ForbiddenRemoveFlags,
+            "a container remove must never be forced or remove volumes (ADR 0045)");
+    }
+
     [Test]
     public async Task No_source_sets_a_container_privileged()
     {
