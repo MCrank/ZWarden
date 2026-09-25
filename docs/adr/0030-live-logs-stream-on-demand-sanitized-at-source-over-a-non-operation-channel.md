@@ -73,6 +73,12 @@ flagged, and spending bandwidth on Servers nobody is looking at.
   by owner is the ownership guard: a batch forged by one Agent for a Server owned by another lands in its own
   partition and never surfaces to a reader naming the true owner — and, unlike the F16 metrics cache's last-writer
   model, cannot even shadow the owner's lines. Nothing is persisted.
+
+  > **Amendment ([#241](https://github.com/MCrank/ZWarden/issues/241)):** the panel's cursor is the buffer's own
+  > per-partition sequence, assigned on append — not the Agent's line number. The Agent numbers each follow from 1
+  > again, so a cursor over its numbers hid every new line after a viewer re-opened the page. Each follow also
+  > replays the last N lines as its tail; the buffer drops those by daemon timestamp, per stream (older than the
+  > newest kept, or an exact repeat at the newest instant).
 - **Live panel reuses the F16 island pattern.** An interactive `@rendermode InteractiveServer` panel subscribes on
   open, polls the buffer by a monotonic sequence cursor, filters stdout/stderr and text client-side, and unsubscribes
   on close. It carries no tenant context (a circuit lacks one); the static parent page authorizes on `Console.View`.
