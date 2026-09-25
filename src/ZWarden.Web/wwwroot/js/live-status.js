@@ -43,6 +43,13 @@
     var label = scope.querySelector('[data-status-label]');
     var text = String(s.label || '');
     if (label && label.textContent !== text) { label.textContent = text; }
+    // What the in-flight Operation is doing (#254) — Agent text, so textContent only, never markup.
+    var detail = scope.querySelector('[data-status-detail]');
+    if (detail) {
+      var detailText = s.detail ? String(s.detail) : '';
+      if (detail.textContent !== detailText) { detail.textContent = detailText; }
+      if (detail.hidden !== !s.detail) { detail.hidden = !s.detail; }
+    }
   }
 
   function applyControls(scope, s) {

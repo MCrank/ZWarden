@@ -22,6 +22,17 @@ public static partial class PlayerResponseParser
     [GeneratedRegex(@"Players connected \((\d+)\)", RegexOptions.CultureInvariant)]
     private static partial Regex ConnectedCountRegex();
 
+    /// <summary>Reads the connected-player count from a <c>players</c> reply only when PZ's own
+    /// <c>"Players connected (N)"</c> header is present — the strict form for a decision that must fail safe
+    /// (#254: an error or unrecognised reply is never taken to mean "nobody online").</summary>
+    public static bool TryParseConnectedCount(string response, out int count)
+    {
+        ArgumentNullException.ThrowIfNull(response);
+        Match match = ConnectedCountRegex().Match(response);
+        count = 0;
+        return match.Success && int.TryParse(match.Groups[1].ValueSpan, out count);
+    }
+
     /// <summary>Parses a <c>players</c> reply — <c>"Players connected (N): "</c> then one <c>-&lt;username&gt;</c>
     /// per line (<c>\n</c>-separated with a trailing separator over RCON) — into a bounded roster. Tolerant of a
     /// missing header (counts the listed usernames) and of the trailing separator.</summary>

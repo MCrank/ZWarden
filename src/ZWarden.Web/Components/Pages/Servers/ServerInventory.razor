@@ -229,7 +229,7 @@
         // missing sample renders as — in the island; the board is a snapshot, not a live feed.
         // Each row's Status is resolved against the in-flight mutating Operations — one read for the whole fleet
         // (#253) — so a load mid-restart already says RESTARTING; live-status.js keeps it current from there.
-        IReadOnlyDictionary<ServerId, OperationKind> activeByServer = ServerLiveStatus.ActiveByServer(
+        IReadOnlyDictionary<ServerId, Operation> activeByServer = ServerLiveStatus.ActiveByServer(
             _servers.Count == 0 ? [] : await OperationStore.ListActiveAsync());
         List<FleetRow> rows = new(_servers.Count);
         foreach (ServerSummary server in _servers)

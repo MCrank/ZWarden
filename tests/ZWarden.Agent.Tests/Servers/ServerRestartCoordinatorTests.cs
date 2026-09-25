@@ -41,7 +41,9 @@ public class ServerRestartCoordinatorTests
         await Assert.That(runtime.RestartedServerId).IsEqualTo(Server);
         // The whole countdown lasts the first lead-time (300s), regardless of how it is chunked for heartbeats.
         await Assert.That(delays.Sum(d => d.TotalSeconds)).IsEqualTo(300d);
-        await Assert.That(connection.DisposeCount).IsEqualTo(4);
+        // One connection per broadcast plus the default plan's roster check (#254), each disposed.
+        await Assert.That(connection.RosterQueries).IsEqualTo(1);
+        await Assert.That(connection.DisposeCount).IsEqualTo(5);
     }
 
     [Test]
@@ -128,6 +130,82 @@ public class ServerRestartCoordinatorTests
         await Assert.That(runtime.RestartedServerId).IsNull();      // the restart never happened
     }
 
+    [Test]
+    public async Task The_default_countdown_is_skipped_when_nobody_is_online()
+    {
+        // #254: warning an empty server only delays the restart by the whole countdown.
+        var connection = new RecordingRconConnection { PlayersReply = "Players connected (0): \n" };
+        var runtime = new FakeContainerRuntime();
+        var delays = new List<TimeSpan>();
+        var progress = new RecordingProgress();
+        var coordinator = Build(Reachable(), connection, runtime, delays, [300, 60, 30, 10]);
+
+        await coordinator.RestartAsync(Server, plan: null, Operation, progress, CancellationToken.None);
+
+        await Assert.That(connection.RosterQueries).IsEqualTo(1);
+        await Assert.That(connection.Commands).IsEmpty();
+        await Assert.That(delays).IsEmpty();
+        await Assert.That(runtime.RestartedServerId).IsEqualTo(Server);
+        await Assert.That(progress.Lines).Contains("No players online; restarting without a countdown.");
+    }
+
+    [Test]
+    public async Task An_explicit_countdown_still_warns_an_empty_server()
+    {
+        // The "Restart with a countdown" panel sends its own plan — the operator asked for the warning.
+        var connection = new RecordingRconConnection { PlayersReply = "Players connected (0): \n" };
+        var coordinator = Build(Reachable(), connection, new FakeContainerRuntime(), [], [300, 60, 30, 10]);
+
+        await coordinator.WarnAsync(Server, new GracefulRestartPlan([60, 10]), Operation, NullOperationProgressReporter.Instance, CancellationToken.None);
+
+        await Assert.That(connection.RosterQueries).IsEqualTo(0);
+        await Assert.That(connection.Commands).Count().IsEqualTo(2);
+    }
+
+    [Test]
+    [Arguments("Unknown command players")]
+    [Arguments("")]
+    public async Task An_unrecognised_roster_reply_keeps_the_countdown(string reply)
+    {
+        // Fail safe: only a reply that really says "Players connected (0)" skips the warning.
+        var connection = new RecordingRconConnection { PlayersReply = reply };
+        var delays = new List<TimeSpan>();
+        var coordinator = Build(Reachable(), connection, new FakeContainerRuntime(), delays, [60, 10]);
+
+        await coordinator.RestartAsync(Server, plan: null, Operation, NullOperationProgressReporter.Instance, CancellationToken.None);
+
+        await Assert.That(connection.Commands).Count().IsEqualTo(2);
+        await Assert.That(delays.Sum(d => d.TotalSeconds)).IsEqualTo(60d);
+    }
+
+    [Test]
+    public async Task A_failed_roster_query_keeps_the_countdown()
+    {
+        var connection = new RecordingRconConnection { Throw = new RconTimeoutException("timed out") };
+        var delays = new List<TimeSpan>();
+        var coordinator = Build(Reachable(), connection, new FakeContainerRuntime(), delays, [60, 10]);
+
+        await coordinator.RestartAsync(Server, plan: null, Operation, NullOperationProgressReporter.Instance, CancellationToken.None);
+
+        await Assert.That(connection.RosterQueries).IsEqualTo(1);
+        await Assert.That(delays.Sum(d => d.TotalSeconds)).IsEqualTo(60d);
+    }
+
+    private sealed class RecordingProgress : IOperationProgressReporter
+    {
+        public List<string> Lines { get; } = [];
+
+        public Task ReportAsync(OperationId operationId, int percentComplete, string? statusLine, CancellationToken cancellationToken)
+        {
+            if (statusLine is not null)
+            {
+                Lines.Add(statusLine);
+            }
+
+            return Task.CompletedTask;
+        }
+    }
+
     private static RconResolveResult Reachable()
         => RconResolveResult.Resolved(new RconEndpoint("10.0.0.5", 27015, new SecretString("pw")));
 
@@ -177,8 +255,20 @@ public class ServerRestartCoordinatorTests
 
         public Task ConnectAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 
+        /// <summary>PZ's reply to the <c>players</c> roster query (#254); one player online by default, so the
+        /// countdown runs. Roster queries are counted apart from the broadcasts.</summary>
+        public string PlayersReply { get; set; } = "Players connected (1): \n-alice\n";
+
+        public int RosterQueries { get; private set; }
+
         public Task<string> ExecuteAsync(string command, CancellationToken cancellationToken = default)
         {
+            if (command == "players")
+            {
+                RosterQueries++;
+                return Throw is not null ? Task.FromException<string>(Throw) : Task.FromResult(PlayersReply);
+            }
+
             Attempts++;
             if (Throw is not null)
             {

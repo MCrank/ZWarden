@@ -113,7 +113,7 @@ public static class ServerEndpoints
             IServerInventory inventory, IOperationStore operations, HttpContext http, CancellationToken ct) =>
         {
             IReadOnlyList<ServerSummary> servers = await inventory.ListVisibleAsync(Actor(principal, users), ct).ConfigureAwait(false);
-            IReadOnlyDictionary<ServerId, OperationKind> activeByServer = ServerLiveStatus.ActiveByServer(
+            IReadOnlyDictionary<ServerId, Operation> activeByServer = ServerLiveStatus.ActiveByServer(
                 servers.Count == 0 ? [] : await operations.ListActiveAsync(ct).ConfigureAwait(false));
 
             http.Response.Headers.CacheControl = "no-store";
@@ -138,7 +138,7 @@ public static class ServerEndpoints
             }
 
             Operation? active = await operations.FindActiveForServerAsync(serverId, ct).ConfigureAwait(false);
-            ServerStatusView view = ServerLiveStatus.Resolve(server.LastRunState, active?.Kind);
+            ServerStatusView view = ServerLiveStatus.Resolve(server.LastRunState, active?.Kind, active?.StatusLine);
             http.Response.Headers.CacheControl = "no-store";
             return Results.Ok(StatusBody(serverId, view));
         });
@@ -347,6 +347,7 @@ public static class ServerEndpoints
         canStart = view.CanStart,
         canStop = view.CanStop,
         canRestart = view.CanRestart,
+        detail = view.Detail,
     };
 
     private static UserId Actor(ClaimsPrincipal principal, UserManager<ApplicationUser> users)

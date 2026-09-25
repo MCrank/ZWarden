@@ -2,7 +2,9 @@ using System.Net;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.DependencyInjection;
+using ZWarden.Application.Operations;
 using ZWarden.Domain.Ids;
+using ZWarden.Domain.Operations;
 using ZWarden.Domain.Servers;
 using ZWarden.Infrastructure.Authorization;
 using ZWarden.Infrastructure.Persistence;
@@ -165,6 +167,40 @@ public sealed class ServerLifecycleEndpointsTests
         await Assert.That(body.RootElement.GetProperty("canStop").GetBoolean()).IsFalse();
         await Assert.That(body.RootElement.GetProperty("canRestart").GetBoolean()).IsFalse();
         client.Dispose();
+    }
+
+    [Test]
+    public async Task The_status_carries_the_in_flight_operations_progress_as_detail()
+    {
+        // #254: a header Restart's countdown shows what it is doing instead of a bare RESTARTING.
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, ServerRunState.Running);
+        await client.PostAsync(new Uri($"/api/servers/{serverId}/restart", UriKind.Relative), content: null);
+        await ReportProgressAsync(factory, serverId, "Restarting in 240 seconds.");
+
+        using JsonDocument body = JsonDocument.Parse(await (await client.GetAsync(
+            new Uri($"/api/servers/{serverId}/status", UriKind.Relative))).Content.ReadAsStringAsync());
+
+        await Assert.That(body.RootElement.GetProperty("label").GetString()).IsEqualTo("RESTARTING");
+        await Assert.That(body.RootElement.GetProperty("detail").GetString()).IsEqualTo("Restarting in 240 seconds.");
+        client.Dispose();
+    }
+
+    // Drives the Server's in-flight Operation to Running and applies an Agent progress report, as the hub would.
+    internal static async Task ReportProgressAsync(ZWardenWebAppFactory factory, ServerId serverId, string statusLine)
+    {
+        using IServiceScope scope = factory.Services.CreateScope();
+        IOperationStore store = scope.ServiceProvider.GetRequiredService<IOperationStore>();
+        ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
+        Operation op = (await store.FindActiveForServerAsync(serverId))!;
+        if (op.State == OperationState.Pending)
+        {
+            op.MarkDispatched(DateTimeOffset.UtcNow.AddMinutes(5), DateTimeOffset.UtcNow);
+            await db.SaveChangesAsync();
+        }
+
+        await store.ApplyProgressAsync(op.Id, 0, statusLine);
     }
 
     [Test]

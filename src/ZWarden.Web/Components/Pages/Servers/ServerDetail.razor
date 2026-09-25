@@ -78,6 +78,9 @@ else
     <div class="zw-srvhead mt-2" data-live-status="/api/servers/@_server.Id/status" data-status-busy="@(_status.Busy ? "true" : "false")">
         <h1 class="text-2xl font-semibold tracking-tight">@_server.Name</h1>
         <StatusBadge State="_status.Tone" Text="@_status.Label" />
+        @* #254: what the in-flight Operation is doing (e.g. the restart countdown). Untrusted Agent text, always
+           rendered as text; live-status.js keeps it current and hides it when there is none. *@
+        <span class="text-xs text-muted-foreground" data-status-detail hidden="@(_status.Detail is null)">@_status.Detail</span>
         <span class="zw-spacer"></span>
         @if (_canStart || _canStop || _canRestartServer)
         {
@@ -1594,7 +1597,7 @@ else
         }
 
         Operation? active = await OperationStore.FindActiveForServerAsync(serverId);
-        _status = ServerLiveStatus.Resolve(_server.LastRunState, active?.Kind);
+        _status = ServerLiveStatus.Resolve(_server.LastRunState, active?.Kind, active?.StatusLine);
     }
 
     private async Task LifecycleAsync()
