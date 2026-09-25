@@ -54,6 +54,17 @@ operator asked whether active players can be warned first. PZ exposes exactly th
   broadcast". The default (`AgentOptions.RestartWarningLeadSeconds = [300, 60, 30, 10]`, validated on
   bind) applies when a command carries no plan, so even automated restarts warn. Long gaps are waited in
   heartbeat-sized chunks that report progress, keeping the ADR 0022 lease alive.
+
+  > **Amendment ([#254](https://github.com/MCrank/ZWarden/issues/254)):**
+  > - **The default countdown is skipped on an empty server.** When a command carries **no plan** (the header
+  >   Restart, an F17 update, an F22 mod apply), the Agent first asks PZ `players`. It skips the countdown only
+  >   when the reply positively reads `Players connected (0)`. Warning nobody only delays the restart by the
+  >   whole schedule.
+  > - **The check fails safe.** A failed query, or a reply without PZ's header, keeps the countdown.
+  > - **An explicit plan always warns.** The "Restart with a countdown" panel is the operator asking for it.
+  > - **The countdown is visible.** The Operation's progress (`Restarting in N seconds.`, or `No players online;
+  >   restarting without a countdown.`) is shown beside the server header's RESTARTING badge (#249), so a running
+  >   countdown no longer looks stuck.
 - **Additive wire (ADR 0020).** `RestartServer` gains an optional `GracefulRestartPlan? Plan`; the
   protocol version stays 1. The operator's chosen schedule/message rides the Operation's
   `CommandPayload` (`GracefulRestartPayload`), mapped to the wire plan by `OperationDispatcher.CommandFor`.

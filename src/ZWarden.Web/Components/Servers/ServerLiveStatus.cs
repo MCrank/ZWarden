@@ -14,8 +14,11 @@ namespace ZWarden.Web.Components.Servers;
 /// <param name="CanStart">Start is allowed by the current state.</param>
 /// <param name="CanStop">Stop is allowed by the current state.</param>
 /// <param name="CanRestart">Restart is allowed by the current state.</param>
+/// <param name="Detail">The in-flight Operation's latest status line (#254), e.g. <c>Restarting in 240 seconds.</c>
+/// — Agent-supplied and untrusted (trust-boundaries.md §3): bounded by the domain, only ever rendered as text.
+/// Null when nothing is in flight or it has reported nothing yet.</param>
 public sealed record ServerStatusView(
-    string Label, ServerRunState Tone, bool Busy, bool CanStart, bool CanStop, bool CanRestart)
+    string Label, ServerRunState Tone, bool Busy, bool CanStart, bool CanStop, bool CanRestart, string? Detail = null)
 {
     /// <summary>The status-ramp key (style-guide.md) the live-status script maps to the badge's colour classes.</summary>
     public string ToneKey => Tone switch
@@ -37,8 +40,13 @@ public sealed record ServerStatusView(
 /// </summary>
 public static class ServerLiveStatus
 {
-    public static ServerStatusView Resolve(ServerRunState observed, OperationKind? activeOperation)
+    /// <param name="observed">The Agent-observed run-state.</param>
+    /// <param name="activeOperation">The kind of the Server's in-flight mutating Operation, if any.</param>
+    /// <param name="activeStatusLine">That Operation's latest status line (#254) — shown only while it is in flight
+    /// (so a countdown reads "Restarting in 240 seconds." instead of looking stuck).</param>
+    public static ServerStatusView Resolve(ServerRunState observed, OperationKind? activeOperation, string? activeStatusLine = null)
     {
+        string? detail = activeOperation is not null && !string.IsNullOrWhiteSpace(activeStatusLine) ? activeStatusLine : null;
         string? transition = activeOperation switch
         {
             OperationKind.StopServer => "STOPPING",
@@ -52,8 +60,8 @@ public static class ServerLiveStatus
         if (activeOperation is not null)
         {
             return transition is null
-                ? new ServerStatusView(Label(observed), observed, Busy: true, false, false, false)
-                : new ServerStatusView(transition, ServerRunState.Starting, Busy: true, false, false, false);
+                ? new ServerStatusView(Label(observed), observed, Busy: true, false, false, false, detail)
+                : new ServerStatusView(transition, ServerRunState.Starting, Busy: true, false, false, false, detail);
         }
 
         return new ServerStatusView(

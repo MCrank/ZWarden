@@ -3,6 +3,7 @@ using Microsoft.Extensions.Options;
 using ZWarden.Agent.Configuration;
 using ZWarden.Agent.ControlPlane;
 using ZWarden.Agent.Docker;
+using ZWarden.Agent.Players;
 using ZWarden.Agent.Rcon;
 using ZWarden.Contracts.Protocol.Messages;
 using ZWarden.Domain.Ids;
@@ -144,6 +145,18 @@ public sealed partial class ServerRestartCoordinator : IServerRestartCoordinator
         }
 
         RconEndpoint endpoint = resolution.Endpoint!.Value;
+
+        // #254: the Agent-default countdown (no plan — the header Restart, an update, a mod apply) has nobody to
+        // warn on an empty server, so it would only delay the restart. An explicit plan (the countdown panel) is the
+        // operator asking for the warning, so it always runs.
+        if (plan is null && await NobodyOnlineAsync(endpoint, cancellationToken).ConfigureAwait(false))
+        {
+            LogCountdownSkippedEmpty(serverId);
+            await ReportAsync(progress, operationId, "No players online; restarting without a countdown.", cancellationToken)
+                .ConfigureAwait(false);
+            return;
+        }
+
         for (int i = 0; i < leads.Count; i++)
         {
             int lead = leads[i];
@@ -153,6 +166,26 @@ public sealed partial class ServerRestartCoordinator : IServerRestartCoordinator
             int nextLead = i + 1 < leads.Count ? leads[i + 1] : 0;
             await CountdownDelayAsync(lead - nextLead, nextLead, operationId, progress, cancellationToken)
                 .ConfigureAwait(false);
+        }
+    }
+
+    // True only when PZ's roster reply positively says nobody is connected. Fails safe: a failed query or an
+    // unrecognised reply keeps the countdown, since skipping it with players online would give them no warning.
+    private async Task<bool> NobodyOnlineAsync(RconEndpoint endpoint, CancellationToken cancellationToken)
+    {
+        IRconConnection connection = _connections.Create(endpoint);
+        try
+        {
+            string reply = await connection.ExecuteAsync("players", cancellationToken).ConfigureAwait(false);
+            return PlayerResponseParser.TryParseConnectedCount(reply, out int count) && count == 0;
+        }
+        catch (RconException)
+        {
+            return false;
+        }
+        finally
+        {
+            await connection.DisposeAsync().ConfigureAwait(false);
         }
     }
 
@@ -266,6 +299,9 @@ public sealed partial class ServerRestartCoordinator : IServerRestartCoordinator
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "A graceful-restart broadcast to server {ServerId} failed; the restart continues: {Reason}")]
     private partial void LogBroadcastFailed(ServerId serverId, string reason);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "No players online on server {ServerId}; restarting without the default countdown.")]
+    private partial void LogCountdownSkippedEmpty(ServerId serverId);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Ignoring an invalid graceful-restart schedule for server {ServerId}: {Reason}")]
     private partial void LogInvalidSchedule(ServerId serverId, string reason);

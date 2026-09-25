@@ -47,6 +47,23 @@ public class ServerLiveStatusTests
     }
 
     [Test]
+    public async Task The_in_flight_operations_status_line_rides_along_as_detail()
+    {
+        // #254: a header Restart's countdown otherwise looks stuck on RESTARTING for five minutes.
+        ServerStatusView view = ServerLiveStatus.Resolve(
+            ServerRunState.Running, OperationKind.RestartServer, "Restarting in 240 seconds.");
+
+        await Assert.That(view.Detail).IsEqualTo("Restarting in 240 seconds.");
+    }
+
+    [Test]
+    public async Task There_is_no_detail_without_an_operation_in_flight()
+    {
+        await Assert.That(ServerLiveStatus.Resolve(ServerRunState.Running, null, "stale line").Detail).IsNull();
+        await Assert.That(ServerLiveStatus.Resolve(ServerRunState.Running, OperationKind.RestartServer, "  ").Detail).IsNull();
+    }
+
+    [Test]
     public async Task Any_operation_holding_the_lock_disables_every_lifecycle_button()
     {
         ServerStatusView view = ServerLiveStatus.Resolve(ServerRunState.Running, OperationKind.ConfigApply);

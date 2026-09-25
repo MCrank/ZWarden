@@ -124,7 +124,7 @@ public static class ServerEndpoints
             }
 
             Operation? active = await operations.FindActiveForServerAsync(serverId, ct).ConfigureAwait(false);
-            ServerStatusView view = ServerLiveStatus.Resolve(server.LastRunState, active?.Kind);
+            ServerStatusView view = ServerLiveStatus.Resolve(server.LastRunState, active?.Kind, active?.StatusLine);
             http.Response.Headers.CacheControl = "no-store";
             return Results.Ok(new
             {
@@ -134,6 +134,7 @@ public static class ServerEndpoints
                 canStart = view.CanStart,
                 canStop = view.CanStop,
                 canRestart = view.CanRestart,
+                detail = view.Detail,
             });
         });
 

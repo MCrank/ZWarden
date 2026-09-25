@@ -32,6 +32,12 @@
     retone(root.querySelector('[data-status-dot]'), 'bg-status-', s.tone);
     var label = root.querySelector('[data-status-label]');
     if (label) { label.textContent = String(s.label || ''); }
+    // What the in-flight Operation is doing (#254) — Agent text, so textContent only, never markup.
+    var detail = root.querySelector('[data-status-detail]');
+    if (detail) {
+      detail.textContent = s.detail ? String(s.detail) : '';
+      detail.hidden = !s.detail;
+    }
     root.setAttribute('data-status-busy', s.busy ? 'true' : 'false');
     Object.keys(CONTROLS).forEach(function (action) {
       doc.querySelectorAll('[data-action="' + action + '"]').forEach(function (b) { b.disabled = !s[CONTROLS[action]]; });
