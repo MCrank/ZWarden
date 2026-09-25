@@ -1,6 +1,6 @@
 # Feature #229 Mini-Plan — Operator-chosen host ports + Recreate container (preserve data)
 
-**Status:** in progress on branch `feat/229-recreate-host-ports` (closes
+**Status:** PR-A (#264, branch `feat/229-recreate-host-ports`) and PR-B (branch `feat/229-recreate-web`, closes
 [#229](https://github.com/MCrank/ZWarden/issues/229)). PR-A = Agent + Contracts + proxy/ADR (the Recreate
 primitive and port choice, Agent-side); PR-B = Web (permission, Operation kind, endpoints, UI). v1.0 — and the
 Recreate primitive is what #230 (memory limit) and #258 (branch change) build on.
@@ -80,7 +80,9 @@ Operation + per-server lock + lease), [ADR 0043](../adr/0043-graceful-restart-is
 
 ### PR-B — Web
 
-1. **Domain**: `Server.Recreate` permission + role bundles; `OperationKind.RecreateServer`; audit actions.
+1. **Domain**: `Server.Recreate` permission + role bundles; `OperationKind.RecreateServer`; audit actions. Built-in
+   roles persist their grants (and are editable), so a one-time data migration grants `Server.Recreate` to existing
+   Owner/Administrator roles (tested on the SQLite upgrade path).
 2. **Infrastructure**: `IServerRecreate.RecreateAsync(serverId, gamePort?, graceful)` (authorize, sibling-port
    pre-check, enqueue mutating, audit, ServerBusy); `RegisterAsync` accepts optional game port + payload.
 3. **Web plumbing**: dispatcher mapping (Create payload + Recreate), `AgentHub` records Recreate result,
