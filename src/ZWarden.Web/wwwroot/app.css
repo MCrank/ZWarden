@@ -766,7 +766,23 @@ html:not(.dark) .zw-ico-moon {
 .zw-cfg-sections {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: 6px;
+}
+
+.zw-cfg-sections-btn {
+  gap: 6px;
+  color: var(--primary);
+  border-color: color-mix(in oklch, var(--primary) 45%, var(--border));
+}
+
+.zw-cfg-sections-btn:hover {
+  color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 12%, transparent);
+}
+
+.zw-cfg-sections-btn .zw-ico {
+  width: 14px;
+  height: 14px;
 }
 
 .zw-cfg-sections[hidden] {

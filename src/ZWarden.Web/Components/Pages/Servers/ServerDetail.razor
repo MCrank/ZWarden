@@ -965,10 +965,16 @@ else
                         @* #243: collapse/expand every section, remembered per browser. JS-only, so hidden until
                            config-editor.js reveals it; without JS every section simply stays open. *@
                         <span class="zw-cfg-sections" data-cfg-sections-controls hidden>
-                            <BbButton Type="ButtonType.Button" Variant="ButtonVariant.Ghost" Size="ButtonSize.Small"
-                                      data-cfg-sections="collapse">Collapse all</BbButton>
-                            <BbButton Type="ButtonType.Button" Variant="ButtonVariant.Ghost" Size="ButtonSize.Small"
-                                      data-cfg-sections="expand">Expand all</BbButton>
+                            @* Outline in the brand accent (style guide: primary marks controls, never status), a step
+                               below the filled Apply button. *@
+                            <BbButton Type="ButtonType.Button" Variant="ButtonVariant.Outline" Size="ButtonSize.Small"
+                                      Class="zw-cfg-sections-btn" data-cfg-sections="collapse">
+                                <ShellIcon Name="chevrons-down-up" />Collapse all
+                            </BbButton>
+                            <BbButton Type="ButtonType.Button" Variant="ButtonVariant.Outline" Size="ButtonSize.Small"
+                                      Class="zw-cfg-sections-btn" data-cfg-sections="expand">
+                                <ShellIcon Name="chevrons-up-down" />Expand all
+                            </BbButton>
                         </span>
                         <span class="zw-spacer"></span>
                         <a class="text-xs text-muted-foreground hover:text-foreground" href="@ConfigFileHref(_selectedFile)"

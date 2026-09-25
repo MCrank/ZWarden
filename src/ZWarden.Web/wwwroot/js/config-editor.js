@@ -162,5 +162,10 @@
     scheduleRefresh();
   }
   doc.addEventListener('DOMContentLoaded', init);
-  doc.addEventListener('enhancedload', init);
+  // Blazor raises 'enhancedload' on its own event bus, not as a DOM event, so a document listener never fired
+  // and a page reached by in-app navigation (rail link, file tab) skipped init until a full refresh (#243).
+  // This script loads after blazor.web.js, as shell.js does.
+  if (window.Blazor && typeof window.Blazor.addEventListener === 'function') {
+    try { window.Blazor.addEventListener('enhancedload', init); } catch (e) { /* older runtime */ }
+  }
 })();
