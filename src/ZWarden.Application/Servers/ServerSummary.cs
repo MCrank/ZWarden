@@ -4,7 +4,9 @@ using ZWarden.Domain.Servers;
 namespace ZWarden.Application.Servers;
 
 /// <summary>An operator-facing view of a <see cref="Server"/> (<c>srv-</c>) for the inventory dashboard (F14).
-/// Carries only non-secret metadata and the coarse last-reported run-state; never RCON or any credential.</summary>
+/// Carries only non-secret metadata and the coarse last-reported run-state; never RCON or any credential.
+/// <see cref="GameVersion"/> is the game version from the boot log (#262); <see cref="InstalledBuildId"/> is the Steam
+/// build id.</summary>
 public sealed record ServerSummary(
     ServerId Id,
     AgentId AgentId,
@@ -16,4 +18,5 @@ public sealed record ServerSummary(
     DateTimeOffset? LastStateReportedAt,
     ServerHealth? LastHealth,
     DateTimeOffset? LastHealthReportedAt,
-    string? InstalledBuildId);
+    string? InstalledBuildId,
+    string? GameVersion = null);

@@ -255,7 +255,8 @@
                 facts.MemoryLimitBytes,
                 facts.Players,
                 facts.PlayersSampledAt is { } counted ? FleetFacts.FormatSampleAge(counted, now) : null,
-                FleetFacts.FormatUptime(facts.StartedAt, now)));
+                FleetFacts.FormatUptime(facts.StartedAt, now),
+                FleetFacts.FormatVersionTitle(facts)));
         }
 
         _rows = rows;

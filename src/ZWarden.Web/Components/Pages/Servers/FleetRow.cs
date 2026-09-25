@@ -18,13 +18,14 @@ namespace ZWarden.Web.Components.Pages.Servers;
 /// <param name="StatusLabel">The badge label at load, resolved against the in-flight Operation (#253), e.g.
 /// <c>RESTARTING</c>; live-status.js keeps it current.</param>
 /// <param name="StatusTone">The run-state whose colour the badge wears at load (#253).</param>
-/// <param name="Version">The installed build id, or <c>—</c> when unknown.</param>
+/// <param name="Version">The game version (e.g. <c>42.20.4</c>, #262), else the Steam build id, else <c>—</c>.</param>
 /// <param name="CpuPercent">The latest CPU sample (0–100), or <c>null</c> when no sample is cached.</param>
 /// <param name="MemoryUsedBytes">The latest resident-memory sample, or <c>null</c> when none is cached.</param>
 /// <param name="MemoryLimitBytes">The container's memory limit for the sample, or <c>null</c>.</param>
 /// <param name="Players">Connected players from the last RCON sample, or <c>null</c> (renders <c>—</c>).</param>
 /// <param name="PlayersAge">How old that sample is, e.g. <c>as of 2 min ago</c> (the cell's tooltip), or <c>null</c>.</param>
 /// <param name="Uptime">The compact container uptime, e.g. <c>2h 14m</c>, or <c>—</c>.</param>
+/// <param name="VersionTitle">The Version cell's tooltip — the Steam build id behind the game version — or <c>null</c>.</param>
 public sealed record FleetRow(
     string Id,
     string Name,
@@ -39,4 +40,5 @@ public sealed record FleetRow(
     long? MemoryLimitBytes,
     int? Players = null,
     string? PlayersAge = null,
-    string Uptime = "—");
+    string Uptime = "—",
+    string? VersionTitle = null);

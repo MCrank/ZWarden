@@ -74,4 +74,16 @@ public interface IServerStateReconciler
         ServerId serverId,
         string buildId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Records the game version (e.g. <c>42.20.4</c>) an Agent read from a Server's boot log and reported in its
+    /// metrics (#262). Persisted rather than cache-only because Docker log rotation can drop the boot line on a
+    /// long-running container. Ownership-guarded and bounded like <see cref="RecordReportedBuildAsync"/>; an
+    /// unchanged value is not re-written.
+    /// </summary>
+    Task RecordReportedGameVersionAsync(
+        AgentId agentId,
+        ServerId serverId,
+        string gameVersion,
+        CancellationToken cancellationToken = default);
 }

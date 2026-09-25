@@ -15,8 +15,8 @@ public sealed record ServerMetricsReport(IReadOnlyList<ServerMetricsSample> Samp
 /// <summary>
 /// One Server's resource sample within a <see cref="ServerMetricsReport"/> (F16). CPU and memory come from
 /// <c>docker stats</c>; disk from the host bind-mount. Byte counts are non-negative; percentages are 0–100 per
-/// logical view but not clamped here. The fleet facts added by #257 — player count, container start time and the
-/// installed build — are trailing, nullable members, so the change is additive under ADR 0020 (an Agent that
+/// logical view but not clamped here. The fleet facts added by #257 (player count, container start time, installed
+/// build) and #262 (game version) are trailing, nullable members, so the change is additive under ADR 0020 (an Agent that
 /// omits them deserializes as <c>null</c>; no protocol bump).
 /// </summary>
 /// <param name="ServerId">The Server this sample is for (matched to a persisted Server on ingest).</param>
@@ -35,6 +35,8 @@ public sealed record ServerMetricsReport(IReadOnlyList<ServerMetricsSample> Samp
 /// the fleet uptime (#257) — or <c>null</c> when it is not running or the inspect failed.</param>
 /// <param name="InstalledBuildId">The Steam build id read from the install volume's app manifest (#257; observed,
 /// untrusted), or <c>null</c> when the manifest is absent or unreadable.</param>
+/// <param name="GameVersion">The Project Zomboid game version (e.g. <c>42.20.4</c>) the server printed at boot (#262;
+/// observed, untrusted), or <c>null</c> when it has not been read yet.</param>
 public sealed record ServerMetricsSample(
     ServerId ServerId,
     double CpuPercent,
@@ -46,4 +48,5 @@ public sealed record ServerMetricsSample(
     DateTimeOffset SampledAt,
     DateTimeOffset? PlayerCountSampledAt = null,
     DateTimeOffset? StartedAt = null,
-    string? InstalledBuildId = null);
+    string? InstalledBuildId = null,
+    string? GameVersion = null);

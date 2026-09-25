@@ -140,6 +140,7 @@
           break;
         case 'version':
           setText(cell, s.version ? String(s.version) : DASH);
+          setAttr(cell, 'title', s.versionTitle ? String(s.versionTitle) : null);
           break;
         case 'cpu':
           applyMeter(cell, s.cpuPercent, 100);

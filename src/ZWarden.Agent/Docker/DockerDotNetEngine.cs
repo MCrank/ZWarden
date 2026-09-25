@@ -194,7 +194,8 @@ public sealed class DockerDotNetEngine : IDockerEngine
     }
 
     /// <inheritdoc />
-    public async Task<string> ReadLogsAsync(string containerId, DateTimeOffset? since, CancellationToken cancellationToken)
+    public async Task<string> ReadLogsAsync(
+        string containerId, DateTimeOffset? since, DateTimeOffset? until, CancellationToken cancellationToken)
     {
         ContainerLogsParameters parameters = new()
         {
@@ -206,6 +207,11 @@ public sealed class DockerDotNetEngine : IDockerEngine
         if (since is { } s)
         {
             parameters.Since = s.ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture);
+        }
+
+        if (until is { } u)
+        {
+            parameters.Until = u.ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture);
         }
 
         // The fork demultiplexes stdout/stderr and reports each log line (newline stripped) in order; with

@@ -78,7 +78,7 @@
             </BbDataGridTemplateColumn>
 
             <BbDataGridTemplateColumn TData="FleetRow" Title="Version" Sortable="true" SortBy="@(r => (object)r.Version)">
-                <ChildContent Context="r"><span class="font-mono text-xs tabular-nums text-muted-foreground" data-fleet-server="@r.Id" data-fleet-cell="version">@r.Version</span></ChildContent>
+                <ChildContent Context="r"><span class="font-mono text-xs tabular-nums text-muted-foreground" data-fleet-server="@r.Id" data-fleet-cell="version" title="@r.VersionTitle">@r.Version</span></ChildContent>
             </BbDataGridTemplateColumn>
         </Columns>
     </BbDataGrid>

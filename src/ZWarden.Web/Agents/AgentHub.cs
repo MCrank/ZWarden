@@ -271,9 +271,10 @@ public sealed partial class AgentHub : Hub
     /// The Agent's periodic runtime-metrics report (F16): the latest CPU/memory/disk sample per Server. Metrics
     /// are transient — recorded in the in-memory <see cref="IServerMetricsCache"/> (latest-sample-only) and pushed
     /// to the live UI, never persisted or audited. Each sample is stamped with the reporting Agent so the cache
-    /// can refuse a sample forged for a Server this Agent does not own (trust-boundaries.md §8). The one persisted
-    /// fact is the manifest build id (#257): when it differs from this Agent's previous sample (or there is none,
-    /// e.g. after a Web restart) it is recorded on the owned Server, so the DB is touched only on a change.
+    /// can refuse a sample forged for a Server this Agent does not own (trust-boundaries.md §8). Two facts are
+    /// persisted: the manifest build id (#257) and the game version from the boot log (#262). When either differs
+    /// from this Agent's previous sample (or there is none, e.g. after a Web restart) it is recorded on the owned
+    /// Server, so the DB is touched only on a change.
     /// </summary>
     public async Task MetricsReport(Envelope<ServerMetricsReport> report)
     {
@@ -296,7 +297,8 @@ public sealed partial class AgentHub : Hub
                 s.SampledAt,
                 s.PlayerCountSampledAt,
                 s.StartedAt,
-                s.InstalledBuildId))
+                s.InstalledBuildId,
+                s.GameVersion))
             .ToList();
 
         List<(ServerId ServerId, string BuildId)> changedBuilds = mapped
@@ -304,12 +306,23 @@ public sealed partial class AgentHub : Hub
                 && _metrics.GetLatest(m.ServerId, agentId)?.InstalledBuildId != m.InstalledBuildId)
             .Select(m => (m.ServerId, m.InstalledBuildId!))
             .ToList();
+        List<(ServerId ServerId, string GameVersion)> changedVersions = mapped
+            .Where(m => m.GameVersion is not null
+                && _metrics.GetLatest(m.ServerId, agentId)?.GameVersion != m.GameVersion)
+            .Select(m => (m.ServerId, m.GameVersion!))
+            .ToList();
 
         _metrics.Record(mapped);
 
         foreach ((ServerId serverId, string buildId) in changedBuilds)
         {
             await _servers.RecordReportedBuildAsync(agentId, serverId, buildId, Context.ConnectionAborted)
+                .ConfigureAwait(false);
+        }
+
+        foreach ((ServerId serverId, string gameVersion) in changedVersions)
+        {
+            await _servers.RecordReportedGameVersionAsync(agentId, serverId, gameVersion, Context.ConnectionAborted)
                 .ConfigureAwait(false);
         }
     }

@@ -233,5 +233,6 @@ public sealed class ServerInventory : IServerInventory
         server.LastStateReportedAt,
         server.LastHealth,
         server.LastHealthReportedAt,
-        server.InstalledBuildId);
+        server.InstalledBuildId,
+        server.GameVersion);
 }

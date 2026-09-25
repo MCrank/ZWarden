@@ -77,6 +77,11 @@ public sealed class Server : IVersioned, ITenantOwned
     /// <summary>When <see cref="InstalledBuildId"/> was last reported (UTC); <c>null</c> until the first update.</summary>
     public DateTimeOffset? InstalledBuildReportedAt { get; private set; }
 
+    /// <summary>The Project Zomboid game version (e.g. <c>42.20.4</c>) the server last printed at boot (#262), or
+    /// <c>null</c> until an Agent reports one. Observed, never inferred — changes only via
+    /// <see cref="RecordObservedGameVersion"/>.</summary>
+    public string? GameVersion { get; private set; }
+
     /// <summary>When the Server was brought under management (UTC).</summary>
     public DateTimeOffset CreatedAt { get; init; }
 
@@ -165,6 +170,14 @@ public sealed class Server : IVersioned, ITenantOwned
     {
         InstalledBuildId = buildId;
         InstalledBuildReportedAt = reportedAt;
+    }
+
+    /// <summary>Records the game version an Agent read from the server's boot log (#262; trust-boundaries.md §3 —
+    /// observed, never inferred).</summary>
+    public void RecordObservedGameVersion(string gameVersion)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(gameVersion);
+        GameVersion = gameVersion;
     }
 
     /// <summary>Records the observed container linkage: its Docker id and the two allocated UDP ports. RCON

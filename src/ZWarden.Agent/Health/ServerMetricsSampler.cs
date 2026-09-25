@@ -3,6 +3,7 @@ using Microsoft.Extensions.Options;
 using ZWarden.Agent.Configuration;
 using ZWarden.Agent.Docker;
 using ZWarden.Agent.Players;
+using ZWarden.Agent.Servers;
 using ZWarden.Agent.SteamCmd;
 using ZWarden.Contracts.Protocol.Messages;
 
@@ -14,8 +15,8 @@ namespace ZWarden.Agent.Health;
 /// <see cref="ContainerStatsCalculator"/>, and disk from the Server's bind-mount directory under
 /// <see cref="AgentOptions.DataMountRoot"/>. The fleet facts (#257) ride along: the last RCON player count from
 /// <see cref="IServerPlayerCounts"/> and the container's start time from inspect (both running only), and the build
-/// id from the install volume's Steam manifest. The stats/inspect id comes from the owned-container list, so no
-/// foreign container is ever sampled.
+/// id from the install volume's Steam manifest, and the game version from the boot log (#262). The
+/// stats/inspect/log id comes from the owned-container list, so no foreign container is ever sampled.
 /// </summary>
 public sealed class ServerMetricsSampler : IServerMetricsSampler
 {
@@ -24,6 +25,7 @@ public sealed class ServerMetricsSampler : IServerMetricsSampler
     private readonly IServerDiskUsageReader _disk;
     private readonly IServerPlayerCounts _players;
     private readonly IServerInstallPaths _installPaths;
+    private readonly IServerGameVersions _gameVersions;
     private readonly AgentOptions _options;
     private readonly TimeProvider _clock;
 
@@ -33,6 +35,7 @@ public sealed class ServerMetricsSampler : IServerMetricsSampler
         IServerDiskUsageReader disk,
         IServerPlayerCounts players,
         IServerInstallPaths installPaths,
+        IServerGameVersions gameVersions,
         IOptions<AgentOptions> options,
         TimeProvider clock)
     {
@@ -41,6 +44,7 @@ public sealed class ServerMetricsSampler : IServerMetricsSampler
         ArgumentNullException.ThrowIfNull(disk);
         ArgumentNullException.ThrowIfNull(players);
         ArgumentNullException.ThrowIfNull(installPaths);
+        ArgumentNullException.ThrowIfNull(gameVersions);
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(clock);
         _runtime = runtime;
@@ -48,6 +52,7 @@ public sealed class ServerMetricsSampler : IServerMetricsSampler
         _disk = disk;
         _players = players;
         _installPaths = installPaths;
+        _gameVersions = gameVersions;
         _options = options.Value;
         _clock = clock;
     }
@@ -69,6 +74,7 @@ public sealed class ServerMetricsSampler : IServerMetricsSampler
                 ? await ReadStartedAtAsync(container, cancellationToken).ConfigureAwait(false)
                 : null;
             PlayerCountReading? players = running ? _players.GetLatest(container.ServerId) : null;
+            string? gameVersion = await _gameVersions.ReadAsync(container, startedAt, cancellationToken).ConfigureAwait(false);
             DiskUsage disk = _disk.Read(Path.Combine(_options.DataMountRoot, container.ServerId.ToString()));
 
             samples.Add(new ServerMetricsSample(
@@ -82,9 +88,11 @@ public sealed class ServerMetricsSampler : IServerMetricsSampler
                 now,
                 players?.SampledAt,
                 startedAt,
-                _installPaths.ReadInstalledBuildId(container.ServerId)));
+                _installPaths.ReadInstalledBuildId(container.ServerId),
+                gameVersion));
         }
 
+        _gameVersions.Retain(managed.Select(c => c.ServerId));
         return samples;
     }
 

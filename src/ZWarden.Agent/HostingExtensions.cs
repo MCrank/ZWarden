@@ -95,6 +95,8 @@ public static class HostingExtensions
         services.AddSingleton<ISteamQueryProbe, SteamQueryProbe>();    // #231: the diagnostics game-port "listening" check
         services.AddSingleton<IServerHealthObserver, ServerHealthObserver>();
         services.AddSingleton<IServerDiskUsageReader, ServerDiskUsageReader>();
+        // #262: the game version from each start's boot log, carried in the metrics report.
+        services.AddSingleton<IServerGameVersions, ServerGameVersionReader>();
         services.AddSingleton<IServerMetricsSampler, ServerMetricsSampler>();
 
         // SteamCMD lifecycle (F17): the host-side install paths and the update runner that drives an update via

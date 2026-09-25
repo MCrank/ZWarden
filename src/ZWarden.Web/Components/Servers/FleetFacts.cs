@@ -12,7 +12,9 @@ namespace ZWarden.Web.Components.Servers;
 /// <param name="Players">Connected players from the Agent's last RCON sample, or <c>null</c>.</param>
 /// <param name="PlayersSampledAt">When <paramref name="Players"/> was read (UTC), or <c>null</c>.</param>
 /// <param name="StartedAt">The container's start time (UTC) — uptime is <c>now − StartedAt</c> — or <c>null</c>.</param>
-/// <param name="Version">The installed Steam build id, or <c>null</c> when unknown.</param>
+/// <param name="Version">What the Version column shows: the game version (e.g. <c>42.20.4</c>, #262) when known, else
+/// the Steam build id, else <c>null</c>.</param>
+/// <param name="SteamBuild">The installed Steam build id (the Version cell's tooltip), or <c>null</c>.</param>
 /// <param name="CpuPercent">The latest CPU sample (0–100), or <c>null</c>.</param>
 /// <param name="MemoryUsedBytes">The latest resident-memory sample, or <c>null</c>.</param>
 /// <param name="MemoryLimitBytes">The container's memory limit for the sample, or <c>null</c>.</param>
@@ -23,6 +25,7 @@ public sealed record FleetServerFacts(
     DateTimeOffset? PlayersSampledAt,
     DateTimeOffset? StartedAt,
     string? Version,
+    string? SteamBuild,
     double? CpuPercent,
     long? MemoryUsedBytes,
     long? MemoryLimitBytes,
@@ -54,17 +57,34 @@ public static class FleetFacts
     {
         ArgumentNullException.ThrowIfNull(server);
         bool live = agentOnline && sample is not null;
+        // The persisted value wins; the cached sample fills in until the first report has been stored.
+        string? build = FirstKnown(server.InstalledBuildId, sample?.InstalledBuildId);
         return new FleetServerFacts(
             live ? sample!.PlayerCount : null,
             live && sample!.PlayerCount is not null ? sample.PlayerCountSampledAt : null,
             live ? sample!.StartedAt : null,
-            !string.IsNullOrWhiteSpace(server.InstalledBuildId) ? server.InstalledBuildId
-                : string.IsNullOrWhiteSpace(sample?.InstalledBuildId) ? null : sample.InstalledBuildId,
+            FirstKnown(server.GameVersion, sample?.GameVersion) ?? build,
+            build,
             sample?.CpuPercent,
             sample?.MemoryUsedBytes,
             sample?.MemoryLimitBytes,
             server.LastRunState == ServerRunState.Running,
             server.LastHealth is ServerHealth.Failed or ServerHealth.Degraded || server.LastRunState == ServerRunState.Failed);
+    }
+
+    /// <summary>The Version cell's tooltip (#262): the Steam build id behind the shown game version, or a note that
+    /// the game version has not been read yet; <c>null</c> when there is nothing to add.</summary>
+    public static string? FormatVersionTitle(FleetServerFacts facts)
+    {
+        ArgumentNullException.ThrowIfNull(facts);
+        if (facts.SteamBuild is null)
+        {
+            return null;
+        }
+
+        return facts.Version == facts.SteamBuild
+            ? "Steam build id (the game version has not been read yet)"
+            : Invariant($"Steam build {facts.SteamBuild}");
     }
 
     /// <summary>The KPI tiles over the visible fleet, in board order (the attention name is the first match).</summary>
@@ -112,6 +132,9 @@ public static class FleetFacts
             : minutes < 60 ? Invariant($"as of {minutes} min ago")
             : Invariant($"as of {minutes / 60} h ago");
     }
+
+    private static string? FirstKnown(string? persisted, string? cached) =>
+        !string.IsNullOrWhiteSpace(persisted) ? persisted : string.IsNullOrWhiteSpace(cached) ? null : cached;
 
     private static string Invariant(FormattableString value) => value.ToString(CultureInfo.InvariantCulture);
 }

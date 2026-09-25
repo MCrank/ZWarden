@@ -16,6 +16,9 @@ public sealed class ServerConfiguration : IEntityTypeConfiguration<Server>
     /// <summary>The stored bound on <see cref="Server.InstalledBuildId"/> (untrusted Agent-observed text).</summary>
     public const int InstalledBuildIdMaxLength = 64;
 
+    /// <summary>The stored bound on <see cref="Server.GameVersion"/> (untrusted Agent-observed text, #262).</summary>
+    public const int GameVersionMaxLength = 32;
+
     public void Configure(EntityTypeBuilder<Server> builder)
     {
         ArgumentNullException.ThrowIfNull(builder);
@@ -31,6 +34,8 @@ public sealed class ServerConfiguration : IEntityTypeConfiguration<Server>
         builder.Property(s => s.LastHealth).HasConversion<string>().HasMaxLength(32);
         // F17: the installed Steam build id observed after an update; untrusted Agent-observed text, length-bounded.
         builder.Property(s => s.InstalledBuildId).HasMaxLength(InstalledBuildIdMaxLength);
+        // #262: the game version parsed from the boot log; untrusted Agent-observed text, length-bounded.
+        builder.Property(s => s.GameVersion).HasMaxLength(GameVersionMaxLength);
 
         builder.HasIndex(s => s.AgentId);
     }
