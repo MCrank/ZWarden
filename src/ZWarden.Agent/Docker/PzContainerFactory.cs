@@ -29,6 +29,8 @@ public sealed class PzContainerFactory
     private const string DirectPortKey = "16262/udp";
     private const string BindAddress = "0.0.0.0";
     private const string NonRootUser = "10000:10000";
+    private const string XmsKey = "ZW_PZ_XMS";
+    private const string XmxKey = "ZW_PZ_XMX";
 
     private readonly IAgentIdentity _identity;
 
@@ -81,8 +83,8 @@ public sealed class PzContainerFactory
             [
                 $"HOME={RuntimeTmpfsTarget}",
                 $"TMPDIR={RuntimeTmpfsTarget}",
-                $"ZW_PZ_XMS={FormatJvmHeap(spec.HeapSizeBytes)}",
-                $"ZW_PZ_XMX={FormatJvmHeap(spec.HeapSizeBytes)}",
+                $"{XmsKey}={FormatJvmHeap(spec.HeapSizeBytes)}",
+                $"{XmxKey}={FormatJvmHeap(spec.HeapSizeBytes)}",
             ],
             HostConfig = new HostConfig
             {
@@ -191,4 +193,31 @@ public sealed class PzContainerFactory
     // whole mebibytes so the value is exact and always a legal heap string (e.g. 4 GiB -> "4096m").
     private static string FormatJvmHeap(long bytes) =>
         $"{bytes / (1024 * 1024)}m";
+
+    /// <summary>
+    /// Reads back the heap a container was built with from its env (<c>ZW_PZ_XMX</c>, #230), so a Recreate that names no
+    /// new heap keeps the current one instead of silently resetting it to the Agent's default. Accepts a JVM size
+    /// suffix (<c>k</c>/<c>m</c>/<c>g</c>, any case). Returns <c>null</c> when absent or unreadable.
+    /// </summary>
+    public static long? ReadJvmHeap(IEnumerable<string>? environment)
+    {
+        const string Prefix = XmxKey + "=";
+        string? value = environment?.LastOrDefault(e => e.StartsWith(Prefix, StringComparison.Ordinal))?[Prefix.Length..];
+        if (string.IsNullOrEmpty(value) || value.Length < 2)
+        {
+            return null;
+        }
+
+        long unit = char.ToLowerInvariant(value[^1]) switch
+        {
+            'k' => 1024L,
+            'm' => 1024L * 1024,
+            'g' => 1024L * 1024 * 1024,
+            _ => 0,
+        };
+        return unit > 0 && long.TryParse(value.AsSpan(0, value.Length - 1), System.Globalization.NumberStyles.None,
+                System.Globalization.CultureInfo.InvariantCulture, out long amount)
+            ? amount * unit
+            : null;
+    }
 }

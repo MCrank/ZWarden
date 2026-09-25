@@ -17,6 +17,11 @@ public interface IDockerEngine
     /// <summary>Pings the daemon and returns the negotiated Engine API version. Throws if unreachable.</summary>
     Task<string> PingApiVersionAsync(CancellationToken cancellationToken);
 
+    /// <summary>The Docker host's total RAM in bytes (<c>GET /info</c> <c>MemTotal</c>, an allowlisted read — ADR 0008).
+    /// It is the daemon's host (or Docker Desktop VM) memory, so it is right however the Agent itself is
+    /// containerised (#230).</summary>
+    Task<long> TotalMemoryBytesAsync(CancellationToken cancellationToken);
+
     /// <summary>Lists all containers on the host (running and stopped), undecorated.</summary>
     Task<IReadOnlyList<EngineContainer>> ListAsync(CancellationToken cancellationToken);
 

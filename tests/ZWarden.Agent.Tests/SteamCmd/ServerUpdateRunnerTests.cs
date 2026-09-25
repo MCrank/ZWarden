@@ -178,6 +178,8 @@ public class ServerUpdateRunnerTests
         public Task FollowServerLogsAsync(ServerId serverId, int tailLines, Func<ContainerLogFrame, CancellationToken, ValueTask> onFrame, CancellationToken cancellationToken) => throw new NotSupportedException();
         public Task<DockerHealth> ProbeHealthAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
         public Task<IReadOnlyList<ManagedContainer>> ListManagedAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Task<HostMemory> ReadHostMemoryAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
+
         public Task<IReadOnlyList<ObservedContainer>> InspectManagedAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
         public Task<PortAllocation> ClaimRequestedPortsAsync(int gamePort, ServerId forServer, CancellationToken cancellationToken) =>
             throw new NotSupportedException();

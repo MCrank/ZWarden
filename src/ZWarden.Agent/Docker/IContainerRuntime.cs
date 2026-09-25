@@ -26,6 +26,10 @@ public interface IContainerRuntime
     /// </summary>
     Task<IReadOnlyList<ObservedContainer>> InspectManagedAsync(CancellationToken cancellationToken);
 
+    /// <summary>Reads the host's memory budget (#230): the daemon's total RAM and the summed memory limits of every
+    /// container this Agent owns, stopped ones included. A container that vanishes mid-read is skipped.</summary>
+    Task<HostMemory> ReadHostMemoryAsync(CancellationToken cancellationToken);
+
     /// <summary>Allocates the lowest two-port-stride pair whose ports no container on the daemon publishes or holds
     /// (running or stopped, owned or not — #229).</summary>
     Task<PortAllocation> AllocateNextPortsAsync(CancellationToken cancellationToken);

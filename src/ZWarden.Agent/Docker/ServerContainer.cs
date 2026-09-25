@@ -10,11 +10,14 @@ namespace ZWarden.Agent.Docker;
 /// <param name="State">The container's state string (e.g. <c>running</c>, <c>exited</c>).</param>
 /// <param name="Ports">The host pair bound to the container's 16261/16262 udp, or <c>null</c> when it has none.</param>
 /// <param name="BindMounts">Bind mounts as container destination → host source.</param>
+/// <param name="HeapSizeBytes">The JVM heap the container runs with (read from its env), or <c>null</c> when unknown —
+/// kept by a Recreate that names no new heap (#230).</param>
 public sealed record ServerContainer(
     string DockerId,
     string State,
     PortAllocation? Ports,
-    IReadOnlyDictionary<string, string> BindMounts)
+    IReadOnlyDictionary<string, string> BindMounts,
+    long? HeapSizeBytes = null)
 {
     /// <summary>Whether the container is up (running, restarting or paused) — anything but a stopped state.</summary>
     public bool IsRunning => State is "running" or "restarting" or "paused";

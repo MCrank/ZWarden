@@ -43,10 +43,20 @@ internal sealed class FakeDockerEngine : IDockerEngine
     /// <summary>Per-container inspect results; falls back to <see cref="InspectResult"/> for an unlisted id.</summary>
     public Dictionary<string, EngineContainer> Inspected { get; } = new(StringComparer.Ordinal);
 
+    /// <summary>Thrown by <see cref="InspectAsync"/> when set (a container vanishing between list and inspect).</summary>
+    public Exception? InspectException { get; set; }
+
     public Task<EngineContainer> InspectAsync(string containerId, CancellationToken cancellationToken) =>
-        Task.FromResult(Inspected.TryGetValue(containerId, out EngineContainer? inspected)
-            ? inspected
-            : InspectResult ?? throw new InvalidOperationException("No inspect result arranged."));
+        InspectException is not null
+            ? Task.FromException<EngineContainer>(InspectException)
+            : Task.FromResult(Inspected.TryGetValue(containerId, out EngineContainer? inspected)
+                ? inspected
+                : InspectResult ?? throw new InvalidOperationException("No inspect result arranged."));
+
+    /// <summary>What <see cref="TotalMemoryBytesAsync"/> returns (#230).</summary>
+    public long TotalMemoryBytes { get; set; }
+
+    public Task<long> TotalMemoryBytesAsync(CancellationToken cancellationToken) => Task.FromResult(TotalMemoryBytes);
 
     public ContainerStatsSnapshot StatsResult { get; set; }
 
