@@ -51,12 +51,28 @@ internal sealed class FakeDockerEngine : IDockerEngine
     /// <summary>The log text <see cref="ReadLogsAsync"/> returns.</summary>
     public string LogText { get; set; } = string.Empty;
 
+    /// <summary>Thrown by <see cref="ReadLogsAsync"/> when set.</summary>
+    public Exception? LogsException { get; set; }
+
     /// <summary>The <c>since</c> the last <see cref="ReadLogsAsync"/> was asked for.</summary>
     public DateTimeOffset? LastLogsSince { get; private set; }
 
-    public Task<string> ReadLogsAsync(string containerId, DateTimeOffset? since, CancellationToken cancellationToken)
+    /// <summary>The <c>until</c> the last <see cref="ReadLogsAsync"/> was asked for.</summary>
+    public DateTimeOffset? LastLogsUntil { get; private set; }
+
+    /// <summary>How many times <see cref="ReadLogsAsync"/> was called.</summary>
+    public int ReadLogsCount { get; private set; }
+
+    public Task<string> ReadLogsAsync(string containerId, DateTimeOffset? since, DateTimeOffset? until, CancellationToken cancellationToken)
     {
+        ReadLogsCount++;
         LastLogsSince = since;
+        LastLogsUntil = until;
+        if (LogsException is not null)
+        {
+            return Task.FromException<string>(LogsException);
+        }
+
         return Task.FromResult(LogText);
     }
 

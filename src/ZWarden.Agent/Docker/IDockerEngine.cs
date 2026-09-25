@@ -30,12 +30,15 @@ public interface IDockerEngine
     Task<ContainerStatsSnapshot> StatsAsync(string containerId, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Reads a container's logs (stdout+stderr, <b>non-following</b>) since an optional time (F17). Maps to the
+    /// Reads a container's logs (stdout+stderr, <b>non-following</b>) since an optional time (F17). An optional
+    /// <c>until</c> bounds the window from above (#262 reads only the first minutes after a start, so a long-running
+    /// container never streams its whole history). Maps to the
     /// allowlisted read verb <c>GET /containers/{id}/logs</c> (ADR 0008) — a read verb, no mutation. Frames are
     /// returned in chronological order, so a caller can parse a banner-bracketed session out of the combined
     /// stream (SteamCMD tees its output to stderr; the entrypoint's session banners are on stdout).
     /// </summary>
-    Task<string> ReadLogsAsync(string containerId, DateTimeOffset? since, CancellationToken cancellationToken);
+    Task<string> ReadLogsAsync(
+        string containerId, DateTimeOffset? since, DateTimeOffset? until, CancellationToken cancellationToken);
 
     /// <summary>
     /// Follows a container's logs (stdout+stderr) as a long-lived stream (F27), invoking <paramref name="onFrame"/>

@@ -3,6 +3,7 @@ using ZWarden.Agent.Configuration;
 using ZWarden.Agent.Docker;
 using ZWarden.Agent.Health;
 using ZWarden.Agent.Players;
+using ZWarden.Agent.Servers;
 using ZWarden.Agent.SteamCmd;
 using ZWarden.Agent.Tests.Docker;
 using ZWarden.Contracts.Protocol.Messages;
@@ -36,6 +37,7 @@ public class ServerMetricsSamplerTests
             new StubDiskReader(new DiskUsage(1_000, 50_000)),
             players ?? new StubPlayerCounts(),
             new StubInstallPaths(buildId),
+            new ServerGameVersionReader(engine, TimeProvider.System),
             Options.Create(new AgentOptions { DataMountRoot = Path.GetTempPath() }),
             TimeProvider.System);
     }
@@ -85,7 +87,7 @@ public class ServerMetricsSamplerTests
     }
 
     [Test]
-    public async Task A_running_container_carries_its_player_count_start_time_and_build()
+    public async Task A_running_container_carries_its_player_count_start_time_build_and_game_version()
     {
         DateTimeOffset started = Now.AddHours(-2);
         DateTimeOffset counted = Now.AddMinutes(-1);
@@ -93,6 +95,7 @@ public class ServerMetricsSamplerTests
         {
             StatsResult = new ContainerStatsSnapshot(120, 100, 1_100, 1_000, 4, 3_000, 1_000, 4_000),
             InspectResult = Inspected(started),
+            LogText = " LOG  : General      f:0 st:1> version=42.20.4 b0bbce05d5 demo=false",
         };
         StubPlayerCounts players = new();
         players.Readings[RunningServer] = new PlayerCountReading(7, counted);
@@ -105,6 +108,7 @@ public class ServerMetricsSamplerTests
         await Assert.That(running.PlayerCountSampledAt).IsEqualTo(counted);
         await Assert.That(running.StartedAt).IsEqualTo(started);
         await Assert.That(running.InstalledBuildId).IsEqualTo("19876543");
+        await Assert.That(running.GameVersion).IsEqualTo("42.20.4");
     }
 
     [Test]

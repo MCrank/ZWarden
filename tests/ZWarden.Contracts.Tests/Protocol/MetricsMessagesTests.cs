@@ -39,7 +39,7 @@ public class MetricsMessagesTests
         DateTimeOffset counted = At.AddMinutes(-2);
         ServerMetricsReport report = new(
         [
-            new ServerMetricsSample(ServerId.New(), 10, 1, 2, null, null, 4, At, counted, started, "19876543"),
+            new ServerMetricsSample(ServerId.New(), 10, 1, 2, null, null, 4, At, counted, started, "19876543", "42.20.4"),
         ]);
 
         Envelope<ServerMetricsReport> back = ProtocolJson.Deserialize<ServerMetricsReport>(
@@ -50,6 +50,7 @@ public class MetricsMessagesTests
         await Assert.That(sample.PlayerCountSampledAt).IsEqualTo(counted);
         await Assert.That(sample.StartedAt).IsEqualTo(started);
         await Assert.That(sample.InstalledBuildId).IsEqualTo("19876543");
+        await Assert.That(sample.GameVersion).IsEqualTo("42.20.4");
     }
 
     [Test]
@@ -64,6 +65,7 @@ public class MetricsMessagesTests
         sampleNode.Remove("playerCountSampledAt");
         sampleNode.Remove("startedAt");
         sampleNode.Remove("installedBuildId");
+        sampleNode.Remove("gameVersion");
 
         Envelope<ServerMetricsReport> back = ProtocolJson.Deserialize<ServerMetricsReport>(node.ToJsonString());
 
@@ -71,6 +73,7 @@ public class MetricsMessagesTests
         await Assert.That(sample.PlayerCountSampledAt).IsNull();
         await Assert.That(sample.StartedAt).IsNull();
         await Assert.That(sample.InstalledBuildId).IsNull();
+        await Assert.That(sample.GameVersion).IsNull();
     }
 
     [Test]

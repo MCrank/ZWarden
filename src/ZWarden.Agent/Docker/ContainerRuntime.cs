@@ -195,7 +195,7 @@ public sealed partial class ContainerRuntime : IContainerRuntime
         {
             if (container.ServerId == serverId)
             {
-                return await _engine.ReadLogsAsync(container.DockerId, since, cancellationToken).ConfigureAwait(false);
+                return await _engine.ReadLogsAsync(container.DockerId, since, until: null, cancellationToken).ConfigureAwait(false);
             }
         }
 
