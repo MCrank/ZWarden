@@ -161,6 +161,7 @@ public sealed class ServerStateReconciler : IServerStateReconciler
         int gamePort,
         int queryPort,
         string containerId,
+        long? heapSizeBytes = null,
         CancellationToken cancellationToken = default)
     {
         Server? server = await _servers.FindByIdAsync(serverId, cancellationToken).ConfigureAwait(false);
@@ -170,7 +171,7 @@ public sealed class ServerStateReconciler : IServerStateReconciler
             return;
         }
 
-        server.RecordContainer(containerId, gamePort, queryPort);
+        server.RecordContainer(containerId, gamePort, queryPort, heapSizeBytes);
         await _context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }
 

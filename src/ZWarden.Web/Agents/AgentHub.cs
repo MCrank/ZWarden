@@ -429,7 +429,8 @@ public sealed partial class AgentHub : Hub
         if (completed.Payload.Provision is { } provision && completed.ServerId is { } serverId)
         {
             await _servers.RecordProvisionedAsync(
-                serverId, provision.GamePort, provision.QueryPort, provision.ContainerId, Context.ConnectionAborted)
+                serverId, provision.GamePort, provision.QueryPort, provision.ContainerId, provision.HeapSizeBytes,
+                Context.ConnectionAborted)
                 .ConfigureAwait(false);
         }
 

@@ -173,6 +173,27 @@ public class ServerTests
     }
 
     [Test]
+    public async Task RecordContainer_records_the_heap_the_container_runs_with()
+    {
+        Server server = Import();
+
+        server.RecordContainer("c0ffee", gamePort: 16261, queryPort: 16262, heapSizeBytes: 6L * 1024 * 1024 * 1024);
+
+        await Assert.That(server.HeapSizeBytes).IsEqualTo(6L * 1024 * 1024 * 1024);
+    }
+
+    [Test]
+    public async Task RecordContainer_from_an_agent_that_reports_no_heap_keeps_the_last_known_heap()
+    {
+        Server server = Import();
+        server.RecordContainer("c0ffee", gamePort: 16261, queryPort: 16262, heapSizeBytes: 8L * 1024 * 1024 * 1024);
+
+        server.RecordContainer("c0ffee2", gamePort: 16263, queryPort: 16264);
+
+        await Assert.That(server.HeapSizeBytes).IsEqualTo(8L * 1024 * 1024 * 1024);
+    }
+
+    [Test]
     public async Task RecordContainer_rejects_out_of_range_ports()
     {
         Server server = Import();

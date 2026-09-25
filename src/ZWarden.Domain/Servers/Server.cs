@@ -46,6 +46,11 @@ public sealed class Server : IVersioned, ITenantOwned
     /// <c>null</c> until then.</summary>
     public int? QueryPort { get; private set; }
 
+    /// <summary>The JVM heap, in bytes, the Server's container was last built with (#230) — as the Agent reported it after a
+    /// provision or recreate, so it stays true after a rolled-back change. The container's limit is this plus the
+    /// Agent's overhead. <c>null</c> until an Agent reports it (older Agents, imported Servers).</summary>
+    public long? HeapSizeBytes { get; private set; }
+
     /// <summary>The last-observed Docker container id (trust-boundaries.md §8 — Agent-reported data). A
     /// convenience for diagnostics only; it changes on recreate, so it is never the key — <see cref="Id"/>
     /// is. <c>null</c> until a container is observed.</summary>
@@ -181,8 +186,9 @@ public sealed class Server : IVersioned, ITenantOwned
     }
 
     /// <summary>Records the observed container linkage: its Docker id and the two allocated UDP ports. RCON
-    /// is never published, so it is not carried here (F12/F13).</summary>
-    public void RecordContainer(string dockerContainerId, int gamePort, int queryPort)
+    /// is never published, so it is not carried here (F12/F13). The heap (#230) is recorded when the Agent reports one; an
+    /// older Agent reports none, which keeps the last known heap.</summary>
+    public void RecordContainer(string dockerContainerId, int gamePort, int queryPort, long? heapSizeBytes = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(dockerContainerId);
         ArgumentOutOfRangeException.ThrowIfLessThan(gamePort, 1, nameof(gamePort));
@@ -197,6 +203,10 @@ public sealed class Server : IVersioned, ITenantOwned
         DockerContainerId = dockerContainerId;
         GamePort = gamePort;
         QueryPort = queryPort;
+        if (heapSizeBytes is > 0)
+        {
+            HeapSizeBytes = heapSizeBytes;
+        }
     }
 
     /// <summary>Renames the Server and updates its description. Metadata only; does not touch the container.</summary>
