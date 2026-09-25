@@ -114,6 +114,13 @@ never orphaned because its holder is the Operation row and the reaper always fai
   than creating a second. This makes "start operation X" safe to retry.
 - **Execution idempotency (Agent).** The `OperationId` travels on the command `Envelope`; the Agent
   dedupes a redelivered command by `OperationId` so a reconnect/replay does not run the work twice.
+- **Execution is off the receive path (Agent) ([#248](https://github.com/MCrank/ZWarden/issues/248)).**
+  The SignalR client runs server→Agent handlers one at a time. The command handler therefore hands each
+  command to a background runner and returns at once. Awaiting a whole Operation inline (a restart, an
+  update, a backup) held back every later message: live-log start/stop, config reads, raw-edit staging and
+  further commands. Commands now run side by side on the Agent. The per-server lock above still
+  serialises mutating Operations on one Server. Agent shutdown drains in-flight commands, bounded by the
+  host's shutdown token, so their replies can still be sent.
 
 ### Cancellation
 
