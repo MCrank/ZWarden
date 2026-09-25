@@ -315,5 +315,6 @@ public sealed class ServerInventory : IServerInventory
         server.LastHealth,
         server.LastHealthReportedAt,
         server.InstalledBuildId,
-        server.GameVersion);
+        server.GameVersion,
+        server.HeapSizeBytes);
 }

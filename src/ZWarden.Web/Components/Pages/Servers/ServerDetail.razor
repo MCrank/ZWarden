@@ -284,17 +284,18 @@ else
                     </div>
                 </dl>
 
-                @* Change host ports (#229, ADR 0045): a data-preserving recreate of the container on a new host UDP pair.
-                   Static-SSR form, gated on the server-scoped Server.Recreate the service re-checks on submit. *@
+                @* Container settings (#229 ports, #230 heap; ADR 0045): a data-preserving recreate of the container with a
+                   new host UDP pair and/or heap. Static-SSR form, gated on the server-scoped Server.Recreate the service
+                   re-checks on submit. *@
                 @if (_canRecreate)
                 {
                     <div class="mt-5 border-t border-border pt-4" data-recreate>
-                        <h3 class="text-sm font-semibold">Change host ports</h3>
+                        <h3 class="text-sm font-semibold">Container settings</h3>
                         <p class="mt-1 text-xs text-muted-foreground">
-                            Recreates the container on a new host UDP pair (the game port and the one above it). The world,
-                            config and installed game are kept. A running server warns players, stops safely and comes back
-                            on the new ports; a stopped one stays stopped. Update your firewall or port-forward to match.
-                            Leave the port blank to recreate on the current pair.
+                            Recreates the container with a new host UDP pair (the game port and the one above it) and/or a new
+                            heap. The world, config and installed game are kept. A running server warns players, stops safely
+                            and comes back; a stopped one stays stopped. After a port change, update your firewall or
+                            port-forward to match. Leave a field blank to keep its current value.
                         </p>
                         <EditForm Model="_recreateForm" FormName="server-recreate" OnValidSubmit="RecreateAsync" class="mt-3">
                             <DataAnnotationsValidator />
@@ -303,6 +304,11 @@ else
                                     <BbLabel For="recreate-port" Class="mb-1 text-muted-foreground">Game port</BbLabel>
                                     <BbInput Id="recreate-port" Type="InputType.Number" @bind-Value="_recreateForm.GamePort"
                                              Placeholder="@(_server.GamePort?.ToString(CultureInfo.InvariantCulture) ?? "Auto")" Class="w-32" />
+                                </div>
+                                <div class="flex flex-col text-sm">
+                                    <BbLabel For="recreate-heap" Class="mb-1 text-muted-foreground">Heap (GiB)</BbLabel>
+                                    <BbInput Id="recreate-heap" @bind-Value="_recreateForm.HeapGiB" inputmode="decimal"
+                                             Placeholder="@(_server.HeapSizeBytes is { } heap ? NewServerForm.FormatGiB(heap) : "Current")" Class="w-32" />
                                 </div>
                                 <div class="flex flex-col text-sm">
                                     <BbLabel For="recreate-countdown" Class="mb-1 text-muted-foreground">Warn players</BbLabel>
@@ -1745,9 +1751,17 @@ else
             return;
         }
 
+        // #230: a typed heap in GiB; blank keeps the heap the container runs with (no player-count suggestion here).
+        if (!NewServerForm.TryResolveHeap(_recreateForm?.HeapGiB, expectedPlayers: null, out long? heap, out string? heapError))
+        {
+            _lifecycleAlert = AlertVariant.Warning;
+            _lifecycleMessage = heapError;
+            return;
+        }
+
         var plan = new GracefulRestartPayload(CountdownLeads(_recreateForm?.Countdown));
         UserId user = await CurrentUserAsync();
-        SetLifecycleResult("recreate", await Lifecycle.RecreateAsync(user, serverId, gamePort, plan));
+        SetLifecycleResult("recreate", await Lifecycle.RecreateAsync(user, serverId, gamePort, plan, heap));
         await RefreshStatusAsync(serverId);
     }
 
@@ -1783,6 +1797,7 @@ else
             ServerLifecycleFailure.ServerBusy => "The server is busy with another operation; try again once it finishes.",
             ServerLifecycleFailure.InvalidPort => "That game port is not allowed.",
             ServerLifecycleFailure.PortInUse => "That game port (or the one above it) is already used by another server on this host.",
+            ServerLifecycleFailure.InvalidHeap => "That heap is not allowed.",
             _ => "The action could not be started.",
         };
     }
@@ -3077,6 +3092,9 @@ else
 
         // The warning preset before the safe stop, as the graceful-restart panel's (#213). Default first (#84).
         public string Countdown { get; set; } = "5m";
+
+        // The new JVM heap in GiB as typed (#230); blank ⇒ keep the current heap. Parsed by NewServerForm.
+        public string? HeapGiB { get; set; }
     }
 
     private sealed class GracefulRestartFormModel

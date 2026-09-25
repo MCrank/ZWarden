@@ -316,6 +316,125 @@ public sealed class ServerInventoryPageTests
         await Assert.That(await scope.ServiceProvider.GetRequiredService<ZWardenDbContext>().Set<Server>().AnyAsync()).IsFalse();
         client.Dispose();
     }
+
+    // --- #230: the new-server wizard ----------------------------------------------------------------------------
+
+    private const long GiB = 1024L * 1024 * 1024;
+
+    private static async Task<(HttpClient Client, AgentId Agent, string Token)> WizardAsync(
+        ZWardenWebAppFactory factory, HostCapacity? capacity = null)
+    {
+        HttpClient client = await SignedInOperatorAsync(factory);
+        AgentId agent = await SeedAgentAsync(factory);
+        factory.Services.GetRequiredService<IServerDiscoveryCache>().Record(agent, []);
+        if (capacity is not null)
+        {
+            factory.Services.GetRequiredService<IHostCapacityCache>().Record(capacity with { AgentId = agent });
+        }
+
+        string page = await (await client.GetAsync(new Uri("/servers", UriKind.Relative))).Content.ReadAsStringAsync();
+        return (client, agent, ParseHiddenInputs(page)["__RequestVerificationToken"]);
+    }
+
+    private static Dictionary<string, string> WizardForm(string token, AgentId agent, string name) => new(StringComparer.Ordinal)
+    {
+        ["__RequestVerificationToken"] = token,
+        ["_handler"] = "register-server",
+        ["_registerForm.AgentId"] = agent.ToString(),
+        ["_registerForm.Name"] = name,
+    };
+
+    [Test]
+    public async Task The_wizard_posts_the_suggested_heap_and_the_initial_settings_with_the_password_encrypted()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        (HttpClient client, AgentId agent, string token) = await WizardAsync(factory);
+        Dictionary<string, string> form = WizardForm(token, agent, "friends");
+        form["_registerForm.ExpectedPlayers"] = "8";
+        form["_registerForm.Public"] = "true";
+        form["_registerForm.PublicName"] = "Friends of Knox";
+        form["_registerForm.MaxPlayers"] = "12";
+        form["_registerForm.Password"] = "hunter2";
+        form["_registerForm.WelcomeMessage"] = "Be nice";
+
+        HttpResponseMessage response = await client.PostAsync(new Uri("/servers", UriKind.Relative), new FormUrlEncodedContent(form));
+
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.Redirect);
+        using IServiceScope scope = factory.Services.CreateScope();
+        Operation provision = await scope.ServiceProvider.GetRequiredService<ZWardenDbContext>()
+            .Set<Operation>().SingleAsync(o => o.Kind == OperationKind.ProvisionServer);
+        await Assert.That(provision.CommandPayload!).DoesNotContain("hunter2");
+        ServerContainerPayload payload = ServerContainerPayload.FromJson(provision.CommandPayload!);
+        await Assert.That(payload.HeapSizeBytes).IsEqualTo(6 * GiB);
+        await Assert.That(payload.Settings!.Public!.Value).IsTrue();
+        await Assert.That(payload.Settings.PublicName).IsEqualTo("Friends of Knox");
+        await Assert.That(payload.Settings.MaxPlayers).IsEqualTo(12);
+        await Assert.That(payload.Settings.WelcomeMessage).IsEqualTo("Be nice");
+        await Assert.That(payload.Settings.ProtectedPassword).IsNotNull();
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task The_wizard_shows_each_hosts_free_memory()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        AgentId agent = await SeedAgentAsync(factory);
+        factory.Services.GetRequiredService<IServerDiscoveryCache>().Record(agent, []);
+        factory.Services.GetRequiredService<IHostCapacityCache>()
+            .Record(new HostCapacity(agent, 32 * GiB, 10 * GiB, 6 * GiB, 4 * GiB, 2 * GiB, DateTimeOffset.UtcNow));
+
+        string html = await (await client.GetAsync(new Uri("/servers", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        await Assert.That(html).Contains("data-host-capacity");
+        await Assert.That(html).Contains("20 GiB free for new servers of 32 GiB");
+        await Assert.That(html).Contains("name=\"_registerForm.ExpectedPlayers\"");
+        await Assert.That(html).Contains("name=\"_registerForm.HeapGiB\"");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task Over_the_hosts_free_memory_the_wizard_warns_and_creates_only_once_acknowledged()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        (HttpClient client, AgentId agent, string token) = await WizardAsync(
+            factory, new HostCapacity(AgentId.New(), 16 * GiB, 10 * GiB, 6 * GiB, 4 * GiB, 2 * GiB, DateTimeOffset.UtcNow));
+        Dictionary<string, string> form = WizardForm(token, agent, "big");
+        form["_registerForm.HeapGiB"] = "8";
+
+        string warned = await (await client.PostAsync(new Uri("/servers", UriKind.Relative), new FormUrlEncodedContent(form)))
+            .Content.ReadAsStringAsync();
+
+        await Assert.That(warned).Contains("data-overcommit-warning");
+        await Assert.That(warned).Contains("name=\"_registerForm.AcknowledgeOvercommit\"");
+        using (IServiceScope scope = factory.Services.CreateScope())
+        {
+            await Assert.That(await scope.ServiceProvider.GetRequiredService<ZWardenDbContext>().Set<Server>().AnyAsync()).IsFalse();
+        }
+
+        form["__RequestVerificationToken"] = ParseHiddenInputs(warned)["__RequestVerificationToken"];
+        form["_registerForm.AcknowledgeOvercommit"] = "true";
+        HttpResponseMessage created = await client.PostAsync(new Uri("/servers", UriKind.Relative), new FormUrlEncodedContent(form));
+
+        await Assert.That(created.StatusCode).IsEqualTo(HttpStatusCode.Redirect);
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task The_wizard_refuses_a_setting_that_could_break_the_config_line()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        (HttpClient client, AgentId agent, string token) = await WizardAsync(factory);
+        Dictionary<string, string> form = WizardForm(token, agent, "sneaky");
+        form["_registerForm.WelcomeMessage"] = "hi\nRCONPassword=x";
+
+        string html = await (await client.PostAsync(new Uri("/servers", UriKind.Relative), new FormUrlEncodedContent(form)))
+            .Content.ReadAsStringAsync();
+
+        await Assert.That(html).Contains("data-register-message");
+        await Assert.That(html).Contains("printable");
+        client.Dispose();
+    }
     private static async Task<HttpClient> SignedInOperatorAsync(ZWardenWebAppFactory factory)
     {
         await factory.CreateConfirmedUserAsync("op@zwarden.test", StrongPassword);

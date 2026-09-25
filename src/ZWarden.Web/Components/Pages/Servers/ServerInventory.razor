@@ -13,6 +13,8 @@
 @inject IServerMetricsCache Metrics
 @inject IAgentConnectionRegistry Connections
 @inject IServerDiscoveryCache Discovery
+@inject IHostCapacityCache Capacity
+@inject IAgentInventory AgentInventory
 @inject IPermissionChecker PermissionChecker
 @inject UserManager<ApplicationUser> Users
 @inject NavigationManager Nav
@@ -102,7 +104,7 @@
         <h2 class="text-lg font-semibold tracking-tight">Register a new server</h2>
         <p class="mt-1 text-sm text-muted-foreground">
             Provision a fresh Project Zomboid container on a connected host. The server appears immediately and
-            starts once its Agent has built the container.
+            starts once its Agent has built the container. Everything but the host and name is optional.
         </p>
 
         @if (_registerMessage is not null)
@@ -122,27 +124,96 @@
         }
         else
         {
-            <EditForm Model="_registerForm" FormName="register-server" OnValidSubmit="RegisterAsync" class="mt-4 flex flex-wrap items-end gap-3">
+            @* #230: the new-server wizard — one static-SSR form in sections (D4), one submit, no draft state. The heap
+               suggestion and the capacity check run server-side on submit; an overcommit re-renders with a warning
+               and an acknowledgement checkbox (D1), keeping what was typed. *@
+            <EditForm Model="_registerForm" FormName="register-server" OnValidSubmit="RegisterAsync" class="mt-4 max-w-3xl space-y-6" data-new-server-wizard>
                 <DataAnnotationsValidator />
-                <div class="flex flex-col text-sm">
-                    <BbLabel For="register-host" Class="mb-1 text-muted-foreground">Host</BbLabel>
-                    @* Explicit Name for static-SSR binding — see the import form below (issue #84). *@
-                    <BbNativeSelect TValue="string" Id="register-host" Name="_registerForm.AgentId" @bind-Value="_registerForm!.AgentId" Placeholder="Select…">
+
+                <fieldset class="space-y-3">
+                    <legend class="text-sm font-semibold">Basics</legend>
+                    <div class="grid gap-3 sm:grid-cols-2">
+                        <div class="flex flex-col text-sm">
+                            <BbLabel For="register-host" Class="mb-1 text-muted-foreground">Host</BbLabel>
+                            @* Explicit Name for static-SSR binding — see the import form below (issue #84). *@
+                            <BbNativeSelect TValue="string" Id="register-host" Name="_registerForm.AgentId" @bind-Value="_registerForm!.AgentId" Placeholder="Select…">
+                                @foreach (AgentId agent in _knownAgents)
+                                {
+                                    <option value="@agent">@HostOptionLabel(agent)</option>
+                                }
+                            </BbNativeSelect>
+                        </div>
+                        <div class="flex flex-col text-sm">
+                            <BbLabel For="register-name" Class="mb-1 text-muted-foreground">Name</BbLabel>
+                            <BbInput Id="register-name" @bind-Value="_registerForm!.Name" />
+                        </div>
+                        <div class="flex flex-col text-sm">
+                            <BbLabel For="register-public-name" Class="mb-1 text-muted-foreground">Server browser name</BbLabel>
+                            <BbInput Id="register-public-name" @bind-Value="_registerForm!.PublicName" Placeholder="PZ default" />
+                        </div>
+                        <div class="flex flex-col text-sm">
+                            <BbLabel For="register-max-players" Class="mb-1 text-muted-foreground">Max players</BbLabel>
+                            <BbInput Id="register-max-players" Type="InputType.Number" @bind-Value="_registerForm!.MaxPlayers" Placeholder="32" />
+                        </div>
+                        <div class="flex flex-col text-sm">
+                            <BbLabel For="register-password" Class="mb-1 text-muted-foreground">Join password</BbLabel>
+                            @* Stored encrypted on the provisioning Operation (ADR 0015); seeded into servertest.ini. *@
+                            <BbInput Id="register-password" Type="InputType.Password" @bind-Value="_registerForm!.Password" autocomplete="new-password" Placeholder="None" />
+                        </div>
+                        <div class="flex flex-col text-sm">
+                            <BbLabel For="register-port" Class="mb-1 text-muted-foreground">Game port</BbLabel>
+                            @* #229: the host UDP pair is this port and the one above; blank = the next free pair. *@
+                            <BbInput Id="register-port" Type="InputType.Number" @bind-Value="_registerForm!.GamePort" Placeholder="Auto" />
+                        </div>
+                        <div class="flex flex-col text-sm sm:col-span-2">
+                            <BbLabel For="register-welcome" Class="mb-1 text-muted-foreground">Welcome message</BbLabel>
+                            <BbInput Id="register-welcome" @bind-Value="_registerForm!.WelcomeMessage" Placeholder="PZ default" />
+                        </div>
+                    </div>
+                    <label class="flex items-center gap-2 text-sm">
+                        <BbCheckbox @bind-Checked="_registerForm!.Public" Id="register-public" />
+                        List it in the in-game public server browser
+                    </label>
+                </fieldset>
+
+                <fieldset class="space-y-3">
+                    <legend class="text-sm font-semibold">Memory</legend>
+                    <div class="grid gap-3 sm:grid-cols-2">
+                        <div class="flex flex-col text-sm">
+                            <BbLabel For="register-players" Class="mb-1 text-muted-foreground">Expected players</BbLabel>
+                            <BbInput Id="register-players" Type="InputType.Number" @bind-Value="_registerForm!.ExpectedPlayers" Placeholder="e.g. 8" />
+                        </div>
+                        <div class="flex flex-col text-sm">
+                            <BbLabel For="register-heap" Class="mb-1 text-muted-foreground">Heap (GiB)</BbLabel>
+                            <BbInput Id="register-heap" @bind-Value="_registerForm!.HeapGiB" Placeholder="Suggested" inputmode="decimal" />
+                        </div>
+                    </div>
+                    <p class="text-xs text-muted-foreground">
+                        Leave the heap blank to use the suggestion: 4 GiB plus 0.25 GiB per expected player (8 players → 6 GiB,
+                        16 → 8 GiB, 32 → 12 GiB); with no player count the host's default applies. It is a starting point —
+                        mods and map size matter more than headcount. The container's limit is the heap plus the host's overhead.
+                    </p>
+                    <ul class="space-y-1 text-xs text-muted-foreground" data-host-capacity>
                         @foreach (AgentId agent in _knownAgents)
                         {
-                            <option value="@agent">@agent</option>
+                            <li><span class="font-medium text-foreground">@HostName(agent)</span>: @NewServerForm.CapacityLine(Capacity.GetLatest(agent))</li>
                         }
-                    </BbNativeSelect>
-                </div>
-                <div class="flex flex-col text-sm">
-                    <BbLabel For="register-name" Class="mb-1 text-muted-foreground">Name</BbLabel>
-                    <BbInput Id="register-name" @bind-Value="_registerForm!.Name" />
-                </div>
-                <div class="flex flex-col text-sm">
-                    <BbLabel For="register-port" Class="mb-1 text-muted-foreground">Game port (optional)</BbLabel>
-                    @* #229: the host UDP pair is this port and the one above; blank = the next free pair. *@
-                    <BbInput Id="register-port" Type="InputType.Number" @bind-Value="_registerForm!.GamePort" Placeholder="Auto" Class="w-32" />
-                </div>
+                    </ul>
+                </fieldset>
+
+                @if (_overcommitWarning is not null)
+                {
+                    <div class="space-y-2" data-overcommit-warning>
+                        <BbAlert Variant="AlertVariant.Warning" AccentBorder>
+                            <BbAlertDescription>@_overcommitWarning</BbAlertDescription>
+                        </BbAlert>
+                        <label class="flex items-center gap-2 text-sm">
+                            <BbCheckbox @bind-Checked="_registerForm!.AcknowledgeOvercommit" Id="register-acknowledge" />
+                            Create it anyway
+                        </label>
+                    </div>
+                }
+
                 <BbButton Type="ButtonType.Submit">Deploy server</BbButton>
             </EditForm>
         }
@@ -219,6 +290,8 @@
     private int _hostsOnline;
     private string? _importMessage;
     private string? _registerMessage;
+    private string? _overcommitWarning;
+    private IReadOnlyDictionary<AgentId, string> _hostNames = new Dictionary<AgentId, string>();
 
     protected override async Task OnInitializedAsync()
     {
@@ -282,6 +355,12 @@
         {
             _discovered = await Inventory.ListAllDiscoveredUnregisteredAsync();
             _knownAgents = [.. Discovery.KnownAgents()];
+            if ((await PermissionChecker.EvaluateAsync(user, Permissions.AgentView)).IsAllowed)
+            {
+                _hostNames = (await AgentInventory.ListHostsAsync(user))
+                    .Where(h => !string.IsNullOrWhiteSpace(h.Hostname) || !string.IsNullOrWhiteSpace(h.Label))
+                    .ToDictionary(h => h.Id, h => !string.IsNullOrWhiteSpace(h.Hostname) ? h.Hostname! : h.Label!);
+            }
         }
     }
 
@@ -343,7 +422,33 @@
             return;
         }
 
-        ServerRegisterResult result = await Inventory.RegisterAsync(user, agentId, form.Name.Trim(), gamePort);
+        // #230: resolve the heap (typed GiB, else the suggestion for the expected players, else the Agent default) and
+        // validate the settings here for a precise message; the service re-validates before anything is created.
+        if (!NewServerForm.TryResolveHeap(form.HeapGiB, form.ExpectedPlayers, out long? heap, out string? heapError)
+            || !NewServerForm.TryParseMaxPlayers(form.MaxPlayers, out int? maxPlayers, out heapError))
+        {
+            _registerMessage = heapError;
+            return;
+        }
+
+        NewServerSettings? settings = SettingsFrom(form, maxPlayers);
+        if (settings is not null
+            && (InitialSettingsRules.ValidatePublicName(settings.PublicName)
+                ?? InitialSettingsRules.ValidatePassword(settings.Password)
+                ?? InitialSettingsRules.ValidateWelcomeMessage(settings.WelcomeMessage)) is { } settingsError)
+        {
+            _registerMessage = settingsError;
+            return;
+        }
+
+        ServerRegisterResult result = await Inventory.RegisterAsync(
+            user, new NewServerRequest(agentId, form.Name.Trim(), gamePort, heap, settings, form.AcknowledgeOvercommit));
+        if (result.Failure == ServerRegisterFailure.OverCapacity && Capacity.GetLatest(agentId) is { } capacity)
+        {
+            // D1: warn with the numbers and ask for the acknowledgement; the typed values survive the re-render.
+            _overcommitWarning = NewServerForm.ShortfallWarning(capacity, heap ?? capacity.DefaultHeapBytes);
+            return;
+        }
         if (result.Succeeded)
         {
             // Redirect after post so a refresh does not re-submit; the new server shows in Unknown state
@@ -358,9 +463,34 @@
             ServerRegisterFailure.AgentNotFound => "That host is no longer known.",
             ServerRegisterFailure.InvalidPort => "That game port is not allowed.",
             ServerRegisterFailure.PortInUse => "That game port (or the one above it) is already used by another server on this host.",
+            ServerRegisterFailure.InvalidHeap => "That heap is not allowed.",
+            ServerRegisterFailure.InvalidSettings => "One of the settings is not allowed.",
             _ => "The server could not be registered.",
         };
     }
+
+    // Only the settings the operator filled in; an unticked "public" leaves PZ's default (not listed).
+    private static NewServerSettings? SettingsFrom(RegisterModel form, int? maxPlayers)
+    {
+        string? publicName = Blank(form.PublicName);
+        string? password = string.IsNullOrEmpty(form.Password) ? null : form.Password;
+        string? welcome = Blank(form.WelcomeMessage);
+        bool? listed = form.Public ? true : null;
+        return listed is null && publicName is null && maxPlayers is null && password is null && welcome is null
+            ? null
+            : new NewServerSettings(listed, publicName, maxPlayers, password, welcome);
+    }
+
+    private static string? Blank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    // The host picker names a host by its self-reported hostname when the caller may view Hosts, else by its id, and
+    // shows its free memory so the choice is informed. Hostnames are untrusted, observed strings (rendered as data).
+    private string HostName(AgentId agent) =>
+        _hostNames.TryGetValue(agent, out string? name) ? name : agent.ToString();
+
+    private string HostOptionLabel(AgentId agent) => Capacity.GetLatest(agent) is { } capacity
+        ? $"{HostName(agent)} — {NewServerForm.FormatGiB(capacity.FreeBytes)} free"
+        : HostName(agent);
 
     private async Task<UserId> CurrentUserAsync()
     {
@@ -384,5 +514,21 @@
         public string? Name { get; set; }
 
         public string? GamePort { get; set; }
+
+        public string? PublicName { get; set; }
+
+        public string? MaxPlayers { get; set; }
+
+        public string? Password { get; set; }
+
+        public string? WelcomeMessage { get; set; }
+
+        public bool Public { get; set; }
+
+        public string? ExpectedPlayers { get; set; }
+
+        public string? HeapGiB { get; set; }
+
+        public bool AcknowledgeOvercommit { get; set; }
     }
 }
