@@ -1,7 +1,8 @@
 # Feature #230 Mini-Plan — New-server wizard: per-server memory, host RAM capacity guard, basic settings
 
-**Status:** PR-A (branch `feat/230-new-server-wizard`) = Contracts + Domain rules + Agent + the Web hub ingest of the
-capacity report (so no Agent ever sends to a missing hub method); PR-B = persistence + Web wizard,
+**Status:** PR-A #268 (branch `feat/230-new-server-wizard`) = Contracts + Domain rules + Agent + the Web hub ingest of the
+capacity report (so no Agent ever sends to a missing hub method); PR-B (branch `feat/230-new-server-wizard-web`, stacked on
+PR-A) = persistence + Web wizard,
 closes [#230](https://github.com/MCrank/ZWarden/issues/230). v1.0. Branch/version selection (#258) is a
 follow-up sub-issue that adds one field to this wizard.
 
