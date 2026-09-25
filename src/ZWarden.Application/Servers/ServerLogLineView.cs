@@ -8,7 +8,9 @@ namespace ZWarden.Application.Servers;
 /// the wire enum for the same reason. <see cref="Text"/> was already sanitized on the Agent (PRD 38) and is still
 /// rendered as data by the UI. Observed, transient, non-secret.
 /// </summary>
-/// <param name="Sequence">The Agent's per-Server monotonic line number — the live-tail cursor.</param>
+/// <param name="Sequence">On append, the Agent's per-follow line number; as read back from
+/// <see cref="IServerLogBuffer"/>, the buffer's own per-Server monotonic number — the live-tail cursor. The Agent's
+/// restarts at 1 on every follow, so it cannot be the cursor (#241).</param>
 /// <param name="Timestamp">When the line was written (UTC), as reported by the container.</param>
 /// <param name="IsStderr"><see langword="true"/> when the line came from stderr, else stdout.</param>
 /// <param name="Text">The sanitized line text.</param>

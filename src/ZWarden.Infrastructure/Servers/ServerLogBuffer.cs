@@ -39,10 +39,20 @@ public sealed class ServerLogBuffer : IServerLogBuffer
 
     // One (Server, Agent) partition: a bounded FIFO of lines plus the sticky drop flag, under a lock so the
     // hub's append and the panel's read never see a torn buffer.
+    //
+    // #241: the read cursor is this partition's own sequence, assigned on append — never the Agent's. The Agent
+    // numbers each follow from 1 again (a new viewer after the last one left, an Agent restart), so a cursor over
+    // its numbers skipped every new line until the new follow caught up. And each follow — or a re-attach after a
+    // container restart — replays the last N lines as its tail; those are dropped by their daemon timestamp: a line
+    // older than the newest kept is a replay, and one at the newest timestamp is a replay only if it matches a line
+    // already kept at that instant.
     private sealed class Partition(int maxLines)
     {
         private readonly Queue<ServerLogLineView> _lines = new();
+        private readonly ReplayMark _stdout = new();
+        private readonly ReplayMark _stderr = new();
         private readonly Lock _gate = new();
+        private long _sequence;
         private bool _dropped;
 
         public void Append(IReadOnlyList<ServerLogLineView> lines, bool dropped)
@@ -56,7 +66,12 @@ public sealed class ServerLogBuffer : IServerLogBuffer
 
                 foreach (ServerLogLineView line in lines)
                 {
-                    _lines.Enqueue(line);
+                    if (IsReplay(line))
+                    {
+                        continue;
+                    }
+
+                    _lines.Enqueue(line with { Sequence = ++_sequence });
                     while (_lines.Count > maxLines)
                     {
                         _lines.Dequeue();
@@ -80,6 +95,34 @@ public sealed class ServerLogBuffer : IServerLogBuffer
 
                 return new ServerLogSlice(slice, _dropped);
             }
+        }
+
+        private bool IsReplay(ServerLogLineView line) =>
+            (line.IsStderr ? _stderr : _stdout).IsReplay(line);
+    }
+
+    // The replay high-water mark for one stream. Per stream because the daemon timestamps stdout and stderr
+    // independently, so the two can interleave slightly out of timestamp order; within one stream they cannot.
+    // Records each kept line as it answers.
+    private sealed class ReplayMark
+    {
+        private readonly HashSet<string> _atNewest = new(StringComparer.Ordinal);
+        private DateTimeOffset _newest = DateTimeOffset.MinValue;
+
+        public bool IsReplay(ServerLogLineView line)
+        {
+            if (line.Timestamp < _newest)
+            {
+                return true;
+            }
+
+            if (line.Timestamp > _newest)
+            {
+                _newest = line.Timestamp;
+                _atNewest.Clear();
+            }
+
+            return !_atNewest.Add(line.Text);
         }
     }
 }
