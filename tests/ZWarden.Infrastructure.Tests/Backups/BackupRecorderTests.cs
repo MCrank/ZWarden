@@ -146,6 +146,9 @@ public class BackupRecorderTests
         public Task<Operation?> FindAsync(OperationId operationId, CancellationToken cancellationToken = default)
             => Task.FromResult(operationId == _id ? _operation : null);
 
+        public Task<Operation?> FindActiveForServerAsync(ServerId serverId, CancellationToken cancellationToken = default)
+            => Task.FromResult<Operation?>(null);
+
         public Task ApplyProgressAsync(
             OperationId operationId, int percentComplete, string? statusLine, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();

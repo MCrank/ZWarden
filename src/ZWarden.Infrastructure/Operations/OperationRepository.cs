@@ -26,6 +26,21 @@ public sealed class OperationRepository : TenantScopedRepository<Operation>
         => await Entities.FirstOrDefaultAsync(o => o.IdempotencyKey == idempotencyKey, cancellationToken).ConfigureAwait(false);
 
     /// <summary>
+    /// The ambient tenant's non-terminal mutating Operation on <paramref name="serverId"/> — at most one, the row
+    /// holding the per-server lock (ADR 0022) — or <c>null</c>. Filtered wholly in SQL (the live header polls
+    /// this, so it must not load the Server's history): equality against the string-converted state translates;
+    /// only the <c>is A or B</c> pattern and the computed <c>IsTerminal</c> do not.
+    /// </summary>
+    public async Task<Operation?> FindActiveMutatingForServerAsync(ServerId serverId, CancellationToken cancellationToken = default)
+        => await Entities
+            .Where(o => o.ServerId == serverId && o.IsMutating
+                && (o.State == OperationState.Pending
+                    || o.State == OperationState.Running
+                    || o.State == OperationState.Cancelling))
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+    /// <summary>
     /// The ambient tenant's active Operations whose lease has expired as of <paramref name="now"/> — the ones
     /// the reaper fails to release their per-server lock (ADR 0022). Only <see cref="OperationState.Running"/>
     /// and <see cref="OperationState.Cancelling"/> carry a lease (terminal states clear it), so a non-null

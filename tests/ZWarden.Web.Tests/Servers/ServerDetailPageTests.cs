@@ -236,6 +236,34 @@ public sealed class ServerDetailPageTests
     }
 
     [Test]
+    public async Task The_header_shows_an_in_flight_stop_and_disables_the_lifecycle_buttons()
+    {
+        // #249: the header is rendered from the observed state AND the in-flight lifecycle Operation, so the page
+        // after a Stop already says STOPPING (the container reports Running for the whole stop grace), and it is
+        // marked for live-status.js to keep current.
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "stopping");
+        await client.PostAsync(new Uri($"/api/servers/{serverId}/stop", UriKind.Relative), content: null);
+
+        string html = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        await Assert.That(html).Contains($"data-live-status=\"/api/servers/{serverId}/status\"");
+        await Assert.That(html).Contains("data-status-busy=\"true\"");
+        await Assert.That(html).Contains("STOPPING");
+        await Assert.That(System.Text.RegularExpressions.Regex.IsMatch(
+            html, "<button[^>]*data-action=\"server-start\"[^>]*>")).IsTrue();
+        foreach (string action in new[] { "server-start", "server-stop", "server-restart" })
+        {
+            System.Text.RegularExpressions.Match button = System.Text.RegularExpressions.Regex.Match(
+                html, $"<button[^>]*data-action=\"{action}\"[^>]*>");
+            await Assert.That(button.Value).Contains("disabled");
+        }
+
+        client.Dispose();
+    }
+
+    [Test]
     public async Task The_configuration_editor_offers_collapse_and_expand_all_as_a_js_enhancement()
     {
         await using ZWardenWebAppFactory factory = new()

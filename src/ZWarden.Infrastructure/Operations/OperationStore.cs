@@ -46,6 +46,10 @@ public sealed class OperationStore : IOperationStore
         => _operations.FindByIdAsync(operationId, cancellationToken);
 
     /// <inheritdoc />
+    public Task<Operation?> FindActiveForServerAsync(ServerId serverId, CancellationToken cancellationToken = default)
+        => _operations.FindActiveMutatingForServerAsync(serverId, cancellationToken);
+
+    /// <inheritdoc />
     public async Task ApplyProgressAsync(
         OperationId operationId,
         int percentComplete,

@@ -1,10 +1,12 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Identity;
 using ZWarden.Application.Backups;
+using ZWarden.Application.Operations;
 using ZWarden.Application.Servers;
 using ZWarden.Domain.Authorization;
 using ZWarden.Domain.Backups;
 using ZWarden.Domain.Ids;
+using ZWarden.Domain.Operations;
 using ZWarden.Infrastructure.Identity;
 
 namespace ZWarden.Web.Components.Servers;
@@ -103,6 +105,37 @@ public static class ServerEndpoints
         // checked at the endpoint with no resource would deny outright (ADR 0018, the F14 D3 pattern). Each is a
         // fresh intent enqueued as a mutating, server-scoped Operation; the caller polls /api/operations/{id}.
         RouteGroupBuilder lifecycle = endpoints.MapGroup("/api/servers").RequireAuthorization();
+
+        // The live header status (#249): the observed run-state resolved against the Server's in-flight mutating
+        // Operation, polled by live-status.js on the server-detail page. Fail-closed on Server.View (the inventory's
+        // per-Server gate): an unknown or unviewable Server is 404, never a hint that it exists. Never cached.
+        lifecycle.MapGet("/{id}/status", async (string id, ClaimsPrincipal principal, UserManager<ApplicationUser> users,
+            IServerInventory inventory, IOperationStore operations, HttpContext http, CancellationToken ct) =>
+        {
+            if (!ServerId.TryParse(id, out ServerId serverId))
+            {
+                return Results.NotFound();
+            }
+
+            ServerSummary? server = await inventory.GetVisibleAsync(Actor(principal, users), serverId, ct).ConfigureAwait(false);
+            if (server is null)
+            {
+                return Results.NotFound();
+            }
+
+            Operation? active = await operations.FindActiveForServerAsync(serverId, ct).ConfigureAwait(false);
+            ServerStatusView view = ServerLiveStatus.Resolve(server.LastRunState, active?.Kind);
+            http.Response.Headers.CacheControl = "no-store";
+            return Results.Ok(new
+            {
+                label = view.Label,
+                tone = view.ToneKey,
+                busy = view.Busy,
+                canStart = view.CanStart,
+                canStop = view.CanStop,
+                canRestart = view.CanRestart,
+            });
+        });
 
         lifecycle.MapPost("/{id}/start", (string id, ClaimsPrincipal principal, UserManager<ApplicationUser> users,
             IServerLifecycle svc, CancellationToken ct) =>

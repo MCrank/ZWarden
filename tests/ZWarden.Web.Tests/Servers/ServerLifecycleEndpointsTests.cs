@@ -125,11 +125,83 @@ public sealed class ServerLifecycleEndpointsTests
         client.Dispose();
     }
 
-    private static async Task<ServerId> SeedServerAsync(ZWardenWebAppFactory factory)
+    [Test]
+    public async Task The_status_of_an_idle_running_server_follows_its_observed_state()
+    {
+        // #249: the live header polls this. Never cached, so a stale status can't linger.
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, ServerRunState.Running);
+
+        HttpResponseMessage response = await client.GetAsync(new Uri($"/api/servers/{serverId}/status", UriKind.Relative));
+
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
+        await Assert.That(response.Headers.CacheControl?.NoStore).IsTrue();
+        using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        await Assert.That(body.RootElement.GetProperty("label").GetString()).IsEqualTo("RUNNING");
+        await Assert.That(body.RootElement.GetProperty("tone").GetString()).IsEqualTo("running");
+        await Assert.That(body.RootElement.GetProperty("busy").GetBoolean()).IsFalse();
+        await Assert.That(body.RootElement.GetProperty("canStart").GetBoolean()).IsFalse();
+        await Assert.That(body.RootElement.GetProperty("canStop").GetBoolean()).IsTrue();
+        await Assert.That(body.RootElement.GetProperty("canRestart").GetBoolean()).IsTrue();
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task The_status_during_a_restart_says_restarting_and_disables_every_button()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, ServerRunState.Running);
+        await client.PostAsync(new Uri($"/api/servers/{serverId}/restart", UriKind.Relative), content: null);
+
+        // The Agent is offline, so the restart waits Pending — in flight, holding the lock.
+        using JsonDocument body = JsonDocument.Parse(await (await client.GetAsync(
+            new Uri($"/api/servers/{serverId}/status", UriKind.Relative))).Content.ReadAsStringAsync());
+
+        await Assert.That(body.RootElement.GetProperty("label").GetString()).IsEqualTo("RESTARTING");
+        await Assert.That(body.RootElement.GetProperty("tone").GetString()).IsEqualTo("busy");
+        await Assert.That(body.RootElement.GetProperty("busy").GetBoolean()).IsTrue();
+        await Assert.That(body.RootElement.GetProperty("canStop").GetBoolean()).IsFalse();
+        await Assert.That(body.RootElement.GetProperty("canRestart").GetBoolean()).IsFalse();
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task The_status_of_an_unknown_server_is_not_found()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+
+        HttpResponseMessage response = await client.GetAsync(new Uri($"/api/servers/{ServerId.New()}/status", UriKind.Relative));
+
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.NotFound);
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task Anonymous_cannot_read_a_servers_status()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        ServerId serverId = await SeedServerAsync(factory, ServerRunState.Running);
+        using HttpClient client = factory.CreateWebClient();
+
+        HttpResponseMessage response = await client.GetAsync(new Uri($"/api/servers/{serverId}/status", UriKind.Relative));
+
+        // Challenged (a redirect to login, possibly followed) — never the status itself.
+        await Assert.That(await response.Content.ReadAsStringAsync()).DoesNotContain("\"canStop\"");
+    }
+
+    private static async Task<ServerId> SeedServerAsync(ZWardenWebAppFactory factory, ServerRunState? state = null)
     {
         using IServiceScope scope = factory.Services.CreateScope();
         ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
         Server server = Server.Import(AgentId.New(), ServerId.New(), "survivors", Now);
+        if (state is { } observed)
+        {
+            server.RecordObservedState(observed, Now);
+        }
+
         db.Set<Server>().Add(server);
         await db.SaveChangesAsync();
         return server.Id;

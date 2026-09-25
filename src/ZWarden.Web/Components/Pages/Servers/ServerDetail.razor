@@ -23,6 +23,7 @@
 @using ZWarden.Domain.Operations
 @using ZWarden.Web.Hosting
 @using ZWarden.Web.Time
+@using ZWarden.Web.Components.Servers
 @inject IServerInventory Inventory
 @inject IServerBackup ServerBackups
 @inject IServerRestore ServerRestores
@@ -72,9 +73,11 @@ else
     @* Sticky server header (name + status + lifecycle), above the rail and content. The lifecycle controls
        (F15) render for whoever holds the matching Server.Start/Stop/Restart and are disabled by the last
        observed run-state; the service re-checks fail-closed on submit. *@
-    <div class="zw-srvhead mt-2">
+    @* #249: data-live-status names the authorized status endpoint live-status.js polls to re-tone the badge and
+       re-enable the lifecycle buttons in place (a safe stop, a restart, a boot) — no circuit, no reload. *@
+    <div class="zw-srvhead mt-2" data-live-status="/api/servers/@_server.Id/status" data-status-busy="@(_status.Busy ? "true" : "false")">
         <h1 class="text-2xl font-semibold tracking-tight">@_server.Name</h1>
-        <StatusBadge State="_server.LastRunState" />
+        <StatusBadge State="_status.Tone" Text="@_status.Label" />
         <span class="zw-spacer"></span>
         @if (_canStart || _canStop || _canRestartServer)
         {
@@ -1420,6 +1423,7 @@ else
     private string _activeSection = "overview";
     private bool _canStart;
     private bool _canStop;
+    private ServerStatusView _status = ServerLiveStatus.Resolve(ServerRunState.Unknown, activeOperation: null);
     private bool _canRestartServer;
     private string? _lifecycleMessage;
     private AlertVariant _lifecycleAlert = AlertVariant.Warning;
@@ -1517,6 +1521,7 @@ else
             _canRestartServer = (await PermissionChecker.EvaluateAsync(user, Permissions.ServerRestart, serverId)).IsAllowed;
             await LoadModManagementAsync(user, serverId);
             await LoadBackupsAsync(user, serverId);
+            await RefreshStatusAsync(serverId);
 
             // Resolve the active section only after the per-section gates are known, so an unknown or
             // unauthorized ?section= fails closed to the always-available overview.
@@ -1573,10 +1578,24 @@ else
         ? $"/servers/{Id}"
         : $"/servers/{Id}?section={section}";
 
-    // Lifecycle buttons are enabled by the last observed run-state; the service still re-checks on submit.
-    private bool StartEnabled => _server is { LastRunState: ServerRunState.Stopped or ServerRunState.Failed or ServerRunState.Unknown };
-    private bool StopEnabled => _server is { LastRunState: ServerRunState.Running or ServerRunState.Starting };
-    private bool RestartEnabled => _server is { LastRunState: ServerRunState.Running };
+    // Lifecycle buttons are enabled by the live status (#249): the last observed run-state, all off while a mutating
+    // Operation holds the Server's lock. live-status.js keeps them current; the service still re-checks on submit.
+    private bool StartEnabled => _status.CanStart;
+    private bool StopEnabled => _status.CanStop;
+    private bool RestartEnabled => _status.CanRestart;
+
+    // The header status from the observed state and the in-flight mutating Operation. Re-read after this request
+    // enqueues a lifecycle Operation so the page it renders already says STOPPING / RESTARTING.
+    private async Task RefreshStatusAsync(ServerId serverId)
+    {
+        if (_server is null)
+        {
+            return;
+        }
+
+        Operation? active = await OperationStore.FindActiveForServerAsync(serverId);
+        _status = ServerLiveStatus.Resolve(_server.LastRunState, active?.Kind);
+    }
 
     private async Task LifecycleAsync()
     {
@@ -1596,6 +1615,7 @@ else
         };
 
         SetLifecycleResult(command, result);
+        await RefreshStatusAsync(serverId);
     }
 
     // #114: the default warning schedule the operator control uses when "warn players" is left on. The Agent holds
@@ -1630,6 +1650,7 @@ else
 
         UserId user = await CurrentUserAsync();
         SetLifecycleResult("restart", await Lifecycle.RestartAsync(user, serverId, plan));
+        await RefreshStatusAsync(serverId);
     }
 
     private void SetLifecycleResult(string command, ServerLifecycleResult? result)
