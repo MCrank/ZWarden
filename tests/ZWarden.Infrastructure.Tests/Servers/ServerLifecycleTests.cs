@@ -292,6 +292,45 @@ public class ServerLifecycleTests
     }
 
     [Test]
+    public async Task Recreate_carries_a_new_heap_to_the_operation()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            ServerId serverId = await SeedServerAsync(options, AgentId.New());
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ServerRecreate);
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            RecordingCoordinator coordinator = new();
+            ServerLifecycleResult result = await Lifecycle(db, coordinator, new CapturingAuditWriter())
+                .RecreateAsync(user, serverId, null, null, heapSizeBytes: 8L * 1024 * 1024 * 1024);
+
+            await Assert.That(result.Succeeded).IsTrue();
+            await Assert.That(ServerContainerPayload.FromJson(coordinator.LastRequest!.CommandPayload!).HeapSizeBytes)
+                .IsEqualTo(8L * 1024 * 1024 * 1024);
+        });
+    }
+
+    [Test]
+    public async Task Recreate_rejects_an_invalid_heap()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            ServerId serverId = await SeedServerAsync(options, AgentId.New());
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ServerRecreate);
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            RecordingCoordinator coordinator = new();
+            ServerLifecycleResult result = await Lifecycle(db, coordinator, new CapturingAuditWriter())
+                .RecreateAsync(user, serverId, null, null, heapSizeBytes: 1024L * 1024 * 1024);
+
+            await Assert.That(result.Failure).IsEqualTo(ServerLifecycleFailure.InvalidHeap);
+            await Assert.That(coordinator.LastRequest).IsNull();
+        });
+    }
+
+    [Test]
     public async Task Recreate_rejects_a_pair_overlapping_another_server_on_the_same_host()
     {
         await WithSqlite(async options =>

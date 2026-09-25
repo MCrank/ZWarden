@@ -132,6 +132,45 @@ public sealed class ServerEndpointsTests
     }
 
     [Test]
+    public async Task Registering_with_an_invalid_heap_is_a_bad_request()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        AgentId agent = await SeedAgentAsync(factory);
+
+        HttpResponseMessage register = await client.PostAsJsonAsync(
+            new Uri("/api/servers", UriKind.Relative),
+            new RegisterServerRequest(agent.ToString(), "tiny", HeapSizeBytes: 256L * 1024 * 1024));
+
+        await Assert.That(register.StatusCode).IsEqualTo(HttpStatusCode.BadRequest);
+        await Assert.That(await register.Content.ReadAsStringAsync()).Contains("invalid_heap");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task Registering_beyond_the_hosts_free_memory_needs_the_acknowledgement()
+    {
+        const long GiB = 1024L * 1024 * 1024;
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        AgentId agent = await SeedAgentAsync(factory);
+        factory.Services.GetRequiredService<IHostCapacityCache>()
+            .Record(new HostCapacity(agent, 16 * GiB, 12 * GiB, 6 * GiB, 4 * GiB, 2 * GiB, DateTimeOffset.UtcNow));
+
+        HttpResponseMessage refused = await client.PostAsJsonAsync(
+            new Uri("/api/servers", UriKind.Relative),
+            new RegisterServerRequest(agent.ToString(), "big", HeapSizeBytes: 8 * GiB));
+        HttpResponseMessage acknowledged = await client.PostAsJsonAsync(
+            new Uri("/api/servers", UriKind.Relative),
+            new RegisterServerRequest(agent.ToString(), "big", HeapSizeBytes: 8 * GiB, AcknowledgeOvercommit: true));
+
+        await Assert.That(refused.StatusCode).IsEqualTo(HttpStatusCode.Conflict);
+        await Assert.That(await refused.Content.ReadAsStringAsync()).Contains("over_capacity");
+        await Assert.That(acknowledged.StatusCode).IsEqualTo(HttpStatusCode.Accepted);
+        client.Dispose();
+    }
+
+    [Test]
     public async Task Registering_on_an_unknown_agent_is_not_found()
     {
         await using ZWardenWebAppFactory factory = new();

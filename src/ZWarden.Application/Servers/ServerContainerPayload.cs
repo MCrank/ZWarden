@@ -15,7 +15,14 @@ namespace ZWarden.Application.Servers;
 /// before enqueue; the Agent re-validates and pre-flights it against the host.</param>
 /// <param name="Plan">The graceful-warning plan before a recreate's safe stop, or <c>null</c> for the Agent's default
 /// schedule. Unused by provisioning.</param>
-public sealed record ServerContainerPayload(int? GamePort, GracefulRestartPayload? Plan = null)
+/// <param name="HeapSizeBytes">The chosen JVM heap (#230), or <c>null</c> for the Agent's default (provision) / the heap the
+/// container runs with now (recreate). Validated by <c>ServerMemoryRules</c> before enqueue; the Agent re-validates.</param>
+/// <param name="Settings">The new-server wizard's initial settings (#230), seeded before first boot. Provisioning only.</param>
+public sealed record ServerContainerPayload(
+    int? GamePort,
+    GracefulRestartPayload? Plan = null,
+    long? HeapSizeBytes = null,
+    InitialSettingsPayload? Settings = null)
 {
     private static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web);
 
@@ -31,3 +38,20 @@ public sealed record ServerContainerPayload(int? GamePort, GracefulRestartPayloa
             ?? throw new JsonException("The server container payload deserialized to null.");
     }
 }
+
+/// <summary>
+/// The new-server wizard's initial settings as stored on the provisioning Operation (#230). The join password is held
+/// only as an <c>ISecretProtector</c> envelope (ADR 0015), never plaintext in the database; the dispatcher decrypts it
+/// for the moment it builds the wire command. Each value was validated by <c>InitialSettingsRules</c> before enqueue.
+/// </summary>
+/// <param name="Public">Whether the server is listed publicly, or <c>null</c> for PZ's default.</param>
+/// <param name="PublicName">The server-browser name, or <c>null</c>.</param>
+/// <param name="MaxPlayers">The player cap, or <c>null</c>.</param>
+/// <param name="ProtectedPassword">The join password as a protected envelope, or <c>null</c> for no password.</param>
+/// <param name="WelcomeMessage">The join message, or <c>null</c>.</param>
+public sealed record InitialSettingsPayload(
+    bool? Public,
+    string? PublicName,
+    int? MaxPlayers,
+    string? ProtectedPassword,
+    string? WelcomeMessage);

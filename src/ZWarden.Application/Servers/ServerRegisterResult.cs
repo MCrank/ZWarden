@@ -17,6 +17,15 @@ public enum ServerRegisterFailure
 
     /// <summary>The requested host port pair overlaps another Server's recorded pair on the chosen host (#229).</summary>
     PortInUse,
+
+    /// <summary>The requested heap is outside <c>ServerMemoryRules</c> (#230).</summary>
+    InvalidHeap,
+
+    /// <summary>An initial setting failed <c>InitialSettingsRules</c> (#230).</summary>
+    InvalidSettings,
+
+    /// <summary>The server's memory limit exceeds the host's free memory and the operator did not acknowledge it (#230 D1).</summary>
+    OverCapacity,
 }
 
 /// <summary>The outcome of registering a new Server (F14 PR-B): on success, the new Server and the

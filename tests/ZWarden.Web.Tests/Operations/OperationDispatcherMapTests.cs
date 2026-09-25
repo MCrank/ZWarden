@@ -64,6 +64,53 @@ public class OperationDispatcherMapTests
         await Assert.That(command.GamePort).IsNull();
         await Assert.That(command.Plan).IsNull();
     }
+    // #230: a stand-in for ISecretProtector.UnprotectString — the stored password is never plaintext.
+    private static string Unprotect(string envelope) => envelope.StartsWith("enc:", StringComparison.Ordinal)
+        ? envelope["enc:".Length..]
+        : throw new InvalidOperationException("not an envelope");
+
+    [Test]
+    public async Task A_provision_payload_carries_the_heap_and_the_initial_settings_with_the_password_decrypted()
+    {
+        const long Heap = 6L * 1024 * 1024 * 1024;
+        string payload = new ServerContainerPayload(
+            null, HeapSizeBytes: Heap,
+            Settings: new InitialSettingsPayload(true, "Knox", 12, ProtectedPassword: "enc:hunter2", "Hi")).ToJson();
+
+        var command = (CreateServer)OperationDispatcher.CommandFor(OperationKind.ProvisionServer, payload, Unprotect);
+
+        await Assert.That(command.HeapSizeBytes).IsEqualTo(Heap);
+        await Assert.That(command.Settings).IsEqualTo(new InitialServerSettings(true, "Knox", 12, "hunter2", "Hi"));
+    }
+
+    [Test]
+    public async Task A_stored_provision_payload_never_holds_the_password_in_plaintext()
+    {
+        string payload = new ServerContainerPayload(
+            null, Settings: new InitialSettingsPayload(null, null, null, ProtectedPassword: "enc:hunter2", null)).ToJson();
+
+        await Assert.That(payload).DoesNotContain("\"hunter2\"");
+    }
+
+    [Test]
+    public async Task A_protected_password_cannot_be_dispatched_without_the_protector()
+    {
+        string payload = new ServerContainerPayload(
+            null, Settings: new InitialSettingsPayload(null, null, null, ProtectedPassword: "enc:x", null)).ToJson();
+
+        await Assert.That(() => OperationDispatcher.CommandFor(OperationKind.ProvisionServer, payload))
+            .Throws<InvalidOperationException>();
+    }
+
+    [Test]
+    public async Task A_recreate_payload_carries_a_new_heap()
+    {
+        var command = (RecreateServer)OperationDispatcher.CommandFor(
+            OperationKind.RecreateServer, new ServerContainerPayload(null, HeapSizeBytes: 8L * 1024 * 1024 * 1024).ToJson());
+
+        await Assert.That(command.HeapSizeBytes).IsEqualTo(8L * 1024 * 1024 * 1024);
+    }
+
     [Test]
     public async Task Lifecycle_kinds_map_to_the_lifecycle_commands()
     {

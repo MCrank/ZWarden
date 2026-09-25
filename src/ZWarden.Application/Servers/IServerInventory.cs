@@ -48,4 +48,10 @@ public interface IServerInventory
         string name,
         int? gamePort = null,
         CancellationToken cancellationToken = default);
+
+    /// <summary>Registers a new Server from the new-server wizard (#230) — as the port-only overload, plus the heap, the
+    /// initial settings (validated; the password encrypted before it is stored) and the capacity check: when the Agent's
+    /// latest report says the new limit exceeds the host's free memory, it is refused (<c>OverCapacity</c>) unless the
+    /// operator acknowledged it. No report yet ⇒ no check.</summary>
+    Task<ServerRegisterResult> RegisterAsync(UserId user, NewServerRequest request, CancellationToken cancellationToken = default);
 }

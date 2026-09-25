@@ -12,6 +12,7 @@ using ZWarden.Contracts.Protocol;
 using ZWarden.Contracts.Protocol.Messages;
 using ZWarden.Domain.Audit;
 using ZWarden.Domain.Operations;
+using ZWarden.Domain.Security;
 using ZWarden.Infrastructure.Operations;
 using ZWarden.Infrastructure.Persistence;
 using ZWarden.Web.Agents;
@@ -36,6 +37,7 @@ public sealed class OperationDispatcher : IOperationDispatcher
     private readonly IAuditWriter _audit;
     private readonly TimeProvider _clock;
     private readonly OperationEngineOptions _options;
+    private readonly ISecretProtector _secrets;
 
     public OperationDispatcher(
         IAgentConnectionRegistry registry,
@@ -43,7 +45,8 @@ public sealed class OperationDispatcher : IOperationDispatcher
         ZWardenDbContext context,
         IAuditWriter audit,
         TimeProvider clock,
-        IOptions<OperationEngineOptions> options)
+        IOptions<OperationEngineOptions> options,
+        ISecretProtector secrets)
     {
         ArgumentNullException.ThrowIfNull(registry);
         ArgumentNullException.ThrowIfNull(hub);
@@ -51,12 +54,14 @@ public sealed class OperationDispatcher : IOperationDispatcher
         ArgumentNullException.ThrowIfNull(audit);
         ArgumentNullException.ThrowIfNull(clock);
         ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(secrets);
         _registry = registry;
         _hub = hub;
         _context = context;
         _audit = audit;
         _clock = clock;
         _options = options.Value;
+        _secrets = secrets;
     }
 
     /// <inheritdoc />
@@ -82,7 +87,7 @@ public sealed class OperationDispatcher : IOperationDispatcher
                 Detail: $"{operation.Kind} {operation.Id}"),
             cancellationToken).ConfigureAwait(false);
 
-        AgentCommand command = CommandFor(operation.Kind, operation.CommandPayload);
+        AgentCommand command = CommandFor(operation.Kind, operation.CommandPayload, _secrets.UnprotectString);
         Envelope<AgentCommand> envelope = Envelope.Create<AgentCommand>(
             command, now, agentId: operation.AgentId, serverId: operation.ServerId, operationId: operation.Id);
 
@@ -100,11 +105,12 @@ public sealed class OperationDispatcher : IOperationDispatcher
     /// enqueueing service wrote (<see cref="PlayerCommandPayload"/>). Pure and static so the map is unit-testable
     /// without the hub/registry/persistence dependencies.
     /// </summary>
-    public static AgentCommand CommandFor(OperationKind kind, string? commandPayload = null) => kind switch
+    public static AgentCommand CommandFor(
+        OperationKind kind, string? commandPayload = null, Func<string, string>? unprotect = null) => kind switch
     {
         OperationKind.DiagnosticsPing => new PingAgent(),
         OperationKind.DiagnosticsDockerHealth => new ProbeDockerHealth(),
-        OperationKind.ProvisionServer => new CreateServer(ContainerPayload(commandPayload)?.GamePort),
+        OperationKind.ProvisionServer => CreateCommand(commandPayload, unprotect),
         OperationKind.RecreateServer => RecreateCommand(commandPayload),
         OperationKind.StartServer => new StartServer(),
         OperationKind.StopServer => new StopServer(),
@@ -140,7 +146,28 @@ public sealed class OperationDispatcher : IOperationDispatcher
         ServerContainerPayload? payload = ContainerPayload(commandPayload);
         return new RecreateServer(
             payload?.GamePort,
-            payload?.Plan is { } plan ? new GracefulRestartPlan(plan.WarningLeadSeconds, plan.Reason) : null);
+            payload?.Plan is { } plan ? new GracefulRestartPlan(plan.WarningLeadSeconds, plan.Reason) : null,
+            payload?.HeapSizeBytes);
+    }
+
+    // Builds the CreateServer wire command (#229, #230): port, heap and the wizard's initial settings. The stored join
+    // password is a protected envelope, decrypted here only for the moment the command is built — dispatching one
+    // without the protector is a wiring bug, so it throws rather than sending the envelope as the password.
+    private static CreateServer CreateCommand(string? commandPayload, Func<string, string>? unprotect)
+    {
+        ServerContainerPayload? payload = ContainerPayload(commandPayload);
+        InitialServerSettings? settings = payload?.Settings is { } s
+            ? new InitialServerSettings(
+                s.Public,
+                s.PublicName,
+                s.MaxPlayers,
+                s.ProtectedPassword is { } envelope
+                    ? (unprotect ?? throw new InvalidOperationException(
+                        "A provisioning Operation with a protected password was dispatched without the secret protector."))(envelope)
+                    : null,
+                s.WelcomeMessage)
+            : null;
+        return new CreateServer(payload?.GamePort, payload?.HeapSizeBytes, settings);
     }
 
     private static BackupCommandPayload BackupPayload(string? commandPayload) => BackupCommandPayload.FromJson(

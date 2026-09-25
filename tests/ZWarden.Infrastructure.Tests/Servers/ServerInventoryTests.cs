@@ -12,6 +12,7 @@ using ZWarden.Infrastructure.Authorization;
 using ZWarden.Infrastructure.Persistence;
 using ZWarden.Infrastructure.Servers;
 using ZWarden.Infrastructure.Tests.Agents;
+using ZWarden.Infrastructure.Tests.Workshop;
 using ZWarden.TestSupport;
 
 namespace ZWarden.Infrastructure.Tests.Servers;
@@ -182,6 +183,120 @@ public class ServerInventoryTests
         });
     }
 
+    // --- #230: heap, initial settings and the capacity acknowledgement ------------------------------------------
+
+    private const long GiB = 1024L * 1024 * 1024;
+
+    private static NewServerRequest Request(
+        AgentId agent, long? heap = null, NewServerSettings? settings = null, bool acknowledgeOvercommit = false) =>
+        new(agent, "survivors-new", GamePort: null, heap, settings, acknowledgeOvercommit);
+
+    [Test]
+    public async Task Register_carries_the_heap_and_settings_with_the_password_stored_only_encrypted()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            await SeedAssignmentAsync(options, user, server: null, Permissions.ServerRegister);
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            AgentId agent = await PersistAgentAsync(db);
+            StubOperationCoordinator coordinator = new();
+            FakeSecretProtector secrets = new();
+
+            ServerRegisterResult result = await Inventory(db, new ServerDiscoveryCache(), new CapturingAuditWriter(), coordinator, secrets)
+                .RegisterAsync(user, Request(agent, 6 * GiB, new NewServerSettings(true, "Knox", 12, "hunter2", "Hi")));
+
+            await Assert.That(result.Succeeded).IsTrue();
+            string json = coordinator.LastRequest!.CommandPayload!;
+            await Assert.That(json).DoesNotContain("hunter2");
+            ServerContainerPayload payload = ServerContainerPayload.FromJson(json);
+            await Assert.That(payload.HeapSizeBytes).IsEqualTo(6 * GiB);
+            await Assert.That(payload.Settings!.PublicName).IsEqualTo("Knox");
+            await Assert.That(secrets.UnprotectString(payload.Settings.ProtectedPassword!)).IsEqualTo("hunter2");
+        });
+    }
+
+    [Test]
+    public async Task Register_rejects_an_invalid_heap_before_creating_anything()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            await SeedAssignmentAsync(options, user, server: null, Permissions.ServerRegister);
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            AgentId agent = await PersistAgentAsync(db);
+            StubOperationCoordinator coordinator = new();
+
+            ServerRegisterResult result = await Inventory(db, new ServerDiscoveryCache(), new CapturingAuditWriter(), coordinator)
+                .RegisterAsync(user, Request(agent, heap: GiB));
+
+            await Assert.That(result.Failure).IsEqualTo(ServerRegisterFailure.InvalidHeap);
+            await Assert.That(coordinator.LastRequest).IsNull();
+            await Assert.That(await new ServerRepository(db).ListByAgentAsync(agent)).IsEmpty();
+        });
+    }
+
+    [Test]
+    public async Task Register_rejects_a_setting_that_could_break_the_ini_line()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            await SeedAssignmentAsync(options, user, server: null, Permissions.ServerRegister);
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            AgentId agent = await PersistAgentAsync(db);
+            StubOperationCoordinator coordinator = new();
+
+            ServerRegisterResult result = await Inventory(db, new ServerDiscoveryCache(), new CapturingAuditWriter(), coordinator)
+                .RegisterAsync(user, Request(agent, settings: new NewServerSettings(null, "a\nRCONPassword=x", null, null, null)));
+
+            await Assert.That(result.Failure).IsEqualTo(ServerRegisterFailure.InvalidSettings);
+            await Assert.That(coordinator.LastRequest).IsNull();
+        });
+    }
+
+    [Test]
+    public async Task Register_over_the_hosts_free_memory_needs_an_explicit_acknowledgement()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            await SeedAssignmentAsync(options, user, server: null, Permissions.ServerRegister);
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            AgentId agent = await PersistAgentAsync(db);
+            HostCapacityCache capacity = new();
+            // 16 GiB host, 10 GiB committed, 2 GiB reserve ⇒ 4 GiB free; a 4 GiB heap commits 4 + 6 = 10 GiB.
+            capacity.Record(new HostCapacity(agent, 16 * GiB, 10 * GiB, 6 * GiB, 4 * GiB, 2 * GiB, Now));
+            StubOperationCoordinator coordinator = new();
+            ServerInventory inventory = Inventory(
+                db, new ServerDiscoveryCache(), new CapturingAuditWriter(), coordinator, capacity: capacity);
+
+            ServerRegisterResult refused = await inventory.RegisterAsync(user, Request(agent, 4 * GiB));
+            await Assert.That(refused.Failure).IsEqualTo(ServerRegisterFailure.OverCapacity);
+            await Assert.That(coordinator.LastRequest).IsNull();
+
+            ServerRegisterResult acknowledged = await inventory.RegisterAsync(user, Request(agent, 4 * GiB, acknowledgeOvercommit: true));
+            await Assert.That(acknowledged.Succeeded).IsTrue();
+        });
+    }
+
+    [Test]
+    public async Task Register_with_no_capacity_report_yet_does_not_block()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            await SeedAssignmentAsync(options, user, server: null, Permissions.ServerRegister);
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            AgentId agent = await PersistAgentAsync(db);
+
+            ServerRegisterResult result = await Inventory(db, new ServerDiscoveryCache(), new CapturingAuditWriter())
+                .RegisterAsync(user, Request(agent, 64 * GiB));
+
+            await Assert.That(result.Succeeded).IsTrue();
+        });
+    }
+
     [Test]
     public async Task Register_rejects_an_out_of_range_game_port_before_creating_anything()
     {
@@ -328,7 +443,9 @@ public class ServerInventoryTests
         ZWardenDbContext db,
         ServerDiscoveryCache cache,
         CapturingAuditWriter audit,
-        IOperationCoordinator? coordinator = null)
+        IOperationCoordinator? coordinator = null,
+        FakeSecretProtector? secrets = null,
+        HostCapacityCache? capacity = null)
         => new(
             db,
             new ServerRepository(db),
@@ -337,7 +454,9 @@ public class ServerInventoryTests
             new PermissionChecker(db, new TestTenantContext(Tenant)),
             coordinator ?? new StubOperationCoordinator(),
             audit,
-            new StubClock(Now));
+            new StubClock(Now),
+            secrets ?? new FakeSecretProtector(),
+            capacity ?? new HostCapacityCache());
 
     private sealed class StubOperationCoordinator : IOperationCoordinator
     {
