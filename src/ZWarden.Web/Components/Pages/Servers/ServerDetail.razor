@@ -962,6 +962,14 @@ else
                             <input type="search" placeholder="Search settings…" autocomplete="off"
                                    spellcheck="false" aria-label="Search settings" data-cfg-search />
                         </label>
+                        @* #243: collapse/expand every section, remembered per browser. JS-only, so hidden until
+                           config-editor.js reveals it; without JS every section simply stays open. *@
+                        <span class="zw-cfg-sections" data-cfg-sections-controls hidden>
+                            <BbButton Type="ButtonType.Button" Variant="ButtonVariant.Ghost" Size="ButtonSize.Small"
+                                      data-cfg-sections="collapse">Collapse all</BbButton>
+                            <BbButton Type="ButtonType.Button" Variant="ButtonVariant.Ghost" Size="ButtonSize.Small"
+                                      data-cfg-sections="expand">Expand all</BbButton>
+                        </span>
                         <span class="zw-spacer"></span>
                         <a class="text-xs text-muted-foreground hover:text-foreground" href="@ConfigFileHref(_selectedFile)"
                            data-action="config-reload">Reload from host</a>

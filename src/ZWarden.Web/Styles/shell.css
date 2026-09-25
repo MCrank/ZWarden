@@ -213,6 +213,8 @@ html:not(.dark) .zw-ico-moon { display: inline-block; }
   padding: 6px 10px; background: var(--background); border: 1px solid var(--border);
   border-radius: var(--radius); color: var(--muted-foreground);
 }
+.zw-cfg-sections { display: inline-flex; align-items: center; gap: 2px; }
+.zw-cfg-sections[hidden] { display: none; }
 .zw-cfg-searchbox input { flex: 1; border: 0; background: transparent; color: var(--foreground); font: inherit; font-size: 13px; outline: none; }
 .zw-cfg-searchbox .zw-ico { width: 15px; height: 15px; }
 

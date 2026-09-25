@@ -236,6 +236,29 @@ public sealed class ServerDetailPageTests
     }
 
     [Test]
+    public async Task The_configuration_editor_offers_collapse_and_expand_all_as_a_js_enhancement()
+    {
+        await using ZWardenWebAppFactory factory = new()
+        {
+            ConfigureTestServicesHook = static s =>
+                s.AddSingleton<IServerConfigurationReader>(new FakeConfigReader(SampleView())),
+        };
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "cfg-collapse");
+
+        string html = await (await client.GetAsync(
+            new Uri($"/servers/{serverId}?section=config&file=SandboxVars", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        // #243: both controls render in the toolbar, hidden until config-editor.js reveals them (they do nothing
+        // without JS), and every section still renders open so the no-JS editor shows everything.
+        await Assert.That(html).Contains("data-cfg-sections=\"collapse\"");
+        await Assert.That(html).Contains("data-cfg-sections=\"expand\"");
+        await Assert.That(html).Contains("data-cfg-sections-controls hidden");
+        await Assert.That(html).DoesNotContain("<details class=\"zw-cfg-sec\" data-cfg-sec>");
+        client.Dispose();
+    }
+
+    [Test]
     public async Task The_configuration_editor_applies_only_the_changed_settings()
     {
         await using ZWardenWebAppFactory factory = new()
