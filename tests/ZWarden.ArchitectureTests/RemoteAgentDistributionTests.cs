@@ -84,6 +84,8 @@ public class RemoteAgentDistributionTests
         await Assert.That(compose).Contains("-allowGET=(/v1\\.[0-9]+)?/(_ping|version|info|containers/json|containers/[a-zA-Z0-9_.-]+/(json|logs|stats))");
         await Assert.That(compose).Contains("-allowHEAD=(/v1\\.[0-9]+)?/_ping");
         await Assert.That(compose).Contains("-allowPOST=(/v1\\.[0-9]+)?/(containers/create|containers/[a-zA-Z0-9_.-]+/(start|stop|restart))");
+        // ADR 0045 (#229): remove only for a canonical srv-<uuid> container name — never an unscoped DELETE.
+        await Assert.That(compose).Contains("-allowDELETE=(/v1\\.[0-9]+)?/containers/srv-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}");
         // Bind sources constrained to the persistent PZ data root (ADR 0008 amended by #184; was /tmp).
         await Assert.That(compose).Contains("-allowbindmountfrom=/srv/zwarden");
         await Assert.That(compose).DoesNotContain("-allowbindmountfrom=/tmp");

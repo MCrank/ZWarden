@@ -14,8 +14,9 @@ namespace ZWarden.IntegrationTests;
 /// context from the reference deployment). It proves discovery is scoped to this Agent, that a foreign
 /// container is refused, the create→inspect→lifecycle round-trip carries the §5.3 invariants unsanitized, and
 /// the pre-provision diagnostic. The final test is ADR 0008's adoptable claim: the runtime driven <b>through a
-/// wollomatic proxy carrying the ten-entry allowlist</b>, so any drift between what the Agent calls and what
-/// the deployment permits fails the build — and a denied verb (DELETE) is refused by the proxy.
+/// wollomatic proxy carrying the deployment allowlist</b>, so any drift between what the Agent calls and what
+/// the deployment permits fails the build — a denied verb (exec) is refused, and DELETE passes only for a canonical
+/// srv-&lt;uuid&gt; name (ADR 0045).
 /// </summary>
 [ParallelLimiter<ContainerParallelLimit>]
 public sealed class AgentDockerRuntimeTests : IAsyncDisposable
@@ -175,6 +176,8 @@ public sealed class AgentDockerRuntimeTests : IAsyncDisposable
                 "-allowGET=(/v1\\.[0-9]+)?/(_ping|version|info|containers/json|containers/[a-zA-Z0-9_.-]+/(json|logs|stats))",
                 "-allowHEAD=(/v1\\.[0-9]+)?/_ping",
                 "-allowPOST=(/v1\\.[0-9]+)?/(containers/create|containers/[a-zA-Z0-9_.-]+/(start|stop|restart))",
+                // ADR 0045 (#229): remove, but only a canonical srv-<uuid> NAME — a hex id or any other name is a 403.
+                "-allowDELETE=(/v1\\.[0-9]+)?/containers/srv-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
                 "-allowbindmountfrom=/tmp",
                 "-watchdoginterval=0")
             .WithPortBinding(2375, assignRandomHostPort: true)
@@ -192,7 +195,8 @@ public sealed class AgentDockerRuntimeTests : IAsyncDisposable
 
         // Every runtime call is an allowlisted verb, so the whole round-trip succeeds through the proxy.
         await Assert.That((await runtime.ProbeHealthAsync(ct)).DaemonReachable).IsTrue();
-        string id = await runtime.CreateAsync(SpecFor(ServerId.New(), network), ct);
+        ServerId server = ServerId.New();
+        string id = await runtime.CreateAsync(SpecFor(server, network) with { ContainerName = server.ToString() }, ct);
         _containers.Add(id);
         await runtime.StartAsync(id, ct);
 
@@ -201,15 +205,35 @@ public sealed class AgentDockerRuntimeTests : IAsyncDisposable
         // entry (a refusal throws DockerApiException). Assert on the round-trip, not on any counter: a single
         // non-streaming read on a cgroup-v2 host (GitHub's runners) legitimately reports an all-zero snapshot
         // (memory unlimited → 0, and CPU % needs two samples), so no field is reliably non-zero (#127). This
-        // is the allow-side companion to the denied-verb (405) assertion below.
+        // is the allow-side companion to the denied-verb (403) assertions below.
         await Assert.That(async () => await new DockerDotNetEngine(proxied).StatsAsync(id, ct)).ThrowsNothing();
 
         await runtime.StopAsync(id, ct);
 
-        // A denied verb (DELETE) is refused by the allowlist — proving the proxy really constrains the surface.
+        // A denied verb (exec-create) is refused by the allowlist — proving the proxy really constrains the surface.
+        // It lives under the /containers prefix (ADR 0008 trap 1) but matches no POST rule, so it is a path miss: 403.
         DockerApiException? denied = await Assert.ThrowsAsync<DockerApiException>(() =>
-            proxied.Containers.RemoveContainerAsync(id, new ContainerRemoveParameters { Force = true }, ct));
-        await Assert.That((int)denied!.StatusCode).IsEqualTo(405);
+            proxied.Exec.CreateContainerExecAsync(id, new ContainerExecCreateParameters { Cmd = ["true"] }, ct));
+        await Assert.That((int)denied!.StatusCode).IsEqualTo(403);
+
+        // DELETE is admitted only for a canonical srv-<uuid> NAME (ADR 0045). The same container addressed by its hex
+        // id, and a foreign container addressed by its own name, are both a path miss — 403 — so an Agent bug that
+        // picks the wrong container still cannot delete it through the proxy.
+        DockerApiException? byHexId = await Assert.ThrowsAsync<DockerApiException>(() =>
+            proxied.Containers.RemoveContainerAsync(id, new ContainerRemoveParameters(), ct));
+        await Assert.That((int)byHexId!.StatusCode).IsEqualTo(403);
+
+        string foreignName = $"zwarden-itest-foreign-{Guid.NewGuid():N}";
+        CreateContainerResponse foreign = await _direct.Containers.CreateContainerAsync(
+            new CreateContainerParameters { Image = TestImage, Name = foreignName, Cmd = ["sleep", "300"] }, ct);
+        _containers.Add(foreign.ID);
+        DockerApiException? byForeignName = await Assert.ThrowsAsync<DockerApiException>(() =>
+            proxied.Containers.RemoveContainerAsync(foreignName, new ContainerRemoveParameters(), ct));
+        await Assert.That((int)byForeignName!.StatusCode).IsEqualTo(403);
+
+        // The runtime's own remove — by ServerId name, stopped, owned — round-trips through the proxy.
+        await runtime.RemoveAsync(server, ct);
+        await Assert.That(await runtime.InspectServerAsync(server, ct)).IsNull();
 
         proxied.Dispose();
     }
@@ -246,6 +270,8 @@ public sealed class AgentDockerRuntimeTests : IAsyncDisposable
                 "-allowGET=(/v1\\.[0-9]+)?/(_ping|version|info|containers/json|containers/[a-zA-Z0-9_.-]+/(json|logs|stats))",
                 "-allowHEAD=(/v1\\.[0-9]+)?/_ping",
                 "-allowPOST=(/v1\\.[0-9]+)?/(containers/create|containers/[a-zA-Z0-9_.-]+/(start|stop|restart))",
+                // ADR 0045 (#229): remove, but only a canonical srv-<uuid> NAME — a hex id or any other name is a 403.
+                "-allowDELETE=(/v1\\.[0-9]+)?/containers/srv-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
                 "-allowbindmountfrom=/tmp",
                 "-watchdoginterval=0")
             .WithPortBinding(2375, assignRandomHostPort: true)

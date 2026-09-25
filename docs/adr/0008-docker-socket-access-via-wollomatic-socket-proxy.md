@@ -61,7 +61,13 @@ What remained was which proxy, and what it may pass through.
 > writable storage without loosening the read-only root or adding a persistent mount. Nothing there survives a
 > recreate. It is enforced by the F13 factory tests alongside the other invariants.
 
-Denied explicitly, among others: `DELETE /containers/{id}`, `POST /containers/prune`,
+> **Amendment ([ADR 0045](./0045-recreate-removes-a-stopped-container-by-its-canonical-name-only.md), #229):** a
+> twelfth entry, `DELETE /containers/srv-<uuid>`, admits removal of a **canonical container by its ServerId name
+> only** — for the Recreate Operation (ports now, memory and branch later). A hex id or any other name is still
+> a 403, and the Agent never forces a remove or drops volumes. The unscoped `DELETE /containers/{id}` below
+> remains denied.
+
+Denied explicitly, among others: `DELETE /containers/{id}` (any path but a canonical `srv-<uuid>` name), `POST /containers/prune`,
 `/containers/{id}/kill`, `/containers/{id}/exec` **and** `/exec/{id}/start`,
 `PUT|GET|HEAD /containers/{id}/archive`, `/update`, `/rename`, `/attach`, `/export`, `/pause`,
 `/top`, `/changes`, and all of `/images/*`, `/volumes/*`, `/networks/*`, `/build`, `/commit`,
