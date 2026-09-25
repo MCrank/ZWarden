@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using ZWarden.Agent.Backups;
@@ -51,7 +52,8 @@ public class AgentCommandProcessorTests
         IServerConfigReloader? configReloader = null,
         IModDiscovery? modDiscovery = null,
         IHostDiagnosticsGatherer? hostDiagnostics = null,
-        IServerDiagnosticsGatherer? serverDiagnostics = null)
+        IServerDiagnosticsGatherer? serverDiagnostics = null,
+        ILogger<AgentCommandProcessor>? logger = null)
     {
         IContainerRuntime effectiveRuntime = runtime ?? new FakeContainerRuntime();
         IOptions<AgentOptions> options = Options.Create(new AgentOptions
@@ -99,7 +101,7 @@ public class AgentCommandProcessorTests
             hostDiagnostics ?? new FakeHostDiagnosticsGatherer(),
             serverDiagnostics ?? new FakeServerDiagnosticsGatherer(),
             options,
-            NullLogger<AgentCommandProcessor>.Instance);
+            logger ?? NullLogger<AgentCommandProcessor>.Instance);
     }
 
     private static string Json(AgentCommand command, OperationId? operationId = null, ServerId? serverId = null)
@@ -316,6 +318,40 @@ public class AgentCommandProcessorTests
         await Assert.That(prepared.HeapSizeBytes).IsEqualTo(4L * 1024 * 1024 * 1024);
         await Assert.That(prepared.MemoryLimitBytes).IsEqualTo(10L * 1024 * 1024 * 1024);
         await Assert.That(prepared.MemoryLimitBytes > prepared.HeapSizeBytes).IsTrue();
+    }
+
+    [Test]
+    public async Task A_failed_completion_is_logged_as_a_warning_with_its_reason()
+    {
+        // #266: a refusal the Agent completes cleanly as Failed (here the port pre-flight) used to leave no trace in the
+        // Agent log — only exceptions were logged. Every Failed completion now is, whatever the command.
+        var logger = new RecordingLogger<AgentCommandProcessor>();
+        var runtime = new FakeContainerRuntime
+        {
+            ClaimException = new PortUnavailableException("Host port 16261/udp is already published by another container on this host."),
+        };
+        OperationId operationId = OperationId.New();
+        ServerId server = ServerId.New();
+
+        Envelope<OperationCompleted>? reply = await Processor(runtime, logger: logger)
+            .ProcessAsync(Json(new CreateServer(GamePort: 16261), operationId, server), CancellationToken.None);
+
+        await Assert.That(reply!.Payload.Outcome).IsEqualTo(OperationOutcome.Failed);
+        RecordingLogger<AgentCommandProcessor>.Entry entry = logger.Entries.Single(e => e.Level == LogLevel.Warning);
+        await Assert.That(entry.Message).Contains(operationId.ToString());
+        await Assert.That(entry.Message).Contains(server.ToString());
+        await Assert.That(entry.Message).Contains("CreateServer");
+        await Assert.That(entry.Message).Contains("16261/udp is already published");
+    }
+
+    [Test]
+    public async Task A_succeeded_completion_logs_no_warning()
+    {
+        var logger = new RecordingLogger<AgentCommandProcessor>();
+
+        await Processor(logger: logger).ProcessAsync(Json(new PingAgent(), OperationId.New()), CancellationToken.None);
+
+        await Assert.That(logger.Entries.Any(e => e.Level >= LogLevel.Warning)).IsFalse();
     }
 
     [Test]

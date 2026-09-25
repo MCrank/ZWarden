@@ -126,6 +126,29 @@ public sealed partial class AgentCommandProcessor
             return null;
         }
 
+        Envelope<OperationCompleted>? reply = await ProcessCoreAsync(envelope, operationId, progress, cancellationToken)
+            .ConfigureAwait(false);
+
+        // #266: a command the Agent completes cleanly as Failed (a refusal, a rolled-back recreate, a Docker error it
+        // turned into a reason) is not an exception, so without this it left no trace in the Agent log at all.
+        if (reply is { Payload.Outcome: OperationOutcome.Failed })
+        {
+            LogOperationFailed(
+                operationId,
+                envelope.Payload.GetType().Name,
+                envelope.ServerId?.ToString() ?? "-",
+                reply.Payload.FailureReason ?? "(no reason)");
+        }
+
+        return reply;
+    }
+
+    private async Task<Envelope<OperationCompleted>?> ProcessCoreAsync(
+        Envelope<IProtocolMessage> envelope,
+        OperationId operationId,
+        IOperationProgressReporter? progress,
+        CancellationToken cancellationToken)
+    {
         switch (envelope.Payload)
         {
             case PingAgent:
@@ -658,6 +681,9 @@ public sealed partial class AgentCommandProcessor
             LogConfigWriteFailed(serverId, operationId, file, mode, reason ?? "unknown");
         }
     }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Operation {OperationId} ({Command}) for server {ServerId} failed: {Reason}")]
+    private partial void LogOperationFailed(OperationId operationId, string command, string serverId, string reason);
 
     [LoggerMessage(Level = LogLevel.Information,
         Message = "Configuration write ({Mode}) applied to {File} for server {ServerId} (operation {OperationId}): {ChangedCount} value(s) changed")]
