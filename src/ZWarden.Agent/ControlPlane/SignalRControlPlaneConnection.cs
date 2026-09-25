@@ -31,6 +31,7 @@ public sealed partial class SignalRControlPlaneConnection : IAgentControlPlaneCo
     private readonly AgentOptions _options;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<SignalRControlPlaneConnection> _logger;
+    private readonly BackgroundCommandRunner _commandRunner;
     private HubConnection? _connection;
 
     public SignalRControlPlaneConnection(
@@ -62,6 +63,7 @@ public sealed partial class SignalRControlPlaneConnection : IAgentControlPlaneCo
         _options = options.Value;
         _timeProvider = timeProvider;
         _logger = logger;
+        _commandRunner = new BackgroundCommandRunner(logger);
     }
 
     /// <inheritdoc />
@@ -141,6 +143,8 @@ public sealed partial class SignalRControlPlaneConnection : IAgentControlPlaneCo
     {
         if (_connection is not null)
         {
+            // Let in-flight commands finish and report on this connection first (#248), bounded by shutdown.
+            await _commandRunner.DrainAsync(cancellationToken).ConfigureAwait(false);
             await _connection.StopAsync(cancellationToken).ConfigureAwait(false);
         }
     }
@@ -171,26 +175,33 @@ public sealed partial class SignalRControlPlaneConnection : IAgentControlPlaneCo
         // Handle commands the control plane dispatches (F11): deserialize, act, and report the result on the
         // same OperationId. A failed handling must not tear the connection down; the operation's lease reaps
         // it if no report arrives.
-        connection.On<string>(AgentHubProtocol.ReceiveCommand, async commandJson =>
+        // #248: the handler hands the command to the background runner and returns at once. The client runs these
+        // handlers one at a time, so awaiting a whole Operation here (a restart, an update, a backup) held back
+        // every later message — live-log start/stop, config reads, raw-edit staging — until it finished.
+        connection.On<string>(AgentHubProtocol.ReceiveCommand, commandJson =>
         {
-            try
+            _commandRunner.Run(async () =>
             {
-                // A live progress emitter over this connection (F17): a long SteamCMD update sends interim
-                // OperationProgress through it; other commands ignore it. Built here, never a DI singleton, to
-                // avoid a cycle with the connection this processor is wired into.
-                HubOperationProgressReporter progress = new(connection, _timeProvider);
-                Envelope<OperationCompleted>? reply = await _commands.ProcessAsync(commandJson, CancellationToken.None, progress).ConfigureAwait(false);
-                if (reply is not null)
+                try
                 {
-                    await connection.SendAsync(AgentHubProtocol.OperationCompleted, reply).ConfigureAwait(false);
+                    // A live progress emitter over this connection (F17): a long SteamCMD update sends interim
+                    // OperationProgress through it; other commands ignore it. Built here, never a DI singleton, to
+                    // avoid a cycle with the connection this processor is wired into.
+                    HubOperationProgressReporter progress = new(connection, _timeProvider);
+                    Envelope<OperationCompleted>? reply = await _commands.ProcessAsync(commandJson, CancellationToken.None, progress).ConfigureAwait(false);
+                    if (reply is not null)
+                    {
+                        await connection.SendAsync(AgentHubProtocol.OperationCompleted, reply).ConfigureAwait(false);
+                    }
                 }
-            }
 #pragma warning disable CA1031 // A bad command must not crash the connection; the lease reaps an unreported operation.
-            catch (Exception ex)
-            {
-                LogCommandFailed(ex);
-            }
+                catch (Exception ex)
+                {
+                    LogCommandFailed(ex);
+                }
 #pragma warning restore CA1031
+            });
+            return Task.CompletedTask;
         });
 
         // Live-log subscription control (F27): Web calls these to begin/stop following a Server's logs while an
