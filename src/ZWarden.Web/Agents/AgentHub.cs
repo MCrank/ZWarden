@@ -39,6 +39,7 @@ public sealed partial class AgentHub : Hub
     private readonly IOperationStore _operations;
     private readonly IServerStateReconciler _servers;
     private readonly IServerMetricsCache _metrics;
+    private readonly IHostCapacityCache _capacity;
     private readonly IServerHealthCache _healthCache;
     private readonly IServerLogBuffer _logBuffer;
     private readonly ServerConfigReadCoordinator _configReads;
@@ -58,6 +59,7 @@ public sealed partial class AgentHub : Hub
         IOperationStore operations,
         IServerStateReconciler servers,
         IServerMetricsCache metrics,
+        IHostCapacityCache capacity,
         IServerHealthCache healthCache,
         IServerLogBuffer logBuffer,
         ServerConfigReadCoordinator configReads,
@@ -76,6 +78,7 @@ public sealed partial class AgentHub : Hub
         ArgumentNullException.ThrowIfNull(operations);
         ArgumentNullException.ThrowIfNull(servers);
         ArgumentNullException.ThrowIfNull(metrics);
+        ArgumentNullException.ThrowIfNull(capacity);
         ArgumentNullException.ThrowIfNull(healthCache);
         ArgumentNullException.ThrowIfNull(logBuffer);
         ArgumentNullException.ThrowIfNull(configReads);
@@ -93,6 +96,7 @@ public sealed partial class AgentHub : Hub
         _operations = operations;
         _servers = servers;
         _metrics = metrics;
+        _capacity = capacity;
         _healthCache = healthCache;
         _logBuffer = logBuffer;
         _configReads = configReads;
@@ -276,6 +280,28 @@ public sealed partial class AgentHub : Hub
     /// from this Agent's previous sample (or there is none, e.g. after a Web restart) it is recorded on the owned
     /// Server, so the DB is touched only on a change.
     /// </summary>
+    public Task HostCapacity(Envelope<HostCapacityReport> report)
+    {
+        ArgumentNullException.ThrowIfNull(report);
+        if (!AgentClaims.TryGetAgentId(Context.User, out AgentId agentId))
+        {
+            return Task.CompletedTask;
+        }
+
+        HostCapacityReport r = report.Payload;
+        // Untrusted: a nonsensical (negative) figure is dropped rather than shown as guidance.
+        if (r.TotalMemoryBytes < 0 || r.CommittedMemoryBytes < 0 || r.MemoryOverheadBytes < 0
+            || r.DefaultHeapSizeBytes < 0 || r.ReserveMemoryBytes < 0)
+        {
+            return Task.CompletedTask;
+        }
+
+        _capacity.Record(new Application.Servers.HostCapacity(
+            agentId, r.TotalMemoryBytes, r.CommittedMemoryBytes, r.MemoryOverheadBytes, r.DefaultHeapSizeBytes,
+            r.ReserveMemoryBytes, report.Timestamp));
+        return Task.CompletedTask;
+    }
+
     public async Task MetricsReport(Envelope<ServerMetricsReport> report)
     {
         ArgumentNullException.ThrowIfNull(report);

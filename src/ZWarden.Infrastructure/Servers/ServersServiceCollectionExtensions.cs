@@ -38,6 +38,7 @@ public static class ServersServiceCollectionExtensions
         // The latest-sample-per-Server metrics cache (F16): transient, in-process, a singleton beside the
         // discovery cache. Never persisted — metrics are display data, not durable state.
         services.AddSingleton<IServerMetricsCache, ServerMetricsCache>();
+        services.AddSingleton<IHostCapacityCache, HostCapacityCache>();
 
         // The latest-health-per-Server cache (F16), beside the metrics cache: lets an interactive circuit show
         // live health without a tenant-scoped read. Transient; the durable value is Server.LastHealth.

@@ -6,7 +6,7 @@
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
     <LangVersion>14.0</LangVersion>
-    <TestingPlatformCommandLineArguments>--minimum-expected-tests 451</TestingPlatformCommandLineArguments>
+    <TestingPlatformCommandLineArguments>--minimum-expected-tests 455</TestingPlatformCommandLineArguments>
   </PropertyGroup>
 
   <ItemGroup>

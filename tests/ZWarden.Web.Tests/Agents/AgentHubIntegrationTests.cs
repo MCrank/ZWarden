@@ -184,6 +184,33 @@ public class AgentHubIntegrationTests
     }
 
     [Test]
+    public async Task An_agent_host_capacity_report_lands_in_the_cache_under_the_reporting_agent()
+    {
+        const long GiB = 1024L * 1024 * 1024;
+        await using ZWardenWebAppFactory factory = new();
+        (AgentId agentId, string credential) = await SeedTrustedAgentAsync(factory);
+        await using HubConnection connection = BuildConnection(factory, credential);
+
+        await connection.StartAsync();
+        await connection.InvokeAsync<ProtocolNegotiationResult>(
+            AgentHubProtocol.Hello, Hello(agentId, ProtocolVersion.Current));
+
+        // #230: the payload names no Agent — the authenticated connection does, so a report can't be forged for another.
+        await connection.InvokeAsync(
+            AgentHubProtocol.HostCapacity,
+            Envelope.Create(new HostCapacityReport(32 * GiB, 10 * GiB, 6 * GiB, 4 * GiB, 2 * GiB), Now, agentId));
+
+        IHostCapacityCache cache = factory.Services.GetRequiredService<IHostCapacityCache>();
+        await WaitUntilAsync(() => Task.FromResult(cache.GetLatest(agentId) is not null));
+
+        Application.Servers.HostCapacity capacity = cache.GetLatest(agentId)!;
+        await Assert.That(capacity.TotalBytes).IsEqualTo(32 * GiB);
+        await Assert.That(capacity.FreeBytes).IsEqualTo(20 * GiB);
+
+        await connection.StopAsync();
+    }
+
+    [Test]
     public async Task A_metrics_report_carries_the_fleet_facts_and_records_the_build_on_the_server()
     {
         await using ZWardenWebAppFactory factory = new();
