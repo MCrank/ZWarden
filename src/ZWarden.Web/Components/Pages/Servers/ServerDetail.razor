@@ -123,6 +123,28 @@ else
         </div>
     }
 
+    @* #266: the last action's failure and why — a refused Recreate used to look like a silent no-op. Always rendered
+       (hidden when there is none) so live-status.js can show it the moment an in-flight action fails, and hide it once
+       a later action succeeds. The reason is untrusted Agent text: Razor escapes it; the script uses textContent.
+       Dismissal is a per-viewer convenience remembered by operation id in the browser. *@
+    <div class="mt-3" data-last-failure data-last-failure-id="@_lastFailure?.OperationId" hidden="@(_lastFailure is null)">
+        <BbAlert Variant="AlertVariant.Danger" AccentBorder>
+            <BbAlertDescription>
+                <div class="flex items-start gap-3">
+                    <div class="flex-1">
+                        <p>
+                            <span class="font-semibold"><span data-last-failure-action>@_lastFailure?.Action</span> failed</span>
+                            <span class="text-xs text-muted-foreground">· <span data-last-failure-at>@_lastFailure?.At</span></span>
+                        </p>
+                        <p class="mt-1 break-words" data-last-failure-reason>@_lastFailure?.Reason</p>
+                    </div>
+                    <BbButton Variant="ButtonVariant.Ghost" Size="ButtonSize.Small" Type="ButtonType.Button"
+                              data-last-failure-dismiss aria-label="Dismiss this failure">Dismiss</BbButton>
+                </div>
+            </BbAlertDescription>
+        </BbAlert>
+    </div>
+
     @* Graceful restart (#114, #213): warn connected players with a countdown before the restart. Surfaced as an
        always-visible panel (not a collapsed disclosure) so it is discoverable, and the operator picks how long to
        warn. Static-SSR form, gated on the same server-scoped Server.Restart the service re-checks on submit. *@
@@ -1470,6 +1492,7 @@ else
     private ServerStatusView _status = ServerLiveStatus.Resolve(ServerRunState.Unknown, activeOperation: null);
     private bool _canRestartServer;
     private bool _canRecreate;
+    private ServerFailureView? _lastFailure;
     private string? _lifecycleMessage;
     private AlertVariant _lifecycleAlert = AlertVariant.Warning;
     private PlayerPermissions _perm;
@@ -1642,6 +1665,11 @@ else
 
         Operation? active = await OperationStore.FindActiveForServerAsync(serverId);
         _status = ServerLiveStatus.Resolve(_server.LastRunState, active?.Kind, active?.StatusLine);
+
+        // #266: the last action's failure, unless a new action is already in flight (it supersedes the old one).
+        _lastFailure = active is null
+            ? ServerFailureView.From(await OperationStore.FindUnresolvedFailureForServerAsync(serverId), OperatorTz.Zone)
+            : null;
     }
 
     private async Task LifecycleAsync()

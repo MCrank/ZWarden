@@ -68,11 +68,69 @@
     if (root.getAttribute('data-status-busy') !== value) { root.setAttribute('data-status-busy', value); }
   }
 
+  // #266: the last action's failure ([data-last-failure], outside the header root). The reason is Agent text, so
+  // textContent only. A viewer may dismiss one failure; that is remembered per operation id in this browser only
+  // (a convenience — storage may be unavailable, so every access is guarded and the alert simply stays visible).
+  var DISMISSED_KEY = 'zw-dismissed-failures';
+  var MAX_DISMISSED = 50;
+
+  function dismissedIds() {
+    try {
+      var raw = window.localStorage.getItem(DISMISSED_KEY);
+      var ids = raw ? JSON.parse(raw) : [];
+      return Array.isArray(ids) ? ids : [];
+    } catch (e) { return []; }
+  }
+
+  function rememberDismissed(id) {
+    try {
+      var ids = dismissedIds().filter(function (x) { return x !== id; });
+      ids.push(id);
+      window.localStorage.setItem(DISMISSED_KEY, JSON.stringify(ids.slice(-MAX_DISMISSED)));
+    } catch (e) { /* storage unavailable: dismissal lasts until the next poll re-shows it */ }
+  }
+
+  function failureBox() {
+    return doc.querySelector('[data-last-failure]');
+  }
+
+  // Hide a server-rendered failure the viewer already dismissed (on load and after every enhanced navigation).
+  function hideDismissed() {
+    var box = failureBox();
+    var id = box && box.getAttribute('data-last-failure-id');
+    if (id && dismissedIds().indexOf(id) !== -1) { setHidden(box, true); }
+  }
+
+  function applyFailure(f) {
+    var box = failureBox();
+    if (!box) { return; }
+    var id = f && typeof f.operationId === 'string' ? f.operationId : null;
+    if (!id || dismissedIds().indexOf(id) !== -1) {
+      setHidden(box, true);
+      return;
+    }
+    setAttr(box, 'data-last-failure-id', id);
+    setText(box.querySelector('[data-last-failure-action]'), String(f.action || ''));
+    setText(box.querySelector('[data-last-failure-reason]'), String(f.reason || ''));
+    setText(box.querySelector('[data-last-failure-at]'), String(f.at || ''));
+    setHidden(box, false);
+  }
+
+  doc.addEventListener('click', function (e) {
+    var button = e.target && e.target.closest ? e.target.closest('[data-last-failure-dismiss]') : null;
+    if (!button) { return; }
+    var box = button.closest('[data-last-failure]');
+    var id = box && box.getAttribute('data-last-failure-id');
+    if (id) { rememberDismissed(id); }
+    setHidden(box, true);
+  });
+
   function applyHeader(root, s) {
     if (!s || TONES.indexOf(s.tone) === -1) { return; }
     applyBadge(root, s);
     setBusy(root, s.busy);
     applyControls(doc, s);
+    applyFailure(s.failure);
   }
 
   // #257: the fleet facts. Every value is Agent-observed data, so it is written with textContent only. Uptime and
@@ -247,6 +305,12 @@
       })
       .catch(function () { /* transient: the next tick tries again */ })
       .then(function () { schedule(currentRoot()); });
+  }
+
+  hideDismissed();
+  // Blazor raises 'enhancedload' on its own event bus (not a DOM event); this script loads after blazor.web.js.
+  if (window.Blazor && typeof window.Blazor.addEventListener === 'function') {
+    try { window.Blazor.addEventListener('enhancedload', hideDismissed); } catch (e) { /* older runtime */ }
   }
 
   schedule(currentRoot());

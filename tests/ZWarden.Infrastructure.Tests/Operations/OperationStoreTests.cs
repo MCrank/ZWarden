@@ -58,6 +58,89 @@ public class OperationStoreTests
         });
     }
 
+    private static Operation Finished(
+        ServerId server, OperationKind kind, OperationState outcome, DateTimeOffset completedAt, bool mutating = true)
+    {
+        Operation op = Operation.Enqueue(AgentId.New(), kind, isMutating: mutating, Guid.NewGuid().ToString("N"), completedAt, server);
+        op.MarkDispatched(completedAt + Lease, completedAt);
+        switch (outcome)
+        {
+            case OperationState.Succeeded:
+                op.Succeed(completedAt);
+                break;
+            case OperationState.Failed:
+                op.Fail("Host port 16261/udp is already published by another container on this host.", completedAt);
+                break;
+            default:
+                op.RequestCancel(completedAt);
+                op.Cancel(completedAt);
+                break;
+        }
+
+        return op;
+    }
+
+    [Test]
+    public async Task FindUnresolvedFailure_returns_the_servers_latest_mutating_operation_when_it_failed()
+    {
+        // #266: a failed action's reason must reach the server page — as long as nothing has succeeded since.
+        await OperationTestHarness.WithSqlite(async options =>
+        {
+            await using ZWardenDbContext ctx = OperationTestHarness.Context(options);
+            ServerId server = ServerId.New();
+            Operation earlier = Finished(server, OperationKind.RestartServer, OperationState.Succeeded, Now);
+            await Task.Delay(5); // UUIDv7 ids order by millisecond only (ADR 0004) — space generation.
+            Operation failed = Finished(server, OperationKind.RecreateServer, OperationState.Failed, Now.AddMinutes(5));
+            ctx.AddRange(earlier, failed);
+            await ctx.SaveChangesAsync();
+
+            OperationStore sut = OperationTestHarness.Store(ctx, new CapturingAuditWriter(), new StubClock(Now), Options);
+            Operation? failure = await sut.FindUnresolvedFailureForServerAsync(server);
+
+            await Assert.That(failure?.Id).IsEqualTo(failed.Id);
+            await Assert.That(failure!.FailureReason).Contains("16261/udp");
+        });
+    }
+
+    [Test]
+    [Arguments(OperationState.Succeeded)]
+    [Arguments(OperationState.Cancelled)]
+    public async Task FindUnresolvedFailure_is_cleared_by_a_later_finished_operation(OperationState later)
+    {
+        await OperationTestHarness.WithSqlite(async options =>
+        {
+            await using ZWardenDbContext ctx = OperationTestHarness.Context(options);
+            ServerId server = ServerId.New();
+            Operation failed = Finished(server, OperationKind.RecreateServer, OperationState.Failed, Now);
+            await Task.Delay(5); // UUIDv7 ids order by millisecond only (ADR 0004) — space generation.
+            ctx.AddRange(failed, Finished(server, OperationKind.StartServer, later, Now.AddMinutes(5)));
+            await ctx.SaveChangesAsync();
+
+            OperationStore sut = OperationTestHarness.Store(ctx, new CapturingAuditWriter(), new StubClock(Now), Options);
+
+            await Assert.That(await sut.FindUnresolvedFailureForServerAsync(server)).IsNull();
+        });
+    }
+
+    [Test]
+    public async Task FindUnresolvedFailure_ignores_read_only_and_other_servers_failures()
+    {
+        await OperationTestHarness.WithSqlite(async options =>
+        {
+            await using ZWardenDbContext ctx = OperationTestHarness.Context(options);
+            ServerId server = ServerId.New();
+            ctx.AddRange(
+                Finished(server, OperationKind.StartServer, OperationState.Succeeded, Now),
+                Finished(server, OperationKind.ListPlayers, OperationState.Failed, Now.AddMinutes(1), mutating: false),
+                Finished(ServerId.New(), OperationKind.StopServer, OperationState.Failed, Now.AddMinutes(2)));
+            await ctx.SaveChangesAsync();
+
+            OperationStore sut = OperationTestHarness.Store(ctx, new CapturingAuditWriter(), new StubClock(Now), Options);
+
+            await Assert.That(await sut.FindUnresolvedFailureForServerAsync(server)).IsNull();
+        });
+    }
+
     [Test]
     public async Task FindActiveForServer_ignores_finished_read_only_and_other_servers_operations()
     {

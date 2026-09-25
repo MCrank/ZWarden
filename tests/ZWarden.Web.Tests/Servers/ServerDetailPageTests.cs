@@ -1620,6 +1620,45 @@ public sealed class ServerDetailPageTests
     }
 
     [Test]
+    public async Task The_last_failed_action_and_its_reason_show_under_the_header()
+    {
+        // #266: a refused Recreate is not a silent no-op — the page says what failed and why.
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "refused", gamePort: 17000, queryPort: 17001);
+        using (IServiceScope scope = factory.Services.CreateScope())
+        {
+            ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
+            Operation op = Operation.Enqueue(AgentId.New(), OperationKind.RecreateServer, isMutating: true, "k", DateTimeOffset.UtcNow, serverId);
+            op.MarkDispatched(DateTimeOffset.UtcNow.AddMinutes(5), DateTimeOffset.UtcNow);
+            op.Fail("Host port 16261/udp is already published by another container on this host.", DateTimeOffset.UtcNow);
+            db.Add(op);
+            await db.SaveChangesAsync();
+        }
+
+        string html = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        await Assert.That(html).Contains("data-last-failure-reason>Host port 16261/udp is already published");
+        await Assert.That(html).Contains("data-last-failure-action>Recreate</span>");
+        await Assert.That(html).Contains("data-last-failure-dismiss");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task No_failure_alert_is_visible_when_nothing_has_failed()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "fine");
+
+        string html = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        // Rendered (so the live script can fill it in) but hidden.
+        await Assert.That(Regex.IsMatch(html, "<div[^>]*data-last-failure[^>]*hidden")).IsTrue();
+        client.Dispose();
+    }
+
+    [Test]
     public async Task The_change_ports_control_shows_the_current_pair_for_a_permitted_owner()
     {
         // #229: an owner holds Server.Recreate, so the overview offers the data-preserving recreate on a new pair.

@@ -50,6 +50,13 @@ public sealed class OperationStore : IOperationStore
         => _operations.FindActiveMutatingForServerAsync(serverId, cancellationToken);
 
     /// <inheritdoc />
+    public async Task<Operation?> FindUnresolvedFailureForServerAsync(ServerId serverId, CancellationToken cancellationToken = default)
+    {
+        Operation? latest = await _operations.FindLatestFinishedMutatingForServerAsync(serverId, cancellationToken).ConfigureAwait(false);
+        return latest is { State: OperationState.Failed } ? latest : null;
+    }
+
+    /// <inheritdoc />
     public Task<IReadOnlyList<Operation>> ListActiveAsync(CancellationToken cancellationToken = default)
         => _operations.ListActiveMutatingAsync(cancellationToken);
 

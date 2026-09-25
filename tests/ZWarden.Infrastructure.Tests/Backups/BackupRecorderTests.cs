@@ -149,6 +149,9 @@ public class BackupRecorderTests
         public Task<Operation?> FindActiveForServerAsync(ServerId serverId, CancellationToken cancellationToken = default)
             => Task.FromResult<Operation?>(null);
 
+        public Task<Operation?> FindUnresolvedFailureForServerAsync(ServerId serverId, CancellationToken cancellationToken = default)
+            => Task.FromResult<Operation?>(null);
+
         public Task<IReadOnlyList<Operation>> ListActiveAsync(CancellationToken cancellationToken = default)
             => Task.FromResult<IReadOnlyList<Operation>>([]);
 

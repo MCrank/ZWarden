@@ -41,6 +41,22 @@ public sealed class OperationRepository : TenantScopedRepository<Operation>
             .ConfigureAwait(false);
 
     /// <summary>
+    /// The ambient tenant's most recently finished (succeeded, failed or cancelled) mutating Operation on
+    /// <paramref name="serverId"/>, or <c>null</c> (#266). Mutating Operations on one Server never overlap (the
+    /// per-server lock, ADR 0022), so the most recently <i>enqueued</i> finished one is also the latest completion —
+    /// and the id is a UUIDv7, time-ordered in both providers, where SQLite cannot ORDER BY a <c>DateTimeOffset</c>.
+    /// </summary>
+    public async Task<Operation?> FindLatestFinishedMutatingForServerAsync(ServerId serverId, CancellationToken cancellationToken = default)
+        => await Entities
+            .Where(o => o.ServerId == serverId && o.IsMutating
+                && (o.State == OperationState.Succeeded
+                    || o.State == OperationState.Failed
+                    || o.State == OperationState.Cancelled))
+            .OrderByDescending(o => o.Id)
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+    /// <summary>
     /// Every non-terminal mutating Operation in the ambient tenant — at most one per Server, the rows holding the
     /// per-server locks (ADR 0022). The fleet board polls this (#253) instead of one query per Server; the set is
     /// bounded by the tenant's Server count. Same SQL-translatable state filter as the single-Server read.
