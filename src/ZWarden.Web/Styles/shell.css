@@ -213,7 +213,13 @@ html:not(.dark) .zw-ico-moon { display: inline-block; }
   padding: 6px 10px; background: var(--background); border: 1px solid var(--border);
   border-radius: var(--radius); color: var(--muted-foreground);
 }
-.zw-cfg-sections { display: inline-flex; align-items: center; gap: 2px; }
+.zw-cfg-sections { display: inline-flex; align-items: center; gap: 6px; }
+.zw-cfg-sections-btn {
+  gap: 6px; color: var(--primary);
+  border-color: color-mix(in oklch, var(--primary) 45%, var(--border));
+}
+.zw-cfg-sections-btn:hover { color: var(--primary); background: color-mix(in oklch, var(--primary) 12%, transparent); }
+.zw-cfg-sections-btn .zw-ico { width: 14px; height: 14px; }
 .zw-cfg-sections[hidden] { display: none; }
 .zw-cfg-searchbox input { flex: 1; border: 0; background: transparent; color: var(--foreground); font: inherit; font-size: 13px; outline: none; }
 .zw-cfg-searchbox .zw-ico { width: 15px; height: 15px; }
