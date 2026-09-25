@@ -99,6 +99,94 @@ public class ContainerRuntimeTests
     }
 
     [Test]
+    public async Task Allocation_respects_a_foreign_containers_published_udp_port()
+    {
+        var engine = new FakeDockerEngine();
+        // Something else on the daemon already holds 16262/udp — stride 0 is unusable (#229).
+        engine.Listed.Add(new EngineContainer("stranger", new Dictionary<string, string>(), "running",
+            [new PublishedPort(16262, 9000, "udp")]));
+
+        PortAllocation next = await Runtime(engine).AllocateNextPortsAsync(CancellationToken.None);
+
+        await Assert.That(next).IsEqualTo(PortStrideAllocator.ForStride(1));
+    }
+
+    [Test]
+    public async Task Allocation_ignores_a_tcp_port_of_the_same_number()
+    {
+        var engine = new FakeDockerEngine();
+        engine.Listed.Add(new EngineContainer("web", new Dictionary<string, string>(), "running",
+            [new PublishedPort(16261, 80, "tcp")]));
+
+        PortAllocation next = await Runtime(engine).AllocateNextPortsAsync(CancellationToken.None);
+
+        await Assert.That(next).IsEqualTo(PortStrideAllocator.ForStride(0));
+    }
+
+    [Test]
+    public async Task Allocation_counts_a_stopped_containers_configured_bindings()
+    {
+        // A stopped container publishes nothing in the list API, but it was created with stride 0 and will want it
+        // back on start — so stride 0 is still occupied (#229).
+        ServerId stopped = ServerId.New();
+        var engine = new FakeDockerEngine();
+        engine.Listed.Add(Container("stopped", Self, stopped, "exited"));
+        engine.Inspected["stopped"] = Container("stopped", Self, stopped, "exited") with
+        {
+            ConfiguredPorts = [new PublishedPort(16261, 16261, "udp"), new PublishedPort(16262, 16262, "udp")],
+        };
+
+        PortAllocation next = await Runtime(engine).AllocateNextPortsAsync(CancellationToken.None);
+
+        await Assert.That(next).IsEqualTo(PortStrideAllocator.ForStride(1));
+    }
+
+    [Test]
+    public async Task A_free_requested_game_port_is_granted_as_its_pair()
+    {
+        var engine = new FakeDockerEngine();
+        engine.Listed.Add(Container("other", Self, ServerId.New(), "running", new PublishedPort(16261, 16261, "udp")));
+
+        PortAllocation pair = await Runtime(engine).ClaimRequestedPortsAsync(27015, ServerId.New(), CancellationToken.None);
+
+        await Assert.That(pair).IsEqualTo(new PortAllocation(27015, 27016));
+    }
+
+    [Test]
+    public async Task A_requested_pair_overlapping_another_container_is_refused()
+    {
+        var engine = new FakeDockerEngine();
+        engine.Listed.Add(Container("other", Self, ServerId.New(), "running", new PublishedPort(16262, 16262, "udp")));
+
+        var ex = await Assert.ThrowsAsync<PortUnavailableException>(() =>
+            Runtime(engine).ClaimRequestedPortsAsync(16261, ServerId.New(), CancellationToken.None));
+
+        await Assert.That(ex!.Message).Contains("16262");
+    }
+
+    [Test]
+    public async Task A_requested_pair_held_by_the_same_server_is_not_a_clash()
+    {
+        // Recreate on the ports the server already has — its own container is about to be removed.
+        ServerId self = ServerId.New();
+        var engine = new FakeDockerEngine();
+        engine.Listed.Add(Container("self", Self, self, "running", new PublishedPort(16261, 16261, "udp")));
+
+        PortAllocation pair = await Runtime(engine).ClaimRequestedPortsAsync(16261, self, CancellationToken.None);
+
+        await Assert.That(pair).IsEqualTo(PortStrideAllocator.ForStride(0));
+    }
+
+    [Test]
+    [Arguments(80)]
+    [Arguments(65535)]
+    public async Task A_requested_game_port_out_of_range_is_refused(int port)
+    {
+        await Assert.ThrowsAsync<PortUnavailableException>(() =>
+            Runtime(new FakeDockerEngine()).ClaimRequestedPortsAsync(port, ServerId.New(), CancellationToken.None));
+    }
+
+    [Test]
     public async Task Create_builds_the_invariant_body_and_returns_the_id()
     {
         var engine = new FakeDockerEngine { CreatedId = "abc" };
@@ -196,6 +284,105 @@ public class ContainerRuntimeTests
             runtime.StopAsync(ServerId.New(), CancellationToken.None));
 
         await Assert.That(engine.Stopped).IsEmpty();
+    }
+
+    [Test]
+    public async Task Remove_deletes_a_stopped_owned_container_by_its_server_id_name()
+    {
+        ServerId mine = ServerId.New();
+        var engine = new FakeDockerEngine();
+        engine.Listed.Add(Container("docker-hex-id", Self, mine, "exited"));
+        engine.InspectResult = Container("docker-hex-id", Self, mine, "exited") with { Name = mine.ToString() };
+
+        await Runtime(engine).RemoveAsync(mine, CancellationToken.None);
+
+        // By NAME, never the hex id — the proxy only admits a UUID-shaped DELETE path (ADR 0045).
+        await Assert.That(engine.Removed).IsEquivalentTo([mine.ToString()]);
+    }
+
+    [Test]
+    [Arguments("running")]
+    [Arguments("restarting")]
+    [Arguments("paused")]
+    public async Task Remove_refuses_a_container_that_is_not_stopped(string state)
+    {
+        ServerId mine = ServerId.New();
+        var engine = new FakeDockerEngine();
+        engine.Listed.Add(Container("c", Self, mine, state));
+        engine.InspectResult = Container("c", Self, mine, state) with { Name = mine.ToString() };
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => Runtime(engine).RemoveAsync(mine, CancellationToken.None));
+
+        await Assert.That(engine.Removed).IsEmpty();
+    }
+
+    [Test]
+    public async Task Remove_refuses_a_foreign_container_even_if_inspect_disagrees_with_the_list()
+    {
+        // The list said "mine", but the authoritative inspect shows another Agent's labels — refuse before any verb.
+        ServerId mine = ServerId.New();
+        var engine = new FakeDockerEngine();
+        engine.Listed.Add(Container("c", Self, mine, "exited"));
+        engine.InspectResult = Container("c", AgentId.New(), mine, "exited") with { Name = mine.ToString() };
+
+        await Assert.ThrowsAsync<ForeignContainerException>(() => Runtime(engine).RemoveAsync(mine, CancellationToken.None));
+
+        await Assert.That(engine.Removed).IsEmpty();
+    }
+
+    [Test]
+    public async Task Remove_refuses_a_container_not_named_by_its_server_id()
+    {
+        ServerId mine = ServerId.New();
+        var engine = new FakeDockerEngine();
+        engine.Listed.Add(Container("c", Self, mine, "exited"));
+        engine.InspectResult = Container("c", Self, mine, "exited") with { Name = "some-other-name" };
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => Runtime(engine).RemoveAsync(mine, CancellationToken.None));
+
+        await Assert.That(engine.Removed).IsEmpty();
+    }
+
+    [Test]
+    public async Task Remove_throws_not_found_when_no_owned_container_matches()
+    {
+        var engine = new FakeDockerEngine();
+        engine.Listed.Add(Container("foreign", AgentId.New(), ServerId.New(), "exited"));
+
+        await Assert.ThrowsAsync<ContainerNotFoundException>(() =>
+            Runtime(engine).RemoveAsync(ServerId.New(), CancellationToken.None));
+
+        await Assert.That(engine.Removed).IsEmpty();
+    }
+
+    [Test]
+    public async Task Inspect_server_returns_the_owned_containers_recreate_facts()
+    {
+        ServerId mine = ServerId.New();
+        var engine = new FakeDockerEngine();
+        engine.Listed.Add(Container("c", Self, mine, "running"));
+        engine.InspectResult = Container("c", Self, mine, "running") with
+        {
+            Name = mine.ToString(),
+            ConfiguredPorts = [new PublishedPort(27015, 16261, "udp"), new PublishedPort(27016, 16262, "udp")],
+            BindMounts = new Dictionary<string, string>(StringComparer.Ordinal) { ["/pz/data"] = "/srv/zwarden/x" },
+        };
+
+        ServerContainer? facts = await Runtime(engine).InspectServerAsync(mine, CancellationToken.None);
+
+        await Assert.That(facts).IsNotNull();
+        await Assert.That(facts!.IsRunning).IsTrue();
+        await Assert.That(facts.Ports).IsEqualTo(new PortAllocation(27015, 27016));
+        await Assert.That(facts.BindMounts["/pz/data"]).IsEqualTo("/srv/zwarden/x");
+    }
+
+    [Test]
+    public async Task Inspect_server_returns_null_when_no_owned_container_matches()
+    {
+        var engine = new FakeDockerEngine();
+        engine.Listed.Add(Container("foreign", AgentId.New(), ServerId.New()));
+
+        await Assert.That(await Runtime(engine).InspectServerAsync(ServerId.New(), CancellationToken.None)).IsNull();
     }
 
     [Test]

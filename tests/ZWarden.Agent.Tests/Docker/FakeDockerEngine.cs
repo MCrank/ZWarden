@@ -40,8 +40,13 @@ internal sealed class FakeDockerEngine : IDockerEngine
     public Task<IReadOnlyList<EngineContainer>> ListAsync(CancellationToken cancellationToken) =>
         Task.FromResult<IReadOnlyList<EngineContainer>>(Listed);
 
+    /// <summary>Per-container inspect results; falls back to <see cref="InspectResult"/> for an unlisted id.</summary>
+    public Dictionary<string, EngineContainer> Inspected { get; } = new(StringComparer.Ordinal);
+
     public Task<EngineContainer> InspectAsync(string containerId, CancellationToken cancellationToken) =>
-        Task.FromResult(InspectResult ?? throw new InvalidOperationException("No inspect result arranged."));
+        Task.FromResult(Inspected.TryGetValue(containerId, out EngineContainer? inspected)
+            ? inspected
+            : InspectResult ?? throw new InvalidOperationException("No inspect result arranged."));
 
     public ContainerStatsSnapshot StatsResult { get; set; }
 
@@ -154,6 +159,19 @@ internal sealed class FakeDockerEngine : IDockerEngine
 
         LastWaitBeforeKillSeconds = waitBeforeKillSeconds;
         Restarted.Add(containerId);
+        return Task.CompletedTask;
+    }
+
+    public List<string> Removed { get; } = [];
+
+    public Task RemoveAsync(string containerName, CancellationToken cancellationToken)
+    {
+        if (VerbException is not null)
+        {
+            throw VerbException;
+        }
+
+        Removed.Add(containerName);
         return Task.CompletedTask;
     }
 }

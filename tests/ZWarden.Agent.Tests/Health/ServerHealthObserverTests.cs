@@ -95,6 +95,14 @@ public class ServerHealthObserverTests
         public Task<IReadOnlyList<ManagedContainer>> ListManagedAsync(CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
+        public Task<PortAllocation> ClaimRequestedPortsAsync(int gamePort, ServerId forServer, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<ServerContainer?> InspectServerAsync(ServerId serverId, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task RemoveAsync(ServerId serverId, CancellationToken cancellationToken) => throw new NotSupportedException();
+
         public Task<PortAllocation> AllocateNextPortsAsync(CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 

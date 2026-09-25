@@ -43,29 +43,43 @@ public static class PortStrideAllocator
     }
 
     /// <summary>
-    /// Allocates the lowest free stride's port pair, given the allocations already in use on the host
-    /// (read from discovery of existing canonical containers). Freed middle strides are reused first.
+    /// The host port pair for an operator-chosen game port (#229): the game port and the port above it. The caller
+    /// validates the range first (<c>HostPortRules.ValidateGamePort</c>).
     /// </summary>
-    public static PortAllocation AllocateNext(IEnumerable<PortAllocation> inUse)
+    public static PortAllocation ForGamePort(ushort gamePort)
     {
-        ArgumentNullException.ThrowIfNull(inUse);
-
-        HashSet<int> usedStrides = [];
-        foreach (PortAllocation allocation in inUse)
+        if (gamePort == ushort.MaxValue)
         {
-            int stride = StrideOfGamePort(allocation.GamePort);
-            if (stride >= 0)
+            throw new ArgumentOutOfRangeException(nameof(gamePort), gamePort, "The game port leaves no room for its direct port.");
+        }
+
+        return new PortAllocation(gamePort, (ushort)(gamePort + 1));
+    }
+
+    /// <summary>Whether neither port of the pair starting at <paramref name="gamePort"/> is already taken.</summary>
+    public static bool IsPairFree(ushort gamePort, IReadOnlySet<ushort> occupiedHostPorts)
+    {
+        ArgumentNullException.ThrowIfNull(occupiedHostPorts);
+        PortAllocation pair = ForGamePort(gamePort);
+        return !occupiedHostPorts.Contains(pair.GamePort) && !occupiedHostPorts.Contains(pair.DirectPort);
+    }
+
+    /// <summary>
+    /// Allocates the lowest stride whose pair is entirely free, given every host UDP port already published on the
+    /// host (by any container, and including an operator's off-stride pair, #229). Freed middle strides are reused
+    /// first.
+    /// </summary>
+    public static PortAllocation AllocateNext(IReadOnlySet<ushort> occupiedHostPorts)
+    {
+        ArgumentNullException.ThrowIfNull(occupiedHostPorts);
+
+        for (int stride = 0; ; stride++)
+        {
+            PortAllocation candidate = ForStride(stride);
+            if (IsPairFree(candidate.GamePort, occupiedHostPorts))
             {
-                usedStrides.Add(stride);
+                return candidate;
             }
         }
-
-        int next = 0;
-        while (usedStrides.Contains(next))
-        {
-            next++;
-        }
-
-        return ForStride(next);
     }
 }

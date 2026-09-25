@@ -26,8 +26,18 @@ public interface IContainerRuntime
     /// </summary>
     Task<IReadOnlyList<ObservedContainer>> InspectManagedAsync(CancellationToken cancellationToken);
 
-    /// <summary>Allocates the next free two-port-stride pair given the strides already occupied on the host.</summary>
+    /// <summary>Allocates the lowest two-port-stride pair whose ports no container on the daemon publishes or holds
+    /// (running or stopped, owned or not — #229).</summary>
     Task<PortAllocation> AllocateNextPortsAsync(CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Validates an operator-requested host game port for <paramref name="forServer"/> (#229) and returns its pair
+    /// (<c>p</c>, <c>p + 1</c>). Throws <see cref="PortUnavailableException"/> when the port is out of range or either
+    /// port is already held by another container on the daemon. The Server's own container is not a clash — a
+    /// Recreate is about to remove it. This is a pre-flight: Docker's start remains the authority for non-Docker
+    /// host processes.
+    /// </summary>
+    Task<PortAllocation> ClaimRequestedPortsAsync(int gamePort, ServerId forServer, CancellationToken cancellationToken);
 
     /// <summary>
     /// Creates a canonical container from a closed spec and returns its Docker id. Throws
@@ -58,6 +68,18 @@ public interface IContainerRuntime
     /// carrying the same safe stop timeout as <see cref="StopAsync(ServerId, CancellationToken)"/>. Throws
     /// <see cref="ContainerNotFoundException"/> when no owned container carries that ServerId.</summary>
     Task RestartAsync(ServerId serverId, CancellationToken cancellationToken);
+
+    /// <summary>Inspects the canonical container this Agent owns for <paramref name="serverId"/> and returns the facts
+    /// a Recreate needs (#229), or <c>null</c> when no owned container carries that ServerId.</summary>
+    Task<ServerContainer?> InspectServerAsync(ServerId serverId, CancellationToken cancellationToken);
+
+    /// <summary>Removes the canonical container this Agent owns for <paramref name="serverId"/> (#229, ADR 0045):
+    /// ownership is re-asserted on inspect, the container must be stopped and named by its ServerId, and the delete is
+    /// never forced and never removes volumes. The ServerId-derived bind mounts — world, config, installed build — are
+    /// host directories and survive. Throws <see cref="ContainerNotFoundException"/> when no owned container matches,
+    /// <see cref="ForeignContainerException"/> when inspect shows it is not ours, and
+    /// <see cref="InvalidOperationException"/> when it is running or misnamed.</summary>
+    Task RemoveAsync(ServerId serverId, CancellationToken cancellationToken);
 
     /// <summary>Reads the logs of the canonical container this Agent owns for <paramref name="serverId"/> (F17):
     /// stdout+stderr, non-following, since an optional time. This is how the Agent observes a SteamCMD update it

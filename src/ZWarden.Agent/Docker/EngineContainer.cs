@@ -32,6 +32,14 @@ public readonly record struct PublishedPort(ushort HostPort, ushort ContainerPor
 /// <param name="StartedAt">When the container last started (inspect <c>State.StartedAt</c>, UTC), or <c>null</c> when it
 /// is not running, the list API produced this record, or Docker reported its zero time. The fleet uptime source
 /// (#257).</param>
+/// <param name="ConfiguredPorts">The host port bindings the container was <b>created</b> with (inspect
+/// <c>HostConfig.PortBindings</c>). Unlike <paramref name="Ports"/>, these are present while the container is stopped,
+/// so a stopped Server's pair still counts as occupied (#229). <c>null</c> when the list API produced this record.</param>
+/// <param name="BindMounts">The container's bind mounts as destination → host source (inspect <c>Mounts</c>), or
+/// <c>null</c> when the list API produced this record. Recreate refuses a container whose data binds are not the
+/// ServerId-derived ones (#229).</param>
+/// <param name="Name">The container name without Docker's leading slash (inspect <c>Name</c>), or <c>null</c> when the
+/// list API produced this record. A canonical container is named by its ServerId; remove addresses it by that name.</param>
 public sealed record EngineContainer(
     string Id,
     IReadOnlyDictionary<string, string> Labels,
@@ -41,4 +49,7 @@ public sealed record EngineContainer(
     long ExitCode = 0,
     bool OomKilled = false,
     IReadOnlyDictionary<string, string>? NetworkAddresses = null,
-    DateTimeOffset? StartedAt = null);
+    DateTimeOffset? StartedAt = null,
+    IReadOnlyList<PublishedPort>? ConfiguredPorts = null,
+    IReadOnlyDictionary<string, string>? BindMounts = null,
+    string? Name = null);

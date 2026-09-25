@@ -67,6 +67,41 @@ internal sealed class FakeContainerRuntime : IContainerRuntime
     public Task<PortAllocation> AllocateNextPortsAsync(CancellationToken cancellationToken) =>
         Task.FromResult(NextPorts);
 
+    /// <summary>When set, <see cref="ClaimRequestedPortsAsync"/> throws it (e.g. <see cref="PortUnavailableException"/>).</summary>
+    public Exception? ClaimException { get; set; }
+
+    public int? ClaimedGamePort { get; private set; }
+
+    public Task<PortAllocation> ClaimRequestedPortsAsync(int gamePort, ServerId forServer, CancellationToken cancellationToken)
+    {
+        ClaimedGamePort = gamePort;
+        return ClaimException is not null
+            ? Task.FromException<PortAllocation>(ClaimException)
+            : Task.FromResult(PortStrideAllocator.ForGamePort((ushort)gamePort));
+    }
+
+    /// <summary>What <see cref="InspectServerAsync"/> returns (<c>null</c> = no owned container).</summary>
+    public ServerContainer? ServerContainer { get; set; }
+
+    public Task<ServerContainer?> InspectServerAsync(ServerId serverId, CancellationToken cancellationToken) =>
+        Task.FromResult(ServerContainer);
+
+    /// <summary>When set, <see cref="RemoveAsync(ServerId, CancellationToken)"/> throws it.</summary>
+    public Exception? RemoveException { get; set; }
+
+    public ServerId? RemovedServerId { get; private set; }
+
+    public Task RemoveAsync(ServerId serverId, CancellationToken cancellationToken)
+    {
+        if (RemoveException is not null)
+        {
+            throw RemoveException;
+        }
+
+        RemovedServerId = serverId;
+        return Task.CompletedTask;
+    }
+
     public Task<string> CreateAsync(PzContainerSpec spec, CancellationToken cancellationToken)
     {
         CreateCount++;

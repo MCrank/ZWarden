@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using ZWarden.Agent.Configuration;
 using ZWarden.Domain.Ids;
+using ZWarden.Domain.Servers;
 
 namespace ZWarden.Agent.Docker;
 
@@ -110,26 +111,78 @@ public sealed partial class ContainerRuntime : IContainerRuntime
     /// <inheritdoc />
     public async Task<PortAllocation> AllocateNextPortsAsync(CancellationToken cancellationToken)
     {
+        HashSet<ushort> occupied = await OccupiedUdpHostPortsAsync(excluding: null, cancellationToken).ConfigureAwait(false);
+        return PortStrideAllocator.AllocateNext(occupied);
+    }
+
+    /// <inheritdoc />
+    public async Task<PortAllocation> ClaimRequestedPortsAsync(int gamePort, ServerId forServer, CancellationToken cancellationToken)
+    {
+        if (HostPortRules.ValidateGamePort(gamePort) is { } invalid)
+        {
+            throw new PortUnavailableException(invalid);
+        }
+
+        PortAllocation pair = PortStrideAllocator.ForGamePort((ushort)gamePort);
+        HashSet<ushort> occupied = await OccupiedUdpHostPortsAsync(forServer, cancellationToken).ConfigureAwait(false);
+        foreach (ushort port in (ReadOnlySpan<ushort>)[pair.GamePort, pair.DirectPort])
+        {
+            if (occupied.Contains(port))
+            {
+                throw new PortUnavailableException(
+                    $"Host port {port}/udp is already published by another container on this host. Choose a different game port.");
+            }
+        }
+
+        return pair;
+    }
+
+    // Every UDP host port published — or reserved by a stopped container's creation-time bindings — by ANY container
+    // on the daemon, not just the ones this Agent owns (#229): a foreign container or another Agent's server holds a
+    // port just as firmly. The list API only reports a running container's ports, so non-running ones are inspected
+    // for their HostConfig.PortBindings. The Server named by `excluding` (a Recreate's own, about-to-be-removed
+    // container) is left out.
+    private async Task<HashSet<ushort>> OccupiedUdpHostPortsAsync(ServerId? excluding, CancellationToken cancellationToken)
+    {
         IReadOnlyList<EngineContainer> all = await _engine.ListAsync(cancellationToken).ConfigureAwait(false);
-        List<PortAllocation> inUse = [];
+        HashSet<ushort> occupied = [];
         foreach (EngineContainer container in all)
         {
-            if (!_guard.TryResolveOwned(container.Labels, out _))
+            if (excluding is { } self && _guard.TryResolveOwned(container.Labels, out ServerId owner) && owner == self)
             {
                 continue;
             }
 
-            foreach (PublishedPort port in container.Ports)
+            AddUdpHostPorts(occupied, container.Ports);
+            if (string.Equals(container.State, "running", StringComparison.OrdinalIgnoreCase))
             {
-                if (port.ContainerPort == PortStrideAllocator.BaseGamePort
-                    && string.Equals(port.Protocol, "udp", StringComparison.OrdinalIgnoreCase))
-                {
-                    inUse.Add(new PortAllocation(port.HostPort, 0));
-                }
+                continue;
+            }
+
+            try
+            {
+                EngineContainer inspected = await _engine.InspectAsync(container.Id, cancellationToken).ConfigureAwait(false);
+                AddUdpHostPorts(occupied, inspected.ConfiguredPorts ?? []);
+            }
+            catch (DockerApiException ex)
+            {
+                // Vanished between the list and the inspect — nothing left to hold a port.
+                LogInspectSkippedContainer(container.Id, ex.Message);
             }
         }
 
-        return PortStrideAllocator.AllocateNext(inUse);
+        return occupied;
+    }
+
+    private static void AddUdpHostPorts(HashSet<ushort> occupied, IReadOnlyList<PublishedPort> ports)
+    {
+        foreach (PublishedPort port in ports)
+        {
+            if (port.HostPort != 0 && string.Equals(port.Protocol, "udp", StringComparison.OrdinalIgnoreCase))
+            {
+                occupied.Add(port.HostPort);
+            }
+        }
     }
 
     /// <inheritdoc />
@@ -184,6 +237,101 @@ public sealed partial class ContainerRuntime : IContainerRuntime
     /// <inheritdoc />
     public Task RestartAsync(ServerId serverId, CancellationToken cancellationToken)
         => ResolveThenAsync(serverId, RestartAsync, cancellationToken);
+
+    /// <inheritdoc />
+    public async Task<ServerContainer?> InspectServerAsync(ServerId serverId, CancellationToken cancellationToken)
+    {
+        ManagedContainer? match = await FindOwnedAsync(serverId, cancellationToken).ConfigureAwait(false);
+        if (match is null)
+        {
+            return null;
+        }
+
+        EngineContainer inspected = await _engine.InspectAsync(match.DockerId, cancellationToken).ConfigureAwait(false);
+        return new ServerContainer(
+            inspected.Id,
+            inspected.State,
+            PairOf(inspected.ConfiguredPorts ?? []),
+            inspected.BindMounts ?? new Dictionary<string, string>(StringComparer.Ordinal));
+    }
+
+    /// <inheritdoc />
+    public async Task RemoveAsync(ServerId serverId, CancellationToken cancellationToken)
+    {
+        ManagedContainer? match = await FindOwnedAsync(serverId, cancellationToken).ConfigureAwait(false);
+        if (match is null)
+        {
+            LogNoContainerForServer(serverId);
+            throw new ContainerNotFoundException(serverId);
+        }
+
+        // Re-assert ownership on the authoritative inspect, then require it stopped and named by its ServerId. The
+        // delete is never forced, so Docker itself also refuses a running container; and it goes by NAME, the only
+        // DELETE shape the socket proxy admits (ADR 0045).
+        EngineContainer inspected = await _engine.InspectAsync(match.DockerId, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            _guard.EnsureOwnedByThisAgent(match.DockerId, inspected.Labels);
+        }
+        catch (ForeignContainerException ex)
+        {
+            LogForeignRefused(match.DockerId, ex.Reason);
+            throw;
+        }
+
+        string name = serverId.ToString();
+        if (inspected.State is "running" or "restarting" or "paused")
+        {
+            throw new InvalidOperationException($"The container for server {serverId} must be stopped before it is removed.");
+        }
+
+        if (!string.Equals(inspected.Name, name, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"The container for server {serverId} is not named by its ServerId ('{inspected.Name}'), so it cannot be removed safely.");
+        }
+
+        await RunVerbAsync("remove", name, () => _engine.RemoveAsync(name, cancellationToken)).ConfigureAwait(false);
+    }
+
+    // The host pair bound to the container-internal 16261/16262 udp, or null when either is missing.
+    private static PortAllocation? PairOf(IReadOnlyList<PublishedPort> ports)
+    {
+        ushort? game = null;
+        ushort? direct = null;
+        foreach (PublishedPort port in ports)
+        {
+            if (!string.Equals(port.Protocol, "udp", StringComparison.OrdinalIgnoreCase) || port.HostPort == 0)
+            {
+                continue;
+            }
+
+            if (port.ContainerPort == PortStrideAllocator.BaseGamePort)
+            {
+                game = port.HostPort;
+            }
+            else if (port.ContainerPort == PortStrideAllocator.BaseDirectPort)
+            {
+                direct = port.HostPort;
+            }
+        }
+
+        return game is { } g && direct is { } d ? new PortAllocation(g, d) : null;
+    }
+
+    private async Task<ManagedContainer?> FindOwnedAsync(ServerId serverId, CancellationToken cancellationToken)
+    {
+        IReadOnlyList<ManagedContainer> managed = await ListManagedAsync(cancellationToken).ConfigureAwait(false);
+        foreach (ManagedContainer container in managed)
+        {
+            if (container.ServerId == serverId)
+            {
+                return container;
+            }
+        }
+
+        return null;
+    }
 
     /// <inheritdoc />
     public async Task<string> ReadServerLogsAsync(ServerId serverId, DateTimeOffset? since, CancellationToken cancellationToken)
@@ -336,6 +484,9 @@ public sealed partial class ContainerRuntime : IContainerRuntime
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Skipped health inspect for server {ServerId}: {Detail}")]
     private partial void LogInspectSkipped(ServerId serverId, string detail);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Skipped port inspect for container {ContainerId}: {Detail}")]
+    private partial void LogInspectSkippedContainer(string containerId, string detail);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "The Docker verb '{Verb}' on {ContainerId} was denied (HTTP {Status}).")]
     private partial void LogVerbDenied(string verb, string containerId, int status);
