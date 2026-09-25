@@ -148,15 +148,16 @@ There are two kinds of knobs, and **when** you set them matters.
 
 | Knob | How | Default | Notes |
 | --- | --- | --- | --- |
-| JVM heap (the game's RAM) | Agent (`DefaultHeapSizeBytes`), injected as env `ZW_PZ_XMS` / `ZW_PZ_XMX` | `4 GiB` | For a managed container the Agent owns the heap and injects it, overriding the image's standalone `4g` default; the entrypoint rewrites the launcher's heap from it. |
-| Container memory **cap** | Agent (`DefaultMemoryLimitBytes`), derived from heap + `MemoryOverheadBytes` | `10 GiB` (4 GiB heap + 6 GiB overhead) | A hard cgroup ceiling. It **must exceed the heap** — ZGC/native/metaspace and a fresh world's off-heap boot run well above the Java heap, so a cap equal to the heap OOM-kills on boot (#198). The Agent derives it from the heap so the two cannot drift, and fails closed if `cap ≤ heap`. |
+| JVM heap (the game's RAM) | Chosen per server in the new-server wizard (#230), else the Agent's `DefaultHeapSizeBytes`; injected as env `ZW_PZ_XMS` / `ZW_PZ_XMX` | `4 GiB` | For a managed container the Agent owns the heap and injects it, overriding the image's standalone `4g` default; the entrypoint rewrites the launcher's heap from it. A Recreate keeps the heap the container runs with unless a new one is chosen. |
+| Container memory **cap** | Agent: the server's heap + `MemoryOverheadBytes` (the default heap uses `DefaultMemoryLimitBytes`) | `10 GiB` (4 GiB heap + 6 GiB overhead) | A hard cgroup ceiling. It **must exceed the heap** — ZGC/native/metaspace and a fresh world's off-heap boot run well above the Java heap, so a cap equal to the heap OOM-kills on boot (#198). The Agent derives it from the heap so the two cannot drift, and fails closed if `cap ≤ heap`. |
+| Host RAM reserve | Agent (`HostMemoryReserveBytes`) | `2 GiB` | RAM kept back for the host OS. The Agent reports the host's total RAM (Docker `MemTotal`), the limits already committed to its containers, and this reserve, so the new-server wizard can show what is free and warn before overcommitting (#230). Guidance only. |
 | PZ version / branch | env `ZW_PZ_BETA` | empty = `public` (42.20.x) | e.g. `legacy41`, `42.19`. |
 | Server name (config set) | env `ZW_PZ_SERVERNAME` | `servertest` | Which `servertest.*` set PZ loads. |
 | Safe-stop grace | env `ZW_PZ_STOP_GRACE` | `30`s | Seconds between `save` and `quit`. |
 | Game / query ports | Agent allocates (2 per server) | — | Two UDP ports; RCON is private, never published. |
 
-Because these are environment variables, changing heap or version today means **recreating** the
-container (env can't be changed on a live one).
+Because these are environment variables, changing the heap or version means **recreating** the
+container (env can't be changed on a live one) — Server Detail's Recreate (#229) does that, keeping the world.
 
 ### ② In-world settings (files in `/pz/data/Server/`, generated on first run)
 

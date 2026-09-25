@@ -1,6 +1,7 @@
 # Feature #230 Mini-Plan — New-server wizard: per-server memory, host RAM capacity guard, basic settings
 
-**Status:** PR-A (branch `feat/230-new-server-wizard`) = Contracts + Agent; PR-B = Domain/persistence + Web,
+**Status:** PR-A (branch `feat/230-new-server-wizard`) = Contracts + Domain rules + Agent + the Web hub ingest of the
+capacity report (so no Agent ever sends to a missing hub method); PR-B = persistence + Web wizard,
 closes [#230](https://github.com/MCrank/ZWarden/issues/230). v1.0. Branch/version selection (#258) is a
 follow-up sub-issue that adds one field to this wizard.
 
@@ -57,7 +58,7 @@ create template, restricted socket proxy); [ADR 0015](../adr/) (secret protector
 
 ## Slices (TDD, one commit each)
 
-**PR-A — Contracts + Agent**
+**PR-A — Contracts + Domain rules + Agent + hub ingest**
 1. Contracts: `CreateServer` += `HeapSizeBytes?`, `InitialSettings?` (`Public?`, `PublicName?`,
    `MaxPlayers?`, `Password?`, `WelcomeMessage?`); `RecreateServer` += `HeapSizeBytes?`; new
    `HostCapacityReport` message. Serialization + catalogue tests.
@@ -66,15 +67,15 @@ create template, restricted socket proxy); [ADR 0015](../adr/) (secret protector
    requested. Inspect surfaces env heap + memory limit.
 4. INI seeding of initial settings before create (idempotent, surgical, never touches managed keys).
 5. Capacity: engine `/info` MemTotal + committed sum; periodic `HostCapacityReport`.
+6. Web hub ingest: `AgentHub.HostCapacity` → in-memory `IHostCapacityCache` (+ free/shortfall arithmetic).
 
-**PR-B — Domain/persistence + Web**
-6. `Server.HeapSizeBytes` + migrations (Sqlite + Postgres).
-7. Payload carries heap + protected settings; dispatcher maps to `CreateServer`/`RecreateServer`.
-8. Hub receives `HostCapacityReport` → in-memory capacity store; heap-suggestion + capacity-verdict pure
-   functions (tested).
-9. Wizard section on `/servers` (+ `POST /servers` JSON twin) with acknowledgement enforcement.
-10. Server Detail "Container settings" (port + heap).
-11. Docs: operator guide section on sizing memory.
+**PR-B — persistence + Web wizard**
+7. `Server.HeapSizeBytes` + migrations (Sqlite + Postgres).
+8. Payload carries heap + protected settings; dispatcher maps to `CreateServer`/`RecreateServer`.
+9. Wizard view-model: heap suggestion (`ServerMemoryRules.SuggestHeap`) + capacity verdict from the cache.
+10. Wizard section on `/servers` (+ `POST /servers` JSON twin) with acknowledgement enforcement.
+11. Server Detail "Container settings" (port + heap).
+12. Docs: operator guide section on sizing memory.
 
 ## Out of scope
 
