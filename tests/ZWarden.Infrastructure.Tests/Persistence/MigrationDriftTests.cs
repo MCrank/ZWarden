@@ -80,6 +80,43 @@ public class MigrationDriftTests
         }
     }
 
+    [Test]
+    public async Task Upgrading_grants_server_recreate_to_existing_owner_and_administrator_roles_only()
+    {
+        // #229: built-in roles are seeded once and their grants persisted, so an install seeded before Server.Recreate
+        // existed only gets it from the data migration — and only on the two roles whose bundle includes it.
+        string file = TempDbFile();
+        try
+        {
+            await using ZWardenDbContext context = Context(ZWardenDbProvider.Sqlite, $"Data Source={file};Pooling=False");
+            List<string> chain = context.Database.GetMigrations().ToList();
+            string grant = chain.Single(m => m.EndsWith("_GrantServerRecreateToBuiltInRoles", StringComparison.Ordinal));
+            string beforeGrant = chain[chain.IndexOf(grant) - 1];
+            IMigrator migrator = context.GetService<IMigrator>();
+
+            await migrator.MigrateAsync(beforeGrant);
+            foreach (string kind in new[] { "TenantOwner", "Administrator", "Operator" })
+            {
+                await context.Database.ExecuteSqlAsync(
+                    $"""INSERT INTO "Roles" ("Id", "TenantId", "Name", "BuiltIn", "Version") VALUES ({Guid.NewGuid().ToString().ToUpperInvariant()}, {Guid.NewGuid().ToString().ToUpperInvariant()}, {kind}, {kind}, {Guid.NewGuid().ToString().ToUpperInvariant()})""");
+            }
+
+            await migrator.MigrateAsync();
+
+            List<string> granted = await context.Database
+                .SqlQuery<string>(
+                    $"""SELECT r."BuiltIn" AS "Value" FROM "RolePermissionGrants" g JOIN "Roles" r ON r."Id" = g."RoleId" WHERE g."PermissionName" = 'Server.Recreate'""")
+                .ToListAsync();
+            granted.Sort(StringComparer.Ordinal);
+            string[] expected = ["Administrator", "TenantOwner"];
+            await Assert.That(granted).IsEquivalentTo(expected);
+        }
+        finally
+        {
+            TryDelete(file);
+        }
+    }
+
     private static ZWardenDbContext Context(ZWardenDbProvider provider, string connectionString)
     {
         DbContextOptions options = new DbContextOptionsBuilder<ZWardenDbContext>()

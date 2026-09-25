@@ -35,6 +35,11 @@ public static class Permissions
     // list as a deliberate catalogue change.
     public static readonly PermissionDefinition ServerDiagnostics = Server("Server.Diagnostics");
 
+    // Recreating a Server's container from the closed template, preserving its data (#229, ADR 0045) — how its host
+    // ports change now, and its memory limit (#230) and PZ branch (#258) later. Server-scopable, but above the
+    // start/stop bar: it is effectively re-provisioning and touches host networking. Owner + Administrator only.
+    public static readonly PermissionDefinition ServerRecreate = Server("Server.Recreate");
+
     // Bringing a Server under management — importing a discovered container or registering (and provisioning)
     // a new one (F14). Tenant-wide, not server-scopable: the Server does not exist yet at registration time,
     // so there is no ServerId to scope to (a server-scoped permission checked with no Server is denied). This
@@ -85,7 +90,7 @@ public static class Permissions
     public static IReadOnlyList<PermissionDefinition> All { get; } =
     [
         ServerView, ServerStart, ServerStop, ServerRestart, ServerUpdate,
-        ServerConfigurationView, ServerConfigurationEdit, ServerDiagnostics, ServerRegister,
+        ServerConfigurationView, ServerConfigurationEdit, ServerDiagnostics, ServerRecreate, ServerRegister,
         ModView, ModInstall, ModRemove, ModUpdate, ModApplyApprovedProfile,
         PlayerView, PlayerKick, PlayerBan, PlayerUnban,
         ConsoleView, ConsoleExecute,

@@ -159,4 +159,12 @@ public enum OperationKind
     /// <c>ConfigApplyResult</c> a surgical apply does (so it records a revision). The whole-file text never rides
     /// an <c>AgentCommand</c>, keeping the closed-command vocabulary intact.</summary>
     ConfigApplyRaw = 22,
+
+    /// <summary>Recreate a Server's canonical container, preserving its data (#229, ADR 0045): warn + safe stop if
+    /// running, remove the container, create it again from the same closed template (optionally on a new host port
+    /// pair), and start it if it was running — rolling back to the previous pair on failure. A <b>mutating,
+    /// server-scoped</b> Operation, so it claims the per-server lock (ADR 0022). Its command payload carries the
+    /// optional new game port and graceful-warning plan; the Agent reports the resulting ports and container id in
+    /// the same <c>ProvisionResult</c> provisioning uses.</summary>
+    RecreateServer = 23,
 }

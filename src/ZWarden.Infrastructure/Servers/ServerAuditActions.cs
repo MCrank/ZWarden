@@ -35,4 +35,8 @@ public static class ServerAuditActions
 
     /// <summary>A restore of a Server from a backup was requested (a restore Operation was enqueued — F25).</summary>
     public const string Restored = "Server.Restored";
+
+    /// <summary>An operator requested a data-preserving container recreate, e.g. to change host ports (a recreate
+    /// Operation was enqueued — #229).</summary>
+    public const string Recreated = "Server.Recreated";
 }
