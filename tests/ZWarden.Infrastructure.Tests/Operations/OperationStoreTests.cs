@@ -80,6 +80,29 @@ public class OperationStoreTests
     }
 
     [Test]
+    public async Task ListActive_returns_every_servers_in_flight_mutating_operation_in_one_read()
+    {
+        // #253: the fleet board resolves every row's live status from one read, not one query per Server.
+        await OperationTestHarness.WithSqlite(async options =>
+        {
+            await using ZWardenDbContext ctx = OperationTestHarness.Context(options);
+            Operation restart = Operation.Enqueue(AgentId.New(), OperationKind.RestartServer, isMutating: true, "restart", Now, ServerId.New());
+            Operation stop = Operation.Enqueue(AgentId.New(), OperationKind.StopServer, isMutating: true, "stop", Now, ServerId.New());
+            Operation finished = Operation.Enqueue(AgentId.New(), OperationKind.StopServer, isMutating: true, "done", Now, ServerId.New());
+            finished.MarkDispatched(Now + Lease, Now);
+            finished.Succeed(Now);
+            Operation readOnly = Operation.Enqueue(AgentId.New(), OperationKind.ListPlayers, isMutating: false, "roster", Now, ServerId.New());
+            ctx.AddRange(restart, stop, finished, readOnly);
+            await ctx.SaveChangesAsync();
+
+            OperationStore sut = OperationTestHarness.Store(ctx, new CapturingAuditWriter(), new StubClock(Now), Options);
+            IReadOnlyList<Operation> active = await sut.ListActiveAsync();
+
+            await Assert.That(active.Select(o => o.Id)).IsEquivalentTo(new[] { restart.Id, stop.Id });
+        });
+    }
+
+    [Test]
     public async Task CompleteSucceeded_drives_to_succeeded_and_audits()
     {
         await OperationTestHarness.WithSqlite(async options =>

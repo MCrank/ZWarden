@@ -1,3 +1,4 @@
+using ZWarden.Domain.Ids;
 using ZWarden.Domain.Operations;
 using ZWarden.Domain.Servers;
 
@@ -72,6 +73,20 @@ public static class ServerLiveStatus
             CanStop: observed is ServerRunState.Running or ServerRunState.Starting,
             CanRestart: observed is ServerRunState.Running);
     }
+
+    /// <summary>Indexes the tenant's in-flight mutating Operations by Server (#253) — at most one each, the lock
+    /// holder — so a fleet of rows resolves from one read.</summary>
+    public static IReadOnlyDictionary<ServerId, Operation> ActiveByServer(IEnumerable<Operation> active)
+        => active
+            .Where(o => o.ServerId is not null)
+            .GroupBy(o => o.ServerId!.Value)
+            .ToDictionary(g => g.Key, g => g.First());
+
+    /// <summary>Resolves one fleet row against <see cref="ActiveByServer"/>'s index (kind + status line).</summary>
+    public static ServerStatusView Resolve(ServerRunState observed, ServerId server, IReadOnlyDictionary<ServerId, Operation> activeByServer)
+        => activeByServer.TryGetValue(server, out Operation? op)
+            ? Resolve(observed, op.Kind, op.StatusLine)
+            : Resolve(observed, activeOperation: null);
 
     private static string Label(ServerRunState state) => state.ToString().ToUpperInvariant();
 }

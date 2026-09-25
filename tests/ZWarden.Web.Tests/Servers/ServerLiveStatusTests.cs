@@ -1,3 +1,4 @@
+using ZWarden.Domain.Ids;
 using ZWarden.Domain.Operations;
 using ZWarden.Domain.Servers;
 using ZWarden.Web.Components.Servers;
@@ -88,5 +89,23 @@ public class ServerLiveStatusTests
     public async Task The_tone_key_matches_the_status_ramp(ServerRunState state, string tone)
     {
         await Assert.That(ServerLiveStatus.Resolve(state, activeOperation: null).ToneKey).IsEqualTo(tone);
+    }
+
+    [Test]
+    public async Task A_fleet_row_resolves_against_its_own_servers_in_flight_operation_only()
+    {
+        // #253: the fleet reads every in-flight Operation once and each row picks out its own Server's.
+        ServerId restarting = ServerId.New();
+        ServerId idle = ServerId.New();
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        IReadOnlyDictionary<ServerId, Operation> active = ServerLiveStatus.ActiveByServer(
+        [
+            Operation.Enqueue(AgentId.New(), OperationKind.RestartServer, isMutating: true, "restart", now, restarting),
+            Operation.Enqueue(AgentId.New(), OperationKind.DiagnosticsPing, isMutating: false, "unscoped", now),
+        ]);
+
+        await Assert.That(ServerLiveStatus.Resolve(ServerRunState.Running, restarting, active).Label).IsEqualTo("RESTARTING");
+        await Assert.That(ServerLiveStatus.Resolve(ServerRunState.Running, idle, active).Label).IsEqualTo("RUNNING");
+        await Assert.That(ServerLiveStatus.Resolve(ServerRunState.Running, idle, active).CanRestart).IsTrue();
     }
 }
