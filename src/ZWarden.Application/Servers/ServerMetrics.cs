@@ -23,6 +23,7 @@ namespace ZWarden.Application.Servers;
 /// <param name="StartedAt">The container's start time (UTC) while running — uptime is <c>now − StartedAt</c> — or
 /// <c>null</c>. Cache-only: the next report re-reads it from Docker after a Web restart (#257).</param>
 /// <param name="InstalledBuildId">The Steam build id from the install manifest (observed, untrusted), or <c>null</c>.</param>
+/// <param name="GameVersion">The game version from the boot log (#262; observed, untrusted), or <c>null</c>.</param>
 public sealed record ServerMetrics(
     AgentId AgentId,
     ServerId ServerId,
@@ -35,4 +36,5 @@ public sealed record ServerMetrics(
     DateTimeOffset SampledAt,
     DateTimeOffset? PlayerCountSampledAt = null,
     DateTimeOffset? StartedAt = null,
-    string? InstalledBuildId = null);
+    string? InstalledBuildId = null,
+    string? GameVersion = null);

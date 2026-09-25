@@ -579,6 +579,10 @@ namespace ZWarden.Migrations.Sqlite.Migrations
                     b.Property<int?>("GamePort")
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("GameVersion")
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("InstalledBuildId")
                         .HasMaxLength(64)
                         .HasColumnType("TEXT");

@@ -201,11 +201,12 @@ public class AgentHubIntegrationTests
             AgentHubProtocol.MetricsReport,
             Envelope.Create(
                 new ServerMetricsReport(
-                    [new ServerMetricsSample(serverId, 5, 1, 2, null, null, 6, Now, counted, started, "24909836")]),
+                    [new ServerMetricsSample(serverId, 5, 1, 2, null, null, 6, Now, counted, started, "24909836", "42.20.4")]),
                 Now, agentId));
 
         // #257: players, sample time and start time are cache-only; the manifest build is persisted on the Server.
-        await WaitUntilAsync(async () => (await LoadServerAsync(factory, serverId)).InstalledBuildId is not null);
+        // #262: so is the game version from the boot log.
+        await WaitUntilAsync(async () => (await LoadServerAsync(factory, serverId)) is { InstalledBuildId: not null, GameVersion: not null });
 
         Application.Servers.ServerMetrics latest =
             factory.Services.GetRequiredService<IServerMetricsCache>().GetLatest(serverId, agentId)!;
@@ -213,6 +214,7 @@ public class AgentHubIntegrationTests
         await Assert.That(latest.PlayerCountSampledAt).IsEqualTo(counted);
         await Assert.That(latest.StartedAt).IsEqualTo(started);
         await Assert.That((await LoadServerAsync(factory, serverId)).InstalledBuildId).IsEqualTo("24909836");
+        await Assert.That((await LoadServerAsync(factory, serverId)).GameVersion).IsEqualTo("42.20.4");
 
         await connection.StopAsync();
     }

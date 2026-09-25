@@ -8,19 +8,22 @@ namespace ZWarden.Web.Tests.Servers;
 /// <summary>
 /// #257: the fleet board's per-server facts and KPI tiles, computed once in C# for both the first render and the
 /// batched status poll (which sends the formatted uptime and sample age). Players and uptime come from the ownership-guarded
-/// metrics cache and read as <c>—</c> when there is no sample or the owning Agent is offline; Version prefers the
-/// persisted build and falls back to the cached manifest build.
+/// metrics cache and read as <c>—</c> when there is no sample or the owning Agent is offline; Version shows the game
+/// version (#262, persisted then cached) with the Steam build id as its tooltip, falling back to the build id.
 /// </summary>
 public class FleetFactsTests
 {
     private static readonly DateTimeOffset Now = new(2026, 9, 25, 12, 0, 0, TimeSpan.Zero);
 
     private static ServerSummary Summary(
-        ServerRunState state = ServerRunState.Running, ServerHealth? health = null, string? build = null, string name = "alpha") =>
-        new(ServerId.New(), AgentId.New(), name, null, null, null, state, Now, health, Now, build);
+        ServerRunState state = ServerRunState.Running, ServerHealth? health = null, string? build = null, string name = "alpha",
+        string? gameVersion = null) =>
+        new(ServerId.New(), AgentId.New(), name, null, null, null, state, Now, health, Now, build, gameVersion);
 
-    private static ServerMetrics Sample(ServerSummary s, int? players = null, DateTimeOffset? started = null, string? build = null) =>
-        new(s.AgentId, s.Id, 40, 1_000, 2_000, null, null, players, Now, players is null ? null : Now.AddMinutes(-2), started, build);
+    private static ServerMetrics Sample(
+        ServerSummary s, int? players = null, DateTimeOffset? started = null, string? build = null, string? gameVersion = null) =>
+        new(s.AgentId, s.Id, 40, 1_000, 2_000, null, null, players, Now, players is null ? null : Now.AddMinutes(-2), started, build,
+            gameVersion);
 
     [Test]
     public async Task A_sampled_server_with_its_agent_online_carries_every_fact()
@@ -44,6 +47,33 @@ public class FleetFactsTests
 
         await Assert.That(FleetFacts.For(s, Sample(s, build: "222"), agentOnline: true).Version).IsEqualTo("222");
         await Assert.That(FleetFacts.For(s, null, agentOnline: true).Version).IsNull();
+    }
+
+    [Test]
+    public async Task The_game_version_is_shown_with_the_steam_build_as_its_tooltip()
+    {
+        // #262: persisted game version first, then the cached one; the build id moves to the tooltip.
+        ServerSummary persisted = Summary(build: "111", gameVersion: "42.20.4");
+        FleetServerFacts shown = FleetFacts.For(persisted, Sample(persisted, gameVersion: "42.21.0"), agentOnline: true);
+        await Assert.That(shown.Version).IsEqualTo("42.20.4");
+        await Assert.That(shown.SteamBuild).IsEqualTo("111");
+        await Assert.That(FleetFacts.FormatVersionTitle(shown)).IsEqualTo("Steam build 111");
+
+        ServerSummary fresh = Summary();
+        FleetServerFacts cached = FleetFacts.For(fresh, Sample(fresh, build: "222", gameVersion: "42.20.4"), agentOnline: true);
+        await Assert.That(cached.Version).IsEqualTo("42.20.4");
+        await Assert.That(cached.SteamBuild).IsEqualTo("222");
+    }
+
+    [Test]
+    public async Task Without_a_game_version_the_build_is_shown_and_the_tooltip_says_so()
+    {
+        ServerSummary s = Summary(build: "111");
+        FleetServerFacts facts = FleetFacts.For(s, null, agentOnline: true);
+
+        await Assert.That(facts.Version).IsEqualTo("111");
+        await Assert.That(FleetFacts.FormatVersionTitle(facts)).Contains("not been read yet");
+        await Assert.That(FleetFacts.FormatVersionTitle(FleetFacts.For(Summary(), null, true))).IsNull();
     }
 
     [Test]

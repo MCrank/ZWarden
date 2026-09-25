@@ -367,6 +367,29 @@ public class ServerStateReconcilerTests
         });
     }
 
+    [Test]
+    public async Task A_reported_game_version_is_recorded_on_the_owned_server_only_when_valid()
+    {
+        await WithSqlite(async options =>
+        {
+            AgentId owner = AgentId.New();
+            ServerId id = ServerId.New();
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            ServerRepository repo = new(db);
+            repo.Add(Server.Import(owner, id, "alpha", Now));
+            await db.SaveChangesAsync();
+
+            ServerStateReconciler reconciler = new(db, repo, new ServerDiscoveryCache(), new StubClock(Now));
+            // #262: another Agent and an over-length value are both ignored (trust §8, stored bound).
+            await reconciler.RecordReportedGameVersionAsync(AgentId.New(), id, "42.20.4");
+            await reconciler.RecordReportedGameVersionAsync(owner, id, new string('9', 33));
+            await Assert.That((await repo.FindByIdAsync(id))!.GameVersion).IsNull();
+
+            await reconciler.RecordReportedGameVersionAsync(owner, id, "42.20.4");
+            await Assert.That((await repo.FindByIdAsync(id))!.GameVersion).IsEqualTo("42.20.4");
+        });
+    }
+
     private static async Task WithSqlite(Func<DbContextOptions, Task> body)
     {
         string file = Path.Combine(Path.GetTempPath(), $"zw-{Guid.NewGuid():N}.db");

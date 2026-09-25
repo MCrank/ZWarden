@@ -380,6 +380,7 @@ public static class ServerEndpoints
         playersAge = facts.PlayersSampledAt is { } counted ? FleetFacts.FormatSampleAge(counted, now) : null,
         uptime = FleetFacts.FormatUptime(facts.StartedAt, now),
         version = facts.Version ?? FleetFacts.Dash,
+        versionTitle = FleetFacts.FormatVersionTitle(facts),
         cpuPercent = facts.CpuPercent,
         memoryUsedBytes = facts.MemoryUsedBytes,
         memoryLimitBytes = facts.MemoryLimitBytes,

@@ -114,6 +114,29 @@ public sealed class ServerStateReconciler : IServerStateReconciler
         await _context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    /// <inheritdoc />
+    public async Task RecordReportedGameVersionAsync(
+        AgentId agentId,
+        ServerId serverId,
+        string gameVersion,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(gameVersion);
+        if (string.IsNullOrWhiteSpace(gameVersion) || gameVersion.Length > ServerConfiguration.GameVersionMaxLength)
+        {
+            return; // Observed and untrusted: never store more than the column holds.
+        }
+
+        Server? server = await _servers.FindByIdAsync(serverId, cancellationToken).ConfigureAwait(false);
+        if (server is null || server.AgentId != agentId || server.GameVersion == gameVersion)
+        {
+            return;
+        }
+
+        server.RecordObservedGameVersion(gameVersion);
+        await _context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     // Applies an observed single-Server transition, but only to a Server this tenant owns AND the reporting
     // Agent owns — an Agent may not move the state of another Agent's Server (trust-boundaries.md §3/§8).
     private async Task RecordOwnedAsync(
