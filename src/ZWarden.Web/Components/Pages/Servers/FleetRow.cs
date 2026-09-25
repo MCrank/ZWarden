@@ -6,10 +6,9 @@ namespace ZWarden.Web.Components.Pages.Servers;
 /// One row of the Fleet board (#158), projected by the static-SSR parent (which has the authorized, tenant-
 /// filtered load and an <c>HttpContext</c>) and handed to the interactive <see cref="FleetBoard"/> island as a
 /// parameter. It must be a public, serializable type because it crosses the prerender→interactive boundary.
-/// It carries only the last-reported registry metadata plus a <b>point-in-time snapshot</b> of the ownership-
-/// guarded live caches (CPU/memory) — the board does not refresh at 1&#160;Hz (a static snapshot, ADR 0040
-/// posture); reopen or navigate to re-read. Players/uptime/tick have no v1.0 backing data and render as
-/// <c>—</c> in the island. All Agent-reported text is untrusted and rendered as data (trust-boundaries §3/§8).
+/// It carries the last-reported registry metadata plus the first-render values of the fleet facts (#257,
+/// <c>FleetFacts</c>); live-status.js keeps the Status, Players, CPU, Memory, Uptime and Version cells current
+/// from the batched status poll. All Agent-reported text is untrusted and rendered as data (trust-boundaries §3/§8).
 /// </summary>
 /// <param name="Id">The Server's canonical id (<c>srv-</c>) as a string — the row-click target and cache key.</param>
 /// <param name="Name">The operator-set Server name.</param>
@@ -23,6 +22,9 @@ namespace ZWarden.Web.Components.Pages.Servers;
 /// <param name="CpuPercent">The latest CPU sample (0–100), or <c>null</c> when no sample is cached.</param>
 /// <param name="MemoryUsedBytes">The latest resident-memory sample, or <c>null</c> when none is cached.</param>
 /// <param name="MemoryLimitBytes">The container's memory limit for the sample, or <c>null</c>.</param>
+/// <param name="Players">Connected players from the last RCON sample, or <c>null</c> (renders <c>—</c>).</param>
+/// <param name="PlayersAge">How old that sample is, e.g. <c>as of 2 min ago</c> (the cell's tooltip), or <c>null</c>.</param>
+/// <param name="Uptime">The compact container uptime, e.g. <c>2h 14m</c>, or <c>—</c>.</param>
 public sealed record FleetRow(
     string Id,
     string Name,
@@ -34,4 +36,7 @@ public sealed record FleetRow(
     string Version,
     double? CpuPercent,
     long? MemoryUsedBytes,
-    long? MemoryLimitBytes);
+    long? MemoryLimitBytes,
+    int? Players = null,
+    string? PlayersAge = null,
+    string Uptime = "—");

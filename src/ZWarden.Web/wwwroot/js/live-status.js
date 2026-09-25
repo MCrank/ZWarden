@@ -3,8 +3,10 @@
 // label) and the lifecycle buttons' enabled state in place. Two page shapes:
 //   [data-live-status="<url>"]  server-detail header — one status object; buttons anywhere on the page.
 //   [data-live-fleet="<url>"]   fleet board — an array of { id, ... }; each [data-live-row="<id>"] is updated
-//                               from its own entry (buttons scoped to that row); a row with no entry (the
-//                               Server left the list) is left as rendered.
+//                               from its own entry (buttons scoped to that row), as are its fact cells
+//                               ([data-fleet-server="<id>"]: players, CPU, memory, uptime, version — #257) and
+//                               the KPI tiles ([data-kpi-strip]); a row with no entry (the Server left the list)
+//                               is left as rendered.
 // Poll-driven, no circuit: the endpoint runs under the operator's own request (tenant + Server.View), which a
 // circuit lacks. Faster while a mutating Operation is in flight, slower when idle, and only while the tab is
 // visible. One loop for the whole app, so it survives Blazor enhanced navigation (a page without a marker simply
@@ -73,6 +75,115 @@
     applyControls(doc, s);
   }
 
+  // #257: the fleet facts. Every value is Agent-observed data, so it is written with textContent only. Uptime and
+  // the players' sample age arrive preformatted (server clock); only the meters and the KPI sums are worked out
+  // here, mirroring MeterBar (percent + threshold) and FleetFacts.Kpis.
+  var DASH = '—';
+  var METER_FILLS = ['bg-meter-nominal', 'bg-meter-watch', 'bg-meter-hot'];
+
+  function setText(el, text) {
+    if (el && el.textContent !== text) { el.textContent = text; }
+  }
+
+  function setHidden(el, hidden) {
+    if (el && el.hidden !== hidden) { el.hidden = hidden; }
+  }
+
+  function setAttr(el, name, value) {
+    if (!el) { return; }
+    if (value === null) {
+      if (el.hasAttribute(name)) { el.removeAttribute(name); }
+    } else if (el.getAttribute(name) !== value) {
+      el.setAttribute(name, value);
+    }
+  }
+
+  function swapClass(el, all, wanted) {
+    if (!el) { return; }
+    all.forEach(function (c) {
+      if (c !== wanted && el.classList.contains(c)) { el.classList.remove(c); }
+    });
+    if (!el.classList.contains(wanted)) { el.classList.add(wanted); }
+  }
+
+  function applyMeter(cell, value, max) {
+    var slot = cell.querySelector('[data-meter-slot]');
+    var has = typeof value === 'number' && typeof max === 'number' && max > 0;
+    setHidden(slot, !has);
+    setHidden(cell.querySelector('[data-meter-empty]'), has);
+    var meter = has && slot ? slot.querySelector('[data-meter]') : null;
+    if (!meter) { return; }
+    var percent = Math.min(100, Math.max(0, value / max * 100));
+    var rounded = Math.round(percent);
+    var fill = meter.querySelector('[data-meter-fill]');
+    if (fill && fill.style.width !== rounded + '%') { fill.style.width = rounded + '%'; }
+    swapClass(fill, METER_FILLS, percent < 60 ? 'bg-meter-nominal' : percent <= 85 ? 'bg-meter-watch' : 'bg-meter-hot');
+    setText(meter.querySelector('[data-meter-text]'), rounded + '%');
+    setAttr(meter, 'aria-valuenow', String(rounded));
+    var label = meter.getAttribute('data-meter-label');
+    setAttr(meter, 'aria-label', (label ? label + ': ' : '') + rounded + '%');
+  }
+
+  function applyFacts(root, byId) {
+    root.querySelectorAll('[data-fleet-server]').forEach(function (cell) {
+      var s = byId[cell.getAttribute('data-fleet-server')];
+      if (!s) { return; }
+      switch (cell.getAttribute('data-fleet-cell')) {
+        case 'players':
+          var known = typeof s.players === 'number';
+          setText(cell, known ? String(s.players) : DASH);
+          setAttr(cell, 'title', known && s.playersAge ? String(s.playersAge) : null);
+          swapClass(cell, ['text-foreground', 'text-muted-foreground'], known ? 'text-foreground' : 'text-muted-foreground');
+          break;
+        case 'uptime':
+          setText(cell, s.uptime ? String(s.uptime) : DASH);
+          break;
+        case 'version':
+          setText(cell, s.version ? String(s.version) : DASH);
+          break;
+        case 'cpu':
+          applyMeter(cell, s.cpuPercent, 100);
+          break;
+        case 'memory':
+          applyMeter(cell, s.memoryUsedBytes, s.memoryLimitBytes);
+          break;
+      }
+    });
+  }
+
+  function kpiTile(strip, key) {
+    return strip.querySelector('[data-kpi="' + key + '"]');
+  }
+
+  function applyKpis(list) {
+    var strip = doc.querySelector('[data-kpi-strip]');
+    if (!strip) { return; }
+    var running = 0, attention = 0, attentionName = null, players = 0, anyPlayers = false;
+    list.forEach(function (e) {
+      if (e.running) { running++; }
+      if (e.attention) {
+        attention++;
+        if (attentionName === null) { attentionName = e.name ? String(e.name) : ''; }
+      }
+      if (typeof e.players === 'number') { players += e.players; anyPlayers = true; }
+    });
+
+    var runningTile = kpiTile(strip, 'running');
+    if (runningTile) { setText(runningTile.querySelector('[data-kpi-value]'), String(running)); }
+
+    var attentionTile = kpiTile(strip, 'needs-attention');
+    if (attentionTile) {
+      var value = attentionTile.querySelector('[data-kpi-value]');
+      setText(value, String(attention));
+      swapClass(value, ['text-status-unhealthy', 'text-foreground'], attention > 0 ? 'text-status-unhealthy' : 'text-foreground');
+      setText(attentionTile.querySelector('[data-kpi-sub]'),
+        attention === 0 ? 'all healthy' : (attentionName ? attentionName + ' · unhealthy' : 'unhealthy'));
+    }
+
+    var playersTile = kpiTile(strip, 'players');
+    if (playersTile) { setText(playersTile.querySelector('[data-kpi-value]'), anyPlayers ? String(players) : DASH); }
+  }
+
   function applyFleet(root, byId) {
     var busy = false;
     Object.keys(byId).forEach(function (id) { busy = busy || !!byId[id].busy; });
@@ -83,6 +194,7 @@
         applyControls(row, s);
       }
     });
+    applyFacts(root, byId);
     setBusy(root, busy);
   }
 
@@ -127,6 +239,7 @@
           lastFleetRoot = current;
           observeFleet(current);
           applyFleet(current, byId);
+          applyKpis(s);
         } else {
           applyHeader(current, s);
         }

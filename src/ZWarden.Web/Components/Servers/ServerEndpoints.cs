@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Identity;
+using ZWarden.Application.Agents;
 using ZWarden.Application.Backups;
 using ZWarden.Application.Operations;
 using ZWarden.Application.Servers;
@@ -108,16 +109,26 @@ public static class ServerEndpoints
 
         // The fleet board's live status (#253): every Server the caller may view (the inventory's fail-closed
         // Server.View filter), each resolved against the tenant's in-flight mutating Operations — read once for the
-        // whole fleet, not once per row. Polled by live-status.js on /servers. Never cached.
+        // whole fleet, not once per row. Polled by live-status.js on /servers. Never cached. Each entry also carries the
+        // Server's fleet facts (#257, FleetFacts — the same projection the first render uses): players and their age,
+        // uptime, version, the CPU/memory meters and the KPI flags, read from the in-memory ownership-guarded metrics
+        // cache — no Agent round-trip, so a page viewer adds no Agent or PZ load. Uptime and the sample age are
+        // formatted here against the server clock, so a skewed browser clock can't distort them.
         lifecycle.MapGet("/status", async (ClaimsPrincipal principal, UserManager<ApplicationUser> users,
-            IServerInventory inventory, IOperationStore operations, HttpContext http, CancellationToken ct) =>
+            IServerInventory inventory, IOperationStore operations, IServerMetricsCache metrics,
+            IAgentConnectionRegistry connections, TimeProvider clock, HttpContext http, CancellationToken ct) =>
         {
             IReadOnlyList<ServerSummary> servers = await inventory.ListVisibleAsync(Actor(principal, users), ct).ConfigureAwait(false);
             IReadOnlyDictionary<ServerId, Operation> activeByServer = ServerLiveStatus.ActiveByServer(
                 servers.Count == 0 ? [] : await operations.ListActiveAsync(ct).ConfigureAwait(false));
+            DateTimeOffset now = clock.GetUtcNow();
 
             http.Response.Headers.CacheControl = "no-store";
-            return Results.Ok(servers.Select(s => StatusBody(s.Id, ServerLiveStatus.Resolve(s.LastRunState, s.Id, activeByServer))));
+            return Results.Ok(servers.Select(s => FleetStatusBody(
+                s,
+                ServerLiveStatus.Resolve(s.LastRunState, s.Id, activeByServer),
+                FleetFacts.For(s, metrics.GetLatest(s.Id, s.AgentId), connections.IsConnected(s.AgentId)),
+                now)));
         });
 
         // The live header status (#249): the observed run-state resolved against the Server's in-flight mutating
@@ -348,6 +359,30 @@ public static class ServerEndpoints
         canStop = view.CanStop,
         canRestart = view.CanRestart,
         detail = view.Detail,
+    };
+
+    // One fleet-board entry (#257): the #253 status fields plus the fleet facts. Every value is observed data; the
+    // script writes it with textContent only.
+    private static object FleetStatusBody(ServerSummary server, ServerStatusView view, FleetServerFacts facts, DateTimeOffset now) => new
+    {
+        id = server.Id.ToString(),
+        label = view.Label,
+        tone = view.ToneKey,
+        busy = view.Busy,
+        canStart = view.CanStart,
+        canStop = view.CanStop,
+        canRestart = view.CanRestart,
+        detail = view.Detail,
+        name = server.Name,
+        running = facts.IsRunning,
+        attention = facts.NeedsAttention,
+        players = facts.Players,
+        playersAge = facts.PlayersSampledAt is { } counted ? FleetFacts.FormatSampleAge(counted, now) : null,
+        uptime = FleetFacts.FormatUptime(facts.StartedAt, now),
+        version = facts.Version ?? FleetFacts.Dash,
+        cpuPercent = facts.CpuPercent,
+        memoryUsedBytes = facts.MemoryUsedBytes,
+        memoryLimitBytes = facts.MemoryLimitBytes,
     };
 
     private static UserId Actor(ClaimsPrincipal principal, UserManager<ApplicationUser> users)

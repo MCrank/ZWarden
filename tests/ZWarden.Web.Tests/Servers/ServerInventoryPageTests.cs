@@ -206,6 +206,34 @@ public sealed class ServerInventoryPageTests
     }
 
     [Test]
+    public async Task The_fleet_board_renders_players_uptime_and_version_and_drops_tick()
+    {
+        // #257: first render of the fleet facts; live-status.js keeps them (and the tiles) current from the poll.
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        (ServerId serverId, AgentId agentId) = await SeedServerWithAgentAsync(factory, "populated");
+        factory.Services.GetRequiredService<Application.Agents.IAgentConnectionRegistry>()
+            .Register(agentId, "conn-257", () => { });
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        factory.Services.GetRequiredService<IServerMetricsCache>().Record(
+        [
+            new ServerMetrics(agentId, serverId, 10, 1, 2, null, null, 7, now, now.AddMinutes(-3),
+                now.AddHours(-5).AddMinutes(-2), "24909836"),
+        ]);
+
+        string html = await (await client.GetAsync(new Uri("/servers", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        await Assert.That(html).DoesNotContain(">Tick<");
+        await Assert.That(html).Contains($"data-fleet-server=\"{serverId}\"");
+        await Assert.That(Regex.IsMatch(html, "data-fleet-cell=\"players\"[^>]*title=\"as of 3 min ago\"[^>]*>7<")).IsTrue();
+        await Assert.That(Regex.IsMatch(html, "data-fleet-cell=\"uptime\"[^>]*>5h 2m<")).IsTrue();
+        await Assert.That(Regex.IsMatch(html, "data-fleet-cell=\"version\"[^>]*>24909836<")).IsTrue();
+        // The Players online tile sums the known counts.
+        await Assert.That(Regex.IsMatch(html, "data-kpi=\"players\"[\\s\\S]*?data-kpi-value[^>]*>7<")).IsTrue();
+        client.Dispose();
+    }
+
+    [Test]
     public async Task The_degraded_banner_shows_when_a_visible_servers_agent_is_unreachable()
     {
         await using ZWardenWebAppFactory factory = new();

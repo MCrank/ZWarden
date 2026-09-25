@@ -2,7 +2,9 @@ using System.Net;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.DependencyInjection;
+using ZWarden.Application.Agents;
 using ZWarden.Application.Operations;
+using ZWarden.Application.Servers;
 using ZWarden.Domain.Ids;
 using ZWarden.Domain.Operations;
 using ZWarden.Domain.Servers;
@@ -258,6 +260,57 @@ public sealed class ServerLifecycleEndpointsTests
     }
 
     [Test]
+    public async Task The_fleet_status_carries_each_servers_fleet_facts()
+    {
+        // #257: the same poll feeds the Players / Uptime / Version columns, the meters and the KPI tiles.
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        (ServerId serverId, AgentId agentId) = await SeedFleetServerAsync(factory);
+        factory.Services.GetRequiredService<IAgentConnectionRegistry>().Register(agentId, "conn-257", () => { });
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        factory.Services.GetRequiredService<IServerMetricsCache>().Record(
+        [
+            new ServerMetrics(agentId, serverId, 42, 512, 1024, null, null, 5, now, now.AddMinutes(-2),
+                now.AddHours(-2).AddMinutes(-14), "24909836"),
+        ]);
+
+        HttpResponseMessage response = await client.GetAsync(new Uri("/api/servers/status", UriKind.Relative));
+
+        using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        JsonElement entry = body.RootElement.EnumerateArray().Single();
+        await Assert.That(entry.GetProperty("name").GetString()).IsEqualTo("fleet-facts");
+        await Assert.That(entry.GetProperty("running").GetBoolean()).IsTrue();
+        await Assert.That(entry.GetProperty("attention").GetBoolean()).IsFalse();
+        await Assert.That(entry.GetProperty("players").GetInt32()).IsEqualTo(5);
+        await Assert.That(entry.GetProperty("playersAge").GetString()).IsEqualTo("as of 2 min ago");
+        await Assert.That(entry.GetProperty("uptime").GetString()).IsEqualTo("2h 14m");
+        await Assert.That(entry.GetProperty("version").GetString()).IsEqualTo("24909836");
+        await Assert.That(entry.GetProperty("cpuPercent").GetDouble()).IsEqualTo(42d);
+        await Assert.That(entry.GetProperty("memoryLimitBytes").GetInt64()).IsEqualTo(1024);
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task The_fleet_status_blanks_players_and_uptime_while_the_agent_is_offline()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        (ServerId serverId, AgentId agentId) = await SeedFleetServerAsync(factory);
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        factory.Services.GetRequiredService<IServerMetricsCache>().Record(
+            [new ServerMetrics(agentId, serverId, 42, 512, 1024, null, null, 5, now, now, now.AddHours(-1), null)]);
+
+        HttpResponseMessage response = await client.GetAsync(new Uri("/api/servers/status", UriKind.Relative));
+
+        using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        JsonElement entry = body.RootElement.EnumerateArray().Single();
+        await Assert.That(entry.GetProperty("players").ValueKind).IsEqualTo(JsonValueKind.Null);
+        await Assert.That(entry.GetProperty("uptime").GetString()).IsEqualTo("—");
+        await Assert.That(entry.GetProperty("version").GetString()).IsEqualTo("—");
+        client.Dispose();
+    }
+
+    [Test]
     public async Task The_fleet_status_omits_servers_the_caller_cannot_view()
     {
         // Fail-closed on Server.View: a signed-in user with no grant sees no Server, not even that one exists.
@@ -300,6 +353,18 @@ public sealed class ServerLifecycleEndpointsTests
         db.Set<Server>().Add(server);
         await db.SaveChangesAsync();
         return server.Id;
+    }
+
+    private static async Task<(ServerId ServerId, AgentId AgentId)> SeedFleetServerAsync(ZWardenWebAppFactory factory)
+    {
+        using IServiceScope scope = factory.Services.CreateScope();
+        ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
+        AgentId agentId = AgentId.New();
+        Server server = Server.Import(agentId, ServerId.New(), "fleet-facts", Now);
+        server.RecordObservedState(ServerRunState.Running, Now);
+        db.Set<Server>().Add(server);
+        await db.SaveChangesAsync();
+        return (server.Id, agentId);
     }
 
     private static async Task<HttpClient> SignedInOperatorAsync(ZWardenWebAppFactory factory)

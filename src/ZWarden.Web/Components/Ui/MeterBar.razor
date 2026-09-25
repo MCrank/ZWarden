@@ -5,18 +5,21 @@
    pills - no ragged ovals (#18). MeterBar (with StatusBadge) is the ONLY sanctioned consumer of the
    --meter-* tokens (style-guide.md line 25), so no view reaches for a meter colour directly. The class
    strings are full literals so the Tailwind content scan emits them (ADR 0003 condition 2); only the
-   fill WIDTH is an inline style, because Tailwind cannot generate an arbitrary runtime width. *@
+   fill WIDTH is an inline style, because Tailwind cannot generate an arbitrary runtime width. The data-meter*
+   hooks let live-status.js move a fleet meter in place (#257); it mirrors Percent and FillClass below. *@
 
 <div class="inline-flex w-[160px] items-center gap-2"
      role="meter"
      aria-valuenow="@Rounded"
      aria-valuemin="0"
      aria-valuemax="100"
-     aria-label="@AriaLabel">
+     aria-label="@AriaLabel"
+     data-meter
+     data-meter-label="@Label">
     <span class="h-2 flex-1 overflow-hidden rounded-sm bg-meter-track">
-        <span class="block h-full @FillClass" style="width: @(Rounded)%"></span>
+        <span class="block h-full @FillClass" style="width: @(Rounded)%" data-meter-fill></span>
     </span>
-    <span class="w-10 text-right font-mono text-xs tabular-nums text-foreground">@Rounded%</span>
+    <span class="w-10 text-right font-mono text-xs tabular-nums text-foreground" data-meter-text>@Rounded%</span>
 </div>
 
 @code {
@@ -37,7 +40,8 @@
     // and a negative or zero Max must not divide by zero or render a negative fill.
     private double Percent => Max <= 0 ? 0 : Math.Clamp(Value / Max * 100, 0, 100);
 
-    private int Rounded => (int)Math.Round(Percent);
+    // Half rounds up, like the live-status.js mirror (Math.round), so a meter never shifts 1% when the poll takes over.
+    private int Rounded => (int)Math.Round(Percent, MidpointRounding.AwayFromZero);
 
     private string AriaLabel => Label is { Length: > 0 } label ? $"{label}: {Rounded}%" : $"{Rounded}%";
 
