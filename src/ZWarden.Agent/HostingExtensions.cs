@@ -116,6 +116,7 @@ public static class HostingExtensions
         // provision), resolves the container's private-network endpoint, and runs the on-demand health probe over
         // the ZWarden.Rcon client. The RCON password type lives only here in the Agent — never in Web (§9 rule 7).
         services.AddSingleton<IRconServerConfig, RconServerConfig>();
+        services.AddSingleton<IInitialSettingsSeeder, InitialSettingsSeeder>();
         services.AddSingleton<IRconConnectionFactory>(_ => new RconConnectionFactory());
         services.AddSingleton<IRconEndpointResolver, RconEndpointResolver>();
         services.AddSingleton<IRconHealthProbe, RconHealthProbe>();

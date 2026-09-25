@@ -115,6 +115,11 @@ public sealed class AgentOptions
 
     private long? _defaultMemoryLimitBytes;
 
+    /// <summary>RAM, in bytes, kept back for the host OS and everything that is not a game server (#230). Reported with
+    /// the host's total and committed memory so the new-server wizard can show what is free and warn before
+    /// overcommitting — guidance only, never enforced here. Must not be negative; defaults to 2 GiB.</summary>
+    public long HostMemoryReserveBytes { get; set; } = 2L * 1024 * 1024 * 1024;
+
     /// <summary>
     /// How long (seconds) a Docker <c>stop</c>/<c>restart</c> waits for the container to exit before Docker
     /// SIGKILLs it (F15). This must exceed the image's in-container save grace (<c>ZW_PZ_STOP_GRACE</c>,

@@ -19,6 +19,7 @@ using ZWarden.Agent.Tests.Docker;
 using ZWarden.Agent.Tests.Mods;
 using ZWarden.Agent.Tests.Players;
 using ZWarden.Agent.Tests.Rcon;
+using ZWarden.Agent.Tests.ServerConfig;
 using ZWarden.Contracts.Protocol;
 using ZWarden.Contracts.Protocol.Messages;
 using ZWarden.Domain.Configuration;
@@ -79,6 +80,7 @@ public class AgentCommandProcessorTests
             effectiveRuntime,
             hostDirectories ?? new FakeServerHostDirectories(),
             rconConfig ?? new FakeRconServerConfig(),
+            new FakeInitialSettingsSeeder(),
             coordinator,
             options,
             NullLogger<ServerProvisioner>.Instance);
