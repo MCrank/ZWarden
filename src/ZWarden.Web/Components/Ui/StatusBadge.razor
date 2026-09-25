@@ -8,18 +8,26 @@
    Domain's last-reported ServerRunState. The class strings are full literals so the
    Tailwind content scan emits them (ADR 0003 condition 2). *@
 
-<span class="inline-flex w-[108px] items-center gap-1.5 rounded-sm border px-2 py-0.5 text-xs font-medium text-foreground @BorderClass">
-    <span class="inline-block h-2 w-2 rounded-full @DotClass"></span>
-    @Label
+@* data-status-* hooks let live-status.js re-tone and re-label the header badge in place (#249). *@
+<span class="inline-flex w-[108px] items-center gap-1.5 rounded-sm border px-2 py-0.5 text-xs font-medium text-foreground @BorderClass"
+      data-status-badge>
+    <span class="inline-block h-2 w-2 rounded-full @DotClass" data-status-dot></span>
+    <span data-status-label>@Label</span>
 </span>
 
 @code {
-    /// <summary>The Server's last-reported run-state (F14). The hierarchical health model is F16's.</summary>
+    /// <summary>The Server's last-reported run-state (F14) — the badge's colour. The hierarchical health model is
+    /// F16's.</summary>
     [Parameter]
     [EditorRequired]
     public ServerRunState State { get; set; }
 
-    private string Label => State.ToString().ToUpperInvariant();
+    /// <summary>An override for the label, e.g. a transitional <c>RESTARTING</c> worn in the busy tone (#249);
+    /// null ⇒ the state's own name.</summary>
+    [Parameter]
+    public string? Text { get; set; }
+
+    private string Label => Text ?? State.ToString().ToUpperInvariant();
 
     // running -> green, stopped -> grey, starting/stopping -> amber ("busy"), failed -> red,
     // unknown -> violet ("agent unreachable, not down"). The ramp is tuned per theme in zwarden.css.

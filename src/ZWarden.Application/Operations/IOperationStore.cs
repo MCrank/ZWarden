@@ -16,6 +16,10 @@ public interface IOperationStore
     /// <summary>Finds an Operation by id in the current tenant, or <c>null</c> if not visible.</summary>
     Task<Operation?> FindAsync(OperationId operationId, CancellationToken cancellationToken = default);
 
+    /// <summary>The Server's in-flight (non-terminal) mutating Operation in the current tenant — the one holding
+    /// its per-server lock (ADR 0022) — or <c>null</c>. Feeds the live header's transitional state (#249).</summary>
+    Task<Operation?> FindActiveForServerAsync(ServerId serverId, CancellationToken cancellationToken = default);
+
     /// <summary>Applies an Agent progress report: advances the (clamped) percentage and (truncated) status
     /// line and extends the lease. No-op if the Operation is not visible or is already terminal.</summary>
     Task ApplyProgressAsync(

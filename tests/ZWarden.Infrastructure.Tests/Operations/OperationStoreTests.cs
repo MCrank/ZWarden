@@ -39,6 +39,47 @@ public class OperationStoreTests
     }
 
     [Test]
+    public async Task FindActiveForServer_returns_the_servers_in_flight_mutating_operation()
+    {
+        // #249: the live header shows STOPPING / RESTARTING from the Server's in-flight lifecycle Operation (a safe
+        // stop reports Running for its whole grace window), and disables the lifecycle buttons while it holds the lock.
+        await OperationTestHarness.WithSqlite(async options =>
+        {
+            await using ZWardenDbContext ctx = OperationTestHarness.Context(options);
+            ServerId server = ServerId.New();
+            Operation restart = Operation.Enqueue(AgentId.New(), OperationKind.RestartServer, isMutating: true, "restart", Now, server);
+            ctx.Add(restart);
+            await ctx.SaveChangesAsync();
+
+            OperationStore sut = OperationTestHarness.Store(ctx, new CapturingAuditWriter(), new StubClock(Now), Options);
+            Operation? active = await sut.FindActiveForServerAsync(server);
+
+            await Assert.That(active?.Id).IsEqualTo(restart.Id);
+        });
+    }
+
+    [Test]
+    public async Task FindActiveForServer_ignores_finished_read_only_and_other_servers_operations()
+    {
+        await OperationTestHarness.WithSqlite(async options =>
+        {
+            await using ZWardenDbContext ctx = OperationTestHarness.Context(options);
+            ServerId server = ServerId.New();
+            Operation finished = Operation.Enqueue(AgentId.New(), OperationKind.StopServer, isMutating: true, "done", Now, server);
+            finished.MarkDispatched(Now + Lease, Now);
+            finished.Succeed(Now);
+            Operation readOnly = Operation.Enqueue(AgentId.New(), OperationKind.ListPlayers, isMutating: false, "roster", Now, server);
+            Operation elsewhere = Operation.Enqueue(AgentId.New(), OperationKind.StopServer, isMutating: true, "other", Now, ServerId.New());
+            ctx.AddRange(finished, readOnly, elsewhere);
+            await ctx.SaveChangesAsync();
+
+            OperationStore sut = OperationTestHarness.Store(ctx, new CapturingAuditWriter(), new StubClock(Now), Options);
+
+            await Assert.That(await sut.FindActiveForServerAsync(server)).IsNull();
+        });
+    }
+
+    [Test]
     public async Task CompleteSucceeded_drives_to_succeeded_and_audits()
     {
         await OperationTestHarness.WithSqlite(async options =>
