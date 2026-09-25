@@ -302,6 +302,71 @@ public class ServerStateReconcilerTests
         });
     }
 
+    [Test]
+    public async Task A_reported_build_is_recorded_on_the_owned_server()
+    {
+        await WithSqlite(async options =>
+        {
+            AgentId agent = AgentId.New();
+            ServerId id = ServerId.New();
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            ServerRepository repo = new(db);
+            repo.Add(Server.Import(agent, id, "alpha", Now));
+            await db.SaveChangesAsync();
+
+            ServerStateReconciler reconciler = new(db, repo, new ServerDiscoveryCache(), new StubClock(Now.AddMinutes(2)));
+            // #257: the manifest build rides the metrics report, so a first-boot install gets a Version with no Update.
+            await reconciler.RecordReportedBuildAsync(agent, id, "24909836");
+
+            Server reloaded = (await repo.FindByIdAsync(id))!;
+            await Assert.That(reloaded.InstalledBuildId).IsEqualTo("24909836");
+            await Assert.That(reloaded.InstalledBuildReportedAt).IsEqualTo(Now.AddMinutes(2));
+        });
+    }
+
+    [Test]
+    public async Task An_unchanged_reported_build_keeps_the_original_report_time()
+    {
+        await WithSqlite(async options =>
+        {
+            AgentId agent = AgentId.New();
+            ServerId id = ServerId.New();
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            ServerRepository repo = new(db);
+            Server server = Server.Import(agent, id, "alpha", Now);
+            server.RecordObservedBuild("24909836", Now);
+            repo.Add(server);
+            await db.SaveChangesAsync();
+
+            ServerStateReconciler reconciler = new(db, repo, new ServerDiscoveryCache(), new StubClock(Now.AddHours(1)));
+            await reconciler.RecordReportedBuildAsync(agent, id, "24909836");
+
+            Server reloaded = (await repo.FindByIdAsync(id))!;
+            await Assert.That(reloaded.InstalledBuildReportedAt).IsEqualTo(Now);
+        });
+    }
+
+    [Test]
+    public async Task A_reported_build_from_another_agent_or_over_length_is_ignored()
+    {
+        await WithSqlite(async options =>
+        {
+            AgentId owner = AgentId.New();
+            ServerId id = ServerId.New();
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            ServerRepository repo = new(db);
+            repo.Add(Server.Import(owner, id, "alpha", Now));
+            await db.SaveChangesAsync();
+
+            ServerStateReconciler reconciler = new(db, repo, new ServerDiscoveryCache(), new StubClock(Now));
+            await reconciler.RecordReportedBuildAsync(AgentId.New(), id, "24909836"); // not the owner (trust §8)
+            await reconciler.RecordReportedBuildAsync(owner, id, new string('9', 65)); // over the stored bound
+
+            Server reloaded = (await repo.FindByIdAsync(id))!;
+            await Assert.That(reloaded.InstalledBuildId).IsNull();
+        });
+    }
+
     private static async Task WithSqlite(Func<DbContextOptions, Task> body)
     {
         string file = Path.Combine(Path.GetTempPath(), $"zw-{Guid.NewGuid():N}.db");

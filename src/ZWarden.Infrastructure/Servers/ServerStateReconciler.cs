@@ -91,6 +91,29 @@ public sealed class ServerStateReconciler : IServerStateReconciler
         => RecordOwnedAsync(
             agentId, serverId, (server, now) => server.RecordObservedHealth(health, now), cancellationToken);
 
+    /// <inheritdoc />
+    public async Task RecordReportedBuildAsync(
+        AgentId agentId,
+        ServerId serverId,
+        string buildId,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(buildId);
+        if (buildId.Length is 0 or > ServerConfiguration.InstalledBuildIdMaxLength)
+        {
+            return; // Observed and untrusted: never store more than the column holds.
+        }
+
+        Server? server = await _servers.FindByIdAsync(serverId, cancellationToken).ConfigureAwait(false);
+        if (server is null || server.AgentId != agentId || server.InstalledBuildId == buildId)
+        {
+            return;
+        }
+
+        server.RecordObservedBuild(buildId, _clock.GetUtcNow());
+        await _context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     // Applies an observed single-Server transition, but only to a Server this tenant owns AND the reporting
     // Agent owns — an Agent may not move the state of another Agent's Server (trust-boundaries.md §3/§8).
     private async Task RecordOwnedAsync(
