@@ -203,6 +203,26 @@ Each server listens on a **pair of UDP ports** on the host: the game port and th
 an existing firewall or port-forward rule, type the game port you want (1024–65534). Either way, **open or
 forward both UDP ports** to the host so players can connect. RCON is never published.
 
+The same form sets the basics PZ would otherwise default. All of them are optional, and PZ fills in anything you
+leave blank on first boot:
+
+- **Server browser name**, **Max players**, **Join password** and **Welcome message**.
+- **List it in the in-game public server browser**, if you want it listed.
+
+The join password is stored encrypted and written straight into the server's config before first boot.
+
+**Memory.** Give the **expected players** and leave **Heap** blank to use the suggestion: 4 GiB plus 0.25 GiB per
+player, rounded up to half a GiB. That works out to 6 GiB for 8 players, 8 GiB for 16 and 12 GiB for 32. You can
+also type a heap in GiB (2–128). The container's memory limit is the heap plus the host's overhead (6 GiB by
+default), because PZ uses a lot of memory outside the Java heap.
+
+Treat the suggestion as a starting point. Mods, map size and zombie density matter more than the player count.
+
+The form shows each host's **free memory**: total RAM, less what other servers' limits already claim, less a 2 GiB
+reserve for the host OS (the Agent setting `HostMemoryReserveBytes`). If the new server wouldn't fit, ZWarden
+warns you and asks you to confirm. Docker limits are ceilings, not reservations, so a few small servers that are
+rarely busy at the same time can share a host.
+
 You're in:
 
 ![The Fleet dashboard after setup, ready to register a server](images/06-fleet.png)
@@ -214,10 +234,10 @@ You're in:
 - **Where your worlds live.** Provisioned servers keep world data and backups on the host under
   **`/srv/zwarden`** (`pz-data/<server-id>` and `pz-backups/`). **Include `/srv/zwarden` in your backup
   routine**, and use the in-app backup/restore features too.
-- **Changing a server's ports.** On the server's **Overview**, **Change host ports** recreates its container on
-  a new UDP pair. The world, config and installed game are kept, so nothing is downloaded again. A running server
-  warns players, stops safely and comes back on the new ports. If the new pair turns out to be taken, the server
-  is rolled back to its old ports. Update your firewall or port-forward afterwards. Tenant Owners and
+- **Changing a server's ports or memory.** On the server's **Overview**, **Container settings** recreates its container on
+  a new UDP pair and/or with a new heap. The world, config and installed game are kept, so nothing is downloaded again. A running server
+  warns players, stops safely and comes back. If the new pair turns out to be taken, the server
+  is rolled back to its old ports and heap. After a port change, update your firewall or port-forward. Tenant Owners and
   Administrators can do this (`Server.Recreate`).
 - **Health & logs.** `docker compose ps` for health; `docker compose logs -f web|agent|caddy` for live logs.
 - **Upgrades.** Back up first, then `docker compose pull && docker compose build --pull && docker compose

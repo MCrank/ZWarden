@@ -583,6 +583,9 @@ namespace ZWarden.Migrations.Sqlite.Migrations
                         .HasMaxLength(32)
                         .HasColumnType("TEXT");
 
+                    b.Property<long?>("HeapSizeBytes")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("InstalledBuildId")
                         .HasMaxLength(64)
                         .HasColumnType("TEXT");

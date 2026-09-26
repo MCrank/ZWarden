@@ -7,6 +7,7 @@ using ZWarden.Domain.Audit;
 using ZWarden.Domain.Authorization;
 using ZWarden.Domain.Ids;
 using ZWarden.Domain.Operations;
+using ZWarden.Domain.Security;
 using ZWarden.Domain.Servers;
 using ZWarden.Infrastructure.Agents;
 using ZWarden.Infrastructure.Persistence;
@@ -30,6 +31,8 @@ public sealed class ServerInventory : IServerInventory
     private readonly IOperationCoordinator _operations;
     private readonly IAuditWriter _audit;
     private readonly TimeProvider _clock;
+    private readonly ISecretProtector _secrets;
+    private readonly IHostCapacityCache _capacity;
 
     public ServerInventory(
         ZWardenDbContext context,
@@ -39,8 +42,14 @@ public sealed class ServerInventory : IServerInventory
         IPermissionChecker permissions,
         IOperationCoordinator operations,
         IAuditWriter audit,
-        TimeProvider clock)
+        TimeProvider clock,
+        ISecretProtector secrets,
+        IHostCapacityCache capacity)
     {
+        ArgumentNullException.ThrowIfNull(secrets);
+        ArgumentNullException.ThrowIfNull(capacity);
+        _secrets = secrets;
+        _capacity = capacity;
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(servers);
         ArgumentNullException.ThrowIfNull(agents);
@@ -182,13 +191,21 @@ public sealed class ServerInventory : IServerInventory
     }
 
     /// <inheritdoc />
-    public async Task<ServerRegisterResult> RegisterAsync(
+    public Task<ServerRegisterResult> RegisterAsync(
         UserId user,
         AgentId agentId,
         string name,
         int? gamePort = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        RegisterAsync(user, new NewServerRequest(agentId, name, gamePort), cancellationToken);
+
+    /// <inheritdoc />
+    public async Task<ServerRegisterResult> RegisterAsync(
+        UserId user, NewServerRequest request, CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(request);
+        (AgentId agentId, string name, int? gamePort) = (request.AgentId, request.Name, request.GamePort);
+
         AuthorizationDecision decision = await _permissions
             .EvaluateAsync(user, Permissions.ServerRegister, server: null, cancellationToken).ConfigureAwait(false);
         if (!decision.IsAllowed)
@@ -218,6 +235,26 @@ public sealed class ServerInventory : IServerInventory
             }
         }
 
+        // #230: the heap and the initial settings are operator input, validated here before anything is created (the
+        // Agent re-validates). Then the capacity guidance becomes a server-side gate: over the host's free memory needs
+        // the operator's explicit acknowledgement (D1). No report yet (older Agent, just connected) ⇒ no gate.
+        if (request.HeapSizeBytes is { } heap && ServerMemoryRules.ValidateHeap(heap) is not null)
+        {
+            return ServerRegisterResult.Denied(ServerRegisterFailure.InvalidHeap);
+        }
+
+        if (request.Settings is { } settings && InvalidSettings(settings))
+        {
+            return ServerRegisterResult.Denied(ServerRegisterFailure.InvalidSettings);
+        }
+
+        if (!request.AcknowledgeOvercommit
+            && _capacity.GetLatest(agentId) is { } capacity
+            && capacity.ShortfallFor(request.HeapSizeBytes ?? capacity.DefaultHeapBytes) > 0)
+        {
+            return ServerRegisterResult.Denied(ServerRegisterFailure.OverCapacity);
+        }
+
         Server server = Server.Register(agentId, name, _clock.GetUtcNow());
         _servers.Add(server);
         await _context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
@@ -233,11 +270,37 @@ public sealed class ServerInventory : IServerInventory
                 IsMutating: true,
                 Guid.NewGuid().ToString("N"),
                 ServerId: server.Id,
-                CommandPayload: gamePort is null ? null : new ServerContainerPayload(gamePort).ToJson()),
+                CommandPayload: ProvisionPayload(request)),
             user,
             cancellationToken).ConfigureAwait(false);
 
         return ServerRegisterResult.Success(server.Id, operation.Id);
+    }
+
+    private static bool InvalidSettings(NewServerSettings settings) =>
+        (settings.MaxPlayers is { } players && InitialSettingsRules.ValidateMaxPlayers(players) is not null)
+        || InitialSettingsRules.ValidatePublicName(settings.PublicName) is not null
+        || InitialSettingsRules.ValidatePassword(settings.Password) is not null
+        || InitialSettingsRules.ValidateWelcomeMessage(settings.WelcomeMessage) is not null;
+
+    // No port, heap or settings ⇒ no payload (the Agent allocates the stride, uses its defaults). The join password is
+    // stored only as a protected envelope (ADR 0015); the dispatcher decrypts it to build the wire command.
+    private string? ProvisionPayload(NewServerRequest request)
+    {
+        if (request is { GamePort: null, HeapSizeBytes: null, Settings: null })
+        {
+            return null;
+        }
+
+        InitialSettingsPayload? settings = request.Settings is { } s
+            ? new InitialSettingsPayload(
+                s.Public,
+                s.PublicName,
+                s.MaxPlayers,
+                string.IsNullOrEmpty(s.Password) ? null : _secrets.ProtectString(s.Password),
+                s.WelcomeMessage)
+            : null;
+        return new ServerContainerPayload(request.GamePort, HeapSizeBytes: request.HeapSizeBytes, Settings: settings).ToJson();
     }
 
     private static ServerSummary ToSummary(Server server) => new(
@@ -252,5 +315,6 @@ public sealed class ServerInventory : IServerInventory
         server.LastHealth,
         server.LastHealthReportedAt,
         server.InstalledBuildId,
-        server.GameVersion);
+        server.GameVersion,
+        server.HeapSizeBytes);
 }

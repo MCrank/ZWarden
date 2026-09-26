@@ -241,12 +241,13 @@ public class ServerStateReconcilerTests
             await db.SaveChangesAsync();
 
             ServerStateReconciler reconciler = new(db, repo, new ServerDiscoveryCache(), new StubClock(Now));
-            await reconciler.RecordProvisionedAsync(registeredId, 16265, 16266, "c0ffee");
+            await reconciler.RecordProvisionedAsync(registeredId, 16265, 16266, "c0ffee", 6L * 1024 * 1024 * 1024);
 
             Server reloaded = (await repo.FindByIdAsync(registeredId))!;
             await Assert.That(reloaded.GamePort).IsEqualTo(16265);
             await Assert.That(reloaded.QueryPort).IsEqualTo(16266);
             await Assert.That(reloaded.DockerContainerId).IsEqualTo("c0ffee");
+            await Assert.That(reloaded.HeapSizeBytes).IsEqualTo(6L * 1024 * 1024 * 1024);
         });
     }
 

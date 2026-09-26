@@ -68,12 +68,25 @@ public sealed class ServerLifecycle : IServerLifecycle
         ServerId server,
         int? gamePort,
         GracefulRestartPayload? plan,
+        long? heapSizeBytes = null,
         CancellationToken cancellationToken = default)
         => RunAsync(
             user, server, Permissions.ServerRecreate, OperationKind.RecreateServer, ServerAuditActions.Recreated,
             cancellationToken,
-            commandPayload: new ServerContainerPayload(gamePort, plan).ToJson(),
-            precheck: gamePort is { } port ? (resolved, ct) => CheckPortAsync(resolved, port, ct) : null);
+            commandPayload: new ServerContainerPayload(gamePort, plan, heapSizeBytes).ToJson(),
+            precheck: (resolved, ct) => CheckRecreateAsync(resolved, gamePort, heapSizeBytes, ct));
+
+    // The fast control-plane refusals for a recreate: an invalid heap (#230), then the port checks (#229).
+    private async Task<ServerLifecycleFailure?> CheckRecreateAsync(
+        Server server, int? gamePort, long? heapSizeBytes, CancellationToken cancellationToken)
+    {
+        if (heapSizeBytes is { } heap && ServerMemoryRules.ValidateHeap(heap) is not null)
+        {
+            return ServerLifecycleFailure.InvalidHeap;
+        }
+
+        return gamePort is { } port ? await CheckPortAsync(server, port, cancellationToken).ConfigureAwait(false) : null;
+    }
 
     // The fast control-plane port refusal (#229): the range, then no overlap with another Server's recorded pair on the
     // same host. The Agent stays authoritative — it re-checks against every container on the daemon.

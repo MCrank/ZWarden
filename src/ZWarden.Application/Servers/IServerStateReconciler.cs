@@ -43,7 +43,7 @@ public interface IServerStateReconciler
 
     /// <summary>
     /// Records the container linkage a successful provisioning Operation reported (F14 PR-B): the allocated
-    /// ports and the created container id, against the Server the completion named. Observed, tenant-scoped —
+    /// ports, the created container id and its heap (#230), against the Server the completion named. Observed, tenant-scoped —
     /// a report for a Server not in the current tenant is a no-op (trust-boundaries.md §3/§8).
     /// </summary>
     Task RecordProvisionedAsync(
@@ -51,6 +51,7 @@ public interface IServerStateReconciler
         int gamePort,
         int queryPort,
         string containerId,
+        long? heapSizeBytes = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

@@ -1702,6 +1702,31 @@ public sealed class ServerDetailPageTests
     }
 
     [Test]
+    public async Task The_container_settings_form_recreates_with_a_new_heap()
+    {
+        // #230: the recreate form also changes the heap (typed in GiB; blank keeps the current heap).
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "grow-me", gamePort: 16261, queryPort: 16262);
+
+        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+        await Assert.That(page).Contains("name=\"_recreateForm.HeapGiB\"");
+        Dictionary<string, string> form = new(StringComparer.Ordinal)
+        {
+            ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
+            ["_handler"] = "server-recreate",
+            ["_recreateForm.HeapGiB"] = "8",
+            ["_recreateForm.Countdown"] = "5m",
+        };
+        await client.PostAsync(new Uri($"/servers/{serverId}", UriKind.Relative), new FormUrlEncodedContent(form));
+
+        ServerContainerPayload parsed = ServerContainerPayload.FromJson(EnqueuedPayload(factory, serverId, OperationKind.RecreateServer)!);
+        await Assert.That(parsed.HeapSizeBytes).IsEqualTo(8L * 1024 * 1024 * 1024);
+        await Assert.That(parsed.GamePort).IsNull();
+        client.Dispose();
+    }
+
+    [Test]
     public async Task The_change_ports_form_refuses_an_invalid_port_without_enqueueing()
     {
         await using ZWardenWebAppFactory factory = new();

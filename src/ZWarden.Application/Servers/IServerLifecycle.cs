@@ -36,11 +36,14 @@ public interface IServerLifecycle
     /// <c>Server.Recreate</c>: optionally on a new host <paramref name="gamePort"/> pair (<c>null</c> keeps the current
     /// pair), warning players with <paramref name="plan"/> before the safe stop if it is running. A port outside
     /// <c>HostPortRules</c> is <see cref="ServerLifecycleFailure.InvalidPort"/>; one overlapping another Server's pair on
-    /// the same host is <see cref="ServerLifecycleFailure.PortInUse"/>.</summary>
+    /// the same host is <see cref="ServerLifecycleFailure.PortInUse"/>. An optional <paramref name="heapSizeBytes"/> (#230)
+    /// rebuilds it with a new heap (<c>null</c> keeps the current one); outside <c>ServerMemoryRules</c> it is
+    /// <see cref="ServerLifecycleFailure.InvalidHeap"/>.</summary>
     Task<ServerLifecycleResult> RecreateAsync(
         UserId user,
         ServerId server,
         int? gamePort,
         GracefulRestartPayload? plan,
+        long? heapSizeBytes = null,
         CancellationToken cancellationToken = default);
 }

@@ -22,6 +22,9 @@ public enum ServerLifecycleFailure
     /// <summary>The requested host port pair overlaps another Server's recorded pair on the same host (#229). The
     /// Agent re-checks against every container on the daemon; this is the fast control-plane refusal.</summary>
     PortInUse,
+
+    /// <summary>The requested heap is outside <c>ServerMemoryRules</c> (#230).</summary>
+    InvalidHeap,
 }
 
 /// <summary>The outcome of a lifecycle action (F15): on success, the enqueued Operation whose state the caller

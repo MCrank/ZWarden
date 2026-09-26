@@ -80,7 +80,12 @@ public static class ServerEndpoints
             }
 
             ServerRegisterResult result = await inventory
-                .RegisterAsync(Actor(principal, users), agentId, request.Name.Trim(), request.GamePort, cancellationToken)
+                .RegisterAsync(
+                    Actor(principal, users),
+                    new NewServerRequest(
+                        agentId, request.Name.Trim(), request.GamePort, request.HeapSizeBytes, request.Settings,
+                        request.AcknowledgeOvercommit),
+                    cancellationToken)
                 .ConfigureAwait(false);
 
             if (result.Succeeded)
@@ -102,6 +107,10 @@ public static class ServerEndpoints
                 ServerRegisterFailure.InvalidPort => Results.BadRequest(new { error = "invalid_port" }),
                 ServerRegisterFailure.PortInUse =>
                     Results.Json(new { error = "port_in_use" }, statusCode: StatusCodes.Status409Conflict),
+                ServerRegisterFailure.InvalidHeap => Results.BadRequest(new { error = "invalid_heap" }),
+                ServerRegisterFailure.InvalidSettings => Results.BadRequest(new { error = "invalid_settings" }),
+                ServerRegisterFailure.OverCapacity =>
+                    Results.Json(new { error = "over_capacity" }, statusCode: StatusCodes.Status409Conflict),
                 _ => Results.BadRequest(new { error = "register_failed" }),
             };
         });
@@ -198,7 +207,7 @@ public static class ServerEndpoints
                 return Task.FromResult(Results.BadRequest(new { error = "invalid_plan" }));
             }
 
-            return RunLifecycleAsync(id, principal, users, (u, s) => svc.RecreateAsync(u, s, request?.GamePort, plan, ct));
+            return RunLifecycleAsync(id, principal, users, (u, s) => svc.RecreateAsync(u, s, request?.GamePort, plan, request?.HeapSizeBytes, ct));
         });
 
         // Backup (F24): take a backup of the Server's world data — a mutating, server-scoped Operation. Fail-closed
@@ -361,6 +370,7 @@ public static class ServerEndpoints
             ServerLifecycleFailure.ServerBusy =>
                 Results.Json(new { error = "server_busy" }, statusCode: StatusCodes.Status409Conflict),
             ServerLifecycleFailure.InvalidPort => Results.BadRequest(new { error = "invalid_port" }),
+            ServerLifecycleFailure.InvalidHeap => Results.BadRequest(new { error = "invalid_heap" }),
             ServerLifecycleFailure.PortInUse =>
                 Results.Json(new { error = "port_in_use" }, statusCode: StatusCodes.Status409Conflict),
             _ => Results.BadRequest(new { error = "lifecycle_failed" }),
@@ -431,9 +441,18 @@ public static class ServerEndpoints
 public sealed record ImportServerRequest(string AgentId, string ServerId, string Name);
 
 /// <summary>The body of a register request: which host to provision the new Server on, its name, and optionally the
-/// host game port (#229; the pair is it and the port above — omitted ⇒ the next free stride).</summary>
-public sealed record RegisterServerRequest(string AgentId, string Name, int? GamePort = null);
+/// host game port (#229; the pair is it and the port above — omitted ⇒ the next free stride), the JVM heap in bytes, the
+/// initial settings, and the acknowledgement needed when the server would exceed the host's free memory (#230).</summary>
+public sealed record RegisterServerRequest(
+    string AgentId,
+    string Name,
+    int? GamePort = null,
+    long? HeapSizeBytes = null,
+    NewServerSettings? Settings = null,
+    bool AcknowledgeOvercommit = false);
 
 /// <summary>The optional body of a recreate request (#229): the new host game port (omitted ⇒ keep the current pair),
-/// and an optional graceful-warning schedule and reason (omitted ⇒ the Agent's default warning).</summary>
-public sealed record RecreateServerRequest(int? GamePort = null, IReadOnlyList<int>? WarningLeadSeconds = null, string? Reason = null);
+/// an optional graceful-warning schedule and reason (omitted ⇒ the Agent's default warning), and an optional new JVM heap in
+/// bytes (#230; omitted ⇒ keep the current heap).</summary>
+public sealed record RecreateServerRequest(
+    int? GamePort = null, IReadOnlyList<int>? WarningLeadSeconds = null, string? Reason = null, long? HeapSizeBytes = null);
