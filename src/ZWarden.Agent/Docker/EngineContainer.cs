@@ -40,6 +40,10 @@ public readonly record struct PublishedPort(ushort HostPort, ushort ContainerPor
 /// ServerId-derived ones (#229).</param>
 /// <param name="Name">The container name without Docker's leading slash (inspect <c>Name</c>), or <c>null</c> when the
 /// list API produced this record. A canonical container is named by its ServerId; remove addresses it by that name.</param>
+/// <param name="MemoryLimitBytes">The container's memory limit (inspect <c>HostConfig.Memory</c>; 0 = unlimited), or
+/// <c>null</c> when the list API produced this record. Summed into the host's committed memory (#230).</param>
+/// <param name="Environment">The container's env as <c>KEY=value</c> entries (inspect <c>Config.Env</c>), or <c>null</c>
+/// when the list API produced this record. Recreate reads the heap the container runs with from it (#230).</param>
 public sealed record EngineContainer(
     string Id,
     IReadOnlyDictionary<string, string> Labels,
@@ -52,4 +56,6 @@ public sealed record EngineContainer(
     DateTimeOffset? StartedAt = null,
     IReadOnlyList<PublishedPort>? ConfiguredPorts = null,
     IReadOnlyDictionary<string, string>? BindMounts = null,
-    string? Name = null);
+    string? Name = null,
+    long? MemoryLimitBytes = null,
+    IReadOnlyList<string>? Environment = null);

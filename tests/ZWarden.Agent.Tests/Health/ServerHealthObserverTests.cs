@@ -87,6 +87,8 @@ public class ServerHealthObserverTests
 
     private sealed class FakeInspectRuntime(params ObservedContainer[] observed) : IContainerRuntime
     {
+        public Task<HostMemory> ReadHostMemoryAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
+
         public Task<IReadOnlyList<ObservedContainer>> InspectManagedAsync(CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<ObservedContainer>>(observed);
 

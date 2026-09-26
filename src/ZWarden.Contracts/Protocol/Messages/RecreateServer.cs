@@ -16,5 +16,8 @@ namespace ZWarden.Contracts.Protocol.Messages;
 /// the container's current pair (or allocate the next free stride if it has none).</param>
 /// <param name="Plan">The optional graceful-warning plan before the safe stop. <c>null</c> ⇒ the Agent's default
 /// schedule; an empty schedule skips the warning. Ignored when the server is not running.</param>
+/// <param name="HeapSizeBytes">The new JVM heap (#230); the memory limit is this plus the Agent's overhead.
+/// <c>null</c> ⇒ keep the container's current heap (the Agent's default only if it has none). Additive.</param>
 [ProtocolMessage("provisioning.recreate-server")]
-public sealed record RecreateServer(int? GamePort = null, GracefulRestartPlan? Plan = null) : AgentCommand;
+public sealed record RecreateServer(int? GamePort = null, GracefulRestartPlan? Plan = null, long? HeapSizeBytes = null)
+    : AgentCommand;

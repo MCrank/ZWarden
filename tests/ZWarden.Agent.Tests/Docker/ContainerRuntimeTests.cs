@@ -377,6 +377,55 @@ public class ContainerRuntimeTests
     }
 
     [Test]
+    public async Task Inspect_server_reads_the_heap_the_container_runs_with()
+    {
+        ServerId mine = ServerId.New();
+        var engine = new FakeDockerEngine();
+        engine.Listed.Add(Container("c", Self, mine, "exited"));
+        engine.InspectResult = Container("c", Self, mine, "exited") with
+        {
+            Environment = ["HOME=/pz/runtime", "ZW_PZ_XMS=6144m", "ZW_PZ_XMX=6144m"],
+        };
+
+        ServerContainer? facts = await Runtime(engine).InspectServerAsync(mine, CancellationToken.None);
+
+        await Assert.That(facts!.HeapSizeBytes).IsEqualTo(6L * 1024 * 1024 * 1024);
+    }
+
+    [Test]
+    public async Task Host_memory_is_the_daemons_total_and_the_limits_of_every_owned_container_stopped_included()
+    {
+        const long GiB = 1024L * 1024 * 1024;
+        ServerId running = ServerId.New();
+        ServerId stopped = ServerId.New();
+        var engine = new FakeDockerEngine { TotalMemoryBytes = 32 * GiB };
+        engine.Listed.Add(Container("run", Self, running, "running"));
+        engine.Listed.Add(Container("stop", Self, stopped, "exited"));
+        engine.Listed.Add(Container("foreign", AgentId.New(), ServerId.New(), "running"));
+        engine.Inspected["run"] = Container("run", Self, running, "running") with { MemoryLimitBytes = 10 * GiB };
+        engine.Inspected["stop"] = Container("stop", Self, stopped, "exited") with { MemoryLimitBytes = 12 * GiB };
+        engine.Inspected["foreign"] = Container("foreign", AgentId.New(), ServerId.New()) with { MemoryLimitBytes = 64 * GiB };
+
+        HostMemory memory = await Runtime(engine).ReadHostMemoryAsync(CancellationToken.None);
+
+        await Assert.That(memory.TotalBytes).IsEqualTo(32 * GiB);
+        await Assert.That(memory.CommittedBytes).IsEqualTo(22 * GiB);
+    }
+
+    [Test]
+    public async Task Host_memory_skips_a_container_that_vanishes_between_list_and_inspect()
+    {
+        ServerId gone = ServerId.New();
+        var engine = new FakeDockerEngine { TotalMemoryBytes = 8L * 1024 * 1024 * 1024 };
+        engine.Listed.Add(Container("gone", Self, gone, "exited"));
+        engine.InspectException = new DockerApiException(System.Net.HttpStatusCode.NotFound, "no such container");
+
+        HostMemory memory = await Runtime(engine).ReadHostMemoryAsync(CancellationToken.None);
+
+        await Assert.That(memory.CommittedBytes).IsEqualTo(0);
+    }
+
+    [Test]
     public async Task Inspect_server_returns_null_when_no_owned_container_matches()
     {
         var engine = new FakeDockerEngine();

@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using Microsoft.Extensions.Options;
 using ZWarden.Agent.Configuration;
+using ZWarden.Agent.ServerConfig;
 using ZWarden.Domain.Ids;
 using ZWarden.Domain.Security;
 
@@ -61,11 +62,11 @@ public sealed class RconServerConfig : IRconServerConfig
         string path = ConfigPath(serverId);
         List<string> lines = File.Exists(path) ? [.. File.ReadAllLines(path)] : [];
 
-        string? existing = FindValue(lines, RconPasswordKey);
+        string? existing = IniKeyLines.FindValue(lines, RconPasswordKey);
         string password = string.IsNullOrEmpty(existing) ? GeneratePassword() : existing;
 
-        SetKey(lines, RconPortKey, RconPort.ToString(System.Globalization.CultureInfo.InvariantCulture));
-        SetKey(lines, RconPasswordKey, password);
+        IniKeyLines.SetKey(lines, RconPortKey, RconPort.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        IniKeyLines.SetKey(lines, RconPasswordKey, password);
 
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         File.WriteAllLines(path, lines);
@@ -80,57 +81,12 @@ public sealed class RconServerConfig : IRconServerConfig
             return null;
         }
 
-        string? value = FindValue(File.ReadAllLines(path), RconPasswordKey);
+        string? value = IniKeyLines.FindValue(File.ReadAllLines(path), RconPasswordKey);
         return string.IsNullOrEmpty(value) ? null : new SecretString(value);
     }
 
     private string ConfigPath(ServerId serverId) =>
         Path.Combine(_options.DataMountRoot, serverId.ToString(), "Server", "servertest.ini");
-
-    private static string? FindValue(IReadOnlyList<string> lines, string key)
-    {
-        foreach (string line in lines)
-        {
-            if (TryMatchKey(line, key, out string value))
-            {
-                return value;
-            }
-        }
-
-        return null;
-    }
-
-    private static void SetKey(List<string> lines, string key, string value)
-    {
-        for (int i = 0; i < lines.Count; i++)
-        {
-            if (TryMatchKey(lines[i], key, out _))
-            {
-                lines[i] = $"{key}={value}";
-                return;
-            }
-        }
-
-        lines.Add($"{key}={value}");
-    }
-
-    private static bool TryMatchKey(string line, string key, out string value)
-    {
-        value = string.Empty;
-        int eq = line.IndexOf('=', StringComparison.Ordinal);
-        if (eq < 0)
-        {
-            return false;
-        }
-
-        if (!line.AsSpan(0, eq).Trim().Equals(key, StringComparison.Ordinal))
-        {
-            return false;
-        }
-
-        value = line[(eq + 1)..];
-        return true;
-    }
 
     private static string GeneratePassword()
     {

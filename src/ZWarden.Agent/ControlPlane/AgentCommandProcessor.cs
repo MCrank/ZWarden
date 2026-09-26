@@ -231,7 +231,7 @@ public sealed partial class AgentCommandProcessor
                 }
 
                 return Provisioned(
-                    await _provisioner.ProvisionAsync(serverId, create.GamePort, cancellationToken).ConfigureAwait(false),
+                    await _provisioner.ProvisionAsync(serverId, create, cancellationToken).ConfigureAwait(false),
                     operationId,
                     serverId);
 
@@ -252,7 +252,7 @@ public sealed partial class AgentCommandProcessor
                 return Provisioned(
                     await _provisioner
                         .RecreateAsync(
-                            recreateServerId, recreate.GamePort, recreate.Plan, operationId,
+                            recreateServerId, recreate, operationId,
                             progress ?? NullOperationProgressReporter.Instance, cancellationToken)
                         .ConfigureAwait(false),
                     operationId,
@@ -521,7 +521,7 @@ public sealed partial class AgentCommandProcessor
     private Envelope<OperationCompleted> Provisioned(ServerProvisionOutcome outcome, OperationId operationId, ServerId serverId)
     {
         ProvisionResult? result = outcome is { Ports: { } ports, ContainerId: { } containerId }
-            ? new ProvisionResult(ports.GamePort, ports.DirectPort, containerId)
+            ? new ProvisionResult(ports.GamePort, ports.DirectPort, containerId, outcome.HeapSizeBytes)
             : null;
         return Completed(
             outcome.Succeeded ? OperationOutcome.Succeeded : OperationOutcome.Failed,

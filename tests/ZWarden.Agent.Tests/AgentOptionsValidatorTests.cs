@@ -272,4 +272,16 @@ public class AgentOptionsValidatorTests
         await Assert.That(result.Failed).IsTrue();
         await Assert.That(result.FailureMessage!).Contains(nameof(AgentOptions.MemoryOverheadBytes));
     }
+
+    [Test]
+    public async Task A_negative_host_memory_reserve_fails()
+    {
+        var options = Valid();
+        options.HostMemoryReserveBytes = -1;
+
+        var result = new AgentOptionsValidator().Validate(name: null, options);
+
+        await Assert.That(result.Failed).IsTrue();
+        await Assert.That(result.FailureMessage!).Contains(nameof(AgentOptions.HostMemoryReserveBytes));
+    }
 }

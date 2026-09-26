@@ -34,6 +34,13 @@ public sealed class DockerDotNetEngine : IDockerEngine
     }
 
     /// <inheritdoc />
+    public async Task<long> TotalMemoryBytesAsync(CancellationToken cancellationToken)
+    {
+        SystemInfoResponse info = await _client.System.GetSystemInfoAsync(cancellationToken).ConfigureAwait(false);
+        return info.MemTotal;
+    }
+
+    /// <inheritdoc />
     public async Task<IReadOnlyList<EngineContainer>> ListAsync(CancellationToken cancellationToken)
     {
         IList<ContainerListResponse> containers = await _client.Containers
@@ -75,7 +82,8 @@ public sealed class DockerDotNetEngine : IDockerEngine
         return new EngineContainer(
             r.ID, labels, state, MapPorts(r.NetworkSettings?.Ports), health, exitCode, oomKilled,
             MapNetworkAddresses(r.NetworkSettings?.Networks), ReadStartedAt(r),
-            MapPorts(r.HostConfig?.PortBindings), MapBindMounts(r.Mounts), r.Name?.TrimStart('/'));
+            MapPorts(r.HostConfig?.PortBindings), MapBindMounts(r.Mounts), r.Name?.TrimStart('/'),
+            r.HostConfig?.Memory ?? 0, r.Config?.Env is { } env ? [.. env] : []);
     }
 
     // Projects inspect's Mounts into destination -> host source for bind mounts only (#229 recreate mount check).

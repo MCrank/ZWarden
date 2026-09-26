@@ -40,6 +40,9 @@ public interface IAgentControlPlaneConnection : IAsyncDisposable
     Task SendMetricsReportAsync(
         IReadOnlyList<ServerMetricsSample> samples, CancellationToken cancellationToken = default);
 
+    /// <summary>Reports the host's memory budget (#230); a no-op while disconnected/reconnecting.</summary>
+    Task SendHostCapacityAsync(HostCapacityReport report, CancellationToken cancellationToken = default);
+
     /// <summary>Stops the connection.</summary>
     Task StopAsync(CancellationToken cancellationToken = default);
 }

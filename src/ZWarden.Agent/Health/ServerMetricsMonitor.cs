@@ -17,12 +17,14 @@ namespace ZWarden.Agent.Health;
 /// samples every owned Server (<see cref="IServerMetricsSampler"/>) and pushes the latest snapshot as a
 /// <c>ServerMetricsReport</c>. Unlike health (which reports only transitions), metrics change every sample, so
 /// each cycle sends the full latest set — ZWarden.Web keeps only the newest per Server. It does nothing when
-/// un-enrolled, and a Docker hiccup on one cycle is skipped, not fatal.
+/// un-enrolled, and a Docker hiccup on one cycle is skipped, not fatal. Each cycle also sends the host's memory budget
+/// (<c>HostCapacityReport</c>, #230) for the new-server wizard.
 /// </summary>
 public sealed partial class ServerMetricsMonitor : BackgroundService
 {
     private readonly IAgentTrustStore _trustStore;
     private readonly IServerMetricsSampler _sampler;
+    private readonly IHostCapacityReader _capacity;
     private readonly IAgentControlPlaneConnection _connection;
     private readonly AgentMetrics _telemetry;
     private readonly AgentOptions _options;
@@ -32,6 +34,7 @@ public sealed partial class ServerMetricsMonitor : BackgroundService
     public ServerMetricsMonitor(
         IAgentTrustStore trustStore,
         IServerMetricsSampler sampler,
+        IHostCapacityReader capacity,
         IAgentControlPlaneConnection connection,
         AgentMetrics telemetry,
         IOptions<AgentOptions> options,
@@ -40,6 +43,7 @@ public sealed partial class ServerMetricsMonitor : BackgroundService
     {
         ArgumentNullException.ThrowIfNull(trustStore);
         ArgumentNullException.ThrowIfNull(sampler);
+        ArgumentNullException.ThrowIfNull(capacity);
         ArgumentNullException.ThrowIfNull(connection);
         ArgumentNullException.ThrowIfNull(telemetry);
         ArgumentNullException.ThrowIfNull(options);
@@ -47,6 +51,7 @@ public sealed partial class ServerMetricsMonitor : BackgroundService
         ArgumentNullException.ThrowIfNull(logger);
         _trustStore = trustStore;
         _sampler = sampler;
+        _capacity = capacity;
         _connection = connection;
         _telemetry = telemetry;
         _options = options.Value;
@@ -97,6 +102,25 @@ public sealed partial class ServerMetricsMonitor : BackgroundService
         }
 
         _telemetry.RecordMetricsSweep(samples.Count);
+        await ReportCapacityAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    // The host's memory budget rides the same cadence (#230) — sent even with no servers, since that is exactly when an
+    // operator is creating the first one. A failed read skips only this report.
+    private async Task ReportCapacityAsync(CancellationToken cancellationToken)
+    {
+        HostCapacityReport report;
+        try
+        {
+            report = await _capacity.ReadAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is DockerApiException or HttpRequestException or IOException or TimeoutException)
+        {
+            LogSweepFailed(ex.Message);
+            return;
+        }
+
+        await _connection.SendHostCapacityAsync(report, cancellationToken).ConfigureAwait(false);
     }
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Agent is un-enrolled; not sampling server metrics.")]

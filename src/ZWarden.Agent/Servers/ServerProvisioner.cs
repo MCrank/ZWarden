@@ -6,8 +6,10 @@ using ZWarden.Agent.Configuration;
 using ZWarden.Agent.ControlPlane;
 using ZWarden.Agent.Docker;
 using ZWarden.Agent.Rcon;
+using ZWarden.Agent.ServerConfig;
 using ZWarden.Contracts.Protocol.Messages;
 using ZWarden.Domain.Ids;
+using ZWarden.Domain.Servers;
 
 namespace ZWarden.Agent.Servers;
 
@@ -18,7 +20,9 @@ namespace ZWarden.Agent.Servers;
 /// rolled-back Recreate — or <c>null</c> when the Server is left without a container.</param>
 /// <param name="ContainerId">The Docker id of the container the Server ends on, or <c>null</c> when it has none.</param>
 /// <param name="FailureReason">On failure, an actionable, Agent-authored reason; <c>null</c> on success.</param>
-public sealed record ServerProvisionOutcome(bool Succeeded, PortAllocation? Ports, string? ContainerId, string? FailureReason);
+/// <param name="HeapSizeBytes">The JVM heap of the container the Server ends on (#230), or <c>null</c> when it has none.</param>
+public sealed record ServerProvisionOutcome(
+    bool Succeeded, PortAllocation? Ports, string? ContainerId, string? FailureReason, long? HeapSizeBytes = null);
 
 /// <summary>
 /// Builds a Server's canonical container from F13's closed create-template: the first time (<see cref="ProvisionAsync"/>,
@@ -26,26 +30,26 @@ public sealed record ServerProvisionOutcome(bool Succeeded, PortAllocation? Port
 /// container's <c>/pz/data</c> and <c>/pz/server</c> binds are always derived from the ServerId, so the world, config
 /// and installed PZ build live on the host and survive a recreate with no re-download. Host ports are the operator's
 /// pair (validated and pre-flighted against every container on the daemon) or the next free stride; Docker's start is
-/// the authority for a clash with a process outside Docker. The same recreate is how the memory limit (#230) and the
-/// PZ branch (#258) change later.
+/// the authority for a clash with a process outside Docker. The same recreate is how the heap (#230) and the PZ branch
+/// (#258) change later. The heap is per server (#230): the container's limit is the heap plus the Agent's overhead.
 /// </summary>
 public interface IServerProvisioner
 {
-    /// <summary>Provisions <paramref name="serverId"/>'s container on <paramref name="gamePort"/>'s pair (or the next
-    /// free stride when <c>null</c>), creates and starts it. Never throws for an operator-actionable failure.</summary>
-    Task<ServerProvisionOutcome> ProvisionAsync(ServerId serverId, int? gamePort, CancellationToken cancellationToken);
+    /// <summary>Provisions <paramref name="serverId"/>'s container on the requested pair (or the next free stride), with
+    /// the requested heap (or the Agent's default), seeds the initial settings, creates and starts it. Never throws for an
+    /// operator-actionable failure.</summary>
+    Task<ServerProvisionOutcome> ProvisionAsync(ServerId serverId, CreateServer request, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Recreates <paramref name="serverId"/>'s container on <paramref name="gamePort"/>'s pair (or its current pair when
-    /// <c>null</c>): if running, warn players (<paramref name="plan"/>) and stop safely; remove it; create from the same
-    /// template; start it only if it was running. Refuses — changing nothing — a container whose data binds are not the
-    /// ServerId-derived ones, or an unavailable pair. On a create/start failure it rolls back to the previous pair and
-    /// run state. An absent container is created and started (repair).
+    /// Recreates <paramref name="serverId"/>'s container on the requested pair (or its current pair) with the requested
+    /// heap (or the heap it runs with now): if running, warn players (the request's plan) and stop safely; remove it;
+    /// create from the same template; start it only if it was running. Refuses — changing nothing — an invalid heap, a
+    /// container whose data binds are not the ServerId-derived ones, or an unavailable pair. On a create/start failure it
+    /// rolls back to the previous pair, heap and run state. An absent container is created and started (repair).
     /// </summary>
     Task<ServerProvisionOutcome> RecreateAsync(
         ServerId serverId,
-        int? gamePort,
-        GracefulRestartPlan? plan,
+        RecreateServer request,
         OperationId operationId,
         IOperationProgressReporter progress,
         CancellationToken cancellationToken);
@@ -59,6 +63,7 @@ public sealed partial class ServerProvisioner : IServerProvisioner
     private readonly IContainerRuntime _runtime;
     private readonly IServerHostDirectories _hostDirectories;
     private readonly IRconServerConfig _rconConfig;
+    private readonly IInitialSettingsSeeder _settingsSeeder;
     private readonly IServerRestartCoordinator _restartCoordinator;
     private readonly AgentOptions _options;
     private readonly ILogger<ServerProvisioner> _logger;
@@ -67,6 +72,7 @@ public sealed partial class ServerProvisioner : IServerProvisioner
         IContainerRuntime runtime,
         IServerHostDirectories hostDirectories,
         IRconServerConfig rconConfig,
+        IInitialSettingsSeeder settingsSeeder,
         IServerRestartCoordinator restartCoordinator,
         IOptions<AgentOptions> options,
         ILogger<ServerProvisioner> logger)
@@ -74,50 +80,72 @@ public sealed partial class ServerProvisioner : IServerProvisioner
         ArgumentNullException.ThrowIfNull(runtime);
         ArgumentNullException.ThrowIfNull(hostDirectories);
         ArgumentNullException.ThrowIfNull(rconConfig);
+        ArgumentNullException.ThrowIfNull(settingsSeeder);
         ArgumentNullException.ThrowIfNull(restartCoordinator);
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(logger);
         _runtime = runtime;
         _hostDirectories = hostDirectories;
         _rconConfig = rconConfig;
+        _settingsSeeder = settingsSeeder;
         _restartCoordinator = restartCoordinator;
         _options = options.Value;
         _logger = logger;
     }
 
     /// <inheritdoc />
-    public async Task<ServerProvisionOutcome> ProvisionAsync(ServerId serverId, int? gamePort, CancellationToken cancellationToken)
+    public async Task<ServerProvisionOutcome> ProvisionAsync(ServerId serverId, CreateServer request, CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(request);
+
+        // Refusals that change nothing: the heap and the settings are operator input, re-validated here (defence in depth).
+        if (ValidateHeap(request.HeapSizeBytes) is { } heapRefusal)
+        {
+            return Failed(heapRefusal);
+        }
+
+        if (request.Settings is { } settings && InitialSettingsSeeder.Validate(settings) is { } settingsRefusal)
+        {
+            return Failed($"{settingsRefusal} Nothing was created.");
+        }
+
         PortAllocation ports;
         try
         {
-            ports = await ResolvePortsAsync(serverId, gamePort, current: null, cancellationToken).ConfigureAwait(false);
+            ports = await ResolvePortsAsync(serverId, request.GamePort, current: null, cancellationToken).ConfigureAwait(false);
         }
         catch (PortUnavailableException ex)
         {
             return Failed(ex.Message);
         }
 
-        (string? containerId, string? failure) = await CreateAndStartAsync(SpecFor(serverId, ports), start: true, cancellationToken)
+        PzContainerSpec spec = SpecFor(serverId, ports, request.HeapSizeBytes);
+        (string? containerId, string? failure) = await CreateAndStartAsync(spec, start: true, cancellationToken, request.Settings)
             .ConfigureAwait(false);
         return failure is null
-            ? new ServerProvisionOutcome(true, ports, containerId, null)
+            ? new ServerProvisionOutcome(true, ports, containerId, null, spec.HeapSizeBytes)
             : Failed(failure);
     }
 
     /// <inheritdoc />
     public async Task<ServerProvisionOutcome> RecreateAsync(
         ServerId serverId,
-        int? gamePort,
-        GracefulRestartPlan? plan,
+        RecreateServer request,
         OperationId operationId,
         IOperationProgressReporter progress,
         CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(progress);
+        (int? gamePort, GracefulRestartPlan? plan) = (request.GamePort, request.Plan);
 
-        // 1. Refusals that change nothing: a container with other data binds (an import from elsewhere) would lose its
-        // world to a template recreate, and an unavailable pair would only fail after the server was taken down.
+        // 1. Refusals that change nothing: an invalid heap; a container with other data binds (an import from elsewhere)
+        // would lose its world to a template recreate; an unavailable pair would only fail after the server was taken down.
+        if (ValidateHeap(request.HeapSizeBytes) is { } heapRefusal)
+        {
+            return Failed(heapRefusal);
+        }
+
         ServerContainer? current = await _runtime.InspectServerAsync(serverId, cancellationToken).ConfigureAwait(false);
         if (current is not null && MountMismatch(serverId, current) is { } mismatch)
         {
@@ -172,11 +200,13 @@ public sealed partial class ServerProvisioner : IServerProvisioner
         // 3. Build the new container from the same template. An absent container (repair) is started, like provisioning.
         await ReportAsync(progress, operationId, 75, $"Creating the container on ports {target.GamePort}/{target.DirectPort}.", cancellationToken)
             .ConfigureAwait(false);
+        // The requested heap, else the heap the old container ran with (a port change must not reset it), else the default.
+        PzContainerSpec spec = SpecFor(serverId, target, request.HeapSizeBytes ?? current?.HeapSizeBytes);
         (string? containerId, string? failure) = await CreateAndStartAsync(
-            SpecFor(serverId, target), start: current is null || wasRunning, cancellationToken).ConfigureAwait(false);
+            spec, start: current is null || wasRunning, cancellationToken).ConfigureAwait(false);
         if (failure is null)
         {
-            return new ServerProvisionOutcome(true, target, containerId, null);
+            return new ServerProvisionOutcome(true, target, containerId, null, spec.HeapSizeBytes);
         }
 
         // 4. Roll back to the previous pair and run state, so a failed port change leaves the server as it was.
@@ -186,10 +216,13 @@ public sealed partial class ServerProvisioner : IServerProvisioner
         }
 
         LogRollingBack(serverId, previous.GamePort, failure);
+        PzContainerSpec previousSpec = SpecFor(serverId, previous, current.HeapSizeBytes);
         (string? rolledBackId, string? rollbackFailure) = await CreateAndStartAsync(
-            SpecFor(serverId, previous), start: wasRunning, cancellationToken).ConfigureAwait(false);
+            previousSpec, start: wasRunning, cancellationToken).ConfigureAwait(false);
         return rollbackFailure is null
-            ? new ServerProvisionOutcome(false, previous, rolledBackId, $"{failure} The server was rolled back to ports {previous.GamePort}/{previous.DirectPort}.")
+            ? new ServerProvisionOutcome(
+                false, previous, rolledBackId, $"{failure} The server was rolled back to ports {previous.GamePort}/{previous.DirectPort}.",
+                previousSpec.HeapSizeBytes)
             : Failed($"{failure} Rolling back to ports {previous.GamePort}/{previous.DirectPort} also failed ({rollbackFailure}); "
                 + "the server has no container — recreate it again to repair it.");
     }
@@ -209,7 +242,7 @@ public sealed partial class ServerProvisioner : IServerProvisioner
     // Prepare host data, create, and (optionally) start. A failed start removes the new container again, so the name is
     // free for a retry or a rollback. Returns the container id, or the actionable failure reason.
     private async Task<(string? ContainerId, string? Failure)> CreateAndStartAsync(
-        PzContainerSpec spec, bool start, CancellationToken cancellationToken)
+        PzContainerSpec spec, bool start, CancellationToken cancellationToken, InitialServerSettings? settings = null)
     {
         string containerId;
         try
@@ -221,6 +254,12 @@ public sealed partial class ServerProvisioner : IServerProvisioner
             // Seed RCON into the Server's config on the (Agent-owned) data mount before the container first launches
             // (F18 D-2). Idempotent: a recreate keeps the existing password. Host-side write, no env var, no exec.
             _rconConfig.EnsureEnabled(spec.ServerId);
+
+            // Seed the wizard's basic settings the same way, before PZ's first boot (#230 D3); provisioning only.
+            if (settings is not null)
+            {
+                _settingsSeeder.Seed(spec.ServerId, settings);
+            }
 
             containerId = await _runtime.CreateAsync(spec, cancellationToken).ConfigureAwait(false);
         }
@@ -255,7 +294,8 @@ public sealed partial class ServerProvisioner : IServerProvisioner
         }
     }
 
-    private PzContainerSpec SpecFor(ServerId serverId, PortAllocation ports) => new(
+    // A named heap gets heap + overhead as its limit (#230); none keeps the Agent's defaults (incl. an explicit limit).
+    private PzContainerSpec SpecFor(ServerId serverId, PortAllocation ports, long? heapSizeBytes = null) => new(
         serverId,
         ContainerName: serverId.ToString(),
         ImageReference: _options.PzImageReference ?? string.Empty,
@@ -265,8 +305,13 @@ public sealed partial class ServerProvisioner : IServerProvisioner
         // path the disk meter reads (F16), so the ~6.72 GiB install is not counted as world use.
         ServerMountSource: Path.Combine(_options.DataMountRoot, $"{serverId}.server"),
         Ports: ports,
-        MemoryLimitBytes: _options.DefaultMemoryLimitBytes,
-        HeapSizeBytes: _options.DefaultHeapSizeBytes);
+        MemoryLimitBytes: heapSizeBytes is { } heap ? heap + _options.MemoryOverheadBytes : _options.DefaultMemoryLimitBytes,
+        HeapSizeBytes: heapSizeBytes ?? _options.DefaultHeapSizeBytes);
+
+    private static string? ValidateHeap(long? heapSizeBytes) =>
+        heapSizeBytes is { } heap && ServerMemoryRules.ValidateHeap(heap) is { } reason
+            ? $"{reason} Nothing was changed."
+            : null;
 
     private string? MountMismatch(ServerId serverId, ServerContainer current)
     {

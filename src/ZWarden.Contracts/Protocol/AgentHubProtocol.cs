@@ -59,6 +59,10 @@ public static class AgentHubProtocol
     /// (F16); ZWarden.Web keeps only the latest per Server and pushes it to the live UI.</summary>
     public const string MetricsReport = "MetricsReport";
 
+    /// <summary>The Agent's periodic host memory budget, carrying an <c>Envelope&lt;HostCapacityReport&gt;</c> (#230);
+    /// ZWarden.Web keeps only the latest per Agent, for the new-server wizard's capacity guidance.</summary>
+    public const string HostCapacity = "HostCapacity";
+
     /// <summary>
     /// The client method ZWarden.Web invokes on the Agent to dispatch an operation's command (F11). Its one
     /// argument is the <b>canonical wire JSON string</b> of an <c>Envelope&lt;AgentCommand&gt;</c> (produced by

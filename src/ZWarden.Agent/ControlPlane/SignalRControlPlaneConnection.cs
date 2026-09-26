@@ -139,6 +139,19 @@ public sealed partial class SignalRControlPlaneConnection : IAgentControlPlaneCo
     }
 
     /// <inheritdoc />
+    public async Task SendHostCapacityAsync(HostCapacityReport report, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(report);
+        if (_connection is not { State: HubConnectionState.Connected } connection)
+        {
+            return;
+        }
+
+        Envelope<HostCapacityReport> envelope = Envelope.Create(report, _timeProvider.GetUtcNow());
+        await connection.SendAsync(AgentHubProtocol.HostCapacity, envelope, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
     public async Task StopAsync(CancellationToken cancellationToken = default)
     {
         if (_connection is not null)

@@ -177,6 +177,9 @@ public class ServerHealthMonitorTests
             IReadOnlyList<ServerMetricsSample> samples, CancellationToken cancellationToken = default) =>
             Task.CompletedTask;
 
+        public Task SendHostCapacityAsync(HostCapacityReport report, CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+
         public Task<ProtocolNegotiationResult> StartAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(ProtocolCompatibility.Negotiate(ProtocolVersion.Current, ProtocolVersionRange.Supported));
 

@@ -232,4 +232,34 @@ public class PzContainerFactoryTests
     {
         await Assert.That(() => Build(ValidSpec(heap: 0))).Throws<ArgumentException>();
     }
+
+    // --- #230: reading the heap back from a container's env (Recreate preserves it) ---------------------------------
+
+    [Test]
+    public async Task The_heap_a_container_was_built_with_is_read_back_from_its_env()
+    {
+        CreateContainerParameters p = Build(ValidSpec(memory: 12L * 1024 * 1024 * 1024, heap: 6L * 1024 * 1024 * 1024));
+
+        await Assert.That(PzContainerFactory.ReadJvmHeap(p.Env)).IsEqualTo(6L * 1024 * 1024 * 1024);
+    }
+
+    [Test]
+    [Arguments("ZW_PZ_XMX=8g", 8L * 1024 * 1024 * 1024)]
+    [Arguments("ZW_PZ_XMX=512m", 512L * 1024 * 1024)]
+    [Arguments("ZW_PZ_XMX=6144M", 6L * 1024 * 1024 * 1024)]
+    public async Task A_JVM_size_suffix_is_understood(string entry, long expected)
+    {
+        await Assert.That(PzContainerFactory.ReadJvmHeap(["HOME=/pz/runtime", entry])).IsEqualTo(expected);
+    }
+
+    [Test]
+    [Arguments("ZW_PZ_XMX=")]
+    [Arguments("ZW_PZ_XMX=lots")]
+    [Arguments("ZW_PZ_XMX=4096")]
+    [Arguments("ZW_PZ_XMS=4096m")]
+    public async Task A_missing_or_unreadable_heap_reads_as_unknown(string entry)
+    {
+        await Assert.That(PzContainerFactory.ReadJvmHeap([entry])).IsNull();
+        await Assert.That(PzContainerFactory.ReadJvmHeap(null)).IsNull();
+    }
 }

@@ -252,7 +252,30 @@ public sealed partial class ContainerRuntime : IContainerRuntime
             inspected.Id,
             inspected.State,
             PairOf(inspected.ConfiguredPorts ?? []),
-            inspected.BindMounts ?? new Dictionary<string, string>(StringComparer.Ordinal));
+            inspected.BindMounts ?? new Dictionary<string, string>(StringComparer.Ordinal),
+            PzContainerFactory.ReadJvmHeap(inspected.Environment));
+    }
+
+    /// <inheritdoc />
+    public async Task<HostMemory> ReadHostMemoryAsync(CancellationToken cancellationToken)
+    {
+        long total = await _engine.TotalMemoryBytesAsync(cancellationToken).ConfigureAwait(false);
+        long committed = 0;
+        foreach (ManagedContainer container in await ListManagedAsync(cancellationToken).ConfigureAwait(false))
+        {
+            try
+            {
+                EngineContainer inspected = await _engine.InspectAsync(container.DockerId, cancellationToken).ConfigureAwait(false);
+                committed += Math.Max(0, inspected.MemoryLimitBytes ?? 0);
+            }
+            catch (DockerApiException ex)
+            {
+                // Vanished between the list and the inspect — it no longer holds memory; the next report re-reads.
+                LogInspectSkipped(container.ServerId, ex.Message);
+            }
+        }
+
+        return new HostMemory(total, committed);
     }
 
     /// <inheritdoc />

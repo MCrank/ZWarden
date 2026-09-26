@@ -64,6 +64,15 @@ internal sealed class FakeContainerRuntime : IContainerRuntime
     public Task<IReadOnlyList<ObservedContainer>> InspectManagedAsync(CancellationToken cancellationToken) =>
         Task.FromResult(Observed);
 
+    /// <summary>What <see cref="ReadHostMemoryAsync"/> returns (#230).</summary>
+    public HostMemory HostMemory { get; set; } = new(0, 0);
+
+    /// <summary>When set, <see cref="ReadHostMemoryAsync"/> throws it.</summary>
+    public Exception? HostMemoryException { get; set; }
+
+    public Task<HostMemory> ReadHostMemoryAsync(CancellationToken cancellationToken) =>
+        HostMemoryException is not null ? Task.FromException<HostMemory>(HostMemoryException) : Task.FromResult(HostMemory);
+
     /// <summary>The ordered provisioning/recreate verbs this fake saw (#229), for sequencing assertions: <c>allocate</c>,
     /// <c>claim:&lt;port&gt;</c>, <c>inspect</c>, <c>create:&lt;game&gt;</c>, <c>start:&lt;id&gt;</c>, <c>stop</c>, <c>remove</c>.</summary>
     public List<string> Calls { get; } = [];

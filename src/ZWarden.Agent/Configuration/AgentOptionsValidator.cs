@@ -66,6 +66,11 @@ public sealed class AgentOptionsValidator : IValidateOptions<AgentOptions>
             failures.Add($"{AgentOptions.SectionName}:{nameof(AgentOptions.DefaultMemoryLimitBytes)} must exceed {nameof(AgentOptions.DefaultHeapSizeBytes)} to leave headroom for non-heap memory.");
         }
 
+        if (options.HostMemoryReserveBytes < 0)
+        {
+            failures.Add($"{AgentOptions.SectionName}:{nameof(AgentOptions.HostMemoryReserveBytes)} must not be negative.");
+        }
+
         if (options.StopTimeoutSeconds <= 0)
         {
             failures.Add($"{AgentOptions.SectionName}:{nameof(AgentOptions.StopTimeoutSeconds)} must be a positive number of seconds.");

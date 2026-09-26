@@ -98,6 +98,7 @@ public static class HostingExtensions
         // #262: the game version from each start's boot log, carried in the metrics report.
         services.AddSingleton<IServerGameVersions, ServerGameVersionReader>();
         services.AddSingleton<IServerMetricsSampler, ServerMetricsSampler>();
+        services.AddSingleton<IHostCapacityReader, HostCapacityReader>();
 
         // SteamCMD lifecycle (F17): the host-side install paths and the update runner that drives an update via
         // the control-file + restart + log-parse loop (no exec — ADR 0008) and reads back the installed build id.
@@ -116,6 +117,7 @@ public static class HostingExtensions
         // provision), resolves the container's private-network endpoint, and runs the on-demand health probe over
         // the ZWarden.Rcon client. The RCON password type lives only here in the Agent — never in Web (§9 rule 7).
         services.AddSingleton<IRconServerConfig, RconServerConfig>();
+        services.AddSingleton<IInitialSettingsSeeder, InitialSettingsSeeder>();
         services.AddSingleton<IRconConnectionFactory>(_ => new RconConnectionFactory());
         services.AddSingleton<IRconEndpointResolver, RconEndpointResolver>();
         services.AddSingleton<IRconHealthProbe, RconHealthProbe>();

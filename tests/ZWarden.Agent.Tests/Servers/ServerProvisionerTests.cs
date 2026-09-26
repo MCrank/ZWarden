@@ -9,6 +9,7 @@ using ZWarden.Agent.Servers;
 using ZWarden.Agent.Tests.ControlPlane;
 using ZWarden.Agent.Tests.Docker;
 using ZWarden.Agent.Tests.Rcon;
+using ZWarden.Agent.Tests.ServerConfig;
 using ZWarden.Contracts.Protocol.Messages;
 using ZWarden.Domain.Ids;
 
@@ -29,28 +30,32 @@ public class ServerProvisionerTests
         FakeContainerRuntime runtime,
         FakeServerRestartCoordinator? coordinator = null,
         FakeServerHostDirectories? hostDirectories = null,
-        FakeRconServerConfig? rconConfig = null) =>
+        FakeRconServerConfig? rconConfig = null,
+        FakeInitialSettingsSeeder? seeder = null) =>
         new(
             runtime,
             hostDirectories ?? new FakeServerHostDirectories(),
             rconConfig ?? new FakeRconServerConfig(),
+            seeder ?? new FakeInitialSettingsSeeder(),
             coordinator ?? new FakeServerRestartCoordinator(),
             Options.Create(new AgentOptions { PzImageReference = "zwarden/pzserver:pinned", DataMountRoot = Root }),
             NullLogger<ServerProvisioner>.Instance);
 
-    private static ServerContainer Existing(ServerId server, string state = "running", PortAllocation? ports = null) =>
+    private static ServerContainer Existing(ServerId server, string state = "running", PortAllocation? ports = null, long? heap = null) =>
         new("old-id", state, ports ?? OldPorts, new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["/pz/data"] = Path.Combine(Root, server.ToString()),
             ["/pz/server"] = Path.Combine(Root, $"{server}.server"),
-        });
+        }, heap);
 
     private static DockerApiException PortClash(int port) => new(
         HttpStatusCode.InternalServerError,
         $"{{\"message\":\"driver failed programming external connectivity on endpoint x: Bind for 0.0.0.0:{port} failed: port is already allocated\"}}");
 
-    private static Task<ServerProvisionOutcome> Recreate(ServerProvisioner sut, ServerId server, int? gamePort, GracefulRestartPlan? plan = null) =>
-        sut.RecreateAsync(server, gamePort, plan, OperationId.New(), NullOperationProgressReporter.Instance, CancellationToken.None);
+    private static Task<ServerProvisionOutcome> Recreate(
+        ServerProvisioner sut, ServerId server, int? gamePort, GracefulRestartPlan? plan = null, long? heap = null) =>
+        sut.RecreateAsync(
+            server, new RecreateServer(gamePort, plan, heap), OperationId.New(), NullOperationProgressReporter.Instance, CancellationToken.None);
 
     // --- Provisioning ------------------------------------------------------------------------------------------
 
@@ -60,7 +65,7 @@ public class ServerProvisionerTests
         var runtime = new FakeContainerRuntime { CreatedContainerId = "c-1" };
         ServerId server = ServerId.New();
 
-        ServerProvisionOutcome outcome = await Provisioner(runtime).ProvisionAsync(server, 27015, CancellationToken.None);
+        ServerProvisionOutcome outcome = await Provisioner(runtime).ProvisionAsync(server, new CreateServer(27015), CancellationToken.None);
 
         await Assert.That(outcome.Succeeded).IsTrue();
         await Assert.That(outcome.Ports).IsEqualTo(new PortAllocation(27015, 27016));
@@ -73,7 +78,7 @@ public class ServerProvisionerTests
     {
         var runtime = new FakeContainerRuntime { NextPorts = new(16263, 16264) };
 
-        ServerProvisionOutcome outcome = await Provisioner(runtime).ProvisionAsync(ServerId.New(), null, CancellationToken.None);
+        ServerProvisionOutcome outcome = await Provisioner(runtime).ProvisionAsync(ServerId.New(), new CreateServer(null), CancellationToken.None);
 
         await Assert.That(outcome.Ports).IsEqualTo(new PortAllocation(16263, 16264));
         await Assert.That(runtime.Calls[0]).IsEqualTo("allocate");
@@ -84,7 +89,7 @@ public class ServerProvisionerTests
     {
         var runtime = new FakeContainerRuntime { ClaimException = new PortUnavailableException("Host port 27015/udp is already published.") };
 
-        ServerProvisionOutcome outcome = await Provisioner(runtime).ProvisionAsync(ServerId.New(), 27015, CancellationToken.None);
+        ServerProvisionOutcome outcome = await Provisioner(runtime).ProvisionAsync(ServerId.New(), new CreateServer(27015), CancellationToken.None);
 
         await Assert.That(outcome.Succeeded).IsFalse();
         await Assert.That(outcome.FailureReason).IsEqualTo("Host port 27015/udp is already published.");
@@ -97,7 +102,7 @@ public class ServerProvisionerTests
         var runtime = new FakeContainerRuntime { StartFailure = _ => PortClash(16261) };
         ServerId server = ServerId.New();
 
-        ServerProvisionOutcome outcome = await Provisioner(runtime).ProvisionAsync(server, null, CancellationToken.None);
+        ServerProvisionOutcome outcome = await Provisioner(runtime).ProvisionAsync(server, new CreateServer(null), CancellationToken.None);
 
         await Assert.That(outcome.Succeeded).IsFalse();
         await Assert.That(outcome.FailureReason).Contains("already in use");
@@ -114,7 +119,7 @@ public class ServerProvisionerTests
             StartFailure = _ => new DockerApiException(HttpStatusCode.InternalServerError, "{\"message\":\"boom\"}"),
         };
 
-        ServerProvisionOutcome outcome = await Provisioner(runtime).ProvisionAsync(ServerId.New(), null, CancellationToken.None);
+        ServerProvisionOutcome outcome = await Provisioner(runtime).ProvisionAsync(ServerId.New(), new CreateServer(null), CancellationToken.None);
 
         await Assert.That(outcome.Succeeded).IsFalse();
         await Assert.That(outcome.FailureReason).Contains("boom");
@@ -316,5 +321,147 @@ public class ServerProvisionerTests
         await Assert.That(outcome.FailureReason).Contains("must be stopped");
         await Assert.That(runtime.StartServerCount).IsEqualTo(1);
         await Assert.That(runtime.CreateCount).IsEqualTo(0);
+    }
+
+    // --- #230: per-server heap and initial settings ------------------------------------------------------------
+
+    private const long GiB = 1024L * 1024 * 1024;
+
+    // The provisioner's options: default heap 4 GiB + overhead 6 GiB.
+    private static readonly AgentOptions Defaults = new();
+
+    [Test]
+    public async Task Provisioning_with_a_heap_builds_the_container_with_that_heap_plus_the_agents_overhead()
+    {
+        var runtime = new FakeContainerRuntime();
+
+        ServerProvisionOutcome outcome = await Provisioner(runtime)
+            .ProvisionAsync(ServerId.New(), new CreateServer(HeapSizeBytes: 8 * GiB), CancellationToken.None);
+
+        await Assert.That(outcome.Succeeded).IsTrue();
+        await Assert.That(runtime.LastSpec!.HeapSizeBytes).IsEqualTo(8 * GiB);
+        await Assert.That(runtime.LastSpec.MemoryLimitBytes).IsEqualTo((8 * GiB) + Defaults.MemoryOverheadBytes);
+        await Assert.That(outcome.HeapSizeBytes).IsEqualTo(8 * GiB);
+    }
+
+    [Test]
+    public async Task Provisioning_without_a_heap_uses_the_agents_defaults()
+    {
+        var runtime = new FakeContainerRuntime();
+
+        await Provisioner(runtime).ProvisionAsync(ServerId.New(), new CreateServer(), CancellationToken.None);
+
+        await Assert.That(runtime.LastSpec!.HeapSizeBytes).IsEqualTo(Defaults.DefaultHeapSizeBytes);
+        await Assert.That(runtime.LastSpec.MemoryLimitBytes).IsEqualTo(Defaults.DefaultMemoryLimitBytes);
+    }
+
+    [Test]
+    public async Task Provisioning_refuses_an_invalid_heap_before_touching_anything()
+    {
+        var runtime = new FakeContainerRuntime();
+
+        ServerProvisionOutcome outcome = await Provisioner(runtime)
+            .ProvisionAsync(ServerId.New(), new CreateServer(HeapSizeBytes: 512L * 1024 * 1024), CancellationToken.None);
+
+        await Assert.That(outcome.Succeeded).IsFalse();
+        await Assert.That(outcome.FailureReason!).Contains("heap");
+        await Assert.That(runtime.Calls).IsEmpty();
+    }
+
+    [Test]
+    public async Task Provisioning_seeds_the_initial_settings_before_the_container_is_created()
+    {
+        var runtime = new FakeContainerRuntime();
+        var seeder = new FakeInitialSettingsSeeder { OnSeed = () => runtime.Calls.Add("seed") };
+        ServerId server = ServerId.New();
+        InitialServerSettings settings = new(Public: true, PublicName: "Knox", MaxPlayers: 8);
+
+        await Provisioner(runtime, seeder: seeder).ProvisionAsync(server, new CreateServer(Settings: settings), CancellationToken.None);
+
+        await Assert.That(seeder.Seeded).IsEquivalentTo([(server, settings)]);
+        await Assert.That(runtime.Calls.IndexOf("seed")).IsLessThan(runtime.Calls.FindIndex(c => c.StartsWith("create", StringComparison.Ordinal)));
+    }
+
+    [Test]
+    public async Task Provisioning_refuses_invalid_settings_before_seeding_or_creating()
+    {
+        var runtime = new FakeContainerRuntime();
+        var seeder = new FakeInitialSettingsSeeder();
+
+        ServerProvisionOutcome outcome = await Provisioner(runtime, seeder: seeder).ProvisionAsync(
+            ServerId.New(), new CreateServer(Settings: new InitialServerSettings(PublicName: "a\nb")), CancellationToken.None);
+
+        await Assert.That(outcome.Succeeded).IsFalse();
+        await Assert.That(seeder.Seeded).IsEmpty();
+        await Assert.That(runtime.Calls).IsEmpty();
+    }
+
+    [Test]
+    public async Task Recreating_with_a_heap_rebuilds_the_container_with_the_new_heap()
+    {
+        ServerId server = ServerId.New();
+        var runtime = new FakeContainerRuntime { ServerContainer = Existing(server, heap: 4 * GiB) };
+
+        ServerProvisionOutcome outcome = await Recreate(Provisioner(runtime), server, gamePort: null, heap: 10 * GiB);
+
+        await Assert.That(outcome.Succeeded).IsTrue();
+        await Assert.That(runtime.LastSpec!.HeapSizeBytes).IsEqualTo(10 * GiB);
+        await Assert.That(runtime.LastSpec.MemoryLimitBytes).IsEqualTo((10 * GiB) + Defaults.MemoryOverheadBytes);
+        await Assert.That(outcome.HeapSizeBytes).IsEqualTo(10 * GiB);
+        await Assert.That(runtime.LastSpec.Ports).IsEqualTo(OldPorts);
+    }
+
+    [Test]
+    public async Task Recreating_without_a_heap_keeps_the_heap_the_container_runs_with()
+    {
+        ServerId server = ServerId.New();
+        var runtime = new FakeContainerRuntime { ServerContainer = Existing(server, heap: 7 * GiB) };
+
+        await Recreate(Provisioner(runtime), server, gamePort: 27015);
+
+        await Assert.That(runtime.LastSpec!.HeapSizeBytes).IsEqualTo(7 * GiB);
+        await Assert.That(runtime.LastSpec.MemoryLimitBytes).IsEqualTo((7 * GiB) + Defaults.MemoryOverheadBytes);
+    }
+
+    [Test]
+    public async Task Recreating_a_container_with_an_unknown_heap_falls_back_to_the_agents_defaults()
+    {
+        ServerId server = ServerId.New();
+        var runtime = new FakeContainerRuntime { ServerContainer = Existing(server, heap: null) };
+
+        await Recreate(Provisioner(runtime), server, gamePort: 27015);
+
+        await Assert.That(runtime.LastSpec!.HeapSizeBytes).IsEqualTo(Defaults.DefaultHeapSizeBytes);
+        await Assert.That(runtime.LastSpec.MemoryLimitBytes).IsEqualTo(Defaults.DefaultMemoryLimitBytes);
+    }
+
+    [Test]
+    public async Task A_failed_recreate_rolls_back_to_the_previous_heap_as_well_as_the_previous_ports()
+    {
+        ServerId server = ServerId.New();
+        var runtime = new FakeContainerRuntime { ServerContainer = Existing(server, heap: 6 * GiB), CreatedContainerId = "c" };
+        int starts = 0;
+        runtime.StartFailure = _ => ++starts == 1 ? PortClash(27015) : null;
+
+        ServerProvisionOutcome outcome = await Recreate(Provisioner(runtime), server, gamePort: 27015, heap: 12 * GiB);
+
+        await Assert.That(outcome.Succeeded).IsFalse();
+        await Assert.That(runtime.CreatedSpecs[0].HeapSizeBytes).IsEqualTo(12 * GiB);
+        await Assert.That(runtime.CreatedSpecs[^1].HeapSizeBytes).IsEqualTo(6 * GiB);
+        await Assert.That(runtime.CreatedSpecs[^1].Ports).IsEqualTo(OldPorts);
+        await Assert.That(outcome.HeapSizeBytes).IsEqualTo(6 * GiB);
+    }
+
+    [Test]
+    public async Task Recreating_refuses_an_invalid_heap_before_stopping_anything()
+    {
+        ServerId server = ServerId.New();
+        var runtime = new FakeContainerRuntime { ServerContainer = Existing(server) };
+
+        ServerProvisionOutcome outcome = await Recreate(Provisioner(runtime), server, gamePort: null, heap: 200 * GiB);
+
+        await Assert.That(outcome.Succeeded).IsFalse();
+        await Assert.That(runtime.Calls).DoesNotContain("stop");
+        await Assert.That(runtime.RemoveCount).IsEqualTo(0);
     }
 }

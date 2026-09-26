@@ -153,6 +153,9 @@ public class AgentConnectionInitializerTests
             IReadOnlyList<ServerMetricsSample> samples, CancellationToken cancellationToken = default)
             => Task.CompletedTask;
 
+        public Task SendHostCapacityAsync(HostCapacityReport report, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
         public Task StopAsync(CancellationToken cancellationToken = default)
         {
             Stopped = true;
