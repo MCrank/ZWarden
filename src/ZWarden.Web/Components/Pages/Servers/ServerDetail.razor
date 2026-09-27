@@ -682,7 +682,7 @@ else
                     <p class="mt-1 text-xs text-muted-foreground">
                         Changes are written to <span class="font-mono">WorkshopItems=</span>/<span class="font-mono">Mods=</span>
                         as drift-checked, recorded config edits. Mods load only when the server boots — use
-                        <span class="font-medium">Restart to apply</span> once you are done. The lists below reflect the last
+                        <span class="font-medium">Restart to apply &amp; update mods</span> once you are done. The lists below reflect the last
                         discovery; refresh above after a change to see it.
                     </p>
 
@@ -809,19 +809,19 @@ else
                                 }
                             </div>
 
+                            @* #273: one safe restart both loads mod changes and pulls newer Workshop versions (PZ re-fetches
+                               WorkshopItems= at boot). It never runs the game update — that is the header's Update game.
+                               Mod.Update or Server.Restart, re-checked by the service. *@
                             @if (_modPerm.CanUpdate || _modPerm.CanRestart)
                             {
-                                <div class="flex flex-wrap gap-2 border-t border-border pt-4" data-mod-apply>
-                                    @if (_modPerm.CanUpdate)
-                                    {
-                                        <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" Type="ButtonType.Submit"
-                                                  name="_modManageForm.Command" value="update" data-action="mod-update">Update Workshop content</BbButton>
-                                    }
-                                    @if (_modPerm.CanRestart)
-                                    {
-                                        <BbButton Variant="ButtonVariant.Destructive" Size="ButtonSize.Small" Type="ButtonType.Submit"
-                                                  name="_modManageForm.Command" value="restart" data-action="mod-restart">Restart to apply</BbButton>
-                                    }
+                                <div class="border-t border-border pt-4" data-mod-apply>
+                                    <BbButton Variant="ButtonVariant.Destructive" Size="ButtonSize.Small" Type="ButtonType.Submit"
+                                              name="_modManageForm.Command" value="restart" data-action="mod-restart">Restart to apply &amp; update mods</BbButton>
+                                    <p class="mt-2 text-xs text-muted-foreground">
+                                        Warns players, saves and restarts the server. It loads your mod changes and downloads any
+                                        newer Workshop versions as it boots. If players get a Lua checksum mismatch on join after a
+                                        mod updated on the Workshop, this is the fix. It does not update the game itself.
+                                    </p>
                                 </div>
                             }
                         </EditForm>
@@ -1956,11 +1956,8 @@ else
             case "movedown":
                 await ReorderAsync(user, serverId, verb, arg);
                 break;
-            case "update":
-                SetModResult("Update", await ModManager.UpdateModsAsync(user, serverId));
-                break;
             case "restart":
-                SetRestartResult(await Lifecycle.RestartAsync(user, serverId));
+                SetModRestartResult(await ModManager.UpdateModsAsync(user, serverId));
                 break;
             default:
                 SetModMessage("Choose an action.", ok: false);
@@ -2018,22 +2015,18 @@ else
         SetModMessage(message, ok: false);
     }
 
-    private void SetRestartResult(ServerLifecycleResult result)
+    // #273: the Mods section's one restart, which loads mod changes and pulls Workshop updates.
+    private void SetModRestartResult(ModManagementResult result)
     {
         if (result.Succeeded)
         {
-            SetModMessage($"Restart enqueued (operation {result.Operation}). Mods load as the server boots.", ok: true);
+            SetModMessage(
+                $"Restart enqueued (operation {result.Operation}). Mods load and Workshop updates download as the server boots.",
+                ok: true);
             return;
         }
 
-        string message = result.Failure switch
-        {
-            ServerLifecycleFailure.NotAuthorized => "You are not permitted to restart this server.",
-            ServerLifecycleFailure.ServerNotFound => "That server is no longer available.",
-            ServerLifecycleFailure.ServerBusy => "The server is busy with another operation; try again once it finishes.",
-            _ => "The restart could not be started.",
-        };
-        SetModMessage(message, ok: false);
+        SetModResult("Restart", result);
     }
 
     private void SetModMessage(string message, bool ok)
@@ -3105,7 +3098,7 @@ else
         // The mod id chosen in the "Enable an installed mod" select.
         public string? EnableModId { get; set; }
 
-        // The submit button's command token: "add"/"enable"/"update"/"restart", or "{verb}|{id}" for a per-row
+        // The submit button's command token: "add"/"enable"/"restart", or "{verb}|{id}" for a per-row
         // action (disable|{modId}, remove|{workshopId}, moveup|{modId}, movedown|{modId}).
         public string? Command { get; set; }
     }

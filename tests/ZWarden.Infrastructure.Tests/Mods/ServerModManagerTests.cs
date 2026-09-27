@@ -18,7 +18,7 @@ using ZWarden.TestSupport;
 namespace ZWarden.Infrastructure.Tests.Mods;
 
 /// <summary>
-/// F22: the mod-management service, fail-closed (ADR 0018). Config-as-truth — enable/disable/reorder/add/remove
+/// F22: the mod-management service, fail-closed (ADR 0018). Config-as-truth â enable/disable/reorder/add/remove
 /// recompute <c>WorkshopItems=</c>/<c>Mods=</c> from the last observed Mod Inventory (F21) and enqueue an F20b
 /// config-apply on the Server's Agent (mutating, per-server lock, drift baseline, audited under Mod.*); update
 /// enqueues the F17 UpdateServer. Each verb authorizes its mapped server-scoped Mod.* permission, resolves the
@@ -380,7 +380,7 @@ public class ServerModManagerTests
     }
 
     [Test]
-    public async Task Update_authorizes_mod_update_and_enqueues_an_update_server_operation()
+    public async Task Update_authorizes_mod_update_and_enqueues_a_safe_restart_not_a_game_update()
     {
         await WithSqlite(async options =>
         {
@@ -394,10 +394,12 @@ public class ServerModManagerTests
             CapturingAuditWriter audit = new();
             ServerModManager sut = Manager(db, coordinator, audit, new ModInventoryCache());
 
+            // #273: a restart is what refreshes Workshop content (PZ re-fetches WorkshopItems= at boot), so the refresh no
+            // longer runs SteamCMD and can't silently change the game build. No plan ⇒ the Agent's default warning.
             ModManagementResult result = await sut.UpdateModsAsync(user, serverId);
 
             await Assert.That(result.Succeeded).IsTrue();
-            await Assert.That(coordinator.LastRequest!.Kind).IsEqualTo(OperationKind.UpdateServer);
+            await Assert.That(coordinator.LastRequest!.Kind).IsEqualTo(OperationKind.RestartServer);
             await Assert.That(coordinator.LastRequest!.IsMutating).IsTrue();
             await Assert.That(coordinator.LastRequest!.CommandPayload).IsNull();
             await Assert.That(audit.Actions).Contains(ModAuditActions.Updated);
@@ -405,7 +407,29 @@ public class ServerModManagerTests
     }
 
     [Test]
-    public async Task Update_denies_without_the_mod_update_permission()
+    public async Task Update_is_also_allowed_with_server_restart_alone()
+    {
+        // #273: one Mods-section button now does the restart that applies mod changes and pulls Workshop updates, so
+        // an operator who may restart the server may press it without a Mod.Update grant.
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            ServerId serverId = await SeedServerAsync(options, AgentId.New());
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ServerRestart);
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            RecordingCoordinator coordinator = new();
+            ServerModManager sut = Manager(db, coordinator, new CapturingAuditWriter(), new ModInventoryCache());
+
+            ModManagementResult result = await sut.UpdateModsAsync(user, serverId);
+
+            await Assert.That(result.Succeeded).IsTrue();
+            await Assert.That(coordinator.LastRequest!.Kind).IsEqualTo(OperationKind.RestartServer);
+        });
+    }
+
+    [Test]
+    public async Task Update_denies_without_mod_update_or_server_restart()
     {
         await WithSqlite(async options =>
         {
