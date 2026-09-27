@@ -5,8 +5,9 @@ namespace ZWarden.Agent.Servers;
 /// <summary>
 /// Reads the Project Zomboid game version from the server's boot output (#262). PZ prints it once, early in boot,
 /// on a <c>General</c> log line, verified live on B42 42.20.4:
-/// <c> LOG  : General      f:0 st:1,802,558,676&gt; version=42.20.4 b0bbce05d5 demo=false</c>. The token after the
-/// version looks like a source revision and is ignored. Container logs are untrusted, so the parse is total and
+/// <c> LOG  : General      f:0 st:1,802,558,676&gt; version=42.20.4 b0bbce05d5 demo=false</c>. 42.19.2 also prints
+/// the build date before <c>demo=</c> (<c>version=42.19.2 99198cd6ef 2026-08-25 14:51:21 (local) demo=false</c>, #258),
+/// so up to 120 characters between the version and <c>demo=</c> (a revision, a date) are ignored. Container logs are untrusted, so the parse is total and
 /// bounded: only a short <c>General</c> line of that shape yields a version, and the first match wins.
 /// </summary>
 public static partial class PzGameVersionParser
@@ -36,7 +37,7 @@ public static partial class PzGameVersionParser
     }
 
     [GeneratedRegex(
-        @"^\s*LOG\s*:\s*General\b[^>]*>\s*version=(?<version>\d{1,3}\.\d{1,3}(?:\.\d{1,4})?)(?:\s+[0-9a-f]{4,40})?\s+demo=",
+        @"^\s*LOG\s*:\s*General\b[^>]*>\s*version=(?<version>\d{1,3}\.\d{1,3}(?:\.\d{1,4})?)(?:\s[^\r\n]{0,120}?)?\s+demo=",
         RegexOptions.CultureInvariant | RegexOptions.ExplicitCapture, matchTimeoutMilliseconds: 100)]
     private static partial Regex BootVersionRegex();
 }

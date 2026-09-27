@@ -37,6 +37,16 @@ public class PzGameVersionParserTests
     }
 
     [Test]
+    public async Task The_42_19_line_with_a_build_date_before_demo_parses()
+    {
+        // #258 live pass: 42.19.2 prints the build date between the revision and demo=, which the 42.20 shape rejected.
+        const string Line =
+            "LOG  : General      f:0 st:2,412,117,479> version=42.19.2 99198cd6ef 2026-08-25 14:51:21 (local) demo=false";
+
+        await Assert.That(PzGameVersionParser.Parse(Line)).IsEqualTo("42.19.2");
+    }
+
+    [Test]
     [Arguments("")]
     [Arguments("version=42.20.4 demo=false")] // not the General boot line
     [Arguments(" LOG  : Mod          f:0 st:1> version=1.2.3 demo=false")] // another subsystem's version
