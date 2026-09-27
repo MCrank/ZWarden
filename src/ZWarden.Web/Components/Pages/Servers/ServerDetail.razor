@@ -299,6 +299,17 @@ else
                         <dd class="font-mono tabular-nums text-xs" data-server-version
                             title="@(_server.InstalledBuildId is { } build ? $"Steam build {build}" : null)">@(_server.GameVersion ?? _server.InstalledBuildId ?? "—")</dd>
                     </div>
+                    @* #273: what the last Update game did. Agent-observed build ids — rendered as text. *@
+                    @if (_lastUpdate is { } lastUpdate)
+                    {
+                        <div class="flex justify-between gap-4" data-last-update>
+                            <dt class="text-muted-foreground">Last game update</dt>
+                            <dd class="text-right text-xs">
+                                <span class="block">@lastUpdate.Summary</span>
+                                <span class="block text-muted-foreground tabular-nums">@lastUpdate.At</span>
+                            </dd>
+                        </div>
+                    }
                     <div class="flex justify-between gap-4">
                         <dt class="text-muted-foreground">Last-reported health</dt>
                         <dd data-last-health>@(_server.LastHealth?.ToString() ?? "—")</dd>
@@ -1550,6 +1561,9 @@ else
     // Set when a heap change was refused as over the host's free memory (#230 follow-up); shows the acknowledgement.
     private string? _recreateOvercommitWarning;
     private ServerFailureView? _lastFailure;
+
+    // #273: what the newest successful game update did ("Updated from Steam build A to B.") and when; null before any.
+    private (string Summary, string At)? _lastUpdate;
     private string? _lifecycleMessage;
     private AlertVariant _lifecycleAlert = AlertVariant.Warning;
     private PlayerPermissions _perm;
@@ -1728,6 +1742,12 @@ else
         // #266: the last action's failure, unless a new action is already in flight (it supersedes the old one).
         _lastFailure = active is null
             ? ServerFailureView.From(await OperationStore.FindUnresolvedFailureForServerAsync(serverId), OperatorTz.Zone)
+            : null;
+
+        // #273: the last game update's result line (Agent-observed builds, set by the hub on completion).
+        Operation? updated = await OperationStore.FindLatestSucceededForServerAsync(serverId, OperationKind.UpdateServer);
+        _lastUpdate = updated is { StatusLine: { } summary } && !string.IsNullOrWhiteSpace(summary)
+            ? (summary, OperatorTimeZone.Format(updated.CompletedAt ?? updated.EnqueuedAt, OperatorTz.Zone))
             : null;
     }
 

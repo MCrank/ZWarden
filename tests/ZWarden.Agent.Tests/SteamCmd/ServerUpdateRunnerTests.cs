@@ -58,6 +58,40 @@ public class ServerUpdateRunnerTests
     }
 
     [Test]
+    public async Task It_reads_the_build_it_is_replacing_before_the_update_runs()
+    {
+        // #273: "build A → B" on the page. Read here, before SteamCMD runs, so it is observed — the control plane's
+        // stored build may already be the new one (a metrics report can land before the completion).
+        OperationId op = OperationId.New();
+        var runtime = new ScriptedRuntime();
+        runtime.Logs.Enqueue(string.Join('\n', Begin(op), "Success! App '380870' fully installed", EndOk(op)));
+        var paths = new RecordingPaths { BuildIdBefore = "24909836", BuildId = "25485538" };
+
+        ServerUpdateOutcome outcome = await Runner(runtime, paths).RunAsync(ServerId.New(), op, new RecordingReporter(), CancellationToken.None);
+
+        await Assert.That(outcome.PreviousBuildId).IsEqualTo("24909836");
+        await Assert.That(outcome.InstalledBuildId).IsEqualTo("25485538");
+    }
+
+    [Test]
+    public async Task An_update_restarts_the_existing_container_so_a_pinned_branch_is_kept()
+    {
+        // #258/#273: the branch lives in the container's ZW_PZ_BETA, set at create. An update only restarts that same
+        // container into SteamCMD (never recreates it — every other runtime verb here throws), so a pinned 42.19 server
+        // updates within 42.19 and a public one follows public.
+        ServerId serverId = ServerId.New();
+        OperationId op = OperationId.New();
+        var runtime = new ScriptedRuntime();
+        runtime.Logs.Enqueue(string.Join('\n', Begin(op), "Success! App '380870' fully installed", EndOk(op)));
+
+        ServerUpdateOutcome outcome = await Runner(runtime, new RecordingPaths { BuildId = "24929695" })
+            .RunAsync(serverId, op, new RecordingReporter(), CancellationToken.None);
+
+        await Assert.That(outcome.Succeeded).IsTrue();
+        await Assert.That(runtime.RestartedServerId).IsEqualTo(serverId);
+    }
+
+    [Test]
     public async Task It_warns_players_before_taking_the_server_down_for_the_update()
     {
         // #114: an update restart inherits the graceful player broadcast.
@@ -135,11 +169,25 @@ public class ServerUpdateRunnerTests
     {
         public string? BuildId { get; set; }
 
+        // The manifest's build before the update ran (#273); the first read returns it when set.
+        public string? BuildIdBefore { get; set; }
+
+        private bool _readBefore;
+
         public ServerId? WroteRequestFor { get; private set; }
 
         public void WriteUpdateRequest(ServerId serverId, OperationId operationId) => WroteRequestFor = serverId;
 
-        public string? ReadInstalledBuildId(ServerId serverId) => BuildId;
+        public string? ReadInstalledBuildId(ServerId serverId)
+        {
+            if (!_readBefore && BuildIdBefore is not null)
+            {
+                _readBefore = true;
+                return BuildIdBefore;
+            }
+
+            return BuildId;
+        }
 
         public string GetWorkshopContentRoot(ServerId serverId) => throw new NotSupportedException();
     }

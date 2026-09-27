@@ -123,6 +123,34 @@ public class OperationStoreTests
     }
 
     [Test]
+    public async Task FindLatestSucceeded_returns_the_servers_newest_successful_operation_of_that_kind()
+    {
+        // #273: the server page's "last game update: build A → B" reads the newest successful update's result line.
+        await OperationTestHarness.WithSqlite(async options =>
+        {
+            await using ZWardenDbContext ctx = OperationTestHarness.Context(options);
+            ServerId server = ServerId.New();
+            Operation older = Finished(server, OperationKind.UpdateServer, OperationState.Succeeded, Now);
+            await Task.Delay(5); // UUIDv7 ids order by millisecond only (ADR 0004) — space generation.
+            Operation newer = Finished(server, OperationKind.UpdateServer, OperationState.Succeeded, Now.AddDays(1));
+            await Task.Delay(5);
+            ctx.AddRange(
+                older,
+                newer,
+                Finished(server, OperationKind.UpdateServer, OperationState.Failed, Now.AddDays(2)),
+                Finished(server, OperationKind.RestartServer, OperationState.Succeeded, Now.AddDays(3)),
+                Finished(ServerId.New(), OperationKind.UpdateServer, OperationState.Succeeded, Now.AddDays(4)));
+            await ctx.SaveChangesAsync();
+
+            OperationStore sut = OperationTestHarness.Store(ctx, new CapturingAuditWriter(), new StubClock(Now), Options);
+
+            Operation? latest = await sut.FindLatestSucceededForServerAsync(server, OperationKind.UpdateServer);
+            await Assert.That(latest?.Id).IsEqualTo(newer.Id);
+            await Assert.That(await sut.FindLatestSucceededForServerAsync(server, OperationKind.Backup)).IsNull();
+        });
+    }
+
+    [Test]
     public async Task FindUnresolvedFailure_ignores_read_only_and_other_servers_failures()
     {
         await OperationTestHarness.WithSqlite(async options =>

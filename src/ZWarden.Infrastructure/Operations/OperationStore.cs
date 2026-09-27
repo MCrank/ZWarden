@@ -57,6 +57,11 @@ public sealed class OperationStore : IOperationStore
     }
 
     /// <inheritdoc />
+    public Task<Operation?> FindLatestSucceededForServerAsync(
+        ServerId serverId, OperationKind kind, CancellationToken cancellationToken = default)
+        => _operations.FindLatestSucceededForServerAsync(serverId, kind, cancellationToken);
+
+    /// <inheritdoc />
     public Task<IReadOnlyList<Operation>> ListActiveAsync(CancellationToken cancellationToken = default)
         => _operations.ListActiveMutatingAsync(cancellationToken);
 

@@ -1665,6 +1665,46 @@ public sealed class ServerDetailPageTests
     }
 
     [Test]
+    public async Task The_overview_shows_what_the_last_game_update_did()
+    {
+        // #273: the newest successful update's result line ("build A → B"), under Version. Agent-derived text, so it
+        // renders encoded.
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "updated");
+        using (IServiceScope scope = factory.Services.CreateScope())
+        {
+            ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
+            DateTimeOffset now = DateTimeOffset.UtcNow;
+            Operation op = Operation.Enqueue(AgentId.New(), OperationKind.UpdateServer, isMutating: true, "upd", now, serverId);
+            op.MarkDispatched(now.AddMinutes(5), now);
+            op.ReportProgress(100, "Updated from Steam build 24909836 to 25485538.", now.AddMinutes(5), now);
+            op.Succeed(now);
+            db.Set<Operation>().Add(op);
+            await db.SaveChangesAsync();
+        }
+
+        string html = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        await Assert.That(html).Contains("data-last-update");
+        await Assert.That(html).Contains("Updated from Steam build 24909836 to 25485538.");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task The_overview_has_no_last_update_line_before_any_update()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "never-updated");
+
+        string html = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        await Assert.That(html).DoesNotContain("data-last-update");
+        client.Dispose();
+    }
+
+    [Test]
     public async Task The_change_ports_control_shows_the_current_pair_for_a_permitted_owner()
     {
         // #229: an owner holds Server.Recreate, so the overview offers the data-preserving recreate on a new pair.
