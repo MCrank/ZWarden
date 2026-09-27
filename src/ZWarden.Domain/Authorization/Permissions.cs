@@ -40,6 +40,11 @@ public static class Permissions
     // start/stop bar: it is effectively re-provisioning and touches host networking. Owner + Administrator only.
     public static readonly PermissionDefinition ServerRecreate = Server("Server.Recreate");
 
+    // Deleting a Server — removing its container from the host and the Server from the fleet (#271). Server-scopable,
+    // at the same Owner + Administrator bar as Recreate, but its own permission: it destroys things, so audit and
+    // custom roles can tell it apart from a data-preserving recreate.
+    public static readonly PermissionDefinition ServerDelete = Server("Server.Delete");
+
     // Bringing a Server under management — importing a discovered container or registering (and provisioning)
     // a new one (F14). Tenant-wide, not server-scopable: the Server does not exist yet at registration time,
     // so there is no ServerId to scope to (a server-scoped permission checked with no Server is denied). This
@@ -90,7 +95,7 @@ public static class Permissions
     public static IReadOnlyList<PermissionDefinition> All { get; } =
     [
         ServerView, ServerStart, ServerStop, ServerRestart, ServerUpdate,
-        ServerConfigurationView, ServerConfigurationEdit, ServerDiagnostics, ServerRecreate, ServerRegister,
+        ServerConfigurationView, ServerConfigurationEdit, ServerDiagnostics, ServerRecreate, ServerDelete, ServerRegister,
         ModView, ModInstall, ModRemove, ModUpdate, ModApplyApprovedProfile,
         PlayerView, PlayerKick, PlayerBan, PlayerUnban,
         ConsoleView, ConsoleExecute,
