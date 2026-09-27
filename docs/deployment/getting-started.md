@@ -249,6 +249,13 @@ You're in:
   how much memory is free for this server (the host's free memory plus what its container already has); raising the
   heap past that warns you and asks you to confirm, the same as when you create a server. Tenant Owners and
   Administrators can do this (`Server.Recreate`).
+- **Deleting a server.** On the server's **Overview**, **Danger zone → Delete server…** opens a confirmation. Type
+  the server's name to enable **Delete server**. If the server is running, players get the countdown you pick and
+  it stops safely. Then its container is removed from the host and the server leaves the fleet. The host's free
+  memory for new servers goes back up on the Agent's next report. **World data and backups are kept** under
+  `/srv/zwarden` (`pz-data/<server-id>`, `pz-data/<server-id>.server`, `pz-backups/`). Nothing in the app can bring
+  them back, so recovering them is manual; delete those directories yourself once you're sure. Tenant Owners and
+  Administrators can do this (`Server.Delete`). Refused attempts are audited too.
 - **Health & logs.** `docker compose ps` for health; `docker compose logs -f web|agent|caddy` for live logs.
 - **Upgrades.** Back up first, then `docker compose pull && docker compose build --pull && docker compose
   up -d`. Migrations run automatically on Web startup. (Add the `-f` overlay pair in Postgres mode.)

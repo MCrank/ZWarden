@@ -1859,8 +1859,9 @@ public sealed class ServerDetailPageTests
         await Assert.That(html).Contains("World data and backups are kept");
         await Assert.That(html).Contains("can't be undone");
         // The submit starts disabled; the dialog script enables it once the typed name matches.
-        await Assert.That(Regex.IsMatch(html, "<button[^>]*data-zw-confirm-submit[^>]*disabled|<button[^>]*disabled[^>]*data-zw-confirm-submit"))
-            .IsTrue();
+        Match submit = Regex.Match(html, "<button[^>]*data-zw-confirm-submit[^>]*>");
+        await Assert.That(submit.Success).IsTrue();
+        await Assert.That(submit.Value).Contains("aria-disabled=\"true\"");
         client.Dispose();
     }
 

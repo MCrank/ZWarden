@@ -15,7 +15,17 @@
     var form = input.form;
     if (!form) { return; }
     var matches = input.value === input.getAttribute('data-zw-confirm-expected');
-    form.querySelectorAll('[data-zw-confirm-submit]').forEach(function (button) { button.disabled = !matches; });
+    // BbButton renders Disabled as aria-disabled + tabindex=-1 (no native attribute), so keep all three in step.
+    form.querySelectorAll('[data-zw-confirm-submit]').forEach(function (button) {
+      button.disabled = !matches;
+      if (matches) {
+        button.removeAttribute('aria-disabled');
+        button.removeAttribute('tabindex');
+      } else {
+        button.setAttribute('aria-disabled', 'true');
+        button.setAttribute('tabindex', '-1');
+      }
+    });
   }
 
   function reset(dialog) {

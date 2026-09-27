@@ -46,7 +46,9 @@ host. Nothing runs until a typed-name confirmation, re-checked on the server.
   `docs/research/docker-socket-proxy.md` note.
 - **Web service** `IServerLifecycle.DeleteAsync(serverId, confirmName, plan)` through the shared `RunAsync`
   (tenant lookup → `Server.Delete` check → precheck → enqueue → audit). Precheck: `confirmName` ≠ `server.Name`
-  → new `ConfirmationMismatch` result, audited as Denied/Failed, nothing enqueued. Audit `Server.Deleted` at
+  → new `ConfirmationMismatch` result, nothing enqueued. Delete also audits its refusals (NotAuthorized and
+  ConfirmationMismatch → `Server.Deleted` with outcome Denied), opt-in per verb (`auditRefusals`), so the other
+  lifecycle verbs keep their behaviour. Audit `Server.Deleted` at
   enqueue (the existing lifecycle pattern), detail carries the server's name + operation id so it reads after the
   row is gone.
 - **Row removal on completion:** `AgentHub.OperationCompleted` → for a *Succeeded* `DeleteServer` operation,
