@@ -33,3 +33,24 @@ teardown() { rm -rf "$PZ_ROOT"; }
   run "${RUNTIME}/steamcmd.sh"
   assert_output_contains "self-updated"
 }
+
+# #280: a freshly staged SteamCMD self-updates and restarts on its first run, and the first
+# app_update in that same run stalled ("Timed out waiting for update to start") on every update
+# observed live - 2 minutes lost before a retry. A throwaway login/quit run absorbs the
+# self-update so the real app_update starts on a settled client.
+@test "warm-up runs SteamCMD once with an anonymous login and quit" {
+  printf '#!/usr/bin/env bash\necho "$*" >> "%s/args"\n' "${PZ_ROOT}" > "${PZ_ROOT}/steamcmd"
+  chmod +x "${PZ_ROOT}/steamcmd"
+  run pz_warm_steamcmd "${PZ_ROOT}/steamcmd"
+  assert_success
+  [ "$(wc -l < "${PZ_ROOT}/args")" -eq 1 ]
+  [ "$(cat "${PZ_ROOT}/args")" = "+login anonymous +quit" ]
+}
+
+@test "a failed warm-up never blocks the install or update that follows" {
+  printf '#!/usr/bin/env bash\necho "ERROR! no network"\nexit 7\n' > "${PZ_ROOT}/steamcmd"
+  chmod +x "${PZ_ROOT}/steamcmd"
+  run pz_warm_steamcmd "${PZ_ROOT}/steamcmd"
+  assert_success
+  assert_output_contains "warming up SteamCMD"
+}

@@ -27,6 +27,7 @@ if pz_needs_install "${SERVER_DIR}"; then
   log "installing Project Zomboid dedicated server (app ${PZ_STEAM_APP_ID}) via anonymous SteamCMD..."
   runscript="$(mktemp)"
   pz_build_steamcmd_runscript "${SERVER_DIR}" > "${runscript}"
+  pz_warm_steamcmd "${STEAMCMD}"   # #280: absorb the fresh SteamCMD's self-update first
   # A fresh SteamCMD's first app_update often fails with "Missing configuration"; retry to
   # warm the config, and parse stdout for the result since exit codes are unreliable (F12/#65).
   install_rc=0
@@ -49,6 +50,7 @@ elif pz_update_requested "${DATA_DIR}"; then
   # non-fatal - the existing install is intact, so we log and boot it (the Operation reports the
   # failure via the log the Agent parses). The request is always cleared inside pz_apply_update.
   log "update requested (session $(pz_read_update_session "${DATA_DIR}")); running SteamCMD app_update validate..."
+  pz_warm_steamcmd "${STEAMCMD}"   # #280: absorb the fresh SteamCMD's self-update first
   if pz_apply_update "${STEAMCMD}" "${SERVER_DIR}" "${DATA_DIR}"; then
     log "update complete."
   else

@@ -81,6 +81,25 @@ public class SteamCmdLogParserTests
     }
 
     [Test]
+    public async Task An_update_that_never_started_fails_with_the_entrypoints_reason()
+    {
+        // #280: every attempt printed SteamCMD's "timed out … bailing" (and its misleading success line); the
+        // entrypoint's summary is the first error line, so it becomes the Operation's failure reason.
+        string stalled = " Update state (0x0) : Timed out waiting for update to start, bailing.";
+        string log = Log(
+            $"[zwarden] steamcmd update session {Session} begin",
+            stalled, "Success! App '380870' fully installed.",
+            stalled, "Success! App '380870' fully installed.",
+            "ERROR! SteamCMD timed out waiting for the update to start on every attempt; the installed build is unchanged.",
+            $"[zwarden] steamcmd update session {Session} end (failure)");
+
+        SteamCmdUpdateState state = SteamCmdLogParser.Parse(log, Session);
+
+        await Assert.That(state.Outcome).IsEqualTo(SteamCmdOutcome.Failed);
+        await Assert.That(state.FailureReason).Contains("timed out waiting for the update to start");
+    }
+
+    [Test]
     public async Task Progress_is_clamped_to_0_100()
     {
         string log = Log(
