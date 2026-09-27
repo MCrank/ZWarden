@@ -171,7 +171,9 @@
                         </div>
                     </div>
                     <label class="flex items-center gap-2 text-sm">
-                        <BbCheckbox @bind-Checked="_registerForm!.Public" Id="register-public" />
+                        @* Native, not BbCheckbox: its button only toggles with a circuit and this form has none. *@
+                        <input type="checkbox" class="zw-checkbox" id="register-public" name="_registerForm.Public" value="true"
+                               checked="@_registerForm!.Public" />
                         List it in the in-game public server browser
                     </label>
                 </fieldset>
@@ -208,7 +210,8 @@
                             <BbAlertDescription>@_overcommitWarning</BbAlertDescription>
                         </BbAlert>
                         <label class="flex items-center gap-2 text-sm">
-                            <BbCheckbox @bind-Checked="_registerForm!.AcknowledgeOvercommit" Id="register-acknowledge" />
+                            <input type="checkbox" class="zw-checkbox" id="register-acknowledge"
+                                   name="_registerForm.AcknowledgeOvercommit" value="true" checked="@_registerForm!.AcknowledgeOvercommit" />
                             Create it anyway
                         </label>
                     </div>

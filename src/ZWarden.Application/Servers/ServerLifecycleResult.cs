@@ -25,6 +25,10 @@ public enum ServerLifecycleFailure
 
     /// <summary>The requested heap is outside <c>ServerMemoryRules</c> (#230).</summary>
     InvalidHeap,
+
+    /// <summary>Raising the heap would take the container's limit past the host's free memory (with the server's current
+    /// limit counted as released) and the operator has not acknowledged it (#230).</summary>
+    OverCapacity,
 }
 
 /// <summary>The outcome of a lifecycle action (F15): on success, the enqueued Operation whose state the caller

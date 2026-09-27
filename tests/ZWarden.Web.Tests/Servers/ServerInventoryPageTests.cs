@@ -390,6 +390,7 @@ public sealed class ServerInventoryPageTests
         await Assert.That(html).Contains("20 GiB free for new servers of 32 GiB");
         await Assert.That(html).Contains("name=\"_registerForm.ExpectedPlayers\"");
         await Assert.That(html).Contains("name=\"_registerForm.HeapGiB\"");
+        await Assert.That(SsrCheckbox.IsNative(html, "register-public", "_registerForm.Public")).IsTrue();
         client.Dispose();
     }
 
@@ -406,7 +407,7 @@ public sealed class ServerInventoryPageTests
             .Content.ReadAsStringAsync();
 
         await Assert.That(warned).Contains("data-overcommit-warning");
-        await Assert.That(warned).Contains("name=\"_registerForm.AcknowledgeOvercommit\"");
+        await Assert.That(SsrCheckbox.IsNative(warned, "register-acknowledge", "_registerForm.AcknowledgeOvercommit")).IsTrue();
         using (IServiceScope scope = factory.Services.CreateScope())
         {
             await Assert.That(await scope.ServiceProvider.GetRequiredService<ZWardenDbContext>().Set<Server>().AnyAsync()).IsFalse();

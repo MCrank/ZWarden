@@ -99,5 +99,22 @@ public class NewServerFormTests
         await Assert.That(warning).Contains("10 GiB");
         await Assert.That(warning).Contains("4 GiB free");
         await Assert.That(warning).Contains("6 GiB");
+        await Assert.That(warning).Contains("out of memory");
+    }
+
+    [Test]
+    public async Task A_heap_change_counts_the_servers_current_limit_and_names_the_shortfall()
+    {
+        // 16 GiB host, 20 committed, 2 reserved; this server holds 10 (4 + 6) ⇒ 4 GiB free for it.
+        HostCapacity capacity = new(AgentId.New(), 16 * GiB, 20 * GiB, 6 * GiB, 4 * GiB, 2 * GiB, DateTimeOffset.UtcNow);
+
+        await Assert.That(NewServerForm.ResizeCapacityLine(capacity, 4 * GiB))
+            .IsEqualTo("4 GiB free on this host for this server, counting the 10 GiB its container already has.");
+
+        string warning = NewServerForm.ResizeShortfallWarning(capacity, 4 * GiB, 8 * GiB);
+        await Assert.That(warning).Contains("14 GiB");
+        await Assert.That(warning).Contains("4 GiB free");
+        await Assert.That(warning).Contains("10 GiB short");
+        await Assert.That(warning).Contains("out of memory");
     }
 }

@@ -95,7 +95,31 @@ public static class NewServerForm
         ArgumentNullException.ThrowIfNull(capacity);
         return $"This server's memory limit is {FormatGiB(capacity.LimitFor(heapBytes))} (heap + "
             + $"{FormatGiB(capacity.OverheadBytes)} overhead), but the host has only {FormatGiB(capacity.FreeBytes)} free — "
-            + $"{FormatGiB(capacity.ShortfallFor(heapBytes))} short. Docker limits are ceilings, not reservations, so this can "
-            + "work if the servers are rarely busy at once; confirm below to create it anyway.";
+            + $"{FormatGiB(capacity.ShortfallFor(heapBytes))} short. {OvercommitImpact} Confirm below to create it anyway.";
     }
+
+    /// <summary>The memory free for an existing server's heap change: the host's free memory plus what its container
+    /// already has (from <paramref name="currentHeapBytes"/>, or the Agent's default heap when unknown).</summary>
+    public static string ResizeCapacityLine(HostCapacity capacity, long? currentHeapBytes)
+    {
+        ArgumentNullException.ThrowIfNull(capacity);
+        return $"{FormatGiB(capacity.FreeForResize(currentHeapBytes))} free on this host for this server, counting the "
+            + $"{FormatGiB(capacity.LimitFor(currentHeapBytes ?? capacity.DefaultHeapBytes))} its container already has.";
+    }
+
+    /// <summary>The warning shown when raising a server's heap to <paramref name="newHeapBytes"/> would not fit.</summary>
+    public static string ResizeShortfallWarning(HostCapacity capacity, long? currentHeapBytes, long newHeapBytes)
+    {
+        ArgumentNullException.ThrowIfNull(capacity);
+        return $"A {FormatGiB(newHeapBytes)} heap puts this server's memory limit at {FormatGiB(capacity.LimitFor(newHeapBytes))} "
+            + $"(heap + {FormatGiB(capacity.OverheadBytes)} overhead), but the host has only "
+            + $"{FormatGiB(capacity.FreeForResize(currentHeapBytes))} free for it — "
+            + $"{FormatGiB(capacity.ResizeShortfall(currentHeapBytes, newHeapBytes))} short. {OvercommitImpact} "
+            + "Confirm below to recreate it anyway.";
+    }
+
+    // What overcommitting means in practice — the operator reads this before acknowledging (D1).
+    private const string OvercommitImpact =
+        "Docker limits are ceilings, not reservations, so this can work if the servers are rarely busy at once. If they "
+        + "are, the host runs out of memory and the kernel kills a server mid-game, which can lose unsaved progress.";
 }

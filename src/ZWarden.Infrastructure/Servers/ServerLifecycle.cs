@@ -26,21 +26,25 @@ public sealed class ServerLifecycle : IServerLifecycle
     private readonly IPermissionChecker _permissions;
     private readonly IOperationCoordinator _operations;
     private readonly IAuditWriter _audit;
+    private readonly IHostCapacityCache _capacity;
 
     public ServerLifecycle(
         ServerRepository servers,
         IPermissionChecker permissions,
         IOperationCoordinator operations,
-        IAuditWriter audit)
+        IAuditWriter audit,
+        IHostCapacityCache capacity)
     {
         ArgumentNullException.ThrowIfNull(servers);
         ArgumentNullException.ThrowIfNull(permissions);
         ArgumentNullException.ThrowIfNull(operations);
         ArgumentNullException.ThrowIfNull(audit);
+        ArgumentNullException.ThrowIfNull(capacity);
         _servers = servers;
         _permissions = permissions;
         _operations = operations;
         _audit = audit;
+        _capacity = capacity;
     }
 
     /// <inheritdoc />
@@ -69,20 +73,32 @@ public sealed class ServerLifecycle : IServerLifecycle
         int? gamePort,
         GracefulRestartPayload? plan,
         long? heapSizeBytes = null,
+        bool acknowledgeOvercommit = false,
         CancellationToken cancellationToken = default)
         => RunAsync(
             user, server, Permissions.ServerRecreate, OperationKind.RecreateServer, ServerAuditActions.Recreated,
             cancellationToken,
             commandPayload: new ServerContainerPayload(gamePort, plan, heapSizeBytes).ToJson(),
-            precheck: (resolved, ct) => CheckRecreateAsync(resolved, gamePort, heapSizeBytes, ct));
+            precheck: (resolved, ct) => CheckRecreateAsync(resolved, gamePort, heapSizeBytes, acknowledgeOvercommit, ct));
 
-    // The fast control-plane refusals for a recreate: an invalid heap (#230), then the port checks (#229).
+    // The fast control-plane refusals for a recreate: an invalid heap (#230), a raised heap past the host's free memory
+    // without the operator's acknowledgement (#230, as the wizard's D1 gate), then the port checks (#229).
     private async Task<ServerLifecycleFailure?> CheckRecreateAsync(
-        Server server, int? gamePort, long? heapSizeBytes, CancellationToken cancellationToken)
+        Server server, int? gamePort, long? heapSizeBytes, bool acknowledgeOvercommit, CancellationToken cancellationToken)
     {
-        if (heapSizeBytes is { } heap && ServerMemoryRules.ValidateHeap(heap) is not null)
+        if (heapSizeBytes is { } heap)
         {
-            return ServerLifecycleFailure.InvalidHeap;
+            if (ServerMemoryRules.ValidateHeap(heap) is not null)
+            {
+                return ServerLifecycleFailure.InvalidHeap;
+            }
+
+            if (!acknowledgeOvercommit
+                && _capacity.GetLatest(server.AgentId) is { } capacity
+                && capacity.ResizeShortfall(server.HeapSizeBytes, heap) > 0)
+            {
+                return ServerLifecycleFailure.OverCapacity;
+            }
         }
 
         return gamePort is { } port ? await CheckPortAsync(server, port, cancellationToken).ConfigureAwait(false) : null;

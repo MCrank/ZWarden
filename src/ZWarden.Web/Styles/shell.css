@@ -305,6 +305,21 @@ html:not(.dark) .zw-ico-moon { display: inline-block; }
 .zw-cfg-switch:checked::after { transform: translateX(16px); background: var(--primary-foreground); }
 .zw-cfg-switch:focus-visible { outline: none; box-shadow: 0 0 0 2px color-mix(in oklab, var(--primary) 30%, transparent); }
 
+/* Checkbox on a static-SSR form, drawn like BbCheckbox. BbCheckbox is a <button role="checkbox"> that only
+   toggles with a circuit, so on a no-circuit form it cannot be ticked (#230 follow-up); this is a native
+   checkbox (CLAUDE.md's "no SSR-safe fit" allowance). Unchecked posts nothing, which binds to false. */
+.zw-checkbox {
+  appearance: none; -webkit-appearance: none; position: relative; flex: none; cursor: pointer; margin: 0;
+  width: 16px; height: 16px; border-radius: 4px; border: 1px solid var(--primary); background: transparent;
+}
+.zw-checkbox:checked { background: var(--primary); }
+.zw-checkbox:checked::after {
+  content: ""; position: absolute; left: 4px; top: 1px; width: 6px; height: 10px;
+  border: solid var(--primary-foreground); border-width: 0 2px 2px 0; transform: rotate(45deg);
+}
+.zw-checkbox:focus-visible { outline: none; box-shadow: 0 0 0 2px color-mix(in oklab, var(--primary) 30%, transparent); }
+.zw-checkbox:disabled { cursor: not-allowed; opacity: .5; }
+
 .zw-cfg-raw {
   margin-top: 16px; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
 }

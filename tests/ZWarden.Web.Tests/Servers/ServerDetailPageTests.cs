@@ -1727,6 +1727,51 @@ public sealed class ServerDetailPageTests
     }
 
     [Test]
+    public async Task Raising_the_heap_past_the_hosts_free_memory_warns_and_recreates_only_once_acknowledged()
+    {
+        // #230 follow-up: the wizard's overcommit gate on a heap change too. 16 GiB host, 2 reserved, 20 committed:
+        // this server's own 10 GiB (4 + 6) counts as released ⇒ 4 GiB free, so an 8 GiB heap (14 GiB limit) is 10 short.
+        const long GiB = 1024L * 1024 * 1024;
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "grow-big", gamePort: 16261, queryPort: 16262);
+        AgentId agent;
+        using (IServiceScope scope = factory.Services.CreateScope())
+        {
+            agent = (await scope.ServiceProvider.GetRequiredService<ZWardenDbContext>().Set<Server>().SingleAsync(s => s.Id == serverId)).AgentId;
+        }
+
+        factory.Services.GetRequiredService<IHostCapacityCache>()
+            .Record(new HostCapacity(agent, 16 * GiB, 20 * GiB, 6 * GiB, 4 * GiB, 2 * GiB, DateTimeOffset.UtcNow));
+
+        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+        await Assert.That(page).Contains("4 GiB free on this host for this server");
+        Dictionary<string, string> form = new(StringComparer.Ordinal)
+        {
+            ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
+            ["_handler"] = "server-recreate",
+            ["_recreateForm.HeapGiB"] = "8",
+            ["_recreateForm.Countdown"] = "5m",
+        };
+
+        string warned = await (await client.PostAsync(new Uri($"/servers/{serverId}", UriKind.Relative), new FormUrlEncodedContent(form)))
+            .Content.ReadAsStringAsync();
+
+        await Assert.That(warned).Contains("data-recreate-overcommit-warning");
+        await Assert.That(warned).Contains("10 GiB short");
+        await Assert.That(SsrCheckbox.IsNative(warned, "recreate-acknowledge", "_recreateForm.AcknowledgeOvercommit")).IsTrue();
+        await Assert.That(EnqueuedKind(factory, serverId, OperationKind.RecreateServer)).IsFalse();
+
+        form["__RequestVerificationToken"] = ParseHiddenInputs(warned)["__RequestVerificationToken"];
+        form["_recreateForm.AcknowledgeOvercommit"] = "true";
+        await client.PostAsync(new Uri($"/servers/{serverId}", UriKind.Relative), new FormUrlEncodedContent(form));
+
+        await Assert.That(ServerContainerPayload.FromJson(EnqueuedPayload(factory, serverId, OperationKind.RecreateServer)!).HeapSizeBytes)
+            .IsEqualTo(8 * GiB);
+        client.Dispose();
+    }
+
+    [Test]
     public async Task The_change_ports_form_refuses_an_invalid_port_without_enqueueing()
     {
         await using ZWardenWebAppFactory factory = new();

@@ -27,8 +27,8 @@ public sealed class AccountBlueprintFormTests
         await Assert.That(html).Contains("name=\"Input.Email\"");
         await Assert.That(html).Contains("name=\"Input.Password\"");
         await Assert.That(html).Contains("type=\"password\"");
-        // BbCheckbox must post the full model path Input.RememberMe (auto-derived from @bind-Checked).
-        await Assert.That(html).Contains("name=\"Input.RememberMe\"");
+        // A native checkbox (BbCheckbox only toggles with a circuit) posting the full model path Input.RememberMe.
+        await Assert.That(SsrCheckbox.IsNative(html, "remember-me", "Input.RememberMe")).IsTrue();
         // Splatted HTML attributes survive the wrapper (accessibility/UX affordances).
         await Assert.That(html).Contains("autocomplete=\"username\"");
     }

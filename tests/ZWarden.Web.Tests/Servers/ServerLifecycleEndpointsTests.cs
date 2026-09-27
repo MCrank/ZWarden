@@ -374,6 +374,28 @@ public sealed class ServerLifecycleEndpointsTests
     }
 
     [Test]
+    public async Task The_recreate_endpoint_raising_the_heap_past_the_hosts_free_memory_needs_the_acknowledgement()
+    {
+        const long GiB = 1024L * 1024 * 1024;
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        (ServerId serverId, AgentId agentId) = await SeedFleetServerAsync(factory);
+        factory.Services.GetRequiredService<IHostCapacityCache>()
+            .Record(new HostCapacity(agentId, 16 * GiB, 20 * GiB, 6 * GiB, 4 * GiB, 2 * GiB, Now));
+
+        HttpResponseMessage refused = await client.PostAsync(
+            new Uri($"/api/servers/{serverId}/recreate", UriKind.Relative), JsonContent($$"""{"heapSizeBytes":{{8 * GiB}}}"""));
+        HttpResponseMessage acknowledged = await client.PostAsync(
+            new Uri($"/api/servers/{serverId}/recreate", UriKind.Relative),
+            JsonContent($$"""{"heapSizeBytes":{{8 * GiB}},"acknowledgeOvercommit":true}"""));
+
+        await Assert.That(refused.StatusCode).IsEqualTo(HttpStatusCode.Conflict);
+        await Assert.That(await refused.Content.ReadAsStringAsync()).Contains("over_capacity");
+        await Assert.That(acknowledged.StatusCode).IsEqualTo(HttpStatusCode.Accepted);
+        client.Dispose();
+    }
+
+    [Test]
     public async Task The_recreate_endpoint_rejects_an_out_of_range_port()
     {
         await using ZWardenWebAppFactory factory = new();

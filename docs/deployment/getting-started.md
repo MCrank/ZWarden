@@ -221,7 +221,8 @@ Treat the suggestion as a starting point. Mods, map size and zombie density matt
 The form shows each host's **free memory**: total RAM, less what other servers' limits already claim, less a 2 GiB
 reserve for the host OS (the Agent setting `HostMemoryReserveBytes`). If the new server wouldn't fit, ZWarden
 warns you and asks you to confirm. Docker limits are ceilings, not reservations, so a few small servers that are
-rarely busy at the same time can share a host.
+rarely busy at the same time can share a host. If they do all get busy together, the host runs out of memory and
+the kernel kills a server mid-game, which can lose unsaved progress.
 
 You're in:
 
@@ -237,7 +238,9 @@ You're in:
 - **Changing a server's ports or memory.** On the server's **Overview**, **Container settings** recreates its container on
   a new UDP pair and/or with a new heap. The world, config and installed game are kept, so nothing is downloaded again. A running server
   warns players, stops safely and comes back. If the new pair turns out to be taken, the server
-  is rolled back to its old ports and heap. After a port change, update your firewall or port-forward. Tenant Owners and
+  is rolled back to its old ports and heap. After a port change, update your firewall or port-forward. The form shows
+  how much memory is free for this server (the host's free memory plus what its container already has); raising the
+  heap past that warns you and asks you to confirm, the same as when you create a server. Tenant Owners and
   Administrators can do this (`Server.Recreate`).
 - **Health & logs.** `docker compose ps` for health; `docker compose logs -f web|agent|caddy` for live logs.
 - **Upgrades.** Back up first, then `docker compose pull && docker compose build --pull && docker compose
