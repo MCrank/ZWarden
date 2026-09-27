@@ -29,10 +29,10 @@ teardown() {
 }
 
 @test "runscript selects the branch when ZW_PZ_BETA is set" {
-  ZW_PZ_BETA="legacy41"
+  ZW_PZ_BETA="42.19"
   run pz_build_steamcmd_runscript "/pz/server"
   assert_success
-  assert_output_contains "-beta legacy41"
+  assert_output_contains "-beta 42.19"
 }
 
 @test "install success is read from the stdout success line, not the exit code" {

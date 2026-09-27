@@ -29,14 +29,18 @@ if pz_needs_install "${SERVER_DIR}"; then
   pz_build_steamcmd_runscript "${SERVER_DIR}" > "${runscript}"
   # A fresh SteamCMD's first app_update often fails with "Missing configuration"; retry to
   # warm the config, and parse stdout for the result since exit codes are unreliable (F12/#65).
-  if pz_install_with_retry "${STEAMCMD}" "${runscript}"; then
-    rm -f "${runscript}"
+  install_rc=0
+  pz_install_with_retry "${STEAMCMD}" "${runscript}" || install_rc=$?
+  rm -f "${runscript}"
+  if [ "${install_rc}" -eq 0 ]; then
     pz_write_appid "${SERVER_DIR}"
     touch "${SERVER_DIR}/${PZ_INSTALL_MARKER}"
     log "install complete."
   else
-    rm -f "${runscript}"
-    log "SteamCMD failed to install after ${ZW_PZ_INSTALL_ATTEMPTS} attempts; refusing to launch (fail-closed)." >&2
+    # rc 2 = Steam rejected the branch; pz_install_with_retry already logged why (#258).
+    if [ "${install_rc}" -ne 2 ]; then
+      log "SteamCMD failed to install after ${ZW_PZ_INSTALL_ATTEMPTS} attempts; refusing to launch (fail-closed)." >&2
+    fi
     exit 1
   fi
 elif pz_update_requested "${DATA_DIR}"; then

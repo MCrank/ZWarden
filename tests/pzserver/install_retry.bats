@@ -26,6 +26,7 @@ echo "${n}" > "${STUB_COUNT}"
 case "$(sed -n "${n}p" "${STUB_OUTCOMES}")" in
   success) echo "Success! App '380870' fully installed" ;;
   missing) echo "ERROR! Failed to install app '380870' (Missing configuration)" ;;
+  badbeta) echo "ERROR! Failed to set beta 'zw-nope'" ;;
   *)       echo "unrelated chatter" ;;
 esac
 STUB
@@ -69,4 +70,16 @@ calls() { cat "${COUNT}" 2>/dev/null || echo 0; }
   run pz_install_with_retry "${STEAMCMD}" "${RUNSCRIPT}"
   assert_failure
   [ "$(calls)" -eq 2 ]
+}
+
+# #258: a branch Steam doesn't know (or a password-protected one) is not transient - SteamCMD
+# prints "Failed to set beta" and downloads nothing. Stop at once with a clear reason.
+@test "a nonexistent branch fails at once without retrying" {
+  printf 'badbeta\nsuccess\n' > "${OUTCOMES}"
+  ZW_PZ_INSTALL_ATTEMPTS=3
+  ZW_PZ_BETA="zw-nope"
+  run pz_install_with_retry "${STEAMCMD}" "${RUNSCRIPT}"
+  [ "$status" -eq 2 ]
+  [ "$(calls)" -eq 1 ]
+  assert_output_contains "Steam branch 'zw-nope' does not exist or is password-protected; refusing to launch"
 }
