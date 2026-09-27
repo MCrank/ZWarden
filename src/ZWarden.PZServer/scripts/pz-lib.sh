@@ -158,6 +158,19 @@ pz_bootstrap_steamcmd() {
   fi
 }
 
+# pz_warm_steamcmd <steamcmd>
+# #280: the freshly staged SteamCMD (the tmpfs above) self-updates and restarts on its first run,
+# and the first app_update in that same run stalled - "Timed out waiting for update to start" after
+# ~2 minutes - on every update observed live, costing a retry each time. A throwaway anonymous
+# login/quit absorbs the self-update so the real app_update starts on a settled client. Best-effort:
+# it never fails the caller (the install/update after it is fail-closed on its own). Output goes to
+# stderr, before the update session banner, so the Agent never parses it as the update's result.
+pz_warm_steamcmd() {
+  local steamcmd="$1"
+  echo "[zwarden] warming up SteamCMD (self-update + anonymous login) before app_update..." >&2
+  "${steamcmd}" +login anonymous +quit >&2 2>&1 || true
+}
+
 # --- Update path (F17) -----------------------------------------------------------
 # The Agent cannot exec into the container (ADR 0008 denies exec/attach), so it requests
 # an update by dropping a control-file into the writable /pz/data volume - holding the
