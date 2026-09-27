@@ -24,6 +24,7 @@ public static class ModAuditActions
     /// <summary>The <c>Mods=</c> load order was rewritten.</summary>
     public const string Reordered = "Mod.Reordered";
 
-    /// <summary>A Workshop-content update (F17) was triggered.</summary>
+    /// <summary>A Workshop-content refresh was triggered: a safe restart, since PZ re-fetches <c>WorkshopItems=</c> at boot
+    /// (#273; F22 originally ran the F17 game update).</summary>
     public const string Updated = "Mod.Updated";
 }

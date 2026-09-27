@@ -22,6 +22,7 @@
     'server-start': 'canStart',
     'server-stop': 'canStop',
     'server-restart': 'canRestart',
+    'server-update': 'canUpdate',
     'graceful-restart': 'canRestart'
   };
   // The fleet's last answer by Server id: re-applied when the interactive board re-renders its rows (a sort

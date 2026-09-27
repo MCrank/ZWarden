@@ -12,7 +12,9 @@ namespace ZWarden.Agent.SteamCmd;
 /// <param name="Succeeded">Whether the entrypoint reported the update finished successfully.</param>
 /// <param name="InstalledBuildId">The build id read from the manifest on success; <c>null</c> otherwise.</param>
 /// <param name="FailureReason">On failure, an actionable (possibly untrusted) reason; <c>null</c> on success.</param>
-public sealed record ServerUpdateOutcome(bool Succeeded, string? InstalledBuildId, string? FailureReason);
+/// <param name="PreviousBuildId">The build id the manifest named before the update ran (#273); <c>null</c> if none.</param>
+public sealed record ServerUpdateOutcome(
+    bool Succeeded, string? InstalledBuildId, string? FailureReason, string? PreviousBuildId = null);
 
 /// <summary>
 /// Drives one SteamCMD update against a Server the Agent owns (F17), without <c>exec</c> (ADR 0008 denies it):
@@ -70,6 +72,8 @@ public sealed partial class ServerUpdateRunner : IServerUpdateRunner
 
         // The session id the entrypoint brackets its SteamCMD output with is the OperationId (F17 PR-A).
         string session = operationId.ToString();
+        // The build being replaced (#273), read before SteamCMD touches the manifest, for the "build A → B" note.
+        string? previousBuildId = _paths.ReadInstalledBuildId(serverId);
         _paths.WriteUpdateRequest(serverId, operationId);
 
         try
@@ -117,7 +121,7 @@ public sealed partial class ServerUpdateRunner : IServerUpdateRunner
                 case SteamCmdOutcome.Succeeded:
                     string? buildId = _paths.ReadInstalledBuildId(serverId);
                     LogUpdateSucceeded(serverId, buildId ?? "unknown");
-                    return new ServerUpdateOutcome(true, buildId, null);
+                    return new ServerUpdateOutcome(true, buildId, null, previousBuildId);
 
                 case SteamCmdOutcome.Failed:
                     LogUpdateFailed(serverId);

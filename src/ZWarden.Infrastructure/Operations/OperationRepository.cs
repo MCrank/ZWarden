@@ -57,6 +57,18 @@ public sealed class OperationRepository : TenantScopedRepository<Operation>
             .ConfigureAwait(false);
 
     /// <summary>
+    /// The ambient tenant's newest successful Operation of <paramref name="kind"/> on <paramref name="serverId"/>, or
+    /// <c>null</c> (#273). Newest by the UUIDv7 id, as <see cref="FindLatestFinishedMutatingForServerAsync"/> explains.
+    /// </summary>
+    public async Task<Operation?> FindLatestSucceededForServerAsync(
+        ServerId serverId, OperationKind kind, CancellationToken cancellationToken = default)
+        => await Entities
+            .Where(o => o.ServerId == serverId && o.Kind == kind && o.State == OperationState.Succeeded)
+            .OrderByDescending(o => o.Id)
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+    /// <summary>
     /// Every non-terminal mutating Operation in the ambient tenant — at most one per Server, the rows holding the
     /// per-server locks (ADR 0022). The fleet board polls this (#253) instead of one query per Server; the set is
     /// bounded by the tenant's Server count. Same SQL-translatable state filter as the single-Server read.

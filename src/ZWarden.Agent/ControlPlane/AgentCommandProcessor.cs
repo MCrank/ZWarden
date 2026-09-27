@@ -294,7 +294,7 @@ public sealed partial class AgentCommandProcessor
                     .RunAsync(updateServerId, operationId, progress ?? NullOperationProgressReporter.Instance, cancellationToken)
                     .ConfigureAwait(false);
                 return update.Succeeded
-                    ? Completed(OperationOutcome.Succeeded, failureReason: null, operationId, updateServerId, update: new UpdateResult(update.InstalledBuildId))
+                    ? Completed(OperationOutcome.Succeeded, failureReason: null, operationId, updateServerId, update: new UpdateResult(update.InstalledBuildId, update.PreviousBuildId))
                     : Completed(OperationOutcome.Failed, update.FailureReason, operationId, updateServerId);
 
             case BackupServer:

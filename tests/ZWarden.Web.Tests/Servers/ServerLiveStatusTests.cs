@@ -32,6 +32,29 @@ public class ServerLiveStatusTests
     }
 
     [Test]
+    [Arguments(ServerRunState.Running, true)]
+    [Arguments(ServerRunState.Stopped, true)]
+    [Arguments(ServerRunState.Failed, true)]
+    [Arguments(ServerRunState.Starting, false)]
+    [Arguments(ServerRunState.Unknown, false)]
+    public async Task Update_game_is_allowed_on_a_settled_container(ServerRunState observed, bool allowed)
+    {
+        // #273: an update restarts the container into SteamCMD, so a stopped or crashed server can update (a failed
+        // install repairs the same way) — but not mid-boot, nor before anything has been observed.
+        ServerStatusView view = ServerLiveStatus.Resolve(observed, activeOperation: null);
+
+        await Assert.That(view.CanUpdate).IsEqualTo(allowed);
+    }
+
+    [Test]
+    public async Task Update_game_is_off_while_an_operation_holds_the_lock()
+    {
+        ServerStatusView view = ServerLiveStatus.Resolve(ServerRunState.Running, OperationKind.Backup);
+
+        await Assert.That(view.CanUpdate).IsFalse();
+    }
+
+    [Test]
     [Arguments(OperationKind.StopServer, "STOPPING")]
     [Arguments(OperationKind.RestartServer, "RESTARTING")]
     [Arguments(OperationKind.StartServer, "STARTING")]

@@ -16,6 +16,7 @@ using ZWarden.Domain.Audit;
 using ZWarden.Domain.Ids;
 using ZWarden.Infrastructure.Agents;
 using ZWarden.Infrastructure.Configuration;
+using ZWarden.Infrastructure.Servers;
 using ZWarden.Web.Diagnostics;
 using ZWarden.Web.Observability;
 using ZWarden.Web.Servers;
@@ -442,6 +443,17 @@ public sealed partial class AgentHub : Hub
             {
                 await _servers.RecordInstalledBuildAsync(updatedServerId, update.InstalledBuildId, Context.ConnectionAborted)
                     .ConfigureAwait(false);
+
+                // Which build it moved between (#273): the Operation's result line (the server page shows it) and an
+                // audit entry. Both ids are the Agent's observations — untrusted display text, bounded by the line cap.
+                if (GameUpdateText.Describe(update) is { } summary)
+                {
+                    await _operations.ApplyProgressAsync(operationId, 100, summary, Context.ConnectionAborted)
+                        .ConfigureAwait(false);
+                    await _audit.WriteAsync(
+                        new AuditEntry(ServerAuditActions.GameUpdated, AuditOutcome.Succeeded, ServerId: updatedServerId, Detail: summary),
+                        Context.ConnectionAborted).ConfigureAwait(false);
+                }
             }
 
             // A successful enumeration carries the roster the Agent observed over RCON (F19); cache the newest

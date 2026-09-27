@@ -1182,8 +1182,11 @@ public sealed class ServerDetailPageTests
         await Assert.That(html).Contains("data-mod-enable");
         await Assert.That(html).Contains("data-mod-workshop-row");
         await Assert.That(html).Contains("data-action=\"mod-remove\"");
-        await Assert.That(html).Contains("data-action=\"mod-update\"");
+        // #273: one restart button applies mod changes and pulls Workshop updates; there is no separate "update".
+        await Assert.That(html).DoesNotContain("data-action=\"mod-update\"");
         await Assert.That(html).Contains("data-action=\"mod-restart\"");
+        await Assert.That(html).Contains("Restart to apply &amp; update mods");
+        await Assert.That(html).Contains("checksum");
         client.Dispose();
     }
 
@@ -1273,28 +1276,6 @@ public sealed class ServerDetailPageTests
     }
 
     [Test]
-    public async Task The_update_button_posts_and_enqueues_an_update_server_operation()
-    {
-        await using ZWardenWebAppFactory factory = new();
-        HttpClient client = await SignedInOperatorAsync(factory);
-        (ServerId serverId, AgentId agent) = await SeedServerAndAgentAsync(factory, "updatable");
-        SeedInventory(factory, serverId, agent, installed: [], workshop: ["100"], enabled: []);
-
-        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}?section=mods", UriKind.Relative))).Content.ReadAsStringAsync();
-        Dictionary<string, string> form = new(StringComparer.Ordinal)
-        {
-            ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
-            ["_handler"] = "mod-manage",
-            ["_modManageForm.Command"] = "update",
-        };
-        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}?section=mods", UriKind.Relative), new FormUrlEncodedContent(form));
-
-        await Assert.That((int)post.StatusCode).IsLessThan(400);
-        await Assert.That(EnqueuedKind(factory, serverId, OperationKind.UpdateServer)).IsTrue();
-        client.Dispose();
-    }
-
-    [Test]
     public async Task The_restart_button_posts_and_enqueues_a_restart_server_operation()
     {
         await using ZWardenWebAppFactory factory = new();
@@ -1313,6 +1294,9 @@ public sealed class ServerDetailPageTests
 
         await Assert.That((int)post.StatusCode).IsLessThan(400);
         await Assert.That(EnqueuedKind(factory, serverId, OperationKind.RestartServer)).IsTrue();
+        // #273: the Mods refresh never runs the game update, so it can't change the game build.
+        await Assert.That(EnqueuedKind(factory, serverId, OperationKind.UpdateServer)).IsFalse();
+        await Assert.That(await post.Content.ReadAsStringAsync()).Contains("Workshop updates download as the server boots");
         client.Dispose();
     }
 
@@ -1677,6 +1661,46 @@ public sealed class ServerDetailPageTests
         await Assert.That(Regex.IsMatch(html, "data-server-branch[^>]*>\\s*42.19")).IsTrue();
         await Assert.That(html).Contains("Updates stay on 42.19");
         await Assert.That(html).Contains("data-server-version");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task The_overview_shows_what_the_last_game_update_did()
+    {
+        // #273: the newest successful update's result line ("build A → B"), under Version. Agent-derived text, so it
+        // renders encoded.
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "updated");
+        using (IServiceScope scope = factory.Services.CreateScope())
+        {
+            ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
+            DateTimeOffset now = DateTimeOffset.UtcNow;
+            Operation op = Operation.Enqueue(AgentId.New(), OperationKind.UpdateServer, isMutating: true, "upd", now, serverId);
+            op.MarkDispatched(now.AddMinutes(5), now);
+            op.ReportProgress(100, "Updated from Steam build 24909836 to 25485538.", now.AddMinutes(5), now);
+            op.Succeed(now);
+            db.Set<Operation>().Add(op);
+            await db.SaveChangesAsync();
+        }
+
+        string html = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        await Assert.That(html).Contains("data-last-update");
+        await Assert.That(html).Contains("Updated from Steam build 24909836 to 25485538.");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task The_overview_has_no_last_update_line_before_any_update()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "never-updated");
+
+        string html = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        await Assert.That(html).DoesNotContain("data-last-update");
         client.Dispose();
     }
 

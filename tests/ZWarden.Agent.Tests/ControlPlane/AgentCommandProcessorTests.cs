@@ -589,7 +589,7 @@ public class AgentCommandProcessorTests
     [Test]
     public async Task Update_server_reports_the_installed_build_id_on_success()
     {
-        var updates = new FakeServerUpdateRunner { Outcome = new(true, "24909836", null) };
+        var updates = new FakeServerUpdateRunner { Outcome = new(true, "24909836", null, PreviousBuildId: "24000000") };
         OperationId operationId = OperationId.New();
         ServerId serverId = ServerId.New();
 
@@ -600,6 +600,7 @@ public class AgentCommandProcessorTests
         await Assert.That(reply.ServerId).IsEqualTo(serverId);
         await Assert.That(reply.Payload.Outcome).IsEqualTo(OperationOutcome.Succeeded);
         await Assert.That(reply.Payload.Update!.InstalledBuildId).IsEqualTo("24909836");
+        await Assert.That(reply.Payload.Update!.PreviousBuildId).IsEqualTo("24000000"); // #273
         await Assert.That(updates.LastServerId).IsEqualTo(serverId);
     }
 

@@ -57,8 +57,8 @@ public sealed record ModManagementResult(
 /// Server's <c>WorkshopItems=</c> / <c>Mods=</c> config (config-as-truth), so every verb here recomputes those
 /// list values from the last observed Mod Inventory (F21) and enqueues an F20b config-apply Operation — mod
 /// changes become drift-checked, byte-preserving writes recorded as Configuration Revisions, audited under a
-/// <c>Mod.*</c> action. <see cref="UpdateModsAsync"/> instead triggers the F17 update that re-downloads Workshop
-/// content. Mods load only on boot, so the operator restarts (F15) to apply. Fail-closed throughout (ADR 0018).
+/// <c>Mod.*</c> action. <see cref="UpdateModsAsync"/> instead restarts the Server safely: mods load only on boot, and
+/// PZ re-fetches <c>WorkshopItems=</c> then, so the one restart applies the changes and pulls Workshop updates (#273). Fail-closed throughout (ADR 0018).
 /// </summary>
 public interface IServerModManager
 {
@@ -86,8 +86,9 @@ public interface IServerModManager
     Task<ModManagementResult> RemoveWorkshopItemsAsync(
         UserId user, ServerId server, IReadOnlyList<string> workshopIds, CancellationToken cancellationToken = default);
 
-    /// <summary>Triggers the F17 update that re-downloads/validates the Server's Workshop content (authorizes
-    /// <c>Mod.Update</c>).</summary>
+    /// <summary>Restarts the Server safely (default player warning, #114) so it loads the mod changes and pulls newer
+    /// Workshop versions (#273) — not the F17 game update, so the game build never changes. Authorizes <c>Mod.Update</c>
+    /// or <c>Server.Restart</c>.</summary>
     Task<ModManagementResult> UpdateModsAsync(
         UserId user, ServerId server, CancellationToken cancellationToken = default);
 }

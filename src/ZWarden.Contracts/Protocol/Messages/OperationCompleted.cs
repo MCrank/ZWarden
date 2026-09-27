@@ -160,7 +160,10 @@ public sealed record ProvisionResult(int GamePort, int QueryPort, string Contain
 /// finished. Non-secret; the Server it belongs to is the completion envelope's <c>ServerId</c>.</summary>
 /// <param name="InstalledBuildId">The Steam build id installed (observed; untrusted, stored length-bounded), or
 /// <c>null</c> when the manifest could not be read even though the update itself succeeded.</param>
-public sealed record UpdateResult(string? InstalledBuildId);
+/// <param name="PreviousBuildId">The Steam build id the manifest named just before the update ran (#273), so an operator
+/// sees "build A → B" or that nothing changed — observed, untrusted, stored length-bounded. <c>null</c> on a first
+/// install, an unreadable manifest, or from an older Agent. Additive (ADR 0020).</param>
+public sealed record UpdateResult(string? InstalledBuildId, string? PreviousBuildId = null);
 
 /// <summary>The reachability a <see cref="ProbeRconHealth"/> Operation observed (F18): whether the Server's
 /// private RCON listener could be reached over the ZWarden network and whether the Agent-owned password

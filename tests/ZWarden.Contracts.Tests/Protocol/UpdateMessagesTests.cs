@@ -57,6 +57,40 @@ public class UpdateMessagesTests
     }
 
     [Test]
+    public async Task An_update_result_carries_the_build_it_replaced()
+    {
+        // #273: the Agent reads the manifest before the update too, so the page can say "build A → B" — an observed
+        // before, not whatever the control plane last recorded (a metrics report may already carry the new build).
+        Envelope<OperationCompleted> original = Envelope.Create(
+            new OperationCompleted(OperationOutcome.Succeeded, null, null, new UpdateResult("25485538", "24909836")),
+            At,
+            serverId: ServerId.New(),
+            operationId: OperationId.New());
+
+        Envelope<OperationCompleted> back = ProtocolJson.Deserialize<OperationCompleted>(ProtocolJson.Serialize(original));
+
+        await Assert.That(back.Payload.Update!.InstalledBuildId).IsEqualTo("25485538");
+        await Assert.That(back.Payload.Update!.PreviousBuildId).IsEqualTo("24909836");
+    }
+
+    [Test]
+    public async Task An_update_result_from_an_older_agent_has_no_previous_build()
+    {
+        // Additive (ADR 0020): a completion serialized without the new field still deserializes, as null.
+        Envelope<OperationCompleted> original = Envelope.Create(
+            new OperationCompleted(OperationOutcome.Succeeded, null, null, new UpdateResult("24909836")),
+            At,
+            operationId: OperationId.New());
+        string json = ProtocolJson.Serialize(original)
+            .Replace(",\"previousBuildId\":null", string.Empty, StringComparison.OrdinalIgnoreCase);
+
+        Envelope<OperationCompleted> back = ProtocolJson.Deserialize<OperationCompleted>(json);
+
+        await Assert.That(json).DoesNotContain("previousBuildId", StringComparison.OrdinalIgnoreCase);
+        await Assert.That(back.Payload.Update!.PreviousBuildId).IsNull();
+    }
+
+    [Test]
     public async Task OperationCompleted_without_an_update_result_stays_null()
     {
         Envelope<OperationCompleted> original = Envelope.Create(

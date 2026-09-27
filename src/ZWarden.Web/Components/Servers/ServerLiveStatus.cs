@@ -15,11 +15,14 @@ namespace ZWarden.Web.Components.Servers;
 /// <param name="CanStart">Start is allowed by the current state.</param>
 /// <param name="CanStop">Stop is allowed by the current state.</param>
 /// <param name="CanRestart">Restart is allowed by the current state.</param>
+/// <param name="CanUpdate">Update game (#273) is allowed by the current state: the container is settled (running, stopped
+/// or crashed) — the update restarts it into SteamCMD, so a stopped server updates too and a failed install repairs.</param>
 /// <param name="Detail">The in-flight Operation's latest status line (#254), e.g. <c>Restarting in 240 seconds.</c>
 /// — Agent-supplied and untrusted (trust-boundaries.md §3): bounded by the domain, only ever rendered as text.
 /// Null when nothing is in flight or it has reported nothing yet.</param>
 public sealed record ServerStatusView(
-    string Label, ServerRunState Tone, bool Busy, bool CanStart, bool CanStop, bool CanRestart, string? Detail = null)
+    string Label, ServerRunState Tone, bool Busy, bool CanStart, bool CanStop, bool CanRestart, string? Detail = null,
+    bool CanUpdate = false)
 {
     /// <summary>The status-ramp key (style-guide.md) the live-status script maps to the badge's colour classes.</summary>
     public string ToneKey => Tone switch
@@ -72,7 +75,8 @@ public static class ServerLiveStatus
             Busy: false,
             CanStart: observed is ServerRunState.Stopped or ServerRunState.Failed or ServerRunState.Unknown,
             CanStop: observed is ServerRunState.Running or ServerRunState.Starting,
-            CanRestart: observed is ServerRunState.Running);
+            CanRestart: observed is ServerRunState.Running,
+            CanUpdate: observed is ServerRunState.Running or ServerRunState.Stopped or ServerRunState.Failed);
     }
 
     /// <summary>Indexes the tenant's in-flight mutating Operations by Server (#253) — at most one each, the lock

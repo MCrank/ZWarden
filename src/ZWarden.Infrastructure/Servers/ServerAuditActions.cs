@@ -24,6 +24,10 @@ public static class ServerAuditActions
     /// <summary>An operator requested a SteamCMD update/validate (an update Operation was enqueued — F17).</summary>
     public const string Updated = "Server.Updated";
 
+    /// <summary>A game update finished (#273): the detail names the Steam build it moved from and to. Agent-observed,
+    /// unattributed — <see cref="Updated"/> records who asked for it.</summary>
+    public const string GameUpdated = "Server.GameUpdated";
+
     /// <summary>An operator ran an RCON health check (a diagnostics probe Operation was enqueued — F18).</summary>
     public const string RconChecked = "Server.RconChecked";
 

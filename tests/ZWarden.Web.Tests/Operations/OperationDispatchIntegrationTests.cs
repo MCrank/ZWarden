@@ -16,6 +16,7 @@ using ZWarden.Infrastructure.Agents;
 using ZWarden.Infrastructure.Configuration;
 using ZWarden.Infrastructure.Operations;
 using ZWarden.Infrastructure.Persistence;
+using ZWarden.Infrastructure.Servers;
 using ZWarden.Web.Agents;
 using ZWarden.Web.Tests.Account;
 
@@ -227,6 +228,57 @@ public class OperationDispatchIntegrationTests
             await Assert.That(reload).IsNotNull();
             await Assert.That(reload!.Outcome).IsEqualTo(AuditOutcome.Succeeded);
             await Assert.That(reload.Detail!).Contains("reloaded live");
+        }
+
+        await connection.StopAsync();
+    }
+
+    [Test]
+    public async Task A_game_update_says_which_build_it_moved_between_on_the_operation_and_in_the_audit_trail()
+    {
+        // #273: the Agent reports the build it replaced and the one now installed; the control plane records that as
+        // the Operation's result line (the server page shows it) and a Server.GameUpdated audit entry.
+        await using ZWardenWebAppFactory factory = new();
+        (AgentId agentId, string credential) = await SeedTrustedAgentAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, agentId);
+        await using HubConnection connection = BuildConnection(factory, credential);
+
+        connection.On<string>(AgentHubProtocol.ReceiveCommand, async json =>
+        {
+            Envelope<IProtocolMessage> command = ProtocolJson.Deserialize(json);
+            if (command.Payload is UpdateServer && command.OperationId is { } operationId)
+            {
+                Envelope<OperationCompleted> reply = Envelope.Create(
+                    new OperationCompleted(OperationOutcome.Succeeded, Update: new UpdateResult("25485538", "24909836")),
+                    Now, serverId: command.ServerId, operationId: operationId);
+                await connection.SendAsync(AgentHubProtocol.OperationCompleted, reply);
+            }
+        });
+
+        await connection.StartAsync();
+        await connection.InvokeAsync<ProtocolNegotiationResult>(AgentHubProtocol.Hello, Hello(agentId));
+
+        OperationId operationId;
+        using (IServiceScope scope = factory.Services.CreateScope())
+        {
+            IOperationCoordinator coordinator = scope.ServiceProvider.GetRequiredService<IOperationCoordinator>();
+            Operation op = await coordinator.EnqueueAsync(
+                new EnqueueOperationRequest(
+                    agentId, OperationKind.UpdateServer, IsMutating: true, "e2e-game-update", ServerId: serverId));
+            operationId = op.Id;
+        }
+
+        Operation? final = await WaitForStateAsync(factory, operationId, OperationState.Succeeded);
+        await Assert.That(final!.StatusLine).IsEqualTo("Updated from Steam build 24909836 to 25485538.");
+
+        using (IServiceScope scope = factory.Services.CreateScope())
+        {
+            ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
+            AuditEvent? updated = db.Set<AuditEvent>().AsEnumerable()
+                .FirstOrDefault(e => e.Action == ServerAuditActions.GameUpdated && e.ServerId == serverId);
+            await Assert.That(updated).IsNotNull();
+            await Assert.That(updated!.Outcome).IsEqualTo(AuditOutcome.Succeeded);
+            await Assert.That(updated.Detail!).Contains("24909836 to 25485538");
         }
 
         await connection.StopAsync();

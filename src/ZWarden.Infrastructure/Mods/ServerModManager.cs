@@ -20,7 +20,7 @@ namespace ZWarden.Infrastructure.Mods;
 /// the last observed Mod Inventory (F21, <see cref="IModInventoryCache"/>) via the pure <see cref="ModListEditor"/>
 /// and enqueue an F20b config-apply Operation through the shared <see cref="ConfigApplyEnqueuer"/> — drift-checked,
 /// byte-preserving, recorded as a Configuration Revision, and audited under a <c>Mod.*</c> action.
-/// <see cref="UpdateModsAsync"/> instead enqueues the F17 <c>UpdateServer</c> Operation. Fail-closed (ADR 0018):
+/// <see cref="UpdateModsAsync"/> instead enqueues a safe restart, which is what pulls Workshop updates (#273). Fail-closed (ADR 0018):
 /// every verb resolves the Server through the tenant filter and authorizes its mapped server-scoped permission, and
 /// reads the inventory ownership-guarded by the Server's true owning Agent.
 /// </summary>
@@ -114,7 +114,9 @@ public sealed class ServerModManager : IServerModManager
     public async Task<ModManagementResult> UpdateModsAsync(
         UserId user, ServerId server, CancellationToken cancellationToken = default)
     {
-        Server? resolved = await ResolveAndAuthorizeAsync(user, server, Permissions.ModUpdate, cancellationToken).ConfigureAwait(false);
+        // Mod.Update, or Server.Restart: the one Mods-section button is the restart that applies mod changes too.
+        Server? resolved = await ResolveAndAuthorizeAsync(user, server, Permissions.ModUpdate, cancellationToken).ConfigureAwait(false)
+            ?? await ResolveAndAuthorizeAsync(user, server, Permissions.ServerRestart, cancellationToken).ConfigureAwait(false);
         if (resolved is null)
         {
             // Distinguish not-found from not-authorized for the caller.
@@ -123,11 +125,12 @@ public sealed class ServerModManager : IServerModManager
 
         try
         {
-            // The same F17 UpdateServer Operation the lifecycle exposes, gated here by Mod.Update so a mod-manager
-            // role can refresh Workshop content without a full server-update grant (ADR 0025).
+            // A safe restart (#273): PZ re-fetches WorkshopItems= at boot, so a restart is what pulls a newer Workshop
+            // version (confirmed in the field). Not the F17 UpdateServer, which would also install any new game build.
+            // No plan ⇒ the Agent warns players on its default schedule (#114) before the save→quit stop.
             Operation operation = await _operations.EnqueueAsync(
                 new EnqueueOperationRequest(
-                    resolved.AgentId, OperationKind.UpdateServer, IsMutating: true, Guid.NewGuid().ToString("N"),
+                    resolved.AgentId, OperationKind.RestartServer, IsMutating: true, Guid.NewGuid().ToString("N"),
                     ServerId: resolved.Id),
                 user,
                 cancellationToken).ConfigureAwait(false);

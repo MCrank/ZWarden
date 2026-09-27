@@ -406,6 +406,7 @@ public static class ServerEndpoints
         canStart = view.CanStart,
         canStop = view.CanStop,
         canRestart = view.CanRestart,
+        canUpdate = view.CanUpdate,
         detail = view.Detail,
         failure = failure is null ? null : new { operationId = failure.OperationId, action = failure.Action, reason = failure.Reason, at = failure.At },
     };

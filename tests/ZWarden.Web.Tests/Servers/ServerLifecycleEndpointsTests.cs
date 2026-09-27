@@ -148,6 +148,7 @@ public sealed class ServerLifecycleEndpointsTests
         await Assert.That(body.RootElement.GetProperty("canStart").GetBoolean()).IsFalse();
         await Assert.That(body.RootElement.GetProperty("canStop").GetBoolean()).IsTrue();
         await Assert.That(body.RootElement.GetProperty("canRestart").GetBoolean()).IsTrue();
+        await Assert.That(body.RootElement.GetProperty("canUpdate").GetBoolean()).IsTrue();
         client.Dispose();
     }
 
@@ -168,6 +169,7 @@ public sealed class ServerLifecycleEndpointsTests
         await Assert.That(body.RootElement.GetProperty("busy").GetBoolean()).IsTrue();
         await Assert.That(body.RootElement.GetProperty("canStop").GetBoolean()).IsFalse();
         await Assert.That(body.RootElement.GetProperty("canRestart").GetBoolean()).IsFalse();
+        await Assert.That(body.RootElement.GetProperty("canUpdate").GetBoolean()).IsFalse();
         client.Dispose();
     }
 
