@@ -207,7 +207,8 @@ public static class ServerEndpoints
                 return Task.FromResult(Results.BadRequest(new { error = "invalid_plan" }));
             }
 
-            return RunLifecycleAsync(id, principal, users, (u, s) => svc.RecreateAsync(u, s, request?.GamePort, plan, request?.HeapSizeBytes, ct));
+            return RunLifecycleAsync(id, principal, users, (u, s) => svc.RecreateAsync(
+                u, s, request?.GamePort, plan, request?.HeapSizeBytes, request?.AcknowledgeOvercommit ?? false, ct));
         });
 
         // Backup (F24): take a backup of the Server's world data — a mutating, server-scoped Operation. Fail-closed
@@ -373,6 +374,8 @@ public static class ServerEndpoints
             ServerLifecycleFailure.InvalidHeap => Results.BadRequest(new { error = "invalid_heap" }),
             ServerLifecycleFailure.PortInUse =>
                 Results.Json(new { error = "port_in_use" }, statusCode: StatusCodes.Status409Conflict),
+            ServerLifecycleFailure.OverCapacity =>
+                Results.Json(new { error = "over_capacity" }, statusCode: StatusCodes.Status409Conflict),
             _ => Results.BadRequest(new { error = "lifecycle_failed" }),
         };
     }
@@ -453,6 +456,11 @@ public sealed record RegisterServerRequest(
 
 /// <summary>The optional body of a recreate request (#229): the new host game port (omitted ⇒ keep the current pair),
 /// an optional graceful-warning schedule and reason (omitted ⇒ the Agent's default warning), and an optional new JVM heap in
-/// bytes (#230; omitted ⇒ keep the current heap).</summary>
+/// bytes (#230; omitted ⇒ keep the current heap), and the acknowledgement needed when raising it past the host's free
+/// memory (#230).</summary>
 public sealed record RecreateServerRequest(
-    int? GamePort = null, IReadOnlyList<int>? WarningLeadSeconds = null, string? Reason = null, long? HeapSizeBytes = null);
+    int? GamePort = null,
+    IReadOnlyList<int>? WarningLeadSeconds = null,
+    string? Reason = null,
+    long? HeapSizeBytes = null,
+    bool AcknowledgeOvercommit = false);

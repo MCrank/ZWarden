@@ -41,6 +41,7 @@
 @inject IModDiscoveryService ModDiscovery
 @inject IServerModManager ModManager
 @inject IServerLifecycle Lifecycle
+@inject IHostCapacityCache Capacity
 @inject IModInventoryCache ModInventories
 @inject IWorkshopMetadataService WorkshopMetadata
 @inject IWorkshopSearchService WorkshopSearch
@@ -323,6 +324,28 @@ else
                                 <BbButton Variant="ButtonVariant.Secondary" Type="ButtonType.Submit" Size="ButtonSize.Small"
                                           Disabled="@_status.Busy" data-action="recreate">Recreate container</BbButton>
                             </div>
+                            @if (Capacity.GetLatest(_server.AgentId) is { } hostCapacity)
+                            {
+                                <p class="mt-2 text-xs text-muted-foreground" data-recreate-capacity>
+                                    @NewServerForm.ResizeCapacityLine(hostCapacity, _server.HeapSizeBytes)
+                                </p>
+                            }
+                            @* #230 follow-up: raising the heap past the host's free memory needs the same acknowledgement
+                               as the wizard; the service enforces it. Native checkbox — BbCheckbox needs a circuit. *@
+                            @if (_recreateOvercommitWarning is not null)
+                            {
+                                <div class="mt-3 space-y-2" data-recreate-overcommit-warning>
+                                    <BbAlert Variant="AlertVariant.Warning" AccentBorder>
+                                        <BbAlertDescription>@_recreateOvercommitWarning</BbAlertDescription>
+                                    </BbAlert>
+                                    <label class="flex items-center gap-2 text-sm">
+                                        <input type="checkbox" class="zw-checkbox" id="recreate-acknowledge"
+                                               name="_recreateForm.AcknowledgeOvercommit" value="true"
+                                               checked="@_recreateForm.AcknowledgeOvercommit" />
+                                        Recreate it anyway
+                                    </label>
+                                </div>
+                            }
                         </EditForm>
                     </div>
                 }
@@ -1498,6 +1521,9 @@ else
     private ServerStatusView _status = ServerLiveStatus.Resolve(ServerRunState.Unknown, activeOperation: null);
     private bool _canRestartServer;
     private bool _canRecreate;
+
+    // Set when a heap change was refused as over the host's free memory (#230 follow-up); shows the acknowledgement.
+    private string? _recreateOvercommitWarning;
     private ServerFailureView? _lastFailure;
     private string? _lifecycleMessage;
     private AlertVariant _lifecycleAlert = AlertVariant.Warning;
@@ -1761,7 +1787,17 @@ else
 
         var plan = new GracefulRestartPayload(CountdownLeads(_recreateForm?.Countdown));
         UserId user = await CurrentUserAsync();
-        SetLifecycleResult("recreate", await Lifecycle.RecreateAsync(user, serverId, gamePort, plan, heap));
+        ServerLifecycleResult result = await Lifecycle.RecreateAsync(
+            user, serverId, gamePort, plan, heap, _recreateForm?.AcknowledgeOvercommit ?? false);
+        if (result.Failure == ServerLifecycleFailure.OverCapacity && heap is { } newHeap
+            && Capacity.GetLatest(_server.AgentId) is { } capacity)
+        {
+            // D1 as in the wizard: warn with the numbers and ask for the acknowledgement; the typed values survive.
+            _recreateOvercommitWarning = NewServerForm.ResizeShortfallWarning(capacity, _server.HeapSizeBytes, newHeap);
+            return;
+        }
+
+        SetLifecycleResult("recreate", result);
         await RefreshStatusAsync(serverId);
     }
 
@@ -1798,6 +1834,7 @@ else
             ServerLifecycleFailure.InvalidPort => "That game port is not allowed.",
             ServerLifecycleFailure.PortInUse => "That game port (or the one above it) is already used by another server on this host.",
             ServerLifecycleFailure.InvalidHeap => "That heap is not allowed.",
+            ServerLifecycleFailure.OverCapacity => "That heap does not fit the host's free memory; confirm to recreate it anyway.",
             _ => "The action could not be started.",
         };
     }
@@ -3095,6 +3132,9 @@ else
 
         // The new JVM heap in GiB as typed (#230); blank ⇒ keep the current heap. Parsed by NewServerForm.
         public string? HeapGiB { get; set; }
+
+        // The operator confirmed a heap past the host's free memory (#230 follow-up, as the wizard's D1).
+        public bool AcknowledgeOvercommit { get; set; }
     }
 
     private sealed class GracefulRestartFormModel

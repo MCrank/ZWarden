@@ -31,4 +31,16 @@ public sealed record HostCapacity(
 
     /// <summary>How far a server with <paramref name="heapBytes"/> would overshoot <see cref="FreeBytes"/>; 0 when it fits.</summary>
     public long ShortfallFor(long heapBytes) => Math.Max(0, LimitFor(heapBytes) - FreeBytes);
+
+    /// <summary>RAM free for an existing server being resized: <see cref="FreeBytes"/> with its current limit (from
+    /// <paramref name="currentHeapBytes"/>, or the default heap when unknown) counted as released.</summary>
+    public long FreeForResize(long? currentHeapBytes) =>
+        Math.Max(0, TotalBytes - Math.Max(0, CommittedBytes - LimitFor(currentHeapBytes ?? DefaultHeapBytes)) - ReserveBytes);
+
+    /// <summary>How far raising a server's heap from <paramref name="currentHeapBytes"/> to <paramref name="newHeapBytes"/>
+    /// would overshoot <see cref="FreeForResize"/>; 0 when it fits, and always 0 when the heap is kept or lowered.</summary>
+    public long ResizeShortfall(long? currentHeapBytes, long newHeapBytes) =>
+        newHeapBytes <= (currentHeapBytes ?? DefaultHeapBytes)
+            ? 0
+            : Math.Max(0, LimitFor(newHeapBytes) - FreeForResize(currentHeapBytes));
 }

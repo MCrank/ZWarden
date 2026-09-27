@@ -22,6 +22,7 @@ namespace ZWarden.Infrastructure.Tests.Servers;
 /// </summary>
 public class ServerLifecycleTests
 {
+    private const long GiB = 1024L * 1024 * 1024;
     private static readonly TenantId Tenant = TenantId.New();
     private static readonly DateTimeOffset Now = new(2026, 9, 13, 10, 0, 0, TimeSpan.Zero);
 
@@ -331,6 +332,52 @@ public class ServerLifecycleTests
     }
 
     [Test]
+    public async Task Recreate_raising_the_heap_past_the_hosts_free_memory_needs_an_acknowledgement()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            AgentId agent = AgentId.New();
+            ServerId serverId = await SeedServerAsync(options, agent, gamePort: 16261, heapSizeBytes: 4 * GiB);
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ServerRecreate);
+            HostCapacityCache capacity = new();
+            capacity.Record(new HostCapacity(agent, 16 * GiB, 20 * GiB, 6 * GiB, 4 * GiB, 2 * GiB, Now)); // 4 GiB back
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            RecordingCoordinator coordinator = new();
+            ServerLifecycle lifecycle = Lifecycle(db, coordinator, new CapturingAuditWriter(), capacity);
+
+            ServerLifecycleResult refused = await lifecycle.RecreateAsync(user, serverId, null, null, heapSizeBytes: 8 * GiB);
+            await Assert.That(refused.Failure).IsEqualTo(ServerLifecycleFailure.OverCapacity);
+            await Assert.That(coordinator.LastRequest).IsNull();
+
+            ServerLifecycleResult acknowledged = await lifecycle.RecreateAsync(
+                user, serverId, null, null, heapSizeBytes: 8 * GiB, acknowledgeOvercommit: true);
+            await Assert.That(acknowledged.Succeeded).IsTrue();
+        });
+    }
+
+    [Test]
+    public async Task Recreate_lowering_the_heap_or_keeping_it_is_not_capacity_checked()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            AgentId agent = AgentId.New();
+            ServerId serverId = await SeedServerAsync(options, agent, gamePort: 16261, heapSizeBytes: 8 * GiB);
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ServerRecreate);
+            HostCapacityCache capacity = new();
+            capacity.Record(new HostCapacity(agent, 16 * GiB, 40 * GiB, 6 * GiB, 4 * GiB, 2 * GiB, Now)); // badly over
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            ServerLifecycle lifecycle = Lifecycle(db, new RecordingCoordinator(), new CapturingAuditWriter(), capacity);
+
+            await Assert.That((await lifecycle.RecreateAsync(user, serverId, null, null, heapSizeBytes: 6 * GiB)).Succeeded).IsTrue();
+            await Assert.That((await lifecycle.RecreateAsync(user, serverId, 27015, null)).Succeeded).IsTrue();
+        });
+    }
+
+    [Test]
     public async Task Recreate_rejects_a_pair_overlapping_another_server_on_the_same_host()
     {
         await WithSqlite(async options =>
@@ -369,14 +416,17 @@ public class ServerLifecycleTests
         });
     }
 
-    private static ServerLifecycle Lifecycle(        ZWardenDbContext db,
+    private static ServerLifecycle Lifecycle(
+        ZWardenDbContext db,
         RecordingCoordinator coordinator,
-        CapturingAuditWriter audit)
+        CapturingAuditWriter audit,
+        IHostCapacityCache? capacity = null)
         => new(
             new ServerRepository(db),
             new PermissionChecker(db, new TestTenantContext(Tenant)),
             coordinator,
-            audit);
+            audit,
+            capacity ?? new HostCapacityCache());
 
     private sealed class RecordingCoordinator : IOperationCoordinator
     {
@@ -405,13 +455,14 @@ public class ServerLifecycleTests
             CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
-    private static async Task<ServerId> SeedServerAsync(DbContextOptions options, AgentId agent, int? gamePort = null)
+    private static async Task<ServerId> SeedServerAsync(
+        DbContextOptions options, AgentId agent, int? gamePort = null, long? heapSizeBytes = null)
     {
         await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
         Server server = Server.Import(agent, ServerId.New(), "survivors", Now);
         if (gamePort is { } port)
         {
-            server.RecordContainer($"c-{Guid.NewGuid():N}", port, port + 1);
+            server.RecordContainer($"c-{Guid.NewGuid():N}", port, port + 1, heapSizeBytes);
         }
 
         new ServerRepository(db).Add(server);

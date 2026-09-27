@@ -38,12 +38,15 @@ public interface IServerLifecycle
     /// <c>HostPortRules</c> is <see cref="ServerLifecycleFailure.InvalidPort"/>; one overlapping another Server's pair on
     /// the same host is <see cref="ServerLifecycleFailure.PortInUse"/>. An optional <paramref name="heapSizeBytes"/> (#230)
     /// rebuilds it with a new heap (<c>null</c> keeps the current one); outside <c>ServerMemoryRules</c> it is
-    /// <see cref="ServerLifecycleFailure.InvalidHeap"/>.</summary>
+    /// <see cref="ServerLifecycleFailure.InvalidHeap"/>. Raising it past the host's free memory (the Agent's latest
+    /// report, the server's current limit counted as released) is <see cref="ServerLifecycleFailure.OverCapacity"/>
+    /// unless <paramref name="acknowledgeOvercommit"/>; no report yet ⇒ no check.</summary>
     Task<ServerLifecycleResult> RecreateAsync(
         UserId user,
         ServerId server,
         int? gamePort,
         GracefulRestartPayload? plan,
         long? heapSizeBytes = null,
+        bool acknowledgeOvercommit = false,
         CancellationToken cancellationToken = default);
 }
