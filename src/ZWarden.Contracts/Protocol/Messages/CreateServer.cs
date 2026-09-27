@@ -18,8 +18,12 @@ namespace ZWarden.Contracts.Protocol.Messages;
 /// Agent's configured overhead. <c>null</c> ⇒ the Agent's default heap. Additive; the Agent validates it.</param>
 /// <param name="Settings">Initial <c>servertest.ini</c> values the Agent seeds before the first boot (#230), or
 /// <c>null</c> to leave every key to PZ's defaults. Additive; the Agent validates each value.</param>
+/// <param name="Branch">The Build 42 Steam branch to install (#258), set as the image's <c>ZW_PZ_BETA</c>; fixed for
+/// the container's life, so F17 Update and a Recreate stay on it. <c>null</c> ⇒ the public branch. Additive; the Agent
+/// validates it (<c>ServerBranchRules</c>) since the image interpolates it into the SteamCMD runscript.</param>
 [ProtocolMessage("provisioning.create-server")]
-public sealed record CreateServer(int? GamePort = null, long? HeapSizeBytes = null, InitialServerSettings? Settings = null)
+public sealed record CreateServer(
+    int? GamePort = null, long? HeapSizeBytes = null, InitialServerSettings? Settings = null, string? Branch = null)
     : AgentCommand;
 
 /// <summary>

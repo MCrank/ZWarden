@@ -41,12 +41,13 @@ public class ServerProvisionerTests
             Options.Create(new AgentOptions { PzImageReference = "zwarden/pzserver:pinned", DataMountRoot = Root }),
             NullLogger<ServerProvisioner>.Instance);
 
-    private static ServerContainer Existing(ServerId server, string state = "running", PortAllocation? ports = null, long? heap = null) =>
+    private static ServerContainer Existing(
+        ServerId server, string state = "running", PortAllocation? ports = null, long? heap = null, string? branch = null) =>
         new("old-id", state, ports ?? OldPorts, new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["/pz/data"] = Path.Combine(Root, server.ToString()),
             ["/pz/server"] = Path.Combine(Root, $"{server}.server"),
-        }, heap);
+        }, heap, branch);
 
     private static DockerApiException PortClash(int port) => new(
         HttpStatusCode.InternalServerError,
@@ -463,5 +464,63 @@ public class ServerProvisionerTests
         await Assert.That(outcome.Succeeded).IsFalse();
         await Assert.That(runtime.Calls).DoesNotContain("stop");
         await Assert.That(runtime.RemoveCount).IsEqualTo(0);
+    }
+
+    // --- #258: the Build 42 Steam branch --------------------------------------------------------------------------
+
+    [Test]
+    [Arguments("42.19", "42.19")]
+    [Arguments(" Unstable ", "unstable")]
+    [Arguments("public", null)]
+    [Arguments(null, null)]
+    public async Task Provisioning_builds_the_container_on_the_normalized_branch(string? requested, string? expected)
+    {
+        var runtime = new FakeContainerRuntime();
+
+        ServerProvisionOutcome outcome = await Provisioner(runtime)
+            .ProvisionAsync(ServerId.New(), new CreateServer(Branch: requested), CancellationToken.None);
+
+        await Assert.That(outcome.Succeeded).IsTrue();
+        await Assert.That(runtime.LastSpec!.Branch).IsEqualTo(expected);
+    }
+
+    [Test]
+    [Arguments("x;quit")]
+    [Arguments("legacy41")]
+    public async Task Provisioning_refuses_an_invalid_branch_before_touching_anything(string branch)
+    {
+        var runtime = new FakeContainerRuntime();
+
+        ServerProvisionOutcome outcome = await Provisioner(runtime)
+            .ProvisionAsync(ServerId.New(), new CreateServer(Branch: branch), CancellationToken.None);
+
+        await Assert.That(outcome.Succeeded).IsFalse();
+        await Assert.That(outcome.FailureReason!).Contains("Nothing was created");
+        await Assert.That(runtime.Calls).IsEmpty();
+    }
+
+    [Test]
+    public async Task Recreating_keeps_the_branch_the_container_was_built_on()
+    {
+        // The branch is fixed at create (#258): a port or heap change must not move a pinned server to public.
+        ServerId server = ServerId.New();
+        var runtime = new FakeContainerRuntime { ServerContainer = Existing(server, heap: 4 * GiB, branch: "42.19") };
+
+        await Recreate(Provisioner(runtime), server, gamePort: 27015, heap: 8 * GiB);
+
+        await Assert.That(runtime.LastSpec!.Branch).IsEqualTo("42.19");
+    }
+
+    [Test]
+    public async Task A_failed_recreate_rolls_back_onto_the_same_branch()
+    {
+        ServerId server = ServerId.New();
+        var runtime = new FakeContainerRuntime { ServerContainer = Existing(server, heap: 6 * GiB, branch: "unstable"), CreatedContainerId = "c" };
+        int starts = 0;
+        runtime.StartFailure = _ => ++starts == 1 ? PortClash(27015) : null;
+
+        await Recreate(Provisioner(runtime), server, gamePort: 27015);
+
+        await Assert.That(runtime.CreatedSpecs.Select(s => s.Branch ?? "public")).IsEquivalentTo(["unstable", "unstable"]);
     }
 }

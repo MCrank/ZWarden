@@ -109,6 +109,11 @@ public sealed partial class ServerProvisioner : IServerProvisioner
             return Failed($"{settingsRefusal} Nothing was created.");
         }
 
+        if (ServerBranchRules.Validate(request.Branch) is { } branchRefusal)
+        {
+            return Failed($"{branchRefusal} Nothing was created.");
+        }
+
         PortAllocation ports;
         try
         {
@@ -119,7 +124,7 @@ public sealed partial class ServerProvisioner : IServerProvisioner
             return Failed(ex.Message);
         }
 
-        PzContainerSpec spec = SpecFor(serverId, ports, request.HeapSizeBytes);
+        PzContainerSpec spec = SpecFor(serverId, ports, request.HeapSizeBytes, ServerBranchRules.Normalize(request.Branch));
         (string? containerId, string? failure) = await CreateAndStartAsync(spec, start: true, cancellationToken, request.Settings)
             .ConfigureAwait(false);
         return failure is null
@@ -201,7 +206,8 @@ public sealed partial class ServerProvisioner : IServerProvisioner
         await ReportAsync(progress, operationId, 75, $"Creating the container on ports {target.GamePort}/{target.DirectPort}.", cancellationToken)
             .ConfigureAwait(false);
         // The requested heap, else the heap the old container ran with (a port change must not reset it), else the default.
-        PzContainerSpec spec = SpecFor(serverId, target, request.HeapSizeBytes ?? current?.HeapSizeBytes);
+        // The branch is always the old container's: it is fixed at create (#258).
+        PzContainerSpec spec = SpecFor(serverId, target, request.HeapSizeBytes ?? current?.HeapSizeBytes, current?.Branch);
         (string? containerId, string? failure) = await CreateAndStartAsync(
             spec, start: current is null || wasRunning, cancellationToken).ConfigureAwait(false);
         if (failure is null)
@@ -216,7 +222,7 @@ public sealed partial class ServerProvisioner : IServerProvisioner
         }
 
         LogRollingBack(serverId, previous.GamePort, failure);
-        PzContainerSpec previousSpec = SpecFor(serverId, previous, current.HeapSizeBytes);
+        PzContainerSpec previousSpec = SpecFor(serverId, previous, current.HeapSizeBytes, current.Branch);
         (string? rolledBackId, string? rollbackFailure) = await CreateAndStartAsync(
             previousSpec, start: wasRunning, cancellationToken).ConfigureAwait(false);
         return rollbackFailure is null
@@ -295,7 +301,7 @@ public sealed partial class ServerProvisioner : IServerProvisioner
     }
 
     // A named heap gets heap + overhead as its limit (#230); none keeps the Agent's defaults (incl. an explicit limit).
-    private PzContainerSpec SpecFor(ServerId serverId, PortAllocation ports, long? heapSizeBytes = null) => new(
+    private PzContainerSpec SpecFor(ServerId serverId, PortAllocation ports, long? heapSizeBytes = null, string? branch = null) => new(
         serverId,
         ContainerName: serverId.ToString(),
         ImageReference: _options.PzImageReference ?? string.Empty,
@@ -306,7 +312,8 @@ public sealed partial class ServerProvisioner : IServerProvisioner
         ServerMountSource: Path.Combine(_options.DataMountRoot, $"{serverId}.server"),
         Ports: ports,
         MemoryLimitBytes: heapSizeBytes is { } heap ? heap + _options.MemoryOverheadBytes : _options.DefaultMemoryLimitBytes,
-        HeapSizeBytes: heapSizeBytes ?? _options.DefaultHeapSizeBytes);
+        HeapSizeBytes: heapSizeBytes ?? _options.DefaultHeapSizeBytes,
+        Branch: branch);
 
     private static string? ValidateHeap(long? heapSizeBytes) =>
         heapSizeBytes is { } heap && ServerMemoryRules.ValidateHeap(heap) is { } reason

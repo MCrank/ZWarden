@@ -253,7 +253,8 @@ public sealed partial class ContainerRuntime : IContainerRuntime
             inspected.State,
             PairOf(inspected.ConfiguredPorts ?? []),
             inspected.BindMounts ?? new Dictionary<string, string>(StringComparer.Ordinal),
-            PzContainerFactory.ReadJvmHeap(inspected.Environment));
+            PzContainerFactory.ReadJvmHeap(inspected.Environment),
+            PzContainerFactory.ReadBranch(inspected.Environment));
     }
 
     /// <inheritdoc />

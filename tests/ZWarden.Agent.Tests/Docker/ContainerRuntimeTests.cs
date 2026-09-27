@@ -393,6 +393,23 @@ public class ContainerRuntimeTests
     }
 
     [Test]
+    public async Task Inspect_server_reads_the_branch_the_container_installs()
+    {
+        // #258: the image defaults ZW_PZ_BETA to empty; a container-set value replaces it in the inspected env.
+        ServerId mine = ServerId.New();
+        var engine = new FakeDockerEngine();
+        engine.Listed.Add(Container("c", Self, mine, "exited"));
+        engine.InspectResult = Container("c", Self, mine, "exited") with
+        {
+            Environment = ["ZW_PZ_BETA=42.19", "ZW_PZ_XMX=6144m"],
+        };
+
+        ServerContainer? facts = await Runtime(engine).InspectServerAsync(mine, CancellationToken.None);
+
+        await Assert.That(facts!.Branch).IsEqualTo("42.19");
+    }
+
+    [Test]
     public async Task Host_memory_is_the_daemons_total_and_the_limits_of_every_owned_container_stopped_included()
     {
         const long GiB = 1024L * 1024 * 1024;

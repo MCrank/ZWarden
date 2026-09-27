@@ -29,6 +29,8 @@ namespace ZWarden.Agent.Docker;
 /// and must exceed <paramref name="HeapSizeBytes"/> so the heap has non-heap headroom (#198).</param>
 /// <param name="HeapSizeBytes">The JVM heap in bytes for this managed container, injected as the image's
 /// <c>ZW_PZ_XMS</c>/<c>ZW_PZ_XMX</c> so heap and limit are set together and cannot drift (#198); must be positive.</param>
+/// <param name="Branch">The Build 42 Steam branch the image installs (#258), injected as <c>ZW_PZ_BETA</c>; <c>null</c> ⇒
+/// public. Must already be validated and normalized (<c>ServerBranchRules</c>): it reaches the SteamCMD runscript.</param>
 public sealed record PzContainerSpec(
     ServerId ServerId,
     string ContainerName,
@@ -38,4 +40,5 @@ public sealed record PzContainerSpec(
     string ServerMountSource,
     PortAllocation Ports,
     long MemoryLimitBytes,
-    long HeapSizeBytes);
+    long HeapSizeBytes,
+    string? Branch = null);
