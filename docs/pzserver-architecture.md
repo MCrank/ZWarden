@@ -151,13 +151,36 @@ There are two kinds of knobs, and **when** you set them matters.
 | JVM heap (the game's RAM) | Chosen per server in the new-server wizard (#230), else the Agent's `DefaultHeapSizeBytes`; injected as env `ZW_PZ_XMS` / `ZW_PZ_XMX` | `4 GiB` | For a managed container the Agent owns the heap and injects it, overriding the image's standalone `4g` default; the entrypoint rewrites the launcher's heap from it. A Recreate keeps the heap the container runs with unless a new one is chosen. |
 | Container memory **cap** | Agent: the server's heap + `MemoryOverheadBytes` (the default heap uses `DefaultMemoryLimitBytes`) | `10 GiB` (4 GiB heap + 6 GiB overhead) | A hard cgroup ceiling. It **must exceed the heap** — ZGC/native/metaspace and a fresh world's off-heap boot run well above the Java heap, so a cap equal to the heap OOM-kills on boot (#198). The Agent derives it from the heap so the two cannot drift, and fails closed if `cap ≤ heap`. |
 | Host RAM reserve | Agent (`HostMemoryReserveBytes`) | `2 GiB` | RAM kept back for the host OS. The Agent reports the host's total RAM (Docker `MemTotal`), the limits already committed to its containers, and this reserve, so the new-server wizard can show what is free and warn before overcommitting (#230). Guidance only. |
-| PZ version / branch | env `ZW_PZ_BETA` | empty = `public` (42.20.x) | e.g. `legacy41`, `42.19`. |
+| PZ version / branch | Picked per server in the new-server wizard (#258); injected as env `ZW_PZ_BETA` | empty = `public` | Build 42 only: `public` (follows each release), `unstable` (preview), a pinned `42.x` such as `42.19`, or a custom name (`legacy41` is refused). Fixed at create: F17 Update and a Recreate stay on it. See [Choosing a branch](#choosing-a-build-42-branch). |
 | Server name (config set) | env `ZW_PZ_SERVERNAME` | `servertest` | Which `servertest.*` set PZ loads. |
 | Safe-stop grace | env `ZW_PZ_STOP_GRACE` | `30`s | Seconds between `save` and `quit`. |
 | Game / query ports | Agent allocates (2 per server) | — | Two UDP ports; RCON is private, never published. |
 
 Because these are environment variables, changing the heap or version means **recreating** the
 container (env can't be changed on a live one) — Server Detail's Recreate (#229) does that, keeping the world.
+The branch is the exception: Recreate always keeps it (see below).
+
+#### Choosing a Build 42 branch
+
+The new-server wizard's **Game version** picker (#258) sets `ZW_PZ_BETA` once, at create. The curated list ships
+with ZWarden and is checked against Steam (`app_info_print 380870`) each release:
+
+| Pick | Steam branch | Use it when |
+| --- | --- | --- |
+| Latest public *(default)* | `public` | You want each new stable build. An F17 Update moves the server to it. |
+| Unstable preview | `unstable` | You want the newest 42.x before it goes public. Mods may break, and a world may not survive going back. |
+| Pinned 42.19 | `42.19` | Your group is holding a version (e.g. waiting for mods to catch up). Updates stay on 42.19.x. |
+| Custom… | any name | Another public branch Steam lists. `legacy41` (Build 41) is refused: ZWarden is Build 42 only. |
+
+**Pinning vs following public.** A server on `public` follows every release; a pinned one doesn't move when a new
+build ships, which is the point. There is no in-place branch switch yet, because worlds don't reliably survive a build
+change. A managed "change branch" (mandatory backup, then a Recreate) is planned. Until then, a different branch
+means a new server.
+
+**A branch Steam doesn't know** (a typo, a retired pin, or a password-protected branch) makes SteamCMD print
+`Failed to set beta`. The entrypoint stops immediately and logs
+`Steam branch '<name>' does not exist or is password-protected; refusing to launch` instead of retrying, and the
+server never boots on the wrong build.
 
 ### ② In-world settings (files in `/pz/data/Server/`, generated on first run)
 

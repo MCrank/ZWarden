@@ -1,6 +1,6 @@
 # Feature #258 Mini-Plan — Pick the Build 42 Steam branch when creating a server
 
-**Status:** one PR (branch `feat/258-branch-picker`), closes [#258](https://github.com/MCrank/ZWarden/issues/258).
+**Status:** implemented on branch `feat/258-branch-picker` (one PR), closes [#258](https://github.com/MCrank/ZWarden/issues/258).
 v1.0. Sub-issue of #230; adds one field to the new-server wizard.
 
 **Written against:** issue #258 + maintainer comment 2026-09-25 (branch discovery = curated list + custom field);
@@ -49,11 +49,12 @@ so the existing "fully installed" check already fails closed, but only after 3 r
   charset matters because pz-lib puts `-beta ${ZW_PZ_BETA}` into the SteamCMD runscript unquoted.
 - **`ServerBranchCatalog`** (Domain): the curated list, updated per release, with a description and a "preview"
   flag for `unstable`.
-- **Contracts:** additive optional `string? Branch` on `CreateServer` and `ProvisionResult`. No protocol bump
+- **Contracts:** additive optional `string? Branch` on `CreateServer` (not echoed on `ProvisionResult`: `Server.Branch` is the operator's choice, and the Agent enforces it at create and keeps it on Recreate). No protocol bump
   (ADR 0020, same as #262/#230).
 - **Agent:** `PzContainerSpec.Branch`. The factory adds `ZW_PZ_BETA=<branch>` only when set, so the closed env
   gains one fixed key and nothing free-form. `PzContainerFactory.ReadBranch(env)` mirrors `ReadJvmHeap`.
   `ServerContainer` carries the branch, and **Recreate preserves it** (both the new spec and the rollback spec).
+  The factory re-checks the branch is validated + normalized. A new closed-set test pins the exact env keys.
 - **Persistence:** `Server.Branch` (nullable, max 64), set at `Register` from the operator's choice. It is
   the operator's intent and not observed back. There is one migration per provider (`AddServerBranch`).
 - **Web:** `NewServerRequest`/`RegisterServerRequest`/`ServerContainerPayload` carry `Branch`. A new

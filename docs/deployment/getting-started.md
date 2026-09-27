@@ -211,6 +211,13 @@ leave blank on first boot:
 
 The join password is stored encrypted and written straight into the server's config before first boot.
 
+**Game version.** Pick the Build 42 branch to install. **Latest public** is the default and follows each stable
+release. **Unstable preview** gets the newest 42.x before it goes public, but mods may break. **Pinned 42.19** holds
+that version, e.g. while your mods catch up. Use **Custom…** to type any other public Steam branch. The branch is
+fixed once the server exists: updates stay on it, and a pinned server doesn't move when a new build ships. If Steam
+doesn't know the name, the install stops at once and the server's logs say so. See
+[Choosing a Build 42 branch](../pzserver-architecture.md#choosing-a-build-42-branch).
+
 **Memory.** Give the **expected players** and leave **Heap** blank to use the suggestion: 4 GiB plus 0.25 GiB per
 player, rounded up to half a GiB. That works out to 6 GiB for 8 players, 8 GiB for 16 and 12 GiB for 32. You can
 also type a heap in GiB (2–128). The container's memory limit is the heap plus the host's overhead (6 GiB by

@@ -24,7 +24,7 @@ network (Debian packages + Valve's SteamCMD tarball) but never reaches Steam.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `ZW_PZ_BETA` | *(empty)* | Steam branch; empty = `public` (42.20.x). e.g. `legacy41`, `42.19`. |
+| `ZW_PZ_BETA` | *(empty)* | Build 42 Steam branch; empty = `public`. e.g. `unstable`, `42.19`. A managed server gets it from the branch picked at create (#258); a branch Steam rejects stops the install at once with a clear log line. |
 | `ZW_PZ_XMS` / `ZW_PZ_XMX` | `4g` / `4g` | JVM heap (the shipped 16 GB default is overridden). |
 | `ZW_PZ_STOP_GRACE` | `30` | Seconds between `save` and `quit` on stop. Match with `docker stop -t`. |
 | `ZW_PZ_SERVERNAME` | `servertest` | The `-servername` config set. |

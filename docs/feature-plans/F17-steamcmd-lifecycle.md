@@ -40,7 +40,7 @@ Make **updating** a Server's PZ install a first-class, durable, authorized, audi
 
 - **Workshop / mod content** (F21) — `workshop_download_item 108600 …` and `WorkshopItems=` are F21; F17 updates the base server only.
 - **`-Dsoftreset`** — broken as of 42.20.4 (ADR 0009); never used.
-- **Branch switching as a managed operation** — `ZW_PZ_BETA` (`public`/`legacy41`/`42.19`) is set at provision (F14); F17 updates within the configured branch. A managed branch-change is later.
+- **Branch switching as a managed operation** — `ZW_PZ_BETA` (the Build 42 branch picked at create, #258: `public`/`unstable`/`42.19`/custom) is set at provision; F17 updates within the configured branch. A managed branch-change is later.
 - **Scheduled / automatic updates**, update *notifications*, and "update available?" polling of Steam — F17 is operator-initiated; a build-id-drift check is a later feature.
 - **Streaming (`follow`) log ingestion / live logs** (F27) — F17 polls `logs` for the update window only.
 - **Windows / native (non-container) install** — Linux container only in v1.0.
