@@ -1855,6 +1855,8 @@ public sealed class ServerDetailPageTests
 
         await Assert.That(html).Contains("data-zw-dialog-open=\"delete-server\"");
         await Assert.That(html).Contains("data-zw-dialog=\"delete-server\"");
+        // Tailwind's preflight zeroes <dialog>'s UA margin:auto, so it must be restored or the modal pins top-left.
+        await Assert.That(Regex.Match(html, "<dialog[^>]*data-zw-dialog=\"delete-server\"[^>]*>").Value).Contains("m-auto");
         await Assert.That(html).Contains("data-zw-confirm-expected=\"doomed\"");
         await Assert.That(html).Contains("World data and backups are kept");
         await Assert.That(html).Contains("can't be undone");

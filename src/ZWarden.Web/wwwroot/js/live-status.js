@@ -30,6 +30,16 @@
   var lastFleet = null;
   var lastFleetRoot = null;
 
+  function reloadOnceFor(ids) {
+    var key = ids.slice().sort().join(',');
+    try {
+      if (window.sessionStorage.getItem('zw-fleet-gone') === key) { return false; }
+      window.sessionStorage.setItem('zw-fleet-gone', key);
+    } catch (e) { return false; /* no storage: never risk a reload loop */ }
+    window.location.reload();
+    return true;
+  }
+
   // Every write is skipped when already current, so re-applying is idempotent and the fleet's mutation
   // observer settles instead of re-triggering itself.
   function retone(el, prefix, tone) {
@@ -247,15 +257,20 @@
   function applyFleet(root, byId) {
     var busy = false;
     Object.keys(byId).forEach(function (id) { busy = busy || !!byId[id].busy; });
+    var gone = [];
     root.querySelectorAll('[data-live-row]').forEach(function (row) {
-      var s = byId[row.getAttribute('data-live-row')];
-      // A row the batch no longer reports is a server that left the fleet (#271, deleted): drop it from the board.
-      row.hidden = !s;
-      if (s && TONES.indexOf(s.tone) !== -1) {
+      var id = row.getAttribute('data-live-row');
+      var s = byId[id];
+      if (!s) { gone.push(id); return; }
+      if (TONES.indexOf(s.tone) !== -1) {
         applyBadge(row, s);
         applyControls(row, s);
       }
     });
+    // A rendered server the batch no longer reports has left the fleet (#271, deleted). Reload so the board, its
+    // counts and KPI tiles re-render without it — at most once per set of missing servers, so a render/batch mismatch
+    // can never loop.
+    if (gone.length && reloadOnceFor(gone)) { return; }
     applyFacts(root, byId);
     setBusy(root, busy);
   }

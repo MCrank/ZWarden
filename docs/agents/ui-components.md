@@ -83,7 +83,9 @@ confirmation is a **native `<dialog>` wrapping an ordinary static `EditForm`**, 
 `wwwroot/js/dialog.js` (delegated on `document`, so it survives enhanced navigation):
 
 - Opener: a `BbButton Type="ButtonType.Button"` with `data-zw-dialog-open="<name>"`.
-- Dialog: `<dialog data-zw-dialog="<name>" aria-labelledby="…">`. Style it with Tailwind (`backdrop:bg-black/60`
+- Dialog: `<dialog data-zw-dialog="<name>" aria-labelledby="…">`. **Give it `m-auto`**: Tailwind's preflight zeroes
+  every margin, including the UA `margin: auto` that centres a modal dialog, so without it the dialog pins top-left.
+  Style it with Tailwind (`backdrop:bg-black/60`
   for the scrim). Say what goes, what is kept, and that it can't be undone.
 - Typed confirmation (GitHub-style): a `BbInput` with `data-zw-confirm-expected="@exact text"`, plus a submit
   `BbButton` with `data-zw-confirm-submit` and `Disabled="true"`. The script enables it only on an exact match.
