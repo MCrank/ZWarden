@@ -1,14 +1,18 @@
 using System.Net;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using ZWarden.Application.Agents;
 using ZWarden.Application.Operations;
 using ZWarden.Application.Servers;
+using ZWarden.Domain.Authorization;
 using ZWarden.Domain.Ids;
 using ZWarden.Domain.Operations;
 using ZWarden.Domain.Servers;
 using ZWarden.Infrastructure.Authorization;
+using ZWarden.Infrastructure.Identity;
 using ZWarden.Infrastructure.Persistence;
 using ZWarden.Web.Tests.Account;
 
@@ -462,6 +466,89 @@ public sealed class ServerLifecycleEndpointsTests
             await (await client.GetAsync(new Uri($"/api/servers/{serverId}/status", UriKind.Relative))).Content.ReadAsStringAsync());
 
         await Assert.That(body.RootElement.GetProperty("failure").ValueKind).IsEqualTo(JsonValueKind.Null);
+        client.Dispose();
+    }
+
+    // --- #271: delete ------------------------------------------------------------------------------------------
+
+    [Test]
+    public async Task The_delete_endpoint_with_the_servers_name_enqueues_a_delete()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory);
+
+        HttpResponseMessage response = await client.PostAsync(
+            new Uri($"/api/servers/{serverId}/delete", UriKind.Relative),
+            JsonContent("""{"confirmName":"survivors","warningLeadSeconds":[60]}"""));
+
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.Accepted);
+        string op = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement
+            .GetProperty("operationId").GetString()!;
+        string read = await (await client.GetAsync(new Uri($"/api/operations/{op}", UriKind.Relative)))
+            .Content.ReadAsStringAsync();
+        await Assert.That(read).Contains("DeleteServer");
+        client.Dispose();
+    }
+
+    [Test]
+    [Arguments("""{"confirmName":"Survivors"}""")]
+    [Arguments("""{}""")]
+    public async Task The_delete_endpoint_refuses_a_confirmation_that_is_not_the_servers_name(string body)
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory);
+
+        HttpResponseMessage response = await client.PostAsync(
+            new Uri($"/api/servers/{serverId}/delete", UriKind.Relative), JsonContent(body));
+
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.BadRequest);
+        await Assert.That(await response.Content.ReadAsStringAsync()).Contains("confirmation_mismatch");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task The_delete_endpoint_rejects_an_invalid_warning_schedule()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory);
+
+        HttpResponseMessage response = await client.PostAsync(
+            new Uri($"/api/servers/{serverId}/delete", UriKind.Relative),
+            JsonContent("""{"confirmName":"survivors","warningLeadSeconds":[10,60]}"""));
+
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.BadRequest);
+        await Assert.That(await response.Content.ReadAsStringAsync()).Contains("invalid_plan");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task An_operator_role_cannot_delete_a_server()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        await factory.CreateConfirmedUserAsync("owner@zwarden.test", StrongPassword);
+        await AuthorizationBootstrapper.EnsureSeededAsync(factory.Services, "owner@zwarden.test");
+        await factory.CreateConfirmedUserAsync("operator@zwarden.test", StrongPassword);
+        using (IServiceScope scope = factory.Services.CreateScope())
+        {
+            ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
+            ApplicationUser user = (await scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>()
+                .FindByEmailAsync("operator@zwarden.test"))!;
+            Role operatorRole = await db.Set<Role>().SingleAsync(r => r.BuiltIn == BuiltInRoleKind.Operator);
+            db.Set<RoleAssignment>().Add(RoleAssignment.TenantWide(operatorRole.TenantId, UserId.FromGuid(user.Id), operatorRole.Id));
+            await db.SaveChangesAsync();
+        }
+
+        ServerId serverId = await SeedServerAsync(factory);
+        HttpClient client = factory.CreateWebClient();
+        await LoginAsync(client, "operator@zwarden.test", StrongPassword);
+
+        HttpResponseMessage response = await client.PostAsync(
+            new Uri($"/api/servers/{serverId}/delete", UriKind.Relative), JsonContent("""{"confirmName":"survivors"}"""));
+
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.Forbidden);
         client.Dispose();
     }
 
