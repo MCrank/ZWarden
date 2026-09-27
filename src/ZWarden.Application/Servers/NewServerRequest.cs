@@ -13,13 +13,16 @@ namespace ZWarden.Application.Servers;
 /// <param name="Settings">The initial <c>servertest.ini</c> settings, or <c>null</c> to leave them to PZ.</param>
 /// <param name="AcknowledgeOvercommit">The operator confirmed creating the server although its memory limit exceeds the
 /// host's free memory (D1). Required only when the Agent's capacity report says it does not fit.</param>
+/// <param name="Branch">The Build 42 Steam branch to install (#258), or <c>null</c> for public. Validated by
+/// <c>ServerBranchRules</c> at register; fixed after create.</param>
 public sealed record NewServerRequest(
     AgentId AgentId,
     string Name,
     int? GamePort = null,
     long? HeapSizeBytes = null,
     NewServerSettings? Settings = null,
-    bool AcknowledgeOvercommit = false);
+    bool AcknowledgeOvercommit = false,
+    string? Branch = null);
 
 /// <summary>The wizard's basic settings (#230), each optional; validated by <c>InitialSettingsRules</c> at register.
 /// The password is plaintext only in memory — it is encrypted before it is stored on the Operation.</summary>

@@ -36,6 +36,8 @@ public sealed class ServerConfiguration : IEntityTypeConfiguration<Server>
         builder.Property(s => s.InstalledBuildId).HasMaxLength(InstalledBuildIdMaxLength);
         // #262: the game version parsed from the boot log; untrusted Agent-observed text, length-bounded.
         builder.Property(s => s.GameVersion).HasMaxLength(GameVersionMaxLength);
+        // #258: the Build 42 Steam branch chosen at create (validated by ServerBranchRules); null = public.
+        builder.Property(s => s.Branch).HasMaxLength(ServerBranchRules.MaxLength);
 
         builder.HasIndex(s => s.AgentId);
     }

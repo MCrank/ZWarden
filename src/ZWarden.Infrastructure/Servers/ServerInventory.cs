@@ -248,6 +248,12 @@ public sealed class ServerInventory : IServerInventory
             return ServerRegisterResult.Denied(ServerRegisterFailure.InvalidSettings);
         }
 
+        // #258: the branch reaches the SteamCMD runscript, so it is checked here and again by the Agent.
+        if (ServerBranchRules.Validate(request.Branch) is not null)
+        {
+            return ServerRegisterResult.Denied(ServerRegisterFailure.InvalidBranch);
+        }
+
         if (!request.AcknowledgeOvercommit
             && _capacity.GetLatest(agentId) is { } capacity
             && capacity.ShortfallFor(request.HeapSizeBytes ?? capacity.DefaultHeapBytes) > 0)
@@ -255,7 +261,7 @@ public sealed class ServerInventory : IServerInventory
             return ServerRegisterResult.Denied(ServerRegisterFailure.OverCapacity);
         }
 
-        Server server = Server.Register(agentId, name, _clock.GetUtcNow());
+        Server server = Server.Register(agentId, name, _clock.GetUtcNow(), branch: request.Branch);
         _servers.Add(server);
         await _context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         await _audit.WriteAsync(
@@ -283,11 +289,12 @@ public sealed class ServerInventory : IServerInventory
         || InitialSettingsRules.ValidatePassword(settings.Password) is not null
         || InitialSettingsRules.ValidateWelcomeMessage(settings.WelcomeMessage) is not null;
 
-    // No port, heap or settings ⇒ no payload (the Agent allocates the stride, uses its defaults). The join password is
+    // No port, heap, settings or branch ⇒ no payload (the Agent allocates the stride, uses its defaults). The join password is
     // stored only as a protected envelope (ADR 0015); the dispatcher decrypts it to build the wire command.
     private string? ProvisionPayload(NewServerRequest request)
     {
-        if (request is { GamePort: null, HeapSizeBytes: null, Settings: null })
+        string? branch = ServerBranchRules.Normalize(request.Branch);
+        if (request is { GamePort: null, HeapSizeBytes: null, Settings: null } && branch is null)
         {
             return null;
         }
@@ -300,7 +307,8 @@ public sealed class ServerInventory : IServerInventory
                 string.IsNullOrEmpty(s.Password) ? null : _secrets.ProtectString(s.Password),
                 s.WelcomeMessage)
             : null;
-        return new ServerContainerPayload(request.GamePort, HeapSizeBytes: request.HeapSizeBytes, Settings: settings).ToJson();
+        return new ServerContainerPayload(request.GamePort, HeapSizeBytes: request.HeapSizeBytes, Settings: settings, Branch: branch)
+            .ToJson();
     }
 
     private static ServerSummary ToSummary(Server server) => new(
@@ -316,5 +324,6 @@ public sealed class ServerInventory : IServerInventory
         server.LastHealthReportedAt,
         server.InstalledBuildId,
         server.GameVersion,
-        server.HeapSizeBytes);
+        server.HeapSizeBytes,
+        server.Branch);
 }

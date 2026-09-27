@@ -24,6 +24,9 @@ public enum ServerRegisterFailure
     /// <summary>An initial setting failed <c>InitialSettingsRules</c> (#230).</summary>
     InvalidSettings,
 
+    /// <summary>The requested Steam branch failed <c>ServerBranchRules</c> (#258): a bad name, or Build 41.</summary>
+    InvalidBranch,
+
     /// <summary>The server's memory limit exceeds the host's free memory and the operator did not acknowledge it (#230 D1).</summary>
     OverCapacity,
 }

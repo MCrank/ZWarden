@@ -143,6 +143,26 @@ public class ServerTests
     }
 
     [Test]
+    [Arguments("42.19", "42.19")]
+    [Arguments(" Unstable ", "unstable")]
+    [Arguments("public", null)]
+    [Arguments(null, null)]
+    public async Task Register_records_the_chosen_branch_normalized(string? branch, string? expected)
+    {
+        // #258: the branch is fixed at create, so the operator's choice is the server's branch for its life.
+        Server server = Server.Register(AgentId.New(), "pinned", Now, branch: branch);
+
+        await Assert.That(server.Branch).IsEqualTo(expected);
+    }
+
+    [Test]
+    public async Task Register_rejects_an_invalid_branch()
+    {
+        await Assert.That(() => Server.Register(AgentId.New(), "alpha", Now, branch: "legacy41")).Throws<ArgumentException>();
+        await Assert.That(() => Server.Register(AgentId.New(), "alpha", Now, branch: "x;quit")).Throws<ArgumentException>();
+    }
+
+    [Test]
     public async Task Register_rejects_a_blank_name_and_an_empty_agent()
     {
         await Assert.That(() => Server.Register(AgentId.New(), " ", Now)).Throws<ArgumentException>();

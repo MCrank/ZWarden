@@ -528,4 +528,69 @@ public class ServerInventoryTests
             }
         }
     }
+
+    // --- #258: the Build 42 Steam branch ---------------------------------------------------------------------------
+
+    [Test]
+    public async Task Register_records_the_branch_on_the_server_and_carries_it_to_the_agent()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            await SeedAssignmentAsync(options, user, server: null, Permissions.ServerRegister);
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            AgentId agent = await PersistAgentAsync(db);
+            StubOperationCoordinator coordinator = new();
+
+            ServerRegisterResult result = await Inventory(db, new ServerDiscoveryCache(), new CapturingAuditWriter(), coordinator)
+                .RegisterAsync(user, Request(agent) with { Branch = " 42.19 " });
+
+            await Assert.That(result.Succeeded).IsTrue();
+            await Assert.That(ServerContainerPayload.FromJson(coordinator.LastRequest!.CommandPayload!).Branch).IsEqualTo("42.19");
+            Server server = (await new ServerRepository(db).ListByAgentAsync(agent)).Single();
+            await Assert.That(server.Branch).IsEqualTo("42.19");
+        });
+    }
+
+    [Test]
+    public async Task Register_on_the_public_branch_sends_no_branch()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            await SeedAssignmentAsync(options, user, server: null, Permissions.ServerRegister);
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            AgentId agent = await PersistAgentAsync(db);
+            StubOperationCoordinator coordinator = new();
+
+            ServerRegisterResult result = await Inventory(db, new ServerDiscoveryCache(), new CapturingAuditWriter(), coordinator)
+                .RegisterAsync(user, Request(agent) with { Branch = "public" });
+
+            await Assert.That(result.Succeeded).IsTrue();
+            await Assert.That(coordinator.LastRequest!.CommandPayload).IsNull();
+            await Assert.That((await new ServerRepository(db).ListByAgentAsync(agent)).Single().Branch).IsNull();
+        });
+    }
+
+    [Test]
+    [Arguments("legacy41")]
+    [Arguments("42.19 validate")]
+    public async Task Register_rejects_an_invalid_branch_before_creating_anything(string branch)
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            await SeedAssignmentAsync(options, user, server: null, Permissions.ServerRegister);
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            AgentId agent = await PersistAgentAsync(db);
+            StubOperationCoordinator coordinator = new();
+
+            ServerRegisterResult result = await Inventory(db, new ServerDiscoveryCache(), new CapturingAuditWriter(), coordinator)
+                .RegisterAsync(user, Request(agent) with { Branch = branch });
+
+            await Assert.That(result.Failure).IsEqualTo(ServerRegisterFailure.InvalidBranch);
+            await Assert.That(coordinator.LastRequest).IsNull();
+            await Assert.That(await new ServerRepository(db).ListByAgentAsync(agent)).IsEmpty();
+        });
+    }
 }
