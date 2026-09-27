@@ -59,6 +59,12 @@ Only a subset of Blueprint is safe there:
 - **`BbNativeSelect` needs an explicit `Name`** = the full model path (e.g. `_form.Target`); it
   auto-derives only the leaf name and silently fails to bind on a static POST. `BbInput` auto-derives
   the full path correctly.
+- **`BbNativeSelect` doesn't mark the bound option selected under static SSR.** Blazor sets a select's
+  value only through JS on an interactive page, so a static re-render (e.g. after a validation error or
+  an overcommit warning) shows the **first** option, and the next submit silently sends it. Mark it on
+  each option yourself: `<option value="@v" selected="@(v == _form.Field)">`, with the default also
+  selected when the field is empty. Assert with `SsrSelect.SelectedValue` in page tests. (#258 live
+  pass: the wizard's "Create it anyway" resubmit reverted a pinned branch to public.)
 - **`BbButton` splats `name`/`value`/`data-*`** through `AdditionalAttributes` (use the dedicated
   `Disabled` bool, not a splat), which lets several submit buttons share one form and post
   `"{id}|{verb}"` as a single bound value (the `/servers` lifecycle actions).

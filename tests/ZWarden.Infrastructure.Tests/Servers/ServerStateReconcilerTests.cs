@@ -362,6 +362,7 @@ public class ServerStateReconcilerTests
             ServerStateReconciler reconciler = new(db, repo, new ServerDiscoveryCache(), new StubClock(Now));
             await reconciler.RecordReportedBuildAsync(AgentId.New(), id, "24909836"); // not the owner (trust §8)
             await reconciler.RecordReportedBuildAsync(owner, id, new string('9', 65)); // over the stored bound
+            await reconciler.RecordReportedBuildAsync(owner, id, "0"); // an older Agent mid-install: not a build
 
             Server reloaded = (await repo.FindByIdAsync(id))!;
             await Assert.That(reloaded.InstalledBuildId).IsNull();

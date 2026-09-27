@@ -166,10 +166,10 @@ else
                         @* Default (5 minutes) first: under static SSR BbNativeSelect shows the first option, so the
                            default option leads to keep the shown value and the model default in agreement (#84). *@
                         <BbNativeSelect TValue="string" Id="graceful-countdown" Name="_gracefulForm.Countdown" @bind-Value="_gracefulForm.Countdown">
-                            <option value="5m">5 minutes</option>
-                            <option value="15m">15 minutes</option>
-                            <option value="1m">1 minute</option>
-                            <option value="immediate">Immediately (no warning)</option>
+                            <option value="5m" selected="@(_gracefulForm.Countdown is null or "5m")">5 minutes</option>
+                            <option value="15m" selected="@(_gracefulForm.Countdown == "15m")">15 minutes</option>
+                            <option value="1m" selected="@(_gracefulForm.Countdown == "1m")">1 minute</option>
+                            <option value="immediate" selected="@(_gracefulForm.Countdown == "immediate")">Immediately (no warning)</option>
                         </BbNativeSelect>
                     </div>
                     <div class="flex flex-1 flex-col text-sm">
@@ -328,10 +328,10 @@ else
                                     <BbLabel For="recreate-countdown" Class="mb-1 text-muted-foreground">Warn players</BbLabel>
                                     @* Explicit Name for static-SSR binding on BbNativeSelect; default first (#84). *@
                                     <BbNativeSelect TValue="string" Id="recreate-countdown" Name="_recreateForm.Countdown" @bind-Value="_recreateForm.Countdown">
-                                        <option value="5m">5 minutes</option>
-                                        <option value="15m">15 minutes</option>
-                                        <option value="1m">1 minute</option>
-                                        <option value="immediate">Immediately (no warning)</option>
+                                        <option value="5m" selected="@(_recreateForm.Countdown is null or "5m")">5 minutes</option>
+                                        <option value="15m" selected="@(_recreateForm.Countdown == "15m")">15 minutes</option>
+                                        <option value="1m" selected="@(_recreateForm.Countdown == "1m")">1 minute</option>
+                                        <option value="immediate" selected="@(_recreateForm.Countdown == "immediate")">Immediately (no warning)</option>
                                     </BbNativeSelect>
                                 </div>
                                 <BbButton Variant="ButtonVariant.Secondary" Type="ButtonType.Submit" Size="ButtonSize.Small"
@@ -756,7 +756,7 @@ else
                                             <BbNativeSelect TValue="string" Id="mod-enable-id" Name="_modManageForm.EnableModId" @bind-Value="_modManageForm!.EnableModId">
                                                 @foreach (string candidate in _enableCandidates)
                                                 {
-                                                    <option value="@candidate">@candidate</option>
+                                                    <option value="@candidate" selected="@(candidate == _modManageForm!.EnableModId)">@candidate</option>
                                                 }
                                             </BbNativeSelect>
                                         </div>
@@ -1274,10 +1274,10 @@ else
                             <BbLabel For="config-file" Class="mb-1 text-muted-foreground">File</BbLabel>
                             @* BbNativeSelect auto-derives only the leaf name under static SSR; set the full model path (#84). *@
                             <BbNativeSelect TValue="string" Id="config-file" Name="_configForm.File" @bind-Value="_configForm!.File">
-                                <option value="Ini">servertest.ini</option>
-                                <option value="SandboxVars">SandboxVars.lua</option>
-                                <option value="SpawnRegions">spawnregions.lua</option>
-                                <option value="SpawnPoints">spawnpoints.lua</option>
+                                <option value="Ini" selected="@(_configForm!.File is null or "Ini")">servertest.ini</option>
+                                <option value="SandboxVars" selected="@(_configForm!.File == "SandboxVars")">SandboxVars.lua</option>
+                                <option value="SpawnRegions" selected="@(_configForm!.File == "SpawnRegions")">spawnregions.lua</option>
+                                <option value="SpawnPoints" selected="@(_configForm!.File == "SpawnPoints")">spawnpoints.lua</option>
                             </BbNativeSelect>
                         </div>
                         <div class="flex flex-col text-sm">
@@ -1287,9 +1287,9 @@ else
                         <div class="flex flex-col text-sm">
                             <BbLabel For="config-kind" Class="mb-1 text-muted-foreground">Type</BbLabel>
                             <BbNativeSelect TValue="string" Id="config-kind" Name="_configForm.Kind" @bind-Value="_configForm!.Kind">
-                                <option value="Bool">true / false</option>
-                                <option value="Number">number</option>
-                                <option value="Text">text</option>
+                                <option value="Bool" selected="@(_configForm!.Kind is null or "Bool")">true / false</option>
+                                <option value="Number" selected="@(_configForm!.Kind == "Number")">number</option>
+                                <option value="Text" selected="@(_configForm!.Kind == "Text")">text</option>
                             </BbNativeSelect>
                         </div>
                         <div class="flex flex-col text-sm">

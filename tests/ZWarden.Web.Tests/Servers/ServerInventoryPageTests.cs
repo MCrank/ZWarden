@@ -422,6 +422,32 @@ public sealed class ServerInventoryPageTests
     }
 
     [Test]
+    public async Task The_overcommit_re_render_keeps_the_chosen_branch_and_host_selected()
+    {
+        // Live pass on #258: the warning re-render showed each select's FIRST option, so "Create it anyway" silently
+        // submitted the public branch (and, on a multi-host install, the first host).
+        await using ZWardenWebAppFactory factory = new();
+        (HttpClient client, AgentId agent, string token) = await WizardAsync(
+            factory, new HostCapacity(AgentId.New(), 16 * GiB, 10 * GiB, 6 * GiB, 4 * GiB, 2 * GiB, DateTimeOffset.UtcNow));
+        AgentId second = await SeedAgentAsync(factory);
+        factory.Services.GetRequiredService<IServerDiscoveryCache>().Record(second, []);
+        factory.Services.GetRequiredService<IHostCapacityCache>()
+            .Record(new HostCapacity(second, 16 * GiB, 10 * GiB, 6 * GiB, 4 * GiB, 2 * GiB, DateTimeOffset.UtcNow));
+        Dictionary<string, string> form = WizardForm(token, second, "pinned-big");
+        form["_registerForm.HeapGiB"] = "8";
+        form["_registerForm.Branch"] = "42.19";
+
+        string warned = await (await client.PostAsync(new Uri("/servers", UriKind.Relative), new FormUrlEncodedContent(form)))
+            .Content.ReadAsStringAsync();
+
+        await Assert.That(warned).Contains("data-overcommit-warning");
+        await Assert.That(SsrSelect.SelectedValue(warned, "_registerForm.Branch")).IsEqualTo("42.19");
+        await Assert.That(SsrSelect.SelectedValue(warned, "_registerForm.AgentId")).IsEqualTo(second.ToString());
+        client.Dispose();
+    }
+
+
+    [Test]
     public async Task The_wizard_refuses_a_setting_that_could_break_the_config_line()
     {
         await using ZWardenWebAppFactory factory = new();

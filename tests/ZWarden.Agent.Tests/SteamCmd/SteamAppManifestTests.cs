@@ -31,4 +31,11 @@ public class SteamAppManifestTests
     {
         await Assert.That(SteamAppManifest.ParseBuildId("not a manifest at all")).IsNull();
     }
+
+    [Test]
+    public async Task The_placeholder_buildid_of_an_install_in_progress_yields_null()
+    {
+        // SteamCMD writes "buildid" "0" until a first install commits; that is "not installed yet", not build 0.
+        await Assert.That(SteamAppManifest.ParseBuildId("\"AppState\" { \"appid\" \"380870\" \"buildid\" \"0\" }")).IsNull();
+    }
 }

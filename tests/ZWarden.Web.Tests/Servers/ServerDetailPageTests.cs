@@ -1773,13 +1773,15 @@ public sealed class ServerDetailPageTests
             ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
             ["_handler"] = "server-recreate",
             ["_recreateForm.HeapGiB"] = "8",
-            ["_recreateForm.Countdown"] = "5m",
+            ["_recreateForm.Countdown"] = "1m",
         };
 
         string warned = await (await client.PostAsync(new Uri($"/servers/{serverId}", UriKind.Relative), new FormUrlEncodedContent(form)))
             .Content.ReadAsStringAsync();
 
         await Assert.That(warned).Contains("data-recreate-overcommit-warning");
+        // The re-render keeps the chosen countdown selected, so the acknowledged resubmit does not revert to 5m.
+        await Assert.That(SsrSelect.SelectedValue(warned, "_recreateForm.Countdown")).IsEqualTo("1m");
         await Assert.That(warned).Contains("10 GiB short");
         await Assert.That(SsrCheckbox.IsNative(warned, "recreate-acknowledge", "_recreateForm.AcknowledgeOvercommit")).IsTrue();
         await Assert.That(EnqueuedKind(factory, serverId, OperationKind.RecreateServer)).IsFalse();

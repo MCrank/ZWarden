@@ -50,7 +50,7 @@ else
             <BbNativeSelect TValue="string" Id="health-server" Name="_form.ServerId" @bind-Value="_form!.ServerId" Placeholder="Select…">
                 @foreach (ServerSummary server in _servers)
                 {
-                    <option value="@server.Id">@server.Name</option>
+                    <option value="@server.Id" selected="@(server.Id.ToString() == _form!.ServerId)">@server.Name</option>
                 }
             </BbNativeSelect>
         </div>
