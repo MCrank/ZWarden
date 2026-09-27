@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
+using ZWarden.Application.Audit;
 using ZWarden.Application.Operations;
 using ZWarden.Application.Servers;
+using ZWarden.Domain.Audit;
 using ZWarden.Domain.Authorization;
 using ZWarden.Domain.Ids;
 using ZWarden.Domain.Operations;
@@ -413,6 +415,103 @@ public class ServerLifecycleTests
                 .RecreateAsync(user, serverId, 27015, null);
 
             await Assert.That(result.Succeeded).IsTrue();
+        });
+    }
+
+    // --- #271: delete ------------------------------------------------------------------------------------------
+
+    [Test]
+    public async Task Delete_with_the_matching_name_enqueues_a_mutating_delete_carrying_the_plan_and_audits_the_name()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            AgentId agent = AgentId.New();
+            ServerId serverId = await SeedServerAsync(options, agent);
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ServerDelete);
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            RecordingCoordinator coordinator = new();
+            CapturingAuditWriter audit = new();
+
+            ServerLifecycleResult result = await Lifecycle(db, coordinator, audit)
+                .DeleteAsync(user, serverId, "survivors", new GracefulRestartPayload([60], "Retiring this server."));
+
+            await Assert.That(result.Succeeded).IsTrue();
+            await Assert.That(coordinator.LastRequest!.Kind).IsEqualTo(OperationKind.DeleteServer);
+            await Assert.That(coordinator.LastRequest!.IsMutating).IsTrue();
+            await Assert.That(coordinator.LastRequest!.AgentId).IsEqualTo(agent);
+            await Assert.That(coordinator.LastRequest!.ServerId).IsEqualTo(serverId);
+            GracefulRestartPayload plan = GracefulRestartPayload.FromJson(coordinator.LastRequest!.CommandPayload!);
+            await Assert.That(plan.WarningLeadSeconds).IsEquivalentTo([60]);
+            AuditEntry entry = audit.Entries.Single();
+            await Assert.That(entry.Action).IsEqualTo(ServerAuditActions.Deleted);
+            // The audit has to read after the row is gone, so it carries the name.
+            await Assert.That(entry.Detail).Contains("survivors");
+        });
+    }
+
+    [Test]
+    [Arguments("")]
+    [Arguments("Survivors")]
+    [Arguments("survivors ")]
+    [Arguments("other")]
+    public async Task Delete_refuses_a_confirmation_that_is_not_exactly_the_servers_name(string confirmName)
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            ServerId serverId = await SeedServerAsync(options, AgentId.New());
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ServerDelete);
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            RecordingCoordinator coordinator = new();
+            CapturingAuditWriter audit = new();
+            ServerLifecycleResult result = await Lifecycle(db, coordinator, audit)
+                .DeleteAsync(user, serverId, confirmName, plan: null);
+
+            await Assert.That(result.Failure).IsEqualTo(ServerLifecycleFailure.ConfirmationMismatch);
+            await Assert.That(coordinator.LastRequest).IsNull();
+            await Assert.That(audit.Entries.Single().Outcome).IsEqualTo(AuditOutcome.Denied);
+        });
+    }
+
+    [Test]
+    public async Task Delete_denies_without_the_server_scoped_delete_permission()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            ServerId serverId = await SeedServerAsync(options, AgentId.New());
+            // Recreate is not enough — delete destroys things, so it is its own capability.
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ServerRecreate);
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            RecordingCoordinator coordinator = new();
+            CapturingAuditWriter audit = new();
+            ServerLifecycleResult result = await Lifecycle(db, coordinator, audit)
+                .DeleteAsync(user, serverId, "survivors", plan: null);
+
+            await Assert.That(result.Failure).IsEqualTo(ServerLifecycleFailure.NotAuthorized);
+            await Assert.That(coordinator.LastRequest).IsNull();
+            await Assert.That(audit.Entries.Single().Outcome).IsEqualTo(AuditOutcome.Denied);
+        });
+    }
+
+    [Test]
+    public async Task Delete_reports_server_busy_when_the_per_server_lock_refuses()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            ServerId serverId = await SeedServerAsync(options, AgentId.New());
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ServerDelete);
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            ServerLifecycleResult result = await Lifecycle(db, new RecordingCoordinator { ThrowBusy = true }, new CapturingAuditWriter())
+                .DeleteAsync(user, serverId, "survivors", plan: null);
+
+            await Assert.That(result.Failure).IsEqualTo(ServerLifecycleFailure.ServerBusy);
         });
     }
 

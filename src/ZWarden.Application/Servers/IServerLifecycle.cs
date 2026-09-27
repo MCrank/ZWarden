@@ -49,4 +49,15 @@ public interface IServerLifecycle
         long? heapSizeBytes = null,
         bool acknowledgeOvercommit = false,
         CancellationToken cancellationToken = default);
+
+    /// <summary>Deletes the Server (#271), authorized by the server-scoped <c>Server.Delete</c>: warns players with
+    /// <paramref name="plan"/> and stops it safely if it is running, then removes its container; on success the Server
+    /// leaves the fleet. World data and backups stay on the host. <paramref name="confirmName"/> must be exactly the
+    /// Server's name (ordinal) or it is <see cref="ServerLifecycleFailure.ConfirmationMismatch"/> and nothing runs.</summary>
+    Task<ServerLifecycleResult> DeleteAsync(
+        UserId user,
+        ServerId server,
+        string confirmName,
+        GracefulRestartPayload? plan,
+        CancellationToken cancellationToken = default);
 }

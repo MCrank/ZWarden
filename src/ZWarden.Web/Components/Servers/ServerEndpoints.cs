@@ -212,6 +212,26 @@ public static class ServerEndpoints
                 u, s, request?.GamePort, plan, request?.HeapSizeBytes, request?.AcknowledgeOvercommit ?? false, ct));
         });
 
+        // Delete (#271): warn + safe stop if running, remove the container, then the Server leaves the fleet on success.
+        // World data and backups stay on the host. Fail-closed server-scoped gate (Server.Delete) in the service, which
+        // also re-checks the typed confirmation — it must be exactly the Server's name — so the dialog is not the guard.
+        lifecycle.MapPost("/{id}/delete", (string id, DeleteServerRequest? request, ClaimsPrincipal principal,
+            UserManager<ApplicationUser> users, IServerLifecycle svc, CancellationToken ct) =>
+        {
+            GracefulRestartPayload? plan = request?.WarningLeadSeconds is { } leads
+                ? new GracefulRestartPayload(leads, request.Reason)
+                : null;
+            if (plan is not null
+                && (GracefulRestartRules.ValidateSchedule(plan.WarningLeadSeconds) is not null
+                    || GracefulRestartRules.ValidateReason(plan.Reason) is not null))
+            {
+                return Task.FromResult(Results.BadRequest(new { error = "invalid_plan" }));
+            }
+
+            return RunLifecycleAsync(id, principal, users, (u, s) => svc.DeleteAsync(
+                u, s, request?.ConfirmName ?? string.Empty, plan, ct));
+        });
+
         // Backup (F24): take a backup of the Server's world data — a mutating, server-scoped Operation. Fail-closed
         // server-scoped gate (Backup.Create) in the service; poll /api/operations/{id} for the archive result.
         lifecycle.MapPost("/{id}/backup", async (string id, ClaimsPrincipal principal, UserManager<ApplicationUser> users,
@@ -373,6 +393,7 @@ public static class ServerEndpoints
                 Results.Json(new { error = "server_busy" }, statusCode: StatusCodes.Status409Conflict),
             ServerLifecycleFailure.InvalidPort => Results.BadRequest(new { error = "invalid_port" }),
             ServerLifecycleFailure.InvalidHeap => Results.BadRequest(new { error = "invalid_heap" }),
+            ServerLifecycleFailure.ConfirmationMismatch => Results.BadRequest(new { error = "confirmation_mismatch" }),
             ServerLifecycleFailure.PortInUse =>
                 Results.Json(new { error = "port_in_use" }, statusCode: StatusCodes.Status409Conflict),
             ServerLifecycleFailure.OverCapacity =>
@@ -468,3 +489,10 @@ public sealed record RecreateServerRequest(
     string? Reason = null,
     long? HeapSizeBytes = null,
     bool AcknowledgeOvercommit = false);
+
+/// <summary>The body of a delete request (#271): the typed confirmation, which must be exactly the Server's name, and an
+/// optional graceful-warning schedule and reason (omitted ⇒ the Agent's default warning) for a running server.</summary>
+public sealed record DeleteServerRequest(
+    string? ConfirmName = null,
+    IReadOnlyList<int>? WarningLeadSeconds = null,
+    string? Reason = null);

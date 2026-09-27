@@ -43,4 +43,8 @@ public static class ServerAuditActions
     /// <summary>An operator requested a data-preserving container recreate, e.g. to change host ports (a recreate
     /// Operation was enqueued — #229).</summary>
     public const string Recreated = "Server.Recreated";
+
+    /// <summary>An operator requested a Server's deletion (a delete Operation was enqueued — #271). The detail carries
+    /// the Server's name, so the entry still reads once the Server row is gone.</summary>
+    public const string Deleted = "Server.Deleted";
 }

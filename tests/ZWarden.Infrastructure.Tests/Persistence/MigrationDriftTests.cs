@@ -81,16 +81,19 @@ public class MigrationDriftTests
     }
 
     [Test]
-    public async Task Upgrading_grants_server_recreate_to_existing_owner_and_administrator_roles_only()
+    [Arguments("_GrantServerRecreateToBuiltInRoles", "Server.Recreate")]
+    [Arguments("_GrantServerDeleteToBuiltInRoles", "Server.Delete")]
+    public async Task Upgrading_grants_a_new_server_permission_to_existing_owner_and_administrator_roles_only(
+        string migration, string permission)
     {
-        // #229: built-in roles are seeded once and their grants persisted, so an install seeded before Server.Recreate
+        // #229/#271: built-in roles are seeded once and their grants persisted, so an install seeded before the permission
         // existed only gets it from the data migration — and only on the two roles whose bundle includes it.
         string file = TempDbFile();
         try
         {
             await using ZWardenDbContext context = Context(ZWardenDbProvider.Sqlite, $"Data Source={file};Pooling=False");
             List<string> chain = context.Database.GetMigrations().ToList();
-            string grant = chain.Single(m => m.EndsWith("_GrantServerRecreateToBuiltInRoles", StringComparison.Ordinal));
+            string grant = chain.Single(m => m.EndsWith(migration, StringComparison.Ordinal));
             string beforeGrant = chain[chain.IndexOf(grant) - 1];
             IMigrator migrator = context.GetService<IMigrator>();
 
@@ -105,7 +108,7 @@ public class MigrationDriftTests
 
             List<string> granted = await context.Database
                 .SqlQuery<string>(
-                    $"""SELECT r."BuiltIn" AS "Value" FROM "RolePermissionGrants" g JOIN "Roles" r ON r."Id" = g."RoleId" WHERE g."PermissionName" = 'Server.Recreate'""")
+                    $"""SELECT r."BuiltIn" AS "Value" FROM "RolePermissionGrants" g JOIN "Roles" r ON r."Id" = g."RoleId" WHERE g."PermissionName" = {permission}""")
                 .ToListAsync();
             granted.Sort(StringComparer.Ordinal);
             string[] expected = ["Administrator", "TenantOwner"];

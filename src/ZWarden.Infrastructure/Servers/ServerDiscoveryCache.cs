@@ -22,6 +22,17 @@ public sealed class ServerDiscoveryCache : IServerDiscoveryCache
     }
 
     /// <inheritdoc />
+    public void Forget(AgentId agentId, ServerId serverId)
+    {
+        // Compare-and-swap so a snapshot recorded concurrently is never overwritten with an older set.
+        while (_byAgent.TryGetValue(agentId, out IReadOnlyList<DiscoveredServer>? servers)
+               && servers.Any(s => s.ServerId == serverId)
+               && !_byAgent.TryUpdate(agentId, [.. servers.Where(s => s.ServerId != serverId)], servers))
+        {
+        }
+    }
+
+    /// <inheritdoc />
     public IReadOnlyList<DiscoveredServer> GetDiscovered(AgentId agentId)
         => _byAgent.TryGetValue(agentId, out IReadOnlyList<DiscoveredServer>? servers) ? servers : [];
 

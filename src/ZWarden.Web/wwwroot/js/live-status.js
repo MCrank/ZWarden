@@ -249,6 +249,8 @@
     Object.keys(byId).forEach(function (id) { busy = busy || !!byId[id].busy; });
     root.querySelectorAll('[data-live-row]').forEach(function (row) {
       var s = byId[row.getAttribute('data-live-row')];
+      // A row the batch no longer reports is a server that left the fleet (#271, deleted): drop it from the board.
+      row.hidden = !s;
       if (s && TONES.indexOf(s.tone) !== -1) {
         applyBadge(row, s);
         applyControls(row, s);
@@ -286,7 +288,11 @@
     var fleet = root.hasAttribute('data-live-fleet');
     if (fleet) { observeFleet(root); } else { lastFleet = null; lastFleetRoot = null; }
     window.fetch(url, { credentials: 'same-origin', headers: { 'Accept': 'application/json' }, cache: 'no-store' })
-      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (r) {
+        // The server this page shows is gone (#271, deleted): go back to the fleet rather than show a stale page.
+        if (!fleet && r.status === 404) { window.location.assign('/servers'); return null; }
+        return r.ok ? r.json() : null;
+      })
       .then(function (s) {
         // Navigated elsewhere while the request was out? Only apply to the page that asked.
         var current = currentRoot();

@@ -75,3 +75,24 @@ Only a subset of Blueprint is safe there:
   `npm run build:css` (removing raw utility classes shrinks the committed `wwwroot/app.css`, which CI
   diffs — ADR 0003 condition 2) and bump the `Web.Tests` `--minimum-expected-tests` floor when the
   test count changes.
+
+## Confirming a destructive action (#271)
+
+Static pages have no circuit, so `BbAlertDialog`/`BbDialog` are out. The pattern for an "are you sure?"
+confirmation is a **native `<dialog>` wrapping an ordinary static `EditForm`**, driven by
+`wwwroot/js/dialog.js` (delegated on `document`, so it survives enhanced navigation):
+
+- Opener: a `BbButton Type="ButtonType.Button"` with `data-zw-dialog-open="<name>"`.
+- Dialog: `<dialog data-zw-dialog="<name>" aria-labelledby="…">`. Style it with Tailwind (`backdrop:bg-black/60`
+  for the scrim). Say what goes, what is kept, and that it can't be undone.
+- Typed confirmation (GitHub-style): a `BbInput` with `data-zw-confirm-expected="@exact text"`, plus a submit
+  `BbButton` with `data-zw-confirm-submit` and `Disabled="true"`. The script enables it only on an exact match.
+  `BbButton` renders `Disabled` as `aria-disabled` + `tabindex=-1` with no native `disabled`, so the script
+  keeps all three in step. In tests, assert `aria-disabled="true"`, not the word "disabled" (the class list
+  contains `disabled:opacity-50`).
+- Cancel: a `BbButton Type="ButtonType.Button"` with `data-zw-dialog-close`. Esc closes the dialog natively.
+  Reopening clears the input.
+- **The server is the guard.** The typed value is posted, and the service re-checks it (ordinal, exact).
+  `Delete server` returns `ServerLifecycleFailure.ConfirmationMismatch` and audits the refusal. Without JS the
+  dialog never opens, so nothing can be submitted (fail closed).
+- Verify the JS in a real browser (playwright via `run-web`). Page tests only see the markup.

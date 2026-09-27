@@ -77,3 +77,6 @@ npm-debug.log*
 # The playwright-cli SKILL.md is committed (dev/test tooling, ADR 0031); the local binary/config is not.
 .playwright/
 .playwright-cli/
+
+# Local Data Protection key ring written by a dev run of ZWarden.Web (never commit key material)
+src/ZWarden.Web/dp-keys/

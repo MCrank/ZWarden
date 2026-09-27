@@ -1842,6 +1842,104 @@ public sealed class ServerDetailPageTests
         client.Dispose();
     }
 
+    // --- #271: delete ------------------------------------------------------------------------------------------
+
+    [Test]
+    public async Task An_owner_sees_the_delete_dialog_naming_the_server_and_what_is_kept()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "doomed", gamePort: 16261, queryPort: 16262);
+
+        string html = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        await Assert.That(html).Contains("data-zw-dialog-open=\"delete-server\"");
+        await Assert.That(html).Contains("data-zw-dialog=\"delete-server\"");
+        await Assert.That(html).Contains("data-zw-confirm-expected=\"doomed\"");
+        await Assert.That(html).Contains("World data and backups are kept");
+        await Assert.That(html).Contains("can't be undone");
+        // The submit starts disabled; the dialog script enables it once the typed name matches.
+        Match submit = Regex.Match(html, "<button[^>]*data-zw-confirm-submit[^>]*>");
+        await Assert.That(submit.Success).IsTrue();
+        await Assert.That(submit.Value).Contains("aria-disabled=\"true\"");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task Posting_the_delete_form_with_the_servers_name_enqueues_the_delete_and_returns_to_the_fleet()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "doomed", gamePort: 16261, queryPort: 16262);
+
+        HttpResponseMessage post = await PostDeleteAsync(client, serverId, "doomed");
+
+        await Assert.That(EnqueuedKind(factory, serverId, OperationKind.DeleteServer)).IsTrue();
+        await Assert.That(GracefulRestartPayload.FromJson(EnqueuedPayload(factory, serverId, OperationKind.DeleteServer)!).WarningLeadSeconds)
+            .IsEquivalentTo([60, 30, 10]);
+        await Assert.That((int)post.StatusCode).IsEqualTo(302);
+        await Assert.That(new Uri(new Uri("https://localhost"), post.Headers.Location!).AbsolutePath).IsEqualTo("/servers");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task Posting_the_delete_form_with_the_wrong_name_is_refused_by_the_server()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "doomed", gamePort: 16261, queryPort: 16262);
+
+        string html = await (await PostDeleteAsync(client, serverId, "Doomed")).Content.ReadAsStringAsync();
+
+        await Assert.That(html).Contains("data-lifecycle-message");
+        await Assert.That(html).Contains("did not match");
+        await Assert.That(EnqueuedKind(factory, serverId, OperationKind.DeleteServer)).IsFalse();
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task An_operator_role_without_server_delete_does_not_see_the_delete_control()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        await factory.CreateConfirmedUserAsync("owner@zwarden.test", StrongPassword);
+        await AuthorizationBootstrapper.EnsureSeededAsync(factory.Services, "owner@zwarden.test");
+        await factory.CreateConfirmedUserAsync("operator@zwarden.test", StrongPassword);
+        using (IServiceScope scope = factory.Services.CreateScope())
+        {
+            ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
+            ApplicationUser user = (await scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>()
+                .FindByEmailAsync("operator@zwarden.test"))!;
+            Role operatorRole = await db.Set<Role>().SingleAsync(r => r.BuiltIn == BuiltInRoleKind.Operator);
+            db.Set<RoleAssignment>().Add(RoleAssignment.TenantWide(operatorRole.TenantId, UserId.FromGuid(user.Id), operatorRole.Id));
+            await db.SaveChangesAsync();
+        }
+
+        ServerId serverId = await SeedServerAsync(factory, "kept", gamePort: 16261, queryPort: 16262);
+        HttpClient client = factory.CreateWebClient();
+        await LoginAsync(client, "operator@zwarden.test", StrongPassword);
+
+        string html = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+        await Assert.That(html).DoesNotContain("data-zw-dialog=\"delete-server\"");
+
+        // A crafted post of the form is refused by the service all the same.
+        await PostDeleteAsync(client, serverId, "kept");
+        await Assert.That(EnqueuedKind(factory, serverId, OperationKind.DeleteServer)).IsFalse();
+        client.Dispose();
+    }
+
+    private static async Task<HttpResponseMessage> PostDeleteAsync(HttpClient client, ServerId serverId, string confirmName)
+    {
+        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
+        Dictionary<string, string> form = new(StringComparer.Ordinal)
+        {
+            ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
+            ["_handler"] = "server-delete",
+            ["_deleteForm.ConfirmName"] = confirmName,
+            ["_deleteForm.Countdown"] = "1m",
+        };
+        return await client.PostAsync(new Uri($"/servers/{serverId}", UriKind.Relative), new FormUrlEncodedContent(form));
+    }
+
     [Test]
     public async Task An_operator_role_without_server_recreate_does_not_see_the_change_ports_control()
     {

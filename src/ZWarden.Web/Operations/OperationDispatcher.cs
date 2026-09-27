@@ -112,6 +112,7 @@ public sealed class OperationDispatcher : IOperationDispatcher
         OperationKind.DiagnosticsDockerHealth => new ProbeDockerHealth(),
         OperationKind.ProvisionServer => CreateCommand(commandPayload, unprotect),
         OperationKind.RecreateServer => RecreateCommand(commandPayload),
+        OperationKind.DeleteServer => new DeleteServer(GracefulPlan(commandPayload)),
         OperationKind.StartServer => new StartServer(),
         OperationKind.StopServer => new StopServer(),
         OperationKind.RestartServer => RestartCommand(commandPayload),
@@ -185,15 +186,18 @@ public sealed class OperationDispatcher : IOperationDispatcher
     // Builds the RestartServer wire command from the optional graceful-restart payload the enqueueing service wrote
     // (#114). No payload ⇒ the Agent applies its default warning schedule; a payload carries the operator's chosen
     // countdown (empty = restart immediately, no warning) and message.
-    private static RestartServer RestartCommand(string? commandPayload)
+    private static RestartServer RestartCommand(string? commandPayload) => new(GracefulPlan(commandPayload));
+
+    // The optional graceful-warning plan a restart (#114) or delete (#271) payload carries; null ⇒ the Agent's default.
+    private static GracefulRestartPlan? GracefulPlan(string? commandPayload)
     {
         if (commandPayload is null)
         {
-            return new RestartServer();
+            return null;
         }
 
         GracefulRestartPayload payload = GracefulRestartPayload.FromJson(commandPayload);
-        return new RestartServer(new GracefulRestartPlan(payload.WarningLeadSeconds, payload.Reason));
+        return new GracefulRestartPlan(payload.WarningLeadSeconds, payload.Reason);
     }
 
     private static PlayerCommandPayload Payload(string? commandPayload) => PlayerCommandPayload.FromJson(

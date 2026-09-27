@@ -73,13 +73,13 @@ public class BuiltInRolesTests
     [Test]
     public async Task Moderator_excludes_the_high_risk_permissions()
     {
-        // PRD 12A "shall not include" (the catalogue-present subset — Server.Delete / Mod.*Arbitrary are
+        // PRD 12A "shall not include" (the catalogue-present subset — Mod.*Arbitrary are
         // not v1.0 catalogue permissions, so they are not grantable at all).
         string[] excluded =
         [
             "Server.Stop", "Server.Configuration.Edit", "Mod.Install", "Mod.Remove",
             "Backup.Restore", "Console.Execute", "Agent.Manage", "User.Manage",
-            "Role.Manage", "Tenant.Manage", "Server.Recreate",
+            "Role.Manage", "Tenant.Manage", "Server.Recreate", "Server.Delete",
         ];
 
         BuiltInRoleDefinition moderator = BuiltInRoles.Get(BuiltInRoleKind.Moderator);
@@ -113,6 +113,20 @@ public class BuiltInRolesTests
     }
 
     [Test]
+    public async Task Delete_is_granted_to_owner_and_administrator_but_not_operator()
+    {
+        // #271: deleting a server is the most destructive action in the app — the create/recreate bar.
+        static bool Has(BuiltInRoleKind kind) =>
+            BuiltInRoles.Get(kind).Permissions.Any(p => p == Permissions.ServerDelete);
+
+        await Assert.That(Has(BuiltInRoleKind.TenantOwner)).IsTrue();
+        await Assert.That(Has(BuiltInRoleKind.Administrator)).IsTrue();
+        await Assert.That(Has(BuiltInRoleKind.Operator)).IsFalse();
+        await Assert.That(Has(BuiltInRoleKind.Moderator)).IsFalse();
+        await Assert.That(Has(BuiltInRoleKind.Viewer)).IsFalse();
+    }
+
+    [Test]
     public async Task Viewer_is_read_only()
     {
         // "Read-only visibility" (PRD 12A): every Viewer permission is a .View, so no mutating capability.
@@ -137,7 +151,7 @@ public class BuiltInRolesTests
                  {
                      "Server.Start", "Server.Stop", "Server.Restart", "Server.Configuration.Edit",
                      "Console.Execute", "Backup.Create", "Backup.Restore", "Backup.Delete",
-                     "Player.Kick", "Player.Ban", "Mod.Install", "Mod.Remove", "Server.Recreate",
+                     "Player.Kick", "Player.Ban", "Mod.Install", "Mod.Remove", "Server.Recreate", "Server.Delete",
                  })
         {
             await Assert.That(names).DoesNotContain(mutating);

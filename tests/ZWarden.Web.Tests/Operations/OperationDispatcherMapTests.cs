@@ -64,6 +64,24 @@ public class OperationDispatcherMapTests
         await Assert.That(command.GamePort).IsNull();
         await Assert.That(command.Plan).IsNull();
     }
+    [Test]
+    public async Task A_delete_payload_maps_to_the_delete_command_with_its_plan()
+    {
+        var command = (DeleteServer)OperationDispatcher.CommandFor(
+            OperationKind.DeleteServer, new GracefulRestartPayload([60], "Retiring this server.").ToJson());
+
+        await Assert.That(command.Plan!.WarningLeadSeconds).IsEquivalentTo([60]);
+        await Assert.That(command.Plan!.Reason).IsEqualTo("Retiring this server.");
+    }
+
+    [Test]
+    public async Task A_delete_without_a_plan_uses_the_agents_default_warning()
+    {
+        var command = (DeleteServer)OperationDispatcher.CommandFor(OperationKind.DeleteServer);
+
+        await Assert.That(command.Plan).IsNull();
+    }
+
     // #230: a stand-in for ISecretProtector.UnprotectString — the stored password is never plaintext.
     private static string Unprotect(string envelope) => envelope.StartsWith("enc:", StringComparison.Ordinal)
         ? envelope["enc:".Length..]

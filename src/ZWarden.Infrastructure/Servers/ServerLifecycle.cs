@@ -81,6 +81,22 @@ public sealed class ServerLifecycle : IServerLifecycle
             commandPayload: new ServerContainerPayload(gamePort, plan, heapSizeBytes).ToJson(),
             precheck: (resolved, ct) => CheckRecreateAsync(resolved, gamePort, heapSizeBytes, acknowledgeOvercommit, ct));
 
+    /// <inheritdoc />
+    public Task<ServerLifecycleResult> DeleteAsync(
+        UserId user,
+        ServerId server,
+        string confirmName,
+        GracefulRestartPayload? plan,
+        CancellationToken cancellationToken = default)
+        => RunAsync(
+            user, server, Permissions.ServerDelete, OperationKind.DeleteServer, ServerAuditActions.Deleted,
+            cancellationToken,
+            commandPayload: plan?.ToJson(),
+            precheck: (resolved, _) => Task.FromResult<ServerLifecycleFailure?>(
+                string.Equals(confirmName, resolved.Name, StringComparison.Ordinal) ? null : ServerLifecycleFailure.ConfirmationMismatch),
+            describe: resolved => $"server '{resolved.Name}'",
+            auditRefusals: true);
+
     // The fast control-plane refusals for a recreate: an invalid heap (#230), a raised heap past the host's free memory
     // without the operator's acknowledgement (#230, as the wizard's D1 gate), then the port checks (#229).
     private async Task<ServerLifecycleFailure?> CheckRecreateAsync(
@@ -127,8 +143,23 @@ public sealed class ServerLifecycle : IServerLifecycle
         string auditAction,
         CancellationToken cancellationToken,
         string? commandPayload = null,
-        Func<Server, CancellationToken, Task<ServerLifecycleFailure?>>? precheck = null)
+        Func<Server, CancellationToken, Task<ServerLifecycleFailure?>>? precheck = null,
+        Func<Server, string>? describe = null,
+        bool auditRefusals = false)
     {
+        // A destructive verb (#271) also audits a refused attempt — who tried, on what, and why it was refused.
+        async Task<ServerLifecycleResult> RefuseAsync(ServerLifecycleFailure failure)
+        {
+            if (auditRefusals)
+            {
+                await _audit.WriteAsync(
+                    new AuditEntry(auditAction, AuditOutcome.Denied, user, serverId, failure.ToString()),
+                    cancellationToken).ConfigureAwait(false);
+            }
+
+            return ServerLifecycleResult.Denied(failure);
+        }
+
         // Resolve first, through the tenant filter: an unknown or foreign-tenant Server is ServerNotFound, and
         // gives the server-scoped authorization a concrete resource to check.
         Server? server = await _servers.FindByIdAsync(serverId, cancellationToken).ConfigureAwait(false);
@@ -141,12 +172,12 @@ public sealed class ServerLifecycle : IServerLifecycle
             .EvaluateAsync(user, permission, server: serverId, cancellationToken).ConfigureAwait(false);
         if (!decision.IsAllowed)
         {
-            return ServerLifecycleResult.Denied(ServerLifecycleFailure.NotAuthorized);
+            return await RefuseAsync(ServerLifecycleFailure.NotAuthorized).ConfigureAwait(false);
         }
 
         if (precheck is not null && await precheck(server, cancellationToken).ConfigureAwait(false) is { } refused)
         {
-            return ServerLifecycleResult.Denied(refused);
+            return await RefuseAsync(refused).ConfigureAwait(false);
         }
 
         try
@@ -161,7 +192,9 @@ public sealed class ServerLifecycle : IServerLifecycle
                 cancellationToken).ConfigureAwait(false);
 
             await _audit.WriteAsync(
-                new AuditEntry(auditAction, AuditOutcome.Succeeded, user, serverId, $"operation {operation.Id}"),
+                new AuditEntry(
+                    auditAction, AuditOutcome.Succeeded, user, serverId,
+                    describe is null ? $"operation {operation.Id}" : $"{describe(server)}; operation {operation.Id}"),
                 cancellationToken).ConfigureAwait(false);
 
             return ServerLifecycleResult.Success(operation.Id);

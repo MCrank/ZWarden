@@ -50,6 +50,7 @@ public sealed partial class AgentHub : Hub
     private readonly IConfigurationRevisionRecorder _configRevisions;
     private readonly IModInventoryCache _mods;
     private readonly IBackupRecorder _backups;
+    private readonly IServerRemoval _removal;
     private readonly ControlPlaneMetrics _telemetry;
     private readonly IAuditWriter _audit;
     private readonly ILogger<AgentHub> _logger;
@@ -70,6 +71,7 @@ public sealed partial class AgentHub : Hub
         IConfigurationRevisionRecorder configRevisions,
         IModInventoryCache mods,
         IBackupRecorder backups,
+        IServerRemoval removal,
         ControlPlaneMetrics telemetry,
         IAuditWriter audit,
         ILogger<AgentHub> logger)
@@ -89,6 +91,7 @@ public sealed partial class AgentHub : Hub
         ArgumentNullException.ThrowIfNull(configRevisions);
         ArgumentNullException.ThrowIfNull(mods);
         ArgumentNullException.ThrowIfNull(backups);
+        ArgumentNullException.ThrowIfNull(removal);
         ArgumentNullException.ThrowIfNull(telemetry);
         ArgumentNullException.ThrowIfNull(audit);
         ArgumentNullException.ThrowIfNull(logger);
@@ -107,6 +110,7 @@ public sealed partial class AgentHub : Hub
         _configRevisions = configRevisions;
         _mods = mods;
         _backups = backups;
+        _removal = removal;
         _telemetry = telemetry;
         _audit = audit;
         _logger = logger;
@@ -564,6 +568,13 @@ public sealed partial class AgentHub : Hub
                     restoreResult.ProtectiveBackup.ArchiveName, restoreResult.ProtectiveBackup.SizeBytes,
                     restoreResult.ProtectiveBackup.Sha256, restoreResult.ProtectiveBackup.CreatedAt,
                     Context.ConnectionAborted).ConfigureAwait(false);
+            }
+
+            // A successful delete means the Agent removed the container (#271); remove the Server from the fleet. The
+            // kind and target come from the persisted Operation, and only the owning Agent's report counts (§3).
+            if (completed.ServerId is not null && AgentClaims.TryGetAgentId(Context.User, out AgentId deletingAgent))
+            {
+                await _removal.RecordDeletedAsync(operationId, deletingAgent, Context.ConnectionAborted).ConfigureAwait(false);
             }
 
             await _operations.CompleteSucceededAsync(operationId, Context.ConnectionAborted).ConfigureAwait(false);
