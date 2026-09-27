@@ -319,6 +319,9 @@ Notes, all **measured** in §4.4 unless marked:
 - **No `-allowPUT`, `-allowDELETE`, `-allowPATCH` is set at all**, so those methods return
   **405 Method Not Allowed** rather than 403 — a useful distinction in logs: 405 means "no rule for
   this method", 403 means "method allowed, path did not match".
+  *(Superseded for `DELETE`: [ADR 0045](../adr/0045-recreate-removes-a-stopped-container-by-its-canonical-name-only.md)
+  (#229) adds `-allowDELETE` scoped to UUID-named `srv-<uuid>` containers only, used by Recreate and Delete server
+  (#271). The shipped rule set lives in `deploy/compose/compose.yaml`; this block is the original research snapshot.)*
 - `-allowbindmountfrom` requires an absolute path and is the *only* body-inspecting control
   available. §5 explains precisely how far it goes.
 - The version group is `(/v1\.[0-9]+)?`, **not** the README's `/v1\..{1,2}/`, per §2.3.

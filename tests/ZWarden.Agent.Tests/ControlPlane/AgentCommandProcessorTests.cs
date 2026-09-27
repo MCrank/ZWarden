@@ -502,6 +502,71 @@ public class AgentCommandProcessorTests
     }
 
     [Test]
+    public async Task Delete_server_removes_the_container_and_completes_successfully()
+    {
+        ServerId server = ServerId.New();
+        var runtime = new FakeContainerRuntime
+        {
+            ServerContainer = new ServerContainer("old-id", "exited", new PortAllocation(16261, 16262),
+                new Dictionary<string, string>(StringComparer.Ordinal)),
+        };
+        OperationId operationId = OperationId.New();
+
+        Envelope<OperationCompleted>? reply = await Processor(runtime)
+            .ProcessAsync(Json(new DeleteServer(), operationId, server), CancellationToken.None);
+
+        await Assert.That(reply!.OperationId).IsEqualTo(operationId);
+        await Assert.That(reply.ServerId).IsEqualTo(server);
+        await Assert.That(reply.Payload.Outcome).IsEqualTo(OperationOutcome.Succeeded);
+        await Assert.That(runtime.RemovedServerId).IsEqualTo(server);
+    }
+
+    [Test]
+    public async Task A_failed_delete_server_reports_the_agents_reason()
+    {
+        var runtime = new FakeContainerRuntime
+        {
+            ServerContainer = new ServerContainer("old-id", "exited", new PortAllocation(16261, 16262),
+                new Dictionary<string, string>(StringComparer.Ordinal)),
+            RemoveException = new InvalidOperationException("The container must be stopped before it is removed."),
+        };
+
+        Envelope<OperationCompleted>? reply = await Processor(runtime)
+            .ProcessAsync(Json(new DeleteServer(), OperationId.New(), ServerId.New()), CancellationToken.None);
+
+        await Assert.That(reply!.Payload.Outcome).IsEqualTo(OperationOutcome.Failed);
+        await Assert.That(reply.Payload.FailureReason).Contains("must be stopped");
+    }
+
+    [Test]
+    public async Task Delete_server_without_a_target_server_fails()
+    {
+        Envelope<OperationCompleted>? reply = await Processor()
+            .ProcessAsync(Json(new DeleteServer(), OperationId.New()), CancellationToken.None);
+
+        await Assert.That(reply!.Payload.Outcome).IsEqualTo(OperationOutcome.Failed);
+    }
+
+    [Test]
+    public async Task A_redelivered_delete_server_runs_once()
+    {
+        ServerId server = ServerId.New();
+        var runtime = new FakeContainerRuntime
+        {
+            ServerContainer = new ServerContainer("old-id", "exited", new PortAllocation(16261, 16262),
+                new Dictionary<string, string>(StringComparer.Ordinal)),
+        };
+        AgentCommandProcessor sut = Processor(runtime);
+        string json = Json(new DeleteServer(), OperationId.New(), server);
+
+        await sut.ProcessAsync(json, CancellationToken.None);
+        Envelope<OperationCompleted>? second = await sut.ProcessAsync(json, CancellationToken.None);
+
+        await Assert.That(second).IsNull();
+        await Assert.That(runtime.Calls.Count(c => c == "remove")).IsEqualTo(1);
+    }
+
+    [Test]
     public async Task Start_server_resolves_the_target_and_completes_successfully()
     {
         var runtime = new FakeContainerRuntime();
