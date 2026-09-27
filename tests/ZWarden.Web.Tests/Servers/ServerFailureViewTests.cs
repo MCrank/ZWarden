@@ -45,6 +45,7 @@ public class ServerFailureViewTests
     [Arguments(OperationKind.RestartServer, "Restart")]
     [Arguments(OperationKind.ConfigApplyRaw, "Configuration change")]
     [Arguments(OperationKind.ProvisionServer, "Provisioning")]
+    [Arguments(OperationKind.DeleteServer, "Delete")]
     public async Task Actions_are_named_for_the_operator(OperationKind kind, string expected)
     {
         await Assert.That(ServerFailureView.ActionName(kind)).IsEqualTo(expected);

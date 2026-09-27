@@ -59,6 +59,7 @@ public static class ServerLiveStatus
             OperationKind.UpdateServer => "UPDATING",
             OperationKind.Restore => "RESTORING",
             OperationKind.RecreateServer => "RECREATING",
+            OperationKind.DeleteServer => "DELETING",
             _ => null,
         };
 

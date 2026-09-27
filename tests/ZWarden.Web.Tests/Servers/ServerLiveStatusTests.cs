@@ -61,6 +61,7 @@ public class ServerLiveStatusTests
     [Arguments(OperationKind.UpdateServer, "UPDATING")]
     [Arguments(OperationKind.Restore, "RESTORING")]
     [Arguments(OperationKind.RecreateServer, "RECREATING")]
+    [Arguments(OperationKind.DeleteServer, "DELETING")]
     public async Task A_lifecycle_operation_in_flight_shows_its_transition_as_busy(OperationKind kind, string label)
     {
         // Observed Running throughout a safe stop's grace window — the label still says what is happening.

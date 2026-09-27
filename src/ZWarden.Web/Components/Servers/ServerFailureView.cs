@@ -42,6 +42,7 @@ public sealed record ServerFailureView(string OperationId, string Action, string
         OperationKind.RestartServer => "Restart",
         OperationKind.UpdateServer => "Update",
         OperationKind.RecreateServer => "Recreate",
+        OperationKind.DeleteServer => "Delete",
         OperationKind.ConfigApply or OperationKind.ConfigApplyRaw => "Configuration change",
         OperationKind.Backup => "Backup",
         OperationKind.DeleteBackup => "Backup deletion",

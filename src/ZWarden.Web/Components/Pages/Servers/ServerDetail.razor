@@ -384,6 +384,78 @@ else
                         </EditForm>
                     </div>
                 }
+
+                @* Delete (#271): the most destructive action, gated on the server-scoped Server.Delete. A native <dialog>
+                   (dialog.js) wraps a static-SSR form and keeps Delete disabled until the name is typed; the service
+                   re-checks the typed name on submit, so the dialog is a convenience, not the guard. *@
+                @if (_canDelete)
+                {
+                    bool running = _server.LastRunState is ServerRunState.Running or ServerRunState.Starting;
+                    <div class="mt-5 border-t border-border pt-4" data-delete-server>
+                        <h3 class="text-sm font-semibold text-destructive">Danger zone</h3>
+                        <p class="mt-1 text-xs text-muted-foreground">
+                            Removes this server's container from the host and the server from ZWarden. World data and
+                            backups stay on the host.
+                        </p>
+                        <BbButton Variant="ButtonVariant.Destructive" Type="ButtonType.Button" Size="ButtonSize.Small" Class="mt-3"
+                                  Disabled="@_status.Busy" data-zw-dialog-open="delete-server">Delete server…</BbButton>
+
+                        <dialog data-zw-dialog="delete-server" aria-labelledby="delete-server-title"
+                                class="w-[min(32rem,calc(100vw-2rem))] rounded-lg border border-border bg-card p-5 text-card-foreground shadow-lg backdrop:bg-black/60">
+                            <EditForm Model="_deleteForm" FormName="server-delete" OnValidSubmit="DeleteAsync">
+                                <h2 id="delete-server-title" class="text-base font-semibold">Delete @_server.Name?</h2>
+                                <dl class="mt-3 space-y-1 text-sm">
+                                    <div class="flex justify-between gap-4">
+                                        <dt class="text-muted-foreground">Host</dt>
+                                        <dd class="font-mono text-xs">@_server.AgentId</dd>
+                                    </div>
+                                    <div class="flex justify-between gap-4">
+                                        <dt class="text-muted-foreground">State</dt>
+                                        <dd>@_status.Label</dd>
+                                    </div>
+                                </dl>
+                                <ul class="mt-3 list-disc space-y-1 pl-5 text-sm">
+                                    @if (running)
+                                    {
+                                        <li>It's running: players are warned, then it's stopped safely so the world is saved.</li>
+                                    }
+                                    <li>Its container is removed from the host, and the server leaves the fleet.</li>
+                                    <li>
+                                        World data and backups are kept on the host, in the Agent's data directory (by default
+                                        <code class="font-mono text-xs">/srv/zwarden/pz-data/@_server.Id</code>). Getting them back is manual.
+                                    </li>
+                                    <li class="font-medium">This can't be undone.</li>
+                                </ul>
+                                @if (running)
+                                {
+                                    <div class="mt-3 flex flex-col text-sm">
+                                        <BbLabel For="delete-countdown" Class="mb-1 text-muted-foreground">Warn players</BbLabel>
+                                        @* Explicit Name for static-SSR binding on BbNativeSelect; default first (#84). *@
+                                        <BbNativeSelect TValue="string" Id="delete-countdown" Name="_deleteForm.Countdown" @bind-Value="_deleteForm.Countdown">
+                                            <option value="5m" selected="@(_deleteForm.Countdown is null or "5m")">5 minutes</option>
+                                            <option value="15m" selected="@(_deleteForm.Countdown == "15m")">15 minutes</option>
+                                            <option value="1m" selected="@(_deleteForm.Countdown == "1m")">1 minute</option>
+                                            <option value="immediate" selected="@(_deleteForm.Countdown == "immediate")">Immediately (no warning)</option>
+                                        </BbNativeSelect>
+                                    </div>
+                                }
+                                <div class="mt-3 flex flex-col text-sm">
+                                    <BbLabel For="delete-confirm" Class="mb-1 text-muted-foreground">
+                                        Type <strong class="font-mono text-foreground">@_server.Name</strong> to confirm
+                                    </BbLabel>
+                                    <BbInput Id="delete-confirm" @bind-Value="_deleteForm.ConfirmName" autocomplete="off" spellcheck="false"
+                                             data-zw-confirm-expected="@_server.Name" />
+                                </div>
+                                <div class="mt-4 flex justify-end gap-2">
+                                    <BbButton Variant="ButtonVariant.Outline" Type="ButtonType.Button" Size="ButtonSize.Small"
+                                              data-zw-dialog-close>Cancel</BbButton>
+                                    <BbButton Variant="ButtonVariant.Destructive" Type="ButtonType.Submit" Size="ButtonSize.Small"
+                                              Disabled="true" data-zw-confirm-submit data-action="delete">Delete server</BbButton>
+                                </div>
+                            </EditForm>
+                        </dialog>
+                    </div>
+                }
             </BbCard>
 
             <BbCard Class="p-5">
@@ -1510,6 +1582,9 @@ else
     [SupplyParameterFromForm(FormName = "server-recreate")]
     private RecreateFormModel _recreateForm { get; set; } = default!;
 
+    [SupplyParameterFromForm(FormName = "server-delete")]
+    private DeleteFormModel _deleteForm { get; set; } = default!;
+
     [SupplyParameterFromForm(FormName = "player-action")]
     private PlayerActionModel _actionForm { get; set; } = default!;
 
@@ -1556,6 +1631,7 @@ else
     private ServerStatusView _status = ServerLiveStatus.Resolve(ServerRunState.Unknown, activeOperation: null);
     private bool _canRestartServer;
     private bool _canRecreate;
+    private bool _canDelete;
     private bool _canUpdate;
 
     // Set when a heap change was refused as over the host's free memory (#230 follow-up); shows the acknowledgement.
@@ -1636,6 +1712,7 @@ else
         _lifecycleForm ??= new LifecycleModel();
         _gracefulForm ??= new GracefulRestartFormModel();
         _recreateForm ??= new RecreateFormModel();
+        _deleteForm ??= new DeleteFormModel();
         _configForm.File ??= nameof(PzConfigFile.Ini);
         _configForm.Kind ??= nameof(ConfigEditKind.Bool);
         _selectedFile = ParseFile(_configForm.File);
@@ -1660,6 +1737,7 @@ else
             _canStop = (await PermissionChecker.EvaluateAsync(user, Permissions.ServerStop, serverId)).IsAllowed;
             _canRestartServer = (await PermissionChecker.EvaluateAsync(user, Permissions.ServerRestart, serverId)).IsAllowed;
             _canRecreate = (await PermissionChecker.EvaluateAsync(user, Permissions.ServerRecreate, serverId)).IsAllowed;
+            _canDelete = (await PermissionChecker.EvaluateAsync(user, Permissions.ServerDelete, serverId)).IsAllowed;
             _canUpdate = (await PermissionChecker.EvaluateAsync(user, Permissions.ServerUpdate, serverId)).IsAllowed;
             await LoadModManagementAsync(user, serverId);
             await LoadBackupsAsync(user, serverId);
@@ -1849,6 +1927,29 @@ else
         await RefreshStatusAsync(serverId);
     }
 
+    // Delete the server (#271). The typed name is passed through verbatim — the service compares it with the Server's
+    // name and refuses a mismatch — and on success the page returns to the fleet, where the row shows DELETING until
+    // the Agent reports the container gone.
+    private async Task DeleteAsync()
+    {
+        if (_server is null || !ServerId.TryParse(Id, out ServerId serverId))
+        {
+            return;
+        }
+
+        var plan = new GracefulRestartPayload(CountdownLeads(_deleteForm?.Countdown));
+        UserId user = await CurrentUserAsync();
+        ServerLifecycleResult result = await Lifecycle.DeleteAsync(user, serverId, _deleteForm?.ConfirmName ?? string.Empty, plan);
+        if (result.Succeeded)
+        {
+            Navigation.NavigateTo("/servers");
+            return;
+        }
+
+        SetLifecycleResult("delete", result);
+        await RefreshStatusAsync(serverId);
+    }
+
     private void SetLifecycleResult(string command, ServerLifecycleResult? result)
     {
         if (result is null)
@@ -1884,6 +1985,7 @@ else
             ServerLifecycleFailure.PortInUse => "That game port (or the one above it) is already used by another server on this host.",
             ServerLifecycleFailure.InvalidHeap => "That heap is not allowed.",
             ServerLifecycleFailure.OverCapacity => "That heap does not fit the host's free memory; confirm to recreate it anyway.",
+            ServerLifecycleFailure.ConfirmationMismatch => "The name you typed did not match the server's name, so nothing was deleted.",
             _ => "The action could not be started.",
         };
     }
@@ -3177,6 +3279,15 @@ else
 
         // The operator confirmed a heap past the host's free memory (#230 follow-up, as the wizard's D1).
         public bool AcknowledgeOvercommit { get; set; }
+    }
+
+    private sealed class DeleteFormModel
+    {
+        // The typed confirmation (#271); the service requires it to be exactly the Server's name.
+        public string? ConfirmName { get; set; }
+
+        // The warning preset before the safe stop of a running server, as the graceful-restart panel's (#213).
+        public string Countdown { get; set; } = "5m";
     }
 
     private sealed class GracefulRestartFormModel
