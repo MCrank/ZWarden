@@ -28,7 +28,9 @@
     </div>
 
     <label class="flex items-center gap-2 text-sm text-muted-foreground">
-        <BbCheckbox @bind-Checked="Input.RememberMachine" Class="h-4 w-4" />
+        @* Native, not BbCheckbox: its button only toggles with a circuit and this form has none. *@
+        <input type="checkbox" class="zw-checkbox" id="remember-machine" name="Input.RememberMachine" value="true"
+               checked="@Input.RememberMachine" />
         Trust this device for 30 days
     </label>
 

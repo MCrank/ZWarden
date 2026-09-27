@@ -43,17 +43,22 @@ needs a live `HttpContext` (see `Pages/Audit/AuditLog.razor`, `Pages/Servers/Ser
 Only a subset of Blueprint is safe there:
 
 - **SSR-safe (use on static pages):** `BbLabel`, `BbInput`, `BbNativeSelect`, `BbTextarea`,
-  `BbButton`, `BbCheckbox`, `BbCard` (+ `BbCardHeader/Title/Content/Footer`), `BbAlert`
+  `BbButton`, `BbCard` (+ `BbCardHeader/Title/Content/Footer`), `BbAlert`
   (+ `BbAlertDescription`) **when not `Dismissible`/`AutoDismissAfter`**.
-- **Circuit-only (never on a static page):** `BbSelect`/Combobox, DatePicker, `BbDataGrid`, and any
-  dismissible/auto-dismiss `BbAlert` or toast — these need JS/interactivity. Put them only on a page
-  that opts into an interactive render mode, or defer them.
+- **Circuit-only (never on a static page):** `BbCheckbox`, `BbSelect`/Combobox, DatePicker, `BbDataGrid`,
+  and any dismissible/auto-dismiss `BbAlert` or toast — these need JS/interactivity. Put them only on a
+  page that opts into an interactive render mode, or defer them.
+- **`BbCheckbox` renders but cannot be ticked on a static page.** It is a `<button role="checkbox">`
+  plus a hidden mirror input, and the button only toggles with a circuit. A test that POSTs the field
+  still passes, so the bug only shows in a real browser. On a static form use a native
+  `<input type="checkbox" class="zw-checkbox" name="<full model path>" value="true" checked="@x" />`
+  (styled like BbCheckbox in `Styles/shell.css`) and assert it with `SsrCheckbox.IsNative` in Web.Tests.
 
 ## Gotchas (load-bearing for static-SSR forms)
 
 - **`BbNativeSelect` needs an explicit `Name`** = the full model path (e.g. `_form.Target`); it
-  auto-derives only the leaf name and silently fails to bind on a static POST. `BbInput`/`BbCheckbox`
-  auto-derive the full path correctly.
+  auto-derives only the leaf name and silently fails to bind on a static POST. `BbInput` auto-derives
+  the full path correctly.
 - **`BbButton` splats `name`/`value`/`data-*`** through `AdditionalAttributes` (use the dedicated
   `Disabled` bool, not a splat), which lets several submit buttons share one form and post
   `"{id}|{verb}"` as a single bound value (the `/servers` lifecycle actions).
