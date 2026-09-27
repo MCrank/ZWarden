@@ -14,6 +14,10 @@ public interface IServerDiscoveryCache
     /// <summary>Replaces the discovered set for an Agent with its latest snapshot.</summary>
     void Record(AgentId agentId, IReadOnlyList<DiscoveredServer> servers);
 
+    /// <summary>Drops one Server from the Agent's discovered set — its container was deleted (#271), so it must not be
+    /// offered for import before the Agent's next snapshot.</summary>
+    void Forget(AgentId agentId, ServerId serverId);
+
     /// <summary>The Agent's last-reported discovered containers, or empty if it has reported none.</summary>
     IReadOnlyList<DiscoveredServer> GetDiscovered(AgentId agentId);
 

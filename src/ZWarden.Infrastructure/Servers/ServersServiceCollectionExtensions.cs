@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using ZWarden.Application.Servers;
 using ZWarden.Infrastructure.Agents;
+using ZWarden.Infrastructure.Operations;
 
 namespace ZWarden.Infrastructure.Servers;
 
@@ -30,6 +31,8 @@ public static class ServersServiceCollectionExtensions
         services.AddScoped<IServerLifecycle, ServerLifecycle>();
         services.AddScoped<IServerDiagnostics, ServerDiagnostics>();
         services.AddScoped<IServerStateReconciler, ServerStateReconciler>();
+        services.TryAddScoped<OperationRepository>();
+        services.AddScoped<IServerRemoval, ServerRemoval>();
 
         // The discovery cache holds the last snapshot per Agent in-process; a singleton, like the connection
         // registry it sits beside.
