@@ -148,6 +148,25 @@ public sealed class ServerEndpointsTests
     }
 
     [Test]
+    public async Task Registering_with_an_invalid_branch_is_a_bad_request_and_a_valid_one_is_accepted()
+    {
+        // #258: the JSON API takes the branch name directly (no picker) and gets the same rules.
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        AgentId agent = await SeedAgentAsync(factory);
+
+        HttpResponseMessage refused = await client.PostAsJsonAsync(
+            new Uri("/api/servers", UriKind.Relative), new RegisterServerRequest(agent.ToString(), "old", Branch: "legacy41"));
+        HttpResponseMessage accepted = await client.PostAsJsonAsync(
+            new Uri("/api/servers", UriKind.Relative), new RegisterServerRequest(agent.ToString(), "pinned", Branch: "42.19"));
+
+        await Assert.That(refused.StatusCode).IsEqualTo(HttpStatusCode.BadRequest);
+        await Assert.That(await refused.Content.ReadAsStringAsync()).Contains("invalid_branch");
+        await Assert.That(accepted.StatusCode).IsEqualTo(HttpStatusCode.Accepted);
+        client.Dispose();
+    }
+
+    [Test]
     public async Task Registering_beyond_the_hosts_free_memory_needs_the_acknowledgement()
     {
         const long GiB = 1024L * 1024 * 1024;

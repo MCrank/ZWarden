@@ -26,6 +26,8 @@ namespace ZWarden.Web.Components.Pages.Servers;
 /// <param name="PlayersAge">How old that sample is, e.g. <c>as of 2 min ago</c> (the cell's tooltip), or <c>null</c>.</param>
 /// <param name="Uptime">The compact container uptime, e.g. <c>2h 14m</c>, or <c>—</c>.</param>
 /// <param name="VersionTitle">The Version cell's tooltip — the Steam build id behind the game version — or <c>null</c>.</param>
+/// <param name="Branch">The Build 42 Steam branch (#258), tagged next to the Version when not public; <c>null</c> for public.
+/// Fixed at create, so it is not part of the live poll.</param>
 public sealed record FleetRow(
     string Id,
     string Name,
@@ -41,4 +43,5 @@ public sealed record FleetRow(
     int? Players = null,
     string? PlayersAge = null,
     string Uptime = "—",
-    string? VersionTitle = null);
+    string? VersionTitle = null,
+    string? Branch = null);

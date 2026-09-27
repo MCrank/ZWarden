@@ -436,6 +436,104 @@ public sealed class ServerInventoryPageTests
         await Assert.That(html).Contains("printable");
         client.Dispose();
     }
+
+    // --- #258: the Build 42 branch picker ------------------------------------------------------------------------
+
+    [Test]
+    public async Task The_wizard_offers_the_curated_branches_with_public_first_and_a_custom_field()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        AgentId agent = await SeedAgentAsync(factory);
+        factory.Services.GetRequiredService<IServerDiscoveryCache>().Record(agent, []);
+
+        string html = await (await client.GetAsync(new Uri("/servers", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        // Static SSR shows the first option, so the public default must lead.
+        await Assert.That(Regex.IsMatch(
+            html, "name=\"_registerForm.Branch\"[\\s\\S]*?<option value=\"\"[^>]*>Latest public[\\s\\S]*?value=\"unstable\"[\\s\\S]*?value=\"42.19\"[\\s\\S]*?value=\"custom\""))
+            .IsTrue();
+        await Assert.That(html).Contains("name=\"_registerForm.CustomBranch\"");
+        await Assert.That(html).Contains("data-branch-help");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task The_wizard_posts_a_pinned_branch_and_records_it_on_the_server()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        (HttpClient client, AgentId agent, string token) = await WizardAsync(factory);
+        Dictionary<string, string> form = WizardForm(token, agent, "pinned");
+        form["_registerForm.Branch"] = "42.19";
+        form["_registerForm.CustomBranch"] = "ignored";
+
+        HttpResponseMessage response = await client.PostAsync(new Uri("/servers", UriKind.Relative), new FormUrlEncodedContent(form));
+
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.Redirect);
+        using IServiceScope scope = factory.Services.CreateScope();
+        ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
+        Operation provision = await db.Set<Operation>().SingleAsync(o => o.Kind == OperationKind.ProvisionServer);
+        await Assert.That(ServerContainerPayload.FromJson(provision.CommandPayload!).Branch).IsEqualTo("42.19");
+        await Assert.That((await db.Set<Server>().SingleAsync()).Branch).IsEqualTo("42.19");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task The_wizard_posts_a_custom_branch()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        (HttpClient client, AgentId agent, string token) = await WizardAsync(factory);
+        Dictionary<string, string> form = WizardForm(token, agent, "custom");
+        form["_registerForm.Branch"] = "custom";
+        form["_registerForm.CustomBranch"] = "my-test";
+
+        await client.PostAsync(new Uri("/servers", UriKind.Relative), new FormUrlEncodedContent(form));
+
+        using IServiceScope scope = factory.Services.CreateScope();
+        Operation provision = await scope.ServiceProvider.GetRequiredService<ZWardenDbContext>()
+            .Set<Operation>().SingleAsync(o => o.Kind == OperationKind.ProvisionServer);
+        await Assert.That(ServerContainerPayload.FromJson(provision.CommandPayload!).Branch).IsEqualTo("my-test");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task The_wizard_refuses_build_41_as_a_custom_branch()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        (HttpClient client, AgentId agent, string token) = await WizardAsync(factory);
+        Dictionary<string, string> form = WizardForm(token, agent, "old");
+        form["_registerForm.Branch"] = "custom";
+        form["_registerForm.CustomBranch"] = "legacy41";
+
+        string html = await (await client.PostAsync(new Uri("/servers", UriKind.Relative), new FormUrlEncodedContent(form)))
+            .Content.ReadAsStringAsync();
+
+        await Assert.That(html).Contains("data-register-message");
+        await Assert.That(html).Contains("Build 42 only");
+        using IServiceScope scope = factory.Services.CreateScope();
+        await Assert.That(await scope.ServiceProvider.GetRequiredService<ZWardenDbContext>().Set<Server>().AnyAsync()).IsFalse();
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task The_fleet_board_tags_a_non_public_branch_next_to_the_version()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        using (IServiceScope scope = factory.Services.CreateScope())
+        {
+            ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
+            db.Set<Server>().Add(Server.Register(AgentId.New(), "on-public", DateTimeOffset.UtcNow));
+            db.Set<Server>().Add(Server.Register(AgentId.New(), "on-unstable", DateTimeOffset.UtcNow, branch: "unstable"));
+            await db.SaveChangesAsync();
+        }
+
+        string html = await (await client.GetAsync(new Uri("/servers", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        await Assert.That(Regex.Count(html, "data-fleet-branch")).IsEqualTo(1);
+        await Assert.That(Regex.IsMatch(html, "data-fleet-branch[^>]*>\\s*unstable \\(preview\\)")).IsTrue();
+        client.Dispose();
+    }
     private static async Task<HttpClient> SignedInOperatorAsync(ZWardenWebAppFactory factory)
     {
         await factory.CreateConfirmedUserAsync("op@zwarden.test", StrongPassword);

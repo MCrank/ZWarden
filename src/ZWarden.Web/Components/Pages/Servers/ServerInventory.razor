@@ -178,6 +178,40 @@
                     </label>
                 </fieldset>
 
+                @* #258: the Build 42 Steam branch, fixed after create. Static SSR can't show or hide the custom field, so it
+                   is always there and read only when Custom is picked. BbNativeSelect under SSR shows the first option, so
+                   the public default leads. *@
+                <fieldset class="space-y-3">
+                    <legend class="text-sm font-semibold">Game version</legend>
+                    <div class="grid gap-3 sm:grid-cols-2">
+                        <div class="flex flex-col text-sm">
+                            <BbLabel For="register-branch" Class="mb-1 text-muted-foreground">Build 42 branch</BbLabel>
+                            <BbNativeSelect TValue="string" Id="register-branch" Name="_registerForm.Branch" @bind-Value="_registerForm!.Branch">
+                                @foreach (ServerBranchOption option in ServerBranchCatalog.Options)
+                                {
+                                    <option value="@ServerBranchView.ChoiceValue(option)">@option.Label</option>
+                                }
+                                <option value="@ServerBranchView.CustomChoice">Custom…</option>
+                            </BbNativeSelect>
+                        </div>
+                        <div class="flex flex-col text-sm">
+                            <BbLabel For="register-custom-branch" Class="mb-1 text-muted-foreground">Custom branch</BbLabel>
+                            <BbInput Id="register-custom-branch" @bind-Value="_registerForm!.CustomBranch" Placeholder="Only with Custom…" />
+                        </div>
+                    </div>
+                    <ul class="space-y-1 text-xs text-muted-foreground" data-branch-help>
+                        @foreach (ServerBranchOption option in ServerBranchCatalog.Options)
+                        {
+                            <li><span class="font-medium text-foreground">@option.Label</span>: @option.Description</li>
+                        }
+                        <li><span class="font-medium text-foreground">Custom…</span>: any other Steam branch by name. A name Steam doesn't know stops the install with a clear reason in the logs.</li>
+                    </ul>
+                    <p class="text-xs text-muted-foreground">
+                        The branch is fixed once the server is created. Updates stay on it, so a pinned server doesn't move
+                        when a new build ships.
+                    </p>
+                </fieldset>
+
                 <fieldset class="space-y-3">
                     <legend class="text-sm font-semibold">Memory</legend>
                     <div class="grid gap-3 sm:grid-cols-2">
@@ -337,7 +371,8 @@
                 facts.Players,
                 facts.PlayersSampledAt is { } counted ? FleetFacts.FormatSampleAge(counted, now) : null,
                 FleetFacts.FormatUptime(facts.StartedAt, now),
-                FleetFacts.FormatVersionTitle(facts)));
+                FleetFacts.FormatVersionTitle(facts),
+                server.Branch));
         }
 
         _rows = rows;
@@ -425,6 +460,12 @@
             return;
         }
 
+        if (!ServerBranchView.TryResolve(form.Branch, form.CustomBranch, out string? branch, out string? branchError))
+        {
+            _registerMessage = branchError;
+            return;
+        }
+
         // #230: resolve the heap (typed GiB, else the suggestion for the expected players, else the Agent default) and
         // validate the settings here for a precise message; the service re-validates before anything is created.
         if (!NewServerForm.TryResolveHeap(form.HeapGiB, form.ExpectedPlayers, out long? heap, out string? heapError)
@@ -445,7 +486,7 @@
         }
 
         ServerRegisterResult result = await Inventory.RegisterAsync(
-            user, new NewServerRequest(agentId, form.Name.Trim(), gamePort, heap, settings, form.AcknowledgeOvercommit));
+            user, new NewServerRequest(agentId, form.Name.Trim(), gamePort, heap, settings, form.AcknowledgeOvercommit, branch));
         if (result.Failure == ServerRegisterFailure.OverCapacity && Capacity.GetLatest(agentId) is { } capacity)
         {
             // D1: warn with the numbers and ask for the acknowledgement; the typed values survive the re-render.
@@ -468,6 +509,7 @@
             ServerRegisterFailure.PortInUse => "That game port (or the one above it) is already used by another server on this host.",
             ServerRegisterFailure.InvalidHeap => "That heap is not allowed.",
             ServerRegisterFailure.InvalidSettings => "One of the settings is not allowed.",
+            ServerRegisterFailure.InvalidBranch => "That branch is not allowed.",
             _ => "The server could not be registered.",
         };
     }
@@ -531,6 +573,10 @@
         public string? ExpectedPlayers { get; set; }
 
         public string? HeapGiB { get; set; }
+
+        public string? Branch { get; set; }
+
+        public string? CustomBranch { get; set; }
 
         public bool AcknowledgeOvercommit { get; set; }
     }
