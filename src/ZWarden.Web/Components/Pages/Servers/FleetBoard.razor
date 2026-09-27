@@ -79,12 +79,12 @@
             </BbDataGridTemplateColumn>
 
             <BbDataGridTemplateColumn TData="FleetRow" Title="Version" Sortable="true" SortBy="@(r => (object)r.Version)">
-                @* #258: a non-public branch is tagged beside (not inside) the version span, which live-status.js rewrites. *@
-                <ChildContent Context="r"><span class="font-mono text-xs tabular-nums text-muted-foreground" data-fleet-server="@r.Id" data-fleet-cell="version" title="@r.VersionTitle">@r.Version</span>@if (r.Branch is not null)
-                    {
-                        <BbBadge Variant="@(ServerBranchView.IsPreview(r.Branch) ? BadgeVariant.Secondary : BadgeVariant.Outline)"
-                                 Class="ml-2 align-middle" title="@ServerBranchView.Note(r.Branch)" data-fleet-branch>@ServerBranchView.Label(r.Branch)</BbBadge>
-                    }</ChildContent>
+                @* #258: the Build 42 branch is a second muted line, like the host under the Server name. It sits outside the
+                   version span, which live-status.js rewrites. *@
+                <ChildContent Context="r">
+                    <span class="font-mono text-xs tabular-nums text-muted-foreground" data-fleet-server="@r.Id" data-fleet-cell="version" title="@r.VersionTitle">@r.Version</span>
+                    <span class="block font-mono text-xs text-muted-foreground" title="@ServerBranchView.Note(r.Branch)" data-fleet-branch>@ServerBranchView.Label(r.Branch)</span>
+                </ChildContent>
             </BbDataGridTemplateColumn>
         </Columns>
     </BbDataGrid>

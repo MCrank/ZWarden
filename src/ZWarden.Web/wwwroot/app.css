@@ -2594,10 +2594,6 @@ html {
   vertical-align: top;
 }
 
-.align-middle {
-  vertical-align: middle;
-}
-
 .font-mono {
   font-family: Chivo Mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }

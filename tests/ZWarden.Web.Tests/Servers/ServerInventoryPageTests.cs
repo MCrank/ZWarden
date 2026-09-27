@@ -542,7 +542,7 @@ public sealed class ServerInventoryPageTests
     }
 
     [Test]
-    public async Task The_fleet_board_tags_a_non_public_branch_next_to_the_version()
+    public async Task The_fleet_board_shows_each_servers_branch_as_plain_text_under_the_version()
     {
         await using ZWardenWebAppFactory factory = new();
         HttpClient client = await SignedInOperatorAsync(factory);
@@ -556,7 +556,9 @@ public sealed class ServerInventoryPageTests
 
         string html = await (await client.GetAsync(new Uri("/servers", UriKind.Relative))).Content.ReadAsStringAsync();
 
-        await Assert.That(Regex.Count(html, "data-fleet-branch")).IsEqualTo(1);
+        // Live pass: a plain muted line like the host under the name, not a pill; every row has one so rows line up.
+        await Assert.That(Regex.Count(html, "data-fleet-branch")).IsEqualTo(2);
+        await Assert.That(Regex.IsMatch(html, "<span[^>]*data-fleet-branch[^>]*>public<")).IsTrue();
         await Assert.That(Regex.IsMatch(html, "data-fleet-branch[^>]*>\\s*unstable \\(preview\\)")).IsTrue();
         client.Dispose();
     }
