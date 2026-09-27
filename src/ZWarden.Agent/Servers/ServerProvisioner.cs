@@ -24,6 +24,11 @@ namespace ZWarden.Agent.Servers;
 public sealed record ServerProvisionOutcome(
     bool Succeeded, PortAllocation? Ports, string? ContainerId, string? FailureReason, long? HeapSizeBytes = null);
 
+/// <summary>The result of deleting a Server's container (#271).</summary>
+/// <param name="Succeeded">Whether the Server no longer has a container on this host.</param>
+/// <param name="FailureReason">On failure, an actionable, Agent-authored reason; <c>null</c> on success.</param>
+public sealed record ServerDeleteOutcome(bool Succeeded, string? FailureReason);
+
 /// <summary>
 /// Builds a Server's canonical container from F13's closed create-template: the first time (<see cref="ProvisionAsync"/>,
 /// F14) and again, preserving its data, when its host ports change (<see cref="RecreateAsync"/>, #229, ADR 0045). The
@@ -50,6 +55,18 @@ public interface IServerProvisioner
     Task<ServerProvisionOutcome> RecreateAsync(
         ServerId serverId,
         RecreateServer request,
+        OperationId operationId,
+        IOperationProgressReporter progress,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Deletes <paramref name="serverId"/>'s container (#271): if running, warn players (the request's plan) and stop
+    /// safely; then remove it (owned, stopped, by name — ADR 0045). World data, the install and backups stay on the host.
+    /// An absent container is already deleted, so it succeeds. A failed remove starts a previously running server again.
+    /// </summary>
+    Task<ServerDeleteOutcome> DeleteAsync(
+        ServerId serverId,
+        DeleteServer request,
         OperationId operationId,
         IOperationProgressReporter progress,
         CancellationToken cancellationToken);
@@ -231,6 +248,57 @@ public sealed partial class ServerProvisioner : IServerProvisioner
                 previousSpec.HeapSizeBytes)
             : Failed($"{failure} Rolling back to ports {previous.GamePort}/{previous.DirectPort} also failed ({rollbackFailure}); "
                 + "the server has no container — recreate it again to repair it.");
+    }
+
+    /// <inheritdoc />
+    public async Task<ServerDeleteOutcome> DeleteAsync(
+        ServerId serverId,
+        DeleteServer request,
+        OperationId operationId,
+        IOperationProgressReporter progress,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(progress);
+
+        ServerContainer? current = await _runtime.InspectServerAsync(serverId, cancellationToken).ConfigureAwait(false);
+        if (current is null)
+        {
+            return new ServerDeleteOutcome(true, null); // Nothing on this host — already deleted (or never provisioned).
+        }
+
+        // Warn + safe stop if running (the FIFO save→quit, F15): the world is never killed mid-save.
+        if (current.IsRunning)
+        {
+            await _restartCoordinator.WarnAsync(serverId, request.Plan, operationId, progress, cancellationToken).ConfigureAwait(false);
+            await ReportAsync(progress, operationId, 50, "Stopping the server safely.", cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await _runtime.StopAsync(serverId, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (IsContainerFault(ex))
+            {
+                return new ServerDeleteOutcome(false, $"Stopping the server failed, so nothing was deleted: {Describe(ex)}");
+            }
+        }
+
+        await ReportAsync(progress, operationId, 75, "Removing the container (world data and backups are kept).", cancellationToken)
+            .ConfigureAwait(false);
+        try
+        {
+            await _runtime.RemoveAsync(serverId, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (IsContainerFault(ex) || ex is InvalidOperationException)
+        {
+            if (current.IsRunning)
+            {
+                await TryStartExistingAsync(serverId, cancellationToken).ConfigureAwait(false);
+            }
+
+            return new ServerDeleteOutcome(false, $"Removing the container failed, so nothing was deleted: {Describe(ex)}");
+        }
+
+        return new ServerDeleteOutcome(true, null);
     }
 
     // The operator's pair (validated + pre-flighted), else the container's current pair, else the next free stride.

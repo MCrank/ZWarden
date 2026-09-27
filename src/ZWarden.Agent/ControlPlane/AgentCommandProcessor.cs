@@ -258,6 +258,28 @@ public sealed partial class AgentCommandProcessor
                     operationId,
                     recreateServerId);
 
+            case DeleteServer delete:
+                if (envelope.ServerId is not { } retiredServerId)
+                {
+                    // A delete command with no target Server is malformed — fail it explicitly.
+                    return Completed(OperationOutcome.Failed, "No target Server on the delete command.", operationId);
+                }
+
+                if (!_handled.TryAdd(operationId, 0))
+                {
+                    return null; // Already handling this delete — a redelivered command (PRD 20).
+                }
+
+                // Delete (#271): warn + safe stop → remove by name (ADR 0045). World data and backups stay on the host.
+                ServerDeleteOutcome deleted = await _provisioner
+                    .DeleteAsync(retiredServerId, delete, operationId, progress ?? NullOperationProgressReporter.Instance, cancellationToken)
+                    .ConfigureAwait(false);
+                return Completed(
+                    deleted.Succeeded ? OperationOutcome.Succeeded : OperationOutcome.Failed,
+                    deleted.FailureReason,
+                    operationId,
+                    retiredServerId);
+
             case StartServer:
                 return await LifecycleAsync(
                     envelope, operationId, "start", _containerRuntime.StartAsync, cancellationToken).ConfigureAwait(false);
