@@ -495,6 +495,13 @@ Supporting primary sources:
 - **Not verified by an Indie Stone statement**: that the server uses the anonymous Steam
   *game server* identity for those fetches. Inferred from Valve's `DownloadItem` contract
   plus the absence of any credential field in the PZ server INI. **Confidence: Medium.**
+- **Field observation (maintainer, 2026-09-27, long-running production server; #273):** when a
+  mod updates on the Workshop, players' clients auto-update and then fail the server's Lua
+  checksum check on join. A plain server **restart** fixes it: the server re-fetches
+  `WorkshopItems=` at boot and picks up the newer version, with no Steam credential configured
+  anywhere. So a restart, not SteamCMD `app_update 380870`, is what refreshes Workshop
+  content, and ZWarden's Mods refresh is a safe restart. **Confidence: Medium-High**
+  (repeated in practice; still no Indie Stone statement).
 - Behaviour worth designing around, **Low confidence (hosting vendors only, no primary
   source)**: the download is asynchronous, so a newly added `WorkshopItems=` entry is often
   absent on the first restart and present on the second. —
@@ -1205,11 +1212,16 @@ Ordered by how much it would matter.
     (rev 384118). Substitutes used: direct artifact inspection and live client runs.
 11. **`-betapassword` syntax** — unverified, though `"privatebranches" "1"` on both apps
     confirms password-protected branches exist.
-12. **That the PZ dedicated server uses the anonymous Steam *game server* identity** for its
-    own Workshop fetches. Inferred from Valve's `ISteamUGC::DownloadItem` contract plus the
-    absence of any credential field in the server INI; no Indie Stone statement found.
-13. **Whether Workshop fetching is genuinely asynchronous** such that a newly added
-    `WorkshopItems=` entry needs two restarts. Hosting-vendor claim only.
+12. ~~**That the PZ dedicated server uses the anonymous Steam *game server* identity** for its
+    own Workshop fetches.~~ **Settled in practice (#273, 2026-09-27):** the server fetches
+    `WorkshopItems=` itself at every boot with no credential configured anywhere, including
+    pulling a newer version of an already-installed item (the field observation in §4). Still
+    no Indie Stone statement naming the identity.
+13. ~~**Whether Workshop fetching is genuinely asynchronous** such that a newly added
+    `WorkshopItems=` entry needs two restarts.~~ **Closed for updates (#273, 2026-09-27):** one
+    restart picks up a newer version of an installed item. That a *newly added* entry sometimes
+    needs a second restart is still a hosting-vendor claim; the Mods UI's "refresh discovery
+    after a restart" loop covers it either way.
 14. **Any per-IP rate limit on keyless `GetPublishedFileDetails`.** The documented 100,000
     calls/day is expressed per API key, and this endpoint takes no key.
 15. **No Indie Stone statement that PZ implements Source RCON.** pzwiki has no RCON page

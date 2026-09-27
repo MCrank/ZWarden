@@ -13,7 +13,7 @@ change is an authorized, audited, revisioned Operation, never a silent file poke
 mutates; the [F20b apply/revisions mini-plan](./F20b-configuration-apply-and-revisions.md) and
 [ADR 0011](../adr/0011-configuration-revisions-are-value-level-and-fail-closed.md) (value-level,
 fail-closed config apply — the write path F22 reuses); [ADR 0025](../adr/0025-steamcmd-update-orchestration.md)
-(the F17 update Operation F22 triggers to download Workshop content); the F15 safe restart
+(the F17 update Operation; F22 originally used it to fetch Workshop content — superseded by #273); the F15 safe restart
 (FIFO `save`→`quit`, never SIGTERM); [ADR 0022](../adr/0022-operation-lifecycle-and-per-server-locking.md)
 (mutating server-scoped Operations + per-server lock); [ADR 0018](../adr/0018-zwarden-owned-rbac.md)
 (server-scoped `Mod.*` authorization); [ADR 0019](../adr/0019-audit-is-append-only-tenant-owned-and-binds-the-auth-sink.md)
@@ -38,8 +38,8 @@ existing Operations:
 | **enable / disable** | add/remove the mod id in `Mods=` → recompute the value → **F20b config-apply Operation** |
 | **reorder** | reorder `Mods=` (load order is significant) → recompute → F20b config-apply |
 | **remove** | drop the id from `WorkshopItems=` **and** `Mods=` → recompute both → F20b config-apply |
-| **install** (add) | add the id to `WorkshopItems=` → F20b config-apply → **F17 `UpdateServer`** downloads content → F21 discovery reveals the provided mod id(s) → operator enables them (`Mods=`) |
-| **update** | **F17 `UpdateServer`** Operation (SteamCMD re-validates all Workshop content, ADR 0025) |
+| **install** (add) | add the id to `WorkshopItems=` → F20b config-apply → **F15 safe restart** (PZ downloads it at boot, #273) → F21 discovery reveals the provided mod id(s) → operator enables them (`Mods=`) |
+| **update** | **F15 safe restart** — PZ re-fetches `WorkshopItems=` at boot, which pulls newer Workshop versions (#273; originally the F17 `UpdateServer`, which only updates the game) |
 | **config synchronization** | reconcile `WorkshopItems=` ↔ `Mods=` ↔ disk using **F21's four compat findings** |
 | **safe restart coordination** | **F15** safe restart (FIFO `save`→`quit` + start) — mods load only on boot |
 
@@ -63,7 +63,7 @@ The scope forks were put to the maintainer before writing; all four took the rec
 2. **Install is two-step and operator-driven — no saga engine.** Enabling a mod needs its **mod id**,
    which exists only after the Workshop item downloads and its `mod.info` is read (F21). So install is
    inherently two phases, surfaced honestly: **(1)** "Add & download" — add the Workshop id to
-   `WorkshopItems=` (config-apply), run the F17 update to fetch content, restart; **(2)** once F21
+   `WorkshopItems=` (config-apply), then restart — PZ downloads the item at boot (#273); **(2)** once F21
    discovery reveals the provided mod id(s), the operator ticks which to **enable** (`Mods=`
    config-apply), restart. Each phase is one visible Operation. A one-click "install & enable" saga
    (auto-discover → auto-enable-all → restart) is deferred: it needs orchestration state, an
@@ -87,8 +87,8 @@ The scope forks were put to the maintainer before writing; all four took the rec
    `new ConfigApplyEdit("WorkshopItems", …, "12345;67890")` against `servertest.ini`), which the F20b
    Agent writer already applies byte-preservingly, drift-checked, atomically — and records a
    Configuration Revision on completion. F22 therefore ships **no new `ZWarden.Contracts` message, no
-   new Agent handler, no new `OperationKind` for edits**; the update path is the existing F17
-   `UpdateServer`, the restart path the existing F15. Chosen over a dedicated mod-aware Agent command:
+   new Agent handler, no new `OperationKind` for edits**; the update path is the existing F15
+   restart (#273 — originally F17 `UpdateServer`), the restart path the existing F15. Chosen over a dedicated mod-aware Agent command:
    more protocol surface, and it would bypass the revision/audit/drift trail F20b gives for free.
 
 Decisions taken without escalation (low-risk, pattern-matching existing work):
@@ -153,7 +153,8 @@ player-broadcast-before-restart idea raised during grilling is **[#114](https://
    filter, authorize the mapped `Mod.*`, read the current lists from `IModInventoryCache`
    (`SnapshotUnavailable` when absent), recompute via `ModListEditor` (`NoChange` short-circuits),
    enqueue the config-apply Operation, audit with the `Mod.*` action. `UpdateModsAsync` authorizes
-   `Mod.Update` and enqueues the existing F17 `UpdateServer` Operation.
+   `Mod.Update` (or `Server.Restart`, #273) and enqueues a safe `RestartServer` — originally the F17
+   `UpdateServer`, which silently installed any new game build too.
 3. **Enqueue reuse + `ModAuditActions` (`ZWarden.Infrastructure/Mods` + `Configuration`).** Extract the
    F20b `EnqueueAsync` (baseline capture → mutating config-apply Operation → audit) into a shared
    internal seam both editors call; add `ModAuditActions`. `ServerModManager` impl wires
