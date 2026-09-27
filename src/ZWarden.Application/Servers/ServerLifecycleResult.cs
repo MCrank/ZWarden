@@ -29,6 +29,10 @@ public enum ServerLifecycleFailure
     /// <summary>Raising the heap would take the container's limit past the host's free memory (with the server's current
     /// limit counted as released) and the operator has not acknowledged it (#230).</summary>
     OverCapacity,
+
+    /// <summary>A delete's typed confirmation is not exactly the Server's name (#271) — the server-side re-check behind
+    /// the "are you sure?" dialog.</summary>
+    ConfirmationMismatch,
 }
 
 /// <summary>The outcome of a lifecycle action (F15): on success, the enqueued Operation whose state the caller

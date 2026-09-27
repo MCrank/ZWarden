@@ -167,4 +167,10 @@ public enum OperationKind
     /// optional new game port and graceful-warning plan; the Agent reports the resulting ports and container id in
     /// the same <c>ProvisionResult</c> provisioning uses.</summary>
     RecreateServer = 23,
+
+    /// <summary>Delete a Server (#271): warn + safe stop if running, then remove its container (ADR 0045); on success
+    /// the control plane removes the Server from the fleet. World data and backups stay on the host. A <b>mutating,
+    /// server-scoped</b> Operation, so it claims the per-server lock (ADR 0022). Its command payload is the optional
+    /// graceful-warning plan (<c>GracefulRestartPayload</c>), as <see cref="RestartServer"/>.</summary>
+    DeleteServer = 24,
 }
