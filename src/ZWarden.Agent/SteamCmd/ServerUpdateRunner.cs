@@ -35,6 +35,9 @@ public sealed partial class ServerUpdateRunner : IServerUpdateRunner
 {
     private const int MaxReasonLength = 500;
 
+    // Well inside the control plane's 5-minute Operation lease (#280).
+    private static readonly TimeSpan KeepAliveInterval = TimeSpan.FromMinutes(1);
+
     private readonly IContainerRuntime _runtime;
     private readonly IServerInstallPaths _paths;
     private readonly IServerRestartCoordinator _restartCoordinator;
@@ -93,8 +96,10 @@ public sealed partial class ServerUpdateRunner : IServerUpdateRunner
                 false, null, "This server has no container on its host to update. Provision (register) the server first.");
         }
 
-        DateTimeOffset deadline = _timeProvider.GetUtcNow() + _options.UpdateTimeout;
+        DateTimeOffset lastReportAt = _timeProvider.GetUtcNow();
+        DateTimeOffset deadline = lastReportAt + _options.UpdateTimeout;
         int lastReportedPercent = -1;
+        string? lastStatus = null;
 
         while (true)
         {
@@ -110,10 +115,23 @@ public sealed partial class ServerUpdateRunner : IServerUpdateRunner
 
             SteamCmdUpdateState state = SteamCmdLogParser.Parse(log, session);
 
+            DateTimeOffset now = _timeProvider.GetUtcNow();
             if (state.LatestProgress is { } current && current.Percent != lastReportedPercent)
             {
                 lastReportedPercent = current.Percent;
+                lastStatus = current.Status;
+                lastReportAt = now;
                 await progress.ReportAsync(operationId, current.Percent, current.Status, cancellationToken).ConfigureAwait(false);
+            }
+            else if (state.Outcome == SteamCmdOutcome.Pending && now - lastReportAt >= KeepAliveInterval)
+            {
+                // #280: the control plane renews the Operation's lease only on a progress report, and SteamCMD can go
+                // minutes without a progress line (a 2-minute "timed out waiting for update to start", a slow
+                // bootstrap). Re-report while waiting so a live update is never reaped; UpdateTimeout stays the limit.
+                lastReportAt = now;
+                await progress.ReportAsync(
+                    operationId, Math.Max(lastReportedPercent, 0), lastStatus ?? "Waiting for SteamCMD…", cancellationToken)
+                    .ConfigureAwait(false);
             }
 
             switch (state.Outcome)

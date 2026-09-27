@@ -18,7 +18,7 @@ public class ServerUpdateRunnerTests
 {
     private static ServerUpdateRunner Runner(
         ScriptedRuntime runtime, RecordingPaths paths, TimeSpan? timeout = null,
-        FakeServerRestartCoordinator? coordinator = null) =>
+        FakeServerRestartCoordinator? coordinator = null, TimeProvider? clock = null) =>
         new(
             runtime,
             paths,
@@ -28,7 +28,7 @@ public class ServerUpdateRunnerTests
                 UpdatePollInterval = TimeSpan.Zero,
                 UpdateTimeout = timeout ?? TimeSpan.FromMinutes(5),
             }),
-            TimeProvider.System,
+            clock ?? TimeProvider.System,
             NullLogger<ServerUpdateRunner>.Instance);
 
     private static string Begin(OperationId op) => $"[zwarden] steamcmd update session {op} begin";
@@ -89,6 +89,31 @@ public class ServerUpdateRunnerTests
 
         await Assert.That(outcome.Succeeded).IsTrue();
         await Assert.That(runtime.RestartedServerId).IsEqualTo(serverId);
+    }
+
+    [Test]
+    public async Task A_long_stretch_without_steamcmd_progress_still_reports_so_the_lease_holds()
+    {
+        // #280: the control plane renews the Operation's lease only on a progress report. SteamCMD can go minutes
+        // without a progress line (a 2-minute "timed out waiting for update to start", a slow bootstrap), so the
+        // runner re-reports at least every minute while it waits.
+        OperationId op = OperationId.New();
+        var runtime = new ScriptedRuntime();
+        for (int i = 0; i < 4; i++)
+        {
+            runtime.Logs.Enqueue(Begin(op)); // no progress lines at all
+        }
+
+        runtime.Logs.Enqueue(string.Join('\n', Begin(op), "Success! App '380870' fully installed", EndOk(op)));
+        var reporter = new RecordingReporter();
+        var clock = new SteppingClock(DateTimeOffset.UnixEpoch, TimeSpan.FromSeconds(61));
+
+        ServerUpdateOutcome outcome = await Runner(runtime, new RecordingPaths { BuildId = "1" }, TimeSpan.FromHours(1), clock: clock)
+            .RunAsync(ServerId.New(), op, reporter, CancellationToken.None);
+
+        await Assert.That(outcome.Succeeded).IsTrue();
+        await Assert.That(reporter.Percents.Count).IsGreaterThanOrEqualTo(3);
+        await Assert.That(reporter.Statuses).Contains("Waiting for SteamCMD…");
     }
 
     [Test]
@@ -158,9 +183,12 @@ public class ServerUpdateRunnerTests
     {
         public List<int> Percents { get; } = [];
 
+        public List<string?> Statuses { get; } = [];
+
         public Task ReportAsync(OperationId operationId, int percentComplete, string? statusLine, CancellationToken cancellationToken)
         {
             Percents.Add(percentComplete);
+            Statuses.Add(statusLine);
             return Task.CompletedTask;
         }
     }
@@ -244,5 +272,18 @@ public class ServerUpdateRunnerTests
         public Task RestartAsync(string containerId, CancellationToken cancellationToken) => throw new NotSupportedException();
         public Task StartAsync(ServerId serverId, CancellationToken cancellationToken) => throw new NotSupportedException();
         public Task StopAsync(ServerId serverId, CancellationToken cancellationToken) => throw new NotSupportedException();
+    }
+
+    // A clock that moves forward by a fixed step on every read, so a zero-interval poll loop sees minutes pass.
+    private sealed class SteppingClock(DateTimeOffset start, TimeSpan step) : TimeProvider
+    {
+        private DateTimeOffset _now = start;
+
+        public override DateTimeOffset GetUtcNow()
+        {
+            DateTimeOffset now = _now;
+            _now += step;
+            return now;
+        }
     }
 }

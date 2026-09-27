@@ -59,11 +59,14 @@ pz_build_steamcmd_runscript() {
 # pz_install_succeeded [app_id]  (reads SteamCMD stdout on stdin)
 # Fail-closed: success ONLY if the explicit "fully installed" line is present, because
 # SteamCMD's exit codes are undocumented by Valve (ADR 0009). Anything else is a failure.
+# #280: SteamCMD can print "Timed out waiting for update to start, bailing." and STILL print the
+# success line - the job never ran, so a real update would be missed. That is not a success.
 pz_install_succeeded() {
   local app_id="${1:-$PZ_STEAM_APP_ID}"
   local out
   out="$(cat)"
   case "$out" in
+    *"Timed out waiting for update to start"*) return 1 ;;
     *"Success! App '${app_id}' fully installed"*) return 0 ;;
     *) return 1 ;;
   esac
@@ -82,7 +85,7 @@ pz_install_with_retry() {
   local steamcmd="$1" runscript="$2"
   local attempts="${ZW_PZ_INSTALL_ATTEMPTS:-3}"
   local delay="${ZW_PZ_INSTALL_RETRY_DELAY:-15}"
-  local n out
+  local n out stalled=0
   for (( n = 1; n <= attempts; n++ )); do
     echo "[zwarden] SteamCMD install attempt ${n}/${attempts}..." >&2
     # SteamCMD exits non-zero on a failed app_update (@ShutdownOnFailedCommand); keep the
@@ -99,11 +102,19 @@ pz_install_with_retry() {
         return 2
         ;;
     esac
+    case "${out}" in
+      *"Timed out waiting for update to start"*) stalled=$(( stalled + 1 )) ;;
+    esac
     echo "[zwarden] attempt ${n}/${attempts} did not report a completed install." >&2
     if [ "${n}" -lt "${attempts}" ]; then
       sleep "${delay}"
     fi
   done
+  # #280: the job never started on any attempt - say so plainly. ERROR!-prefixed (no [zwarden]
+  # tag) so the Agent's SteamCmdLogParser takes it as the Operation's failure reason.
+  if [ "${stalled}" -eq "${attempts}" ]; then
+    echo "ERROR! SteamCMD timed out waiting for the update to start on every attempt; the installed build is unchanged."
+  fi
   return 1
 }
 
