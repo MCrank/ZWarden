@@ -15,7 +15,8 @@ public static partial class SteamAppManifest
     {
         ArgumentNullException.ThrowIfNull(manifestContent);
         Match match = BuildIdRegex().Match(manifestContent);
-        return match.Success ? match.Groups["buildid"].Value : null;
+        // "0" is the placeholder SteamCMD writes until a first install commits: not installed yet, so unknown.
+        return match.Success && match.Groups["buildid"].Value != "0" ? match.Groups["buildid"].Value : null;
     }
 
     [GeneratedRegex("\"buildid\"\\s+\"(?<buildid>\\d+)\"", RegexOptions.CultureInvariant)]

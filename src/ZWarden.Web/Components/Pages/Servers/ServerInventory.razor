@@ -139,7 +139,7 @@
                             <BbNativeSelect TValue="string" Id="register-host" Name="_registerForm.AgentId" @bind-Value="_registerForm!.AgentId" Placeholder="Select…">
                                 @foreach (AgentId agent in _knownAgents)
                                 {
-                                    <option value="@agent">@HostOptionLabel(agent)</option>
+                                    <option value="@agent" selected="@(agent.ToString() == _registerForm.AgentId)">@HostOptionLabel(agent)</option>
                                 }
                             </BbNativeSelect>
                         </div>
@@ -189,9 +189,9 @@
                             <BbNativeSelect TValue="string" Id="register-branch" Name="_registerForm.Branch" @bind-Value="_registerForm!.Branch">
                                 @foreach (ServerBranchOption option in ServerBranchCatalog.Options)
                                 {
-                                    <option value="@ServerBranchView.ChoiceValue(option)">@option.Label</option>
+                                    <option value="@ServerBranchView.ChoiceValue(option)" selected="@(ServerBranchView.ChoiceValue(option) == (_registerForm.Branch ?? string.Empty))">@option.Label</option>
                                 }
-                                <option value="@ServerBranchView.CustomChoice">Custom…</option>
+                                <option value="@ServerBranchView.CustomChoice" selected="@(_registerForm.Branch == ServerBranchView.CustomChoice)">Custom…</option>
                             </BbNativeSelect>
                         </div>
                         <div class="flex flex-col text-sm">
@@ -291,7 +291,7 @@
                     <BbNativeSelect TValue="string" Id="import-target" Name="_form.Target" @bind-Value="_form!.Target" Placeholder="Select…">
                         @foreach (DiscoveredServerOnAgent d in _discovered)
                         {
-                            <option value="@($"{d.AgentId}|{d.ServerId}")">@d.ServerId (@d.RunState on @d.AgentId)</option>
+                            <option value="@($"{d.AgentId}|{d.ServerId}")" selected="@($"{d.AgentId}|{d.ServerId}" == _form.Target)">@d.ServerId (@d.RunState on @d.AgentId)</option>
                         }
                     </BbNativeSelect>
                 </div>

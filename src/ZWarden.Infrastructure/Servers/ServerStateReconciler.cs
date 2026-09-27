@@ -99,7 +99,8 @@ public sealed class ServerStateReconciler : IServerStateReconciler
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(buildId);
-        if (buildId.Length is 0 or > ServerConfiguration.InstalledBuildIdMaxLength)
+        // "0" is SteamCMD's placeholder until a first install commits (an older Agent reports it): not a build.
+        if (buildId.Length is 0 or > ServerConfiguration.InstalledBuildIdMaxLength || buildId == "0")
         {
             return; // Observed and untrusted: never store more than the column holds.
         }

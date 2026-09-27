@@ -56,7 +56,7 @@
                 <BbNativeSelect TValue="string" Id="register-host" Name="_registerForm.AgentId" @bind-Value="_registerForm!.AgentId" Placeholder="Select…">
                     @foreach (AgentId agent in _knownAgents)
                     {
-                        <option value="@agent">@agent</option>
+                        <option value="@agent" selected="@(agent.ToString() == _registerForm!.AgentId)">@agent</option>
                     }
                 </BbNativeSelect>
             </div>
@@ -85,7 +85,7 @@
                 <BbNativeSelect TValue="string" Id="import-target" Name="_importForm.Target" @bind-Value="_importForm!.Target" Placeholder="Select…">
                     @foreach (DiscoveredServerOnAgent d in _discovered)
                     {
-                        <option value="@($"{d.AgentId}|{d.ServerId}")">@d.ServerId (@d.RunState on @d.AgentId)</option>
+                        <option value="@($"{d.AgentId}|{d.ServerId}")" selected="@($"{d.AgentId}|{d.ServerId}" == _importForm!.Target)">@d.ServerId (@d.RunState on @d.AgentId)</option>
                     }
                 </BbNativeSelect>
             </div>
