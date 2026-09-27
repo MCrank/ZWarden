@@ -84,7 +84,7 @@ public static class ServerEndpoints
                     Actor(principal, users),
                     new NewServerRequest(
                         agentId, request.Name.Trim(), request.GamePort, request.HeapSizeBytes, request.Settings,
-                        request.AcknowledgeOvercommit),
+                        request.AcknowledgeOvercommit, request.Branch),
                     cancellationToken)
                 .ConfigureAwait(false);
 
@@ -109,6 +109,7 @@ public static class ServerEndpoints
                     Results.Json(new { error = "port_in_use" }, statusCode: StatusCodes.Status409Conflict),
                 ServerRegisterFailure.InvalidHeap => Results.BadRequest(new { error = "invalid_heap" }),
                 ServerRegisterFailure.InvalidSettings => Results.BadRequest(new { error = "invalid_settings" }),
+                ServerRegisterFailure.InvalidBranch => Results.BadRequest(new { error = "invalid_branch" }),
                 ServerRegisterFailure.OverCapacity =>
                     Results.Json(new { error = "over_capacity" }, statusCode: StatusCodes.Status409Conflict),
                 _ => Results.BadRequest(new { error = "register_failed" }),
@@ -445,14 +446,16 @@ public sealed record ImportServerRequest(string AgentId, string ServerId, string
 
 /// <summary>The body of a register request: which host to provision the new Server on, its name, and optionally the
 /// host game port (#229; the pair is it and the port above — omitted ⇒ the next free stride), the JVM heap in bytes, the
-/// initial settings, and the acknowledgement needed when the server would exceed the host's free memory (#230).</summary>
+/// initial settings, the acknowledgement needed when the server would exceed the host's free memory (#230), and the Build 42
+/// Steam branch (#258; omitted ⇒ public, fixed after create).</summary>
 public sealed record RegisterServerRequest(
     string AgentId,
     string Name,
     int? GamePort = null,
     long? HeapSizeBytes = null,
     NewServerSettings? Settings = null,
-    bool AcknowledgeOvercommit = false);
+    bool AcknowledgeOvercommit = false,
+    string? Branch = null);
 
 /// <summary>The optional body of a recreate request (#229): the new host game port (omitted ⇒ keep the current pair),
 /// an optional graceful-warning schedule and reason (omitted ⇒ the Agent's default warning), and an optional new JVM heap in

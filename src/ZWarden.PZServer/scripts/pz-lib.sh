@@ -14,7 +14,7 @@ PZ_UPDATE_REQUEST=".zwarden-update-requested"    # F17: Agent-dropped control-fi
 PZ_STEAMCMD_BAKED="${PZ_STEAMCMD_BAKED:-/opt/steamcmd}" # F17: SteamCMD is baked here, outside any /pz mount
 
 # --- Operator-tunable defaults (mini-plan Q3/Q4/Q6) ------------------------------
-: "${ZW_PZ_BETA:=}"                # empty => public (42.20.x); e.g. legacy41, 42.19
+: "${ZW_PZ_BETA:=}"                # empty => public; e.g. unstable, 42.19 (Build 42 only, #258)
 : "${ZW_PZ_XMS:=4g}"
 : "${ZW_PZ_XMX:=4g}"
 : "${ZW_PZ_STOP_GRACE:=30}"        # seconds between `save` and `quit` on stop
@@ -38,7 +38,8 @@ pz_needs_install() {
 
 # pz_build_steamcmd_runscript <server_dir>
 # Emits the SteamCMD runscript for an anonymous, validated install. -beta is added
-# only when ZW_PZ_BETA is set (default: the public 42.20.x branch).
+# only when ZW_PZ_BETA is set (default: the public branch). The Agent validates the name to
+# [a-z0-9._-] before it reaches here, since it is interpolated unquoted (#258).
 pz_build_steamcmd_runscript() {
   local server_dir="$1"
   local app_update="app_update ${PZ_STEAM_APP_ID}"
@@ -74,7 +75,8 @@ pz_install_succeeded() {
 # and, less often, a transient Steam-side error; re-running app_update warms the config and
 # clears both (ADR 0009). Succeeds as soon as the fail-closed "fully installed" line appears
 # (pz_install_succeeded), retrying up to ZW_PZ_INSTALL_ATTEMPTS with ZW_PZ_INSTALL_RETRY_DELAY
-# seconds between tries; returns 1 only after every attempt fails. SteamCMD output is teed
+# seconds between tries; returns 1 only after every attempt fails, or 2 at once when Steam rejects
+# the ZW_PZ_BETA branch (#258: nothing to retry; the reason is logged). SteamCMD output is teed
 # through so operators still watch progress live.
 pz_install_with_retry() {
   local steamcmd="$1" runscript="$2"
@@ -90,6 +92,13 @@ pz_install_with_retry() {
     if printf '%s' "${out}" | pz_install_succeeded; then
       return 0
     fi
+    # #258: an unknown or password-protected branch is not transient; retrying only delays the reason.
+    case "${out}" in
+      *"Failed to set beta"*)
+        echo "[zwarden] Steam branch '${ZW_PZ_BETA}' does not exist or is password-protected; refusing to launch." >&2
+        return 2
+        ;;
+    esac
     echo "[zwarden] attempt ${n}/${attempts} did not report a completed install." >&2
     if [ "${n}" -lt "${attempts}" ]; then
       sleep "${delay}"

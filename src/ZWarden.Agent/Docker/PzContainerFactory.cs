@@ -1,5 +1,6 @@
 using Docker.DotNet.Models;
 using ZWarden.Agent.Identity;
+using ZWarden.Domain.Servers;
 
 namespace ZWarden.Agent.Docker;
 
@@ -31,6 +32,7 @@ public sealed class PzContainerFactory
     private const string NonRootUser = "10000:10000";
     private const string XmsKey = "ZW_PZ_XMS";
     private const string XmxKey = "ZW_PZ_XMX";
+    private const string BetaKey = "ZW_PZ_BETA";
 
     private readonly IAgentIdentity _identity;
 
@@ -79,12 +81,14 @@ public sealed class PzContainerFactory
             // #198: own the JVM heap here alongside the memory limit so the two can never drift. Overrides the
             // image's standalone ZW_PZ_XMS/XMX defaults for the managed container only; the memory limit below is
             // derived from this heap plus fixed headroom, so a fresh world's off-heap boot spike does not OOM.
+            // #258: the Build 42 branch rides the image's ZW_PZ_BETA, added only when one is chosen (none = public).
             Env =
             [
                 $"HOME={RuntimeTmpfsTarget}",
                 $"TMPDIR={RuntimeTmpfsTarget}",
                 $"{XmsKey}={FormatJvmHeap(spec.HeapSizeBytes)}",
                 $"{XmxKey}={FormatJvmHeap(spec.HeapSizeBytes)}",
+                .. spec.Branch is { } branch ? [$"{BetaKey}={branch}"] : Array.Empty<string>(),
             ],
             HostConfig = new HostConfig
             {
@@ -176,6 +180,14 @@ public sealed class PzContainerFactory
             throw new ArgumentException("The server mount source must be an absolute host path.", nameof(spec));
         }
 
+        // #258: the branch reaches the SteamCMD runscript unquoted, so only a validated, normalized name is accepted
+        // ("public" normalizes to null and must arrive as null).
+        if (spec.Branch is not null
+            && (ServerBranchRules.Validate(spec.Branch) is not null || ServerBranchRules.Normalize(spec.Branch) != spec.Branch))
+        {
+            throw new ArgumentException("The Steam branch must be a validated, normalized Build 42 branch name.", nameof(spec));
+        }
+
         if (spec.HeapSizeBytes <= 0)
         {
             throw new ArgumentException("The JVM heap size must be positive.", nameof(spec));
@@ -219,5 +231,17 @@ public sealed class PzContainerFactory
                 System.Globalization.CultureInfo.InvariantCulture, out long amount)
             ? amount * unit
             : null;
+    }
+
+    /// <summary>
+    /// Reads back the Build 42 Steam branch a container installs from its env (<c>ZW_PZ_BETA</c>, #258), so a Recreate
+    /// keeps it. The image defaults the key to empty; a container-set value replaces that default in the inspected env.
+    /// Returns <c>null</c> for public (absent or empty).
+    /// </summary>
+    public static string? ReadBranch(IEnumerable<string>? environment)
+    {
+        const string Prefix = BetaKey + "=";
+        string? value = environment?.LastOrDefault(e => e.StartsWith(Prefix, StringComparison.Ordinal))?[Prefix.Length..];
+        return string.IsNullOrEmpty(value) ? null : value;
     }
 }

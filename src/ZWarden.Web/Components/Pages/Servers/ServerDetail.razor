@@ -275,6 +275,19 @@ else
                         <dt class="text-muted-foreground">Ports</dt>
                         <dd class="font-mono tabular-nums text-xs">@Ports()</dd>
                     </div>
+                    @* #258: the Build 42 branch is fixed at create; the note says what an F17 Update does on it. *@
+                    <div class="flex justify-between gap-4">
+                        <dt class="text-muted-foreground">Branch</dt>
+                        <dd class="text-right">
+                            <span class="font-mono text-xs" data-server-branch>@ServerBranchView.Label(_server.Branch)</span>
+                            <span class="block text-xs text-muted-foreground">@ServerBranchView.Note(_server.Branch)</span>
+                        </dd>
+                    </div>
+                    <div class="flex justify-between gap-4">
+                        <dt class="text-muted-foreground">Version</dt>
+                        <dd class="font-mono tabular-nums text-xs" data-server-version
+                            title="@(_server.InstalledBuildId is { } build ? $"Steam build {build}" : null)">@(_server.GameVersion ?? _server.InstalledBuildId ?? "—")</dd>
+                    </div>
                     <div class="flex justify-between gap-4">
                         <dt class="text-muted-foreground">Last-reported health</dt>
                         <dd data-last-health>@(_server.LastHealth?.ToString() ?? "—")</dd>

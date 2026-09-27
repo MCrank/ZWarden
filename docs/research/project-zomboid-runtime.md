@@ -79,6 +79,13 @@ So B41.78 is **not** the only MP-capable dedicated server any more, and B42 is n
 Also `"privatebranches" "1"` — password-protected branches exist but are not enumerable
 anonymously. App 108600 (the client) carries an identical branch set.
 
+> **Update 2026-09-27 (#258, re-verified by execution):** `unstable` is back. It carries the build
+> shipped on 2026-09-23 (build id 25485538, description "Unstable"), while `public` is still
+> build 24909836 (2026-08-24). `42.19` (24929695, "Build 42.19.2") and `legacy41`
+> (24928750, "Build 41.78.21") are unchanged. A nonexistent `-beta` name makes SteamCMD print
+> `ERROR! Failed to set beta '<name>'`. It downloads nothing and **exits 0**, so the result must be
+> read from stdout (ADR 0009 holds). ZWarden's curated list is `public` / `unstable` / `42.19`.
+
 - **`unstable` and `b41multiplayer` no longer exist as branch names.** Neither string
   appears in either app's branch list. The official switch-back instructions now name
   `legacy41` and `42.19`, under a Steam UI section renamed "Game Versions & Betas". —

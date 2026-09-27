@@ -565,6 +565,10 @@ namespace ZWarden.Migrations.Sqlite.Migrations
                     b.Property<Guid>("AgentId")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("Branch")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("TEXT");
 

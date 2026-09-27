@@ -21,7 +21,7 @@ public class PzContainerFactoryTests
 
     private static PzContainerSpec ValidSpec(
         string? image = null, string? network = null, string? mount = null, string? serverMount = null,
-        long? memory = null, long? heap = null) =>
+        long? memory = null, long? heap = null, string? branch = null) =>
         new(
             Server,
             "zwarden-srv-abc",
@@ -31,7 +31,8 @@ public class PzContainerFactoryTests
             serverMount ?? "/srv/zwarden/servers/abc.server",
             PortStrideAllocator.ForStride(0),
             memory ?? MemoryLimit,
-            heap ?? HeapSize);
+            heap ?? HeapSize,
+            branch);
 
     private static CreateContainerParameters Build(PzContainerSpec spec) =>
         new PzContainerFactory(new FixedAgentIdentity(Self)).Build(spec);
@@ -261,5 +262,44 @@ public class PzContainerFactoryTests
     {
         await Assert.That(PzContainerFactory.ReadJvmHeap([entry])).IsNull();
         await Assert.That(PzContainerFactory.ReadJvmHeap(null)).IsNull();
+    }
+
+    // --- #258: the Build 42 Steam branch ----------------------------------------------------------------------------
+
+    [Test]
+    public async Task The_env_is_a_closed_set_of_keys()
+    {
+        // No free-form env: exactly the keys the template owns, plus ZW_PZ_BETA only when a branch is chosen.
+        static string[] Keys(CreateContainerParameters p) => [.. p.Env!.Select(e => e[..e.IndexOf('=', StringComparison.Ordinal)]).Order(StringComparer.Ordinal)];
+
+        await Assert.That(Keys(Build(ValidSpec()))).IsEquivalentTo(["HOME", "TMPDIR", "ZW_PZ_XMS", "ZW_PZ_XMX"]);
+        await Assert.That(Keys(Build(ValidSpec(branch: "42.19"))))
+            .IsEquivalentTo(["HOME", "TMPDIR", "ZW_PZ_BETA", "ZW_PZ_XMS", "ZW_PZ_XMX"]);
+    }
+
+    [Test]
+    public async Task A_chosen_branch_is_injected_as_the_image_beta()
+    {
+        await Assert.That(Build(ValidSpec(branch: "unstable")).Env!).Contains("ZW_PZ_BETA=unstable");
+    }
+
+    [Test]
+    [Arguments("42.19 validate")]
+    [Arguments("x;quit")]
+    [Arguments("legacy41")]
+    [Arguments("public")]
+    public async Task A_branch_that_is_not_a_normalized_build_42_name_is_rejected(string branch)
+    {
+        // Defence in depth: the provisioner validates and normalizes first, so the factory accepts only the result.
+        await Assert.That(() => Build(ValidSpec(branch: branch))).Throws<ArgumentException>();
+    }
+
+    [Test]
+    public async Task The_branch_a_container_was_built_with_is_read_back_from_its_env()
+    {
+        await Assert.That(PzContainerFactory.ReadBranch(Build(ValidSpec(branch: "42.19")).Env)).IsEqualTo("42.19");
+        await Assert.That(PzContainerFactory.ReadBranch(Build(ValidSpec()).Env)).IsNull();
+        await Assert.That(PzContainerFactory.ReadBranch(["ZW_PZ_BETA="])).IsNull();
+        await Assert.That(PzContainerFactory.ReadBranch(null)).IsNull();
     }
 }

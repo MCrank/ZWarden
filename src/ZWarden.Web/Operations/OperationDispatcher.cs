@@ -150,7 +150,7 @@ public sealed class OperationDispatcher : IOperationDispatcher
             payload?.HeapSizeBytes);
     }
 
-    // Builds the CreateServer wire command (#229, #230): port, heap and the wizard's initial settings. The stored join
+    // Builds the CreateServer wire command (#229, #230, #258): port, heap, branch and the initial settings. The stored join
     // password is a protected envelope, decrypted here only for the moment the command is built — dispatching one
     // without the protector is a wiring bug, so it throws rather than sending the envelope as the password.
     private static CreateServer CreateCommand(string? commandPayload, Func<string, string>? unprotect)
@@ -167,7 +167,7 @@ public sealed class OperationDispatcher : IOperationDispatcher
                     : null,
                 s.WelcomeMessage)
             : null;
-        return new CreateServer(payload?.GamePort, payload?.HeapSizeBytes, settings);
+        return new CreateServer(payload?.GamePort, payload?.HeapSizeBytes, settings, payload?.Branch);
     }
 
     private static BackupCommandPayload BackupPayload(string? commandPayload) => BackupCommandPayload.FromJson(

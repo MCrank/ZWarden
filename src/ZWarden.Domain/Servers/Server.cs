@@ -87,6 +87,10 @@ public sealed class Server : IVersioned, ITenantOwned
     /// <see cref="RecordObservedGameVersion"/>.</summary>
     public string? GameVersion { get; private set; }
 
+    /// <summary>The Build 42 Steam branch the Server installs (#258), or <c>null</c> for public. Chosen at create and
+    /// fixed: F17 Update and a Recreate stay on it. Imported Servers read as public.</summary>
+    public string? Branch { get; private set; }
+
     /// <summary>When the Server was brought under management (UTC).</summary>
     public DateTimeOffset CreatedAt { get; init; }
 
@@ -134,9 +138,15 @@ public sealed class Server : IVersioned, ITenantOwned
     /// Run-state starts <see cref="ServerRunState.Unknown"/> and the ports/container id are recorded once the
     /// Agent reports them. The <see cref="TenantId"/> is left unset for the ownership interceptor (ADR 0016).
     /// </summary>
-    public static Server Register(AgentId agentId, string name, DateTimeOffset now, string? description = null)
+    public static Server Register(
+        AgentId agentId, string name, DateTimeOffset now, string? description = null, string? branch = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        if (ServerBranchRules.Validate(branch) is { } branchRefusal)
+        {
+            throw new ArgumentException(branchRefusal, nameof(branch));
+        }
+
         if (agentId.IsEmpty)
         {
             throw new ArgumentException("A registered Server must be bound to an Agent.", nameof(agentId));
@@ -148,6 +158,7 @@ public sealed class Server : IVersioned, ITenantOwned
             AgentId = agentId,
             Name = name,
             Description = description,
+            Branch = ServerBranchRules.Normalize(branch),
             CreatedAt = now,
         };
     }

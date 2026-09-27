@@ -18,11 +18,14 @@ namespace ZWarden.Application.Servers;
 /// <param name="HeapSizeBytes">The chosen JVM heap (#230), or <c>null</c> for the Agent's default (provision) / the heap the
 /// container runs with now (recreate). Validated by <c>ServerMemoryRules</c> before enqueue; the Agent re-validates.</param>
 /// <param name="Settings">The new-server wizard's initial settings (#230), seeded before first boot. Provisioning only.</param>
+/// <param name="Branch">The normalized Build 42 Steam branch (#258), or <c>null</c> for public. Provisioning only: a
+/// recreate always keeps the container's branch.</param>
 public sealed record ServerContainerPayload(
     int? GamePort,
     GracefulRestartPayload? Plan = null,
     long? HeapSizeBytes = null,
-    InitialSettingsPayload? Settings = null)
+    InitialSettingsPayload? Settings = null,
+    string? Branch = null)
 {
     private static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web);
 

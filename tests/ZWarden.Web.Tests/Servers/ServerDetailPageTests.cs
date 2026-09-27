@@ -1659,6 +1659,28 @@ public sealed class ServerDetailPageTests
     }
 
     [Test]
+    public async Task The_overview_shows_the_branch_and_that_updates_stay_on_it()
+    {
+        // #258: the branch is fixed at create, so the overview says which one and what an update does.
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        Server server = Server.Register(AgentId.New(), "pinned", DateTimeOffset.UtcNow, branch: "42.19");
+        using (IServiceScope scope = factory.Services.CreateScope())
+        {
+            ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
+            db.Set<Server>().Add(server);
+            await db.SaveChangesAsync();
+        }
+
+        string html = await (await client.GetAsync(new Uri($"/servers/{server.Id}", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        await Assert.That(Regex.IsMatch(html, "data-server-branch[^>]*>\\s*42.19")).IsTrue();
+        await Assert.That(html).Contains("Updates stay on 42.19");
+        await Assert.That(html).Contains("data-server-version");
+        client.Dispose();
+    }
+
+    [Test]
     public async Task The_change_ports_control_shows_the_current_pair_for_a_permitted_owner()
     {
         // #229: an owner holds Server.Recreate, so the overview offers the data-preserving recreate on a new pair.

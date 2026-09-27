@@ -12,12 +12,15 @@ namespace ZWarden.Agent.Docker;
 /// <param name="BindMounts">Bind mounts as container destination → host source.</param>
 /// <param name="HeapSizeBytes">The JVM heap the container runs with (read from its env), or <c>null</c> when unknown —
 /// kept by a Recreate that names no new heap (#230).</param>
+/// <param name="Branch">The Build 42 Steam branch the container installs (read from its env), or <c>null</c> for public —
+/// always kept by a Recreate, since the branch is fixed at create (#258).</param>
 public sealed record ServerContainer(
     string DockerId,
     string State,
     PortAllocation? Ports,
     IReadOnlyDictionary<string, string> BindMounts,
-    long? HeapSizeBytes = null)
+    long? HeapSizeBytes = null,
+    string? Branch = null)
 {
     /// <summary>Whether the container is up (running, restarting or paused) — anything but a stopped state.</summary>
     public bool IsRunning => State is "running" or "restarting" or "paused";
