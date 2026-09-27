@@ -136,7 +136,7 @@ html:not(.dark) .zw-ico-moon { display: inline-block; }
   display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
   padding: 8px 0; background: var(--background); border-bottom: 1px solid var(--border);
 }
-.zw-lifebtns { display: flex; gap: 8px; flex-wrap: wrap; }
+.zw-lifebtns { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .zw-srvlayout { display: grid; grid-template-columns: 176px 1fr; gap: 16px; align-items: start; }
 .zw-secbody { min-width: 0; }
 .zw-rail {

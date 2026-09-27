@@ -158,6 +158,62 @@ public sealed class ServerDetailRailTests
         client.Dispose();
     }
 
+    [Test]
+    public async Task The_update_game_control_renders_in_the_header_with_the_branch_it_follows()
+    {
+        // #273: the F17 game update is reachable from the page, not only the API, and says which branch it pulls.
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "updatable", branch: "42.19");
+
+        string html = await GetAsync(client, $"/servers/{serverId}?section=mods");
+
+        await Assert.That(html).Contains("data-action=\"server-update\"");
+        await Assert.That(html).Contains("Update game");
+        await Assert.That(html).Contains("data-update-branch");
+        await Assert.That(html).Contains("Stays on 42.19 (pinned)");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task The_update_game_control_says_a_public_server_follows_new_releases()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "public-updatable");
+
+        string html = await GetAsync(client, $"/servers/{serverId}");
+
+        await Assert.That(html).Contains("Pulls the latest build on public");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task The_update_game_control_posts_and_enqueues_an_update_server_operation()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, "update-header");
+
+        string page = await GetAsync(client, $"/servers/{serverId}");
+        Dictionary<string, string> form = new(StringComparer.Ordinal)
+        {
+            ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
+            ["_handler"] = "server-lifecycle",
+            ["_lifecycleForm.Command"] = "update",
+        };
+        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}", UriKind.Relative), new FormUrlEncodedContent(form));
+
+        await Assert.That((int)post.StatusCode).IsLessThan(400);
+        Operation? op = FirstOperation(factory, serverId, OperationKind.UpdateServer);
+        await Assert.That(op).IsNotNull();
+        await Assert.That(op!.IsMutating).IsTrue();
+        string html = await post.Content.ReadAsStringAsync();
+        await Assert.That(html).Contains("Game update enqueued");
+        await Assert.That(html).Contains("UPDATING");
+        client.Dispose();
+    }
+
     private static async Task<string> GetAsync(HttpClient client, string relativeUrl) =>
         await (await client.GetAsync(new Uri(relativeUrl, UriKind.Relative))).Content.ReadAsStringAsync();
 
@@ -177,11 +233,13 @@ public sealed class ServerDetailRailTests
         return client;
     }
 
-    private static async Task<ServerId> SeedServerAsync(ZWardenWebAppFactory factory, string name)
+    private static async Task<ServerId> SeedServerAsync(ZWardenWebAppFactory factory, string name, string? branch = null)
     {
         using IServiceScope scope = factory.Services.CreateScope();
         ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
-        Server server = Server.Import(AgentId.New(), ServerId.New(), name, DateTimeOffset.UtcNow);
+        Server server = branch is null
+            ? Server.Import(AgentId.New(), ServerId.New(), name, DateTimeOffset.UtcNow)
+            : Server.Register(AgentId.New(), name, DateTimeOffset.UtcNow, branch: branch);
         db.Set<Server>().Add(server);
         await db.SaveChangesAsync();
         return server.Id;

@@ -63,4 +63,17 @@ public static class ServerBranchView
     public static string Note(string? branch) => branch is null
         ? "Updates follow each new public release."
         : $"Updates stay on {branch}. Changing branch needs a new server.";
+
+    /// <summary>What the header's Update game pulls (#273): a version-named branch (<c>42.19</c>) is a pin that stays put;
+    /// public and any other named branch move to its latest build.</summary>
+    public static string UpdateNote(string? branch) => branch switch
+    {
+        null => "Pulls the latest build on public.",
+        _ when IsPinned(branch) => $"Stays on {branch} (pinned).",
+        _ => $"Pulls the latest build on {Label(branch)}.",
+    };
+
+    // A version-shaped branch name — digits separated by dots, e.g. 42.19 or 42.18.1.
+    private static bool IsPinned(string branch) =>
+        branch.Split('.') is { Length: >= 2 } parts && parts.All(p => p.Length > 0 && p.All(char.IsAsciiDigit));
 }

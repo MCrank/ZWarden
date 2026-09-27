@@ -74,4 +74,16 @@ public class ServerBranchViewTests
         await Assert.That(ServerBranchView.Note(null)).Contains("each new public release");
         await Assert.That(ServerBranchView.Note("42.19")).Contains("stay on 42.19");
     }
+
+    [Test]
+    [Arguments(null, "Pulls the latest build on public.")]
+    [Arguments("unstable", "Pulls the latest build on unstable (preview).")]
+    [Arguments("42.19", "Stays on 42.19 (pinned).")]
+    [Arguments("42.18.1", "Stays on 42.18.1 (pinned).")]
+    [Arguments("iwillbackupmysave", "Pulls the latest build on iwillbackupmysave.")]
+    public async Task The_update_note_says_what_update_game_pulls(string? branch, string expected)
+    {
+        // #273: beside the header's Update game. A version-named branch is a pin; any other branch moves.
+        await Assert.That(ServerBranchView.UpdateNote(branch)).IsEqualTo(expected);
+    }
 }

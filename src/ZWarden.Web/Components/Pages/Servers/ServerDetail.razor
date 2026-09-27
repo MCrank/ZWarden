@@ -84,7 +84,7 @@ else
            rendered as text; live-status.js keeps it current and hides it when there is none. *@
         <span class="text-xs text-muted-foreground" data-status-detail hidden="@(_status.Detail is null)">@_status.Detail</span>
         <span class="zw-spacer"></span>
-        @if (_canStart || _canStop || _canRestartServer)
+        @if (_canStart || _canStop || _canRestartServer || _canUpdate)
         {
             <EditForm Model="_lifecycleForm" FormName="server-lifecycle" OnValidSubmit="LifecycleAsync" class="zw-lifebtns">
                 @if (_canStart)
@@ -107,6 +107,17 @@ else
                               Disabled="@(!RestartEnabled)" name="_lifecycleForm.Command" value="restart" data-action="server-restart">
                         <ShellIcon Name="rotate-cw" /><span class="ml-1">Restart</span>
                     </BbButton>
+                }
+                @* #273: the F17 game update (warn → safe stop → SteamCMD on the server's branch → boot), gated on
+                   Server.Update. The note says which branch it pulls from; a pinned server stays on its version. *@
+                @if (_canUpdate)
+                {
+                    <BbButton Variant="ButtonVariant.Outline" Type="ButtonType.Submit" Size="ButtonSize.Small"
+                              Disabled="@(!UpdateEnabled)" name="_lifecycleForm.Command" value="update" data-action="server-update"
+                              title="@ServerBranchView.UpdateNote(_server.Branch)">
+                        <ShellIcon Name="download" /><span class="ml-1">Update game</span>
+                    </BbButton>
+                    <span class="text-xs text-muted-foreground" data-update-branch>@ServerBranchView.UpdateNote(_server.Branch)</span>
                 }
             </EditForm>
         }
@@ -1534,6 +1545,7 @@ else
     private ServerStatusView _status = ServerLiveStatus.Resolve(ServerRunState.Unknown, activeOperation: null);
     private bool _canRestartServer;
     private bool _canRecreate;
+    private bool _canUpdate;
 
     // Set when a heap change was refused as over the host's free memory (#230 follow-up); shows the acknowledgement.
     private string? _recreateOvercommitWarning;
@@ -1634,6 +1646,7 @@ else
             _canStop = (await PermissionChecker.EvaluateAsync(user, Permissions.ServerStop, serverId)).IsAllowed;
             _canRestartServer = (await PermissionChecker.EvaluateAsync(user, Permissions.ServerRestart, serverId)).IsAllowed;
             _canRecreate = (await PermissionChecker.EvaluateAsync(user, Permissions.ServerRecreate, serverId)).IsAllowed;
+            _canUpdate = (await PermissionChecker.EvaluateAsync(user, Permissions.ServerUpdate, serverId)).IsAllowed;
             await LoadModManagementAsync(user, serverId);
             await LoadBackupsAsync(user, serverId);
             await RefreshStatusAsync(serverId);
@@ -1698,6 +1711,7 @@ else
     private bool StartEnabled => _status.CanStart;
     private bool StopEnabled => _status.CanStop;
     private bool RestartEnabled => _status.CanRestart;
+    private bool UpdateEnabled => _status.CanUpdate;
 
     // The header status from the observed state and the in-flight mutating Operation. Re-read after this request
     // enqueues a lifecycle Operation so the page it renders already says STOPPING / RESTARTING.
@@ -1731,6 +1745,7 @@ else
             "start" => await Lifecycle.StartAsync(user, serverId),
             "stop" => await Lifecycle.StopAsync(user, serverId),
             "restart" => await Lifecycle.RestartAsync(user, serverId),
+            "update" => await Lifecycle.UpdateAsync(user, serverId),
             _ => null,
         };
 
@@ -1831,6 +1846,7 @@ else
                 "stop" => "Stop",
                 "restart" => "Restart",
                 "recreate" => "Recreate",
+                "update" => "Game update",
                 _ => "Action",
             };
             _lifecycleAlert = AlertVariant.Success;
@@ -3131,7 +3147,7 @@ else
 
     private sealed class LifecycleModel
     {
-        // The header lifecycle button's verb: "start" / "stop" / "restart".
+        // The header lifecycle button's verb: "start" / "stop" / "restart" / "update".
         public string? Command { get; set; }
     }
 

@@ -527,6 +527,7 @@ html:not(.dark) .zw-ico-moon {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+  align-items: center;
 }
 
 .zw-srvlayout {
