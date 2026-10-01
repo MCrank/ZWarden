@@ -13,6 +13,7 @@ using ZWarden.Infrastructure.Operations;
 using ZWarden.Infrastructure.Persistence;
 using ZWarden.Web.Agents;
 using ZWarden.Web.Tests.Account;
+using ZWarden.Infrastructure.Tenancy;
 
 namespace ZWarden.Web.Tests.Operations;
 
@@ -56,7 +57,7 @@ public class ServerStateInferenceAttackTests
         await connection.InvokeAsync<ProtocolNegotiationResult>(AgentHubProtocol.Hello, Hello(agentId));
 
         OperationId operationId;
-        using (IServiceScope scope = factory.Services.CreateScope())
+        using (AsyncServiceScope scope = factory.Services.CreateSystemScope())
         {
             IOperationCoordinator coordinator = scope.ServiceProvider.GetRequiredService<IOperationCoordinator>();
             Operation op = await coordinator.EnqueueAsync(
@@ -112,7 +113,7 @@ public class ServerStateInferenceAttackTests
 
     private static async Task<(AgentId AgentId, string Credential)> SeedTrustedAgentAsync(ZWardenWebAppFactory factory)
     {
-        using IServiceScope scope = factory.Services.CreateScope();
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
         ICredentialHasher hasher = scope.ServiceProvider.GetRequiredService<ICredentialHasher>();
         ZWardenDbContext context = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
 
@@ -125,7 +126,7 @@ public class ServerStateInferenceAttackTests
 
     private static async Task<ServerId> SeedServerAsync(ZWardenWebAppFactory factory, AgentId agentId)
     {
-        using IServiceScope scope = factory.Services.CreateScope();
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
         ZWardenDbContext context = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
         Domain.Servers.Server server = Domain.Servers.Server.Import(agentId, ServerId.New(), "alpha", Now);
         context.Add(server);
@@ -135,7 +136,7 @@ public class ServerStateInferenceAttackTests
 
     private static async Task<Domain.Servers.Server> LoadServerAsync(ZWardenWebAppFactory factory, ServerId serverId)
     {
-        using IServiceScope scope = factory.Services.CreateScope();
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
         ZWardenDbContext context = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
         return await context.Set<Domain.Servers.Server>().FirstAsync(s => s.Id == serverId);
     }
@@ -145,7 +146,7 @@ public class ServerStateInferenceAttackTests
     {
         for (int i = 0; i < 100; i++)
         {
-            using IServiceScope scope = factory.Services.CreateScope();
+            using AsyncServiceScope scope = factory.Services.CreateSystemScope();
             OperationRepository repo = new(scope.ServiceProvider.GetRequiredService<ZWardenDbContext>());
             Operation? op = await repo.FindByIdAsync(operationId);
             if (op is not null && op.State == state)

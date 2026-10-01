@@ -7,8 +7,8 @@ namespace ZWarden.Application.Agents;
 /// <see cref="IAgentConnectionRegistry"/>. It stamps the <c>Agent</c> record's <c>LastSeenAt</c>,
 /// <c>ConnectionState</c> and <c>LastProtocolVersion</c> so the operator view survives a Web restart and the
 /// connection monitor has a staleness signal. Implemented in Infrastructure against the tenant-scoped Agent
-/// repository; the connecting Agent has no browser session, so writes run under the default-tenant fallback
-/// (ADR 0016), as F9's enrollment exchange does.
+/// repository; the connecting Agent has no browser session, so writes run under the tenant claim its handshake was
+/// verified under, which the Agent hub filter assigns to every hub scope (#297, ADR 0016).
 /// </summary>
 public interface IAgentConnectionStateWriter
 {

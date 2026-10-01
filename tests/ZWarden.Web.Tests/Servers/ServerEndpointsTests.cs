@@ -12,6 +12,7 @@ using ZWarden.Infrastructure.Authorization;
 using ZWarden.Infrastructure.Persistence;
 using ZWarden.Web.Components.Servers;
 using ZWarden.Web.Tests.Account;
+using ZWarden.Infrastructure.Tenancy;
 
 namespace ZWarden.Web.Tests.Servers;
 
@@ -229,7 +230,7 @@ public sealed class ServerEndpointsTests
 
     private static async Task<AgentId> SeedAgentAsync(ZWardenWebAppFactory factory)
     {
-        using IServiceScope scope = factory.Services.CreateScope();
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
         ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
         Agent agent = Agent.Enroll(AgentHash, EnrollmentId.New(), DateTimeOffset.UtcNow, "host-alpha");
         db.Set<Agent>().Add(agent);

@@ -9,6 +9,7 @@ using ZWarden.Domain.Ids;
 using ZWarden.Domain.Security;
 using ZWarden.Infrastructure.Authorization;
 using ZWarden.Web.Tests.Account;
+using ZWarden.Infrastructure.Tenancy;
 
 namespace ZWarden.Web.Tests.Agents;
 
@@ -145,7 +146,7 @@ public sealed class EnrollmentEndpointsTests
 
     private static async Task<AgentId?> VerifyAsync(ZWardenWebAppFactory factory, string credential)
     {
-        await using AsyncServiceScope scope = factory.Services.CreateAsyncScope();
+        await using AsyncServiceScope scope = factory.Services.CreateSystemScope();
         IAgentCredentialVerifier verifier = scope.ServiceProvider.GetRequiredService<IAgentCredentialVerifier>();
         return await verifier.VerifyAsync(new SecretString(credential));
     }

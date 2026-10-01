@@ -19,6 +19,7 @@ using ZWarden.Infrastructure.Persistence;
 using ZWarden.Infrastructure.Servers;
 using ZWarden.Web.Agents;
 using ZWarden.Web.Tests.Account;
+using ZWarden.Infrastructure.Tenancy;
 
 namespace ZWarden.Web.Tests.Operations;
 
@@ -57,7 +58,7 @@ public class OperationDispatchIntegrationTests
         await connection.InvokeAsync<ProtocolNegotiationResult>(AgentHubProtocol.Hello, Hello(agentId));
 
         OperationId operationId;
-        using (IServiceScope scope = factory.Services.CreateScope())
+        using (AsyncServiceScope scope = factory.Services.CreateSystemScope())
         {
             IOperationCoordinator coordinator = scope.ServiceProvider.GetRequiredService<IOperationCoordinator>();
             Operation op = await coordinator.EnqueueAsync(
@@ -97,7 +98,7 @@ public class OperationDispatchIntegrationTests
         await connection.InvokeAsync<ProtocolNegotiationResult>(AgentHubProtocol.Hello, Hello(agentId));
 
         OperationId operationId;
-        using (IServiceScope scope = factory.Services.CreateScope())
+        using (AsyncServiceScope scope = factory.Services.CreateSystemScope())
         {
             IOperationCoordinator coordinator = scope.ServiceProvider.GetRequiredService<IOperationCoordinator>();
             Operation op = await coordinator.EnqueueAsync(
@@ -141,7 +142,7 @@ public class OperationDispatchIntegrationTests
         await connection.InvokeAsync<ProtocolNegotiationResult>(AgentHubProtocol.Hello, Hello(agentId));
 
         OperationId operationId;
-        using (IServiceScope scope = factory.Services.CreateScope())
+        using (AsyncServiceScope scope = factory.Services.CreateSystemScope())
         {
             IOperationCoordinator coordinator = scope.ServiceProvider.GetRequiredService<IOperationCoordinator>();
             string payload = new ConfigApplyPayload(
@@ -161,7 +162,7 @@ public class OperationDispatchIntegrationTests
         await Assert.That(received.Edits[0].Path).IsEqualTo("Zombies");
 
         // The completion recorded a Configuration Revision (the new drift baseline) against the Server.
-        using (IServiceScope scope = factory.Services.CreateScope())
+        using (AsyncServiceScope scope = factory.Services.CreateSystemScope())
         {
             ConfigurationRevisionRepository revisions =
                 new(scope.ServiceProvider.GetRequiredService<ZWardenDbContext>());
@@ -205,7 +206,7 @@ public class OperationDispatchIntegrationTests
         await connection.InvokeAsync<ProtocolNegotiationResult>(AgentHubProtocol.Hello, Hello(agentId));
 
         OperationId operationId;
-        using (IServiceScope scope = factory.Services.CreateScope())
+        using (AsyncServiceScope scope = factory.Services.CreateSystemScope())
         {
             IOperationCoordinator coordinator = scope.ServiceProvider.GetRequiredService<IOperationCoordinator>();
             string payload = new ConfigApplyPayload(
@@ -220,7 +221,7 @@ public class OperationDispatchIntegrationTests
         Operation? final = await WaitForStateAsync(factory, operationId, OperationState.Succeeded);
         await Assert.That(final!.StatusLine).IsEqualTo("Applied and reloaded live on the running server.");
 
-        using (IServiceScope scope = factory.Services.CreateScope())
+        using (AsyncServiceScope scope = factory.Services.CreateSystemScope())
         {
             ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
             AuditEvent? reload = db.Set<AuditEvent>().AsEnumerable()
@@ -259,7 +260,7 @@ public class OperationDispatchIntegrationTests
         await connection.InvokeAsync<ProtocolNegotiationResult>(AgentHubProtocol.Hello, Hello(agentId));
 
         OperationId operationId;
-        using (IServiceScope scope = factory.Services.CreateScope())
+        using (AsyncServiceScope scope = factory.Services.CreateSystemScope())
         {
             IOperationCoordinator coordinator = scope.ServiceProvider.GetRequiredService<IOperationCoordinator>();
             Operation op = await coordinator.EnqueueAsync(
@@ -271,7 +272,7 @@ public class OperationDispatchIntegrationTests
         Operation? final = await WaitForStateAsync(factory, operationId, OperationState.Succeeded);
         await Assert.That(final!.StatusLine).IsEqualTo("Updated from Steam build 24909836 to 25485538.");
 
-        using (IServiceScope scope = factory.Services.CreateScope())
+        using (AsyncServiceScope scope = factory.Services.CreateSystemScope())
         {
             ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
             AuditEvent? updated = db.Set<AuditEvent>().AsEnumerable()
@@ -318,7 +319,7 @@ public class OperationDispatchIntegrationTests
         await connection.InvokeAsync<ProtocolNegotiationResult>(AgentHubProtocol.Hello, Hello(agentId));
 
         OperationId operationId;
-        using (IServiceScope scope = factory.Services.CreateScope())
+        using (AsyncServiceScope scope = factory.Services.CreateSystemScope())
         {
             IOperationCoordinator coordinator = scope.ServiceProvider.GetRequiredService<IOperationCoordinator>();
             Operation op = await coordinator.EnqueueAsync(
@@ -349,7 +350,7 @@ public class OperationDispatchIntegrationTests
         await using ZWardenWebAppFactory factory = new();
         _ = factory.Services; // force host start
 
-        using IServiceScope scope = factory.Services.CreateScope();
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
         IOperationCoordinator coordinator = scope.ServiceProvider.GetRequiredService<IOperationCoordinator>();
         Operation op = await coordinator.EnqueueAsync(
             new EnqueueOperationRequest(AgentId.New(), OperationKind.DiagnosticsPing, IsMutating: false, "offline"));
@@ -380,7 +381,7 @@ public class OperationDispatchIntegrationTests
 
     private static async Task<(AgentId AgentId, string Credential)> SeedTrustedAgentAsync(ZWardenWebAppFactory factory)
     {
-        using IServiceScope scope = factory.Services.CreateScope();
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
         ICredentialHasher hasher = scope.ServiceProvider.GetRequiredService<ICredentialHasher>();
         ZWardenDbContext context = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
 
@@ -393,7 +394,7 @@ public class OperationDispatchIntegrationTests
 
     private static async Task<ServerId> SeedServerAsync(ZWardenWebAppFactory factory, AgentId agentId)
     {
-        using IServiceScope scope = factory.Services.CreateScope();
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
         ZWardenDbContext context = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
         // The ownership interceptor stamps the ambient (default) tenant on insert (ADR 0016), the same tenant the
         // hub records the revision under — so the completion resolves to this Server.
@@ -410,7 +411,7 @@ public class OperationDispatchIntegrationTests
     {
         for (int i = 0; i < 100; i++)
         {
-            using IServiceScope scope = factory.Services.CreateScope();
+            using AsyncServiceScope scope = factory.Services.CreateSystemScope();
             OperationRepository repo = new(scope.ServiceProvider.GetRequiredService<ZWardenDbContext>());
             Operation? op = await repo.FindByIdAsync(operationId);
             if (op is not null && op.State == state)

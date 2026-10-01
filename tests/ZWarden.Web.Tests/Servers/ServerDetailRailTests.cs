@@ -7,6 +7,7 @@ using ZWarden.Domain.Servers;
 using ZWarden.Infrastructure.Authorization;
 using ZWarden.Infrastructure.Persistence;
 using ZWarden.Web.Tests.Account;
+using ZWarden.Infrastructure.Tenancy;
 
 namespace ZWarden.Web.Tests.Servers;
 
@@ -219,7 +220,7 @@ public sealed class ServerDetailRailTests
 
     private static Operation? FirstOperation(ZWardenWebAppFactory factory, ServerId serverId, OperationKind kind)
     {
-        using IServiceScope scope = factory.Services.CreateScope();
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
         ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
         return db.Set<Operation>().FirstOrDefault(o => o.ServerId == serverId && o.Kind == kind);
     }
@@ -235,7 +236,7 @@ public sealed class ServerDetailRailTests
 
     private static async Task<ServerId> SeedServerAsync(ZWardenWebAppFactory factory, string name, string? branch = null)
     {
-        using IServiceScope scope = factory.Services.CreateScope();
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
         ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
         Server server = branch is null
             ? Server.Import(AgentId.New(), ServerId.New(), name, DateTimeOffset.UtcNow)

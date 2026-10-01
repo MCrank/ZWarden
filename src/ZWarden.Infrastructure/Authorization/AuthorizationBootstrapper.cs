@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using ZWarden.Domain.Ids;
 using ZWarden.Infrastructure.Identity;
 using ZWarden.Infrastructure.Persistence;
+using ZWarden.Infrastructure.Tenancy;
 
 namespace ZWarden.Infrastructure.Authorization;
 
@@ -20,7 +21,7 @@ public static class AuthorizationBootstrapper
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(services);
-        using IServiceScope scope = services.CreateScope();
+        await using AsyncServiceScope scope = services.CreateSystemScope();
         ZWardenDbContext context = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
 
         UserId? adminId = null;

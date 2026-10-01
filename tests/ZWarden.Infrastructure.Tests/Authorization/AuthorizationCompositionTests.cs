@@ -46,7 +46,7 @@ public class AuthorizationCompositionTests
             await AuthorizationBootstrapper.EnsureSeededAsync(root, adminEmail);
             await AuthorizationBootstrapper.EnsureSeededAsync(root, adminEmail); // idempotent second boot
 
-            using IServiceScope scope = root.CreateScope();
+            await using AsyncServiceScope scope = root.CreateSystemScope();
 
             // The enforcement surface resolves.
             await Assert.That(scope.ServiceProvider.GetService<IPermissionChecker>()).IsNotNull();
@@ -102,7 +102,7 @@ public class AuthorizationCompositionTests
             await AdminBootstrapper.EnsureAdminAsync(root, adminEmail, "HostAdminPass123");
             await AuthorizationBootstrapper.EnsureSeededAsync(root, adminEmail);
 
-            using IServiceScope scope = root.CreateScope();
+            await using AsyncServiceScope scope = root.CreateSystemScope();
             UserManager<ApplicationUser> users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
             ApplicationUser admin = (await users.FindByEmailAsync(adminEmail))!;
 

@@ -17,6 +17,7 @@ using ZWarden.Infrastructure.Identity;
 using ZWarden.Infrastructure.Persistence;
 using ZWarden.PzConfig.Revisions;
 using ZWarden.Web.Tests.Account;
+using ZWarden.Infrastructure.Tenancy;
 
 namespace ZWarden.Web.Tests.Servers;
 
@@ -93,7 +94,7 @@ public sealed class ServerDetailPageTests
         HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}?section=players", UriKind.Relative), new FormUrlEncodedContent(form));
 
         await Assert.That((int)post.StatusCode).IsLessThan(400);
-        using IServiceScope scope = factory.Services.CreateScope();
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
         ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
         Operation? op = db.Set<Operation>().FirstOrDefault(o => o.ServerId == serverId && o.Kind == OperationKind.KickPlayer);
         await Assert.That(op).IsNotNull();
@@ -156,7 +157,7 @@ public sealed class ServerDetailPageTests
         HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}?section=config", UriKind.Relative), new FormUrlEncodedContent(form));
 
         await Assert.That((int)post.StatusCode).IsLessThan(400);
-        using IServiceScope scope = factory.Services.CreateScope();
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
         ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
         Operation? op = db.Set<Operation>().FirstOrDefault(o => o.ServerId == serverId && o.Kind == OperationKind.ConfigApply);
         await Assert.That(op).IsNotNull();
@@ -201,7 +202,7 @@ public sealed class ServerDetailPageTests
         HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}?section=config", UriKind.Relative), new FormUrlEncodedContent(form));
 
         await Assert.That((int)post.StatusCode).IsLessThan(400);
-        using IServiceScope scope = factory.Services.CreateScope();
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
         ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
         Operation? op = db.Set<Operation>().FirstOrDefault(o => o.ServerId == serverId && o.Kind == OperationKind.ConfigApply);
         await Assert.That(op).IsNotNull();
@@ -849,7 +850,7 @@ public sealed class ServerDetailPageTests
     // Drives the Server's pending config write to a terminal state, as the Agent's completion would (#226).
     private static async Task FinishOperationAsync(ZWardenWebAppFactory factory, ServerId serverId, bool succeeded, string text)
     {
-        using IServiceScope scope = factory.Services.CreateScope();
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
         ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
         Operation op = db.Set<Operation>().First(o => o.ServerId == serverId && o.Kind == OperationKind.ConfigApply);
         DateTimeOffset now = DateTimeOffset.UtcNow;
@@ -1095,7 +1096,7 @@ public sealed class ServerDetailPageTests
     private static async Task<ConfigurationRevisionId> SeedRevisionAsync(
         ZWardenWebAppFactory factory, ServerId server, PzConfigFile file, string canonicalText, DateTimeOffset at)
     {
-        using IServiceScope scope = factory.Services.CreateScope();
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
         ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
         PzValueSnapshot snapshot = PzValueSnapshot.Parse(canonicalText);
         ConfigurationRevision revision = ConfigurationRevision.Record(server, file, snapshot.CanonicalText, snapshot.Hash, at);
@@ -1420,7 +1421,7 @@ public sealed class ServerDetailPageTests
         HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}?section=console", UriKind.Relative), new FormUrlEncodedContent(form));
 
         await Assert.That((int)post.StatusCode).IsLessThan(400);
-        using IServiceScope scope = factory.Services.CreateScope();
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
         ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
         Operation? op = db.Set<Operation>().FirstOrDefault(o => o.ServerId == serverId && o.Kind == OperationKind.ExecuteConsoleCommand);
         await Assert.That(op).IsNotNull();
@@ -1446,7 +1447,7 @@ public sealed class ServerDetailPageTests
         HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}?section=console", UriKind.Relative), new FormUrlEncodedContent(form));
 
         await Assert.That((int)post.StatusCode).IsLessThan(400);
-        using IServiceScope scope = factory.Services.CreateScope();
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
         ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
         Operation? op = db.Set<Operation>().FirstOrDefault(o => o.ServerId == serverId && o.Kind == OperationKind.ExecuteConsoleCommand);
         await Assert.That(op).IsNull();
@@ -1548,7 +1549,7 @@ public sealed class ServerDetailPageTests
     private static async Task<BackupId> SeedBackupAsync(
         ZWardenWebAppFactory factory, ServerId server, AgentId agent, string archiveName)
     {
-        using IServiceScope scope = factory.Services.CreateScope();
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
         ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
         Backup backup = Backup.Record(server, agent, archiveName, 2048, "abc123", BackupReason.Manual, DateTimeOffset.UtcNow);
         db.Set<Backup>().Add(backup);
@@ -1558,14 +1559,14 @@ public sealed class ServerDetailPageTests
 
     private static bool EnqueuedKind(ZWardenWebAppFactory factory, ServerId serverId, OperationKind kind)
     {
-        using IServiceScope scope = factory.Services.CreateScope();
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
         ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
         return db.Set<Operation>().Any(o => o.ServerId == serverId && o.Kind == kind);
     }
 
     private static string? EnqueuedPayload(ZWardenWebAppFactory factory, ServerId serverId, OperationKind kind)
     {
-        using IServiceScope scope = factory.Services.CreateScope();
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
         ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
         return db.Set<Operation>()
             .Where(o => o.ServerId == serverId && o.Kind == kind)
@@ -1575,7 +1576,7 @@ public sealed class ServerDetailPageTests
 
     private static Operation? FirstOperation(ZWardenWebAppFactory factory, ServerId serverId, OperationKind kind)
     {
-        using IServiceScope scope = factory.Services.CreateScope();
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
         ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
         return db.Set<Operation>().FirstOrDefault(o => o.ServerId == serverId && o.Kind == kind);
     }
@@ -1595,7 +1596,7 @@ public sealed class ServerDetailPageTests
     private static async Task<(ServerId Server, AgentId Agent)> SeedServerAndAgentAsync(ZWardenWebAppFactory factory, string name)
     {
         AgentId agent = AgentId.New();
-        using IServiceScope scope = factory.Services.CreateScope();
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
         ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
         Server server = Server.Import(agent, ServerId.New(), name, DateTimeOffset.UtcNow);
         db.Set<Server>().Add(server);
@@ -1610,7 +1611,7 @@ public sealed class ServerDetailPageTests
         await using ZWardenWebAppFactory factory = new();
         HttpClient client = await SignedInOperatorAsync(factory);
         ServerId serverId = await SeedServerAsync(factory, "refused", gamePort: 17000, queryPort: 17001);
-        using (IServiceScope scope = factory.Services.CreateScope())
+        using (AsyncServiceScope scope = factory.Services.CreateSystemScope())
         {
             ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
             Operation op = Operation.Enqueue(AgentId.New(), OperationKind.RecreateServer, isMutating: true, "k", DateTimeOffset.UtcNow, serverId);
@@ -1649,7 +1650,7 @@ public sealed class ServerDetailPageTests
         await using ZWardenWebAppFactory factory = new();
         HttpClient client = await SignedInOperatorAsync(factory);
         Server server = Server.Register(AgentId.New(), "pinned", DateTimeOffset.UtcNow, branch: "42.19");
-        using (IServiceScope scope = factory.Services.CreateScope())
+        using (AsyncServiceScope scope = factory.Services.CreateSystemScope())
         {
             ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
             db.Set<Server>().Add(server);
@@ -1672,7 +1673,7 @@ public sealed class ServerDetailPageTests
         await using ZWardenWebAppFactory factory = new();
         HttpClient client = await SignedInOperatorAsync(factory);
         ServerId serverId = await SeedServerAsync(factory, "updated");
-        using (IServiceScope scope = factory.Services.CreateScope())
+        using (AsyncServiceScope scope = factory.Services.CreateSystemScope())
         {
             ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
             DateTimeOffset now = DateTimeOffset.UtcNow;
@@ -1782,7 +1783,7 @@ public sealed class ServerDetailPageTests
         HttpClient client = await SignedInOperatorAsync(factory);
         ServerId serverId = await SeedServerAsync(factory, "grow-big", gamePort: 16261, queryPort: 16262);
         AgentId agent;
-        using (IServiceScope scope = factory.Services.CreateScope())
+        using (AsyncServiceScope scope = factory.Services.CreateSystemScope())
         {
             agent = (await scope.ServiceProvider.GetRequiredService<ZWardenDbContext>().Set<Server>().SingleAsync(s => s.Id == serverId)).AgentId;
         }
@@ -1906,7 +1907,7 @@ public sealed class ServerDetailPageTests
         await factory.CreateConfirmedUserAsync("owner@zwarden.test", StrongPassword);
         await AuthorizationBootstrapper.EnsureSeededAsync(factory.Services, "owner@zwarden.test");
         await factory.CreateConfirmedUserAsync("operator@zwarden.test", StrongPassword);
-        using (IServiceScope scope = factory.Services.CreateScope())
+        using (AsyncServiceScope scope = factory.Services.CreateSystemScope())
         {
             ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
             ApplicationUser user = (await scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>()
@@ -1950,7 +1951,7 @@ public sealed class ServerDetailPageTests
         await factory.CreateConfirmedUserAsync("owner@zwarden.test", StrongPassword);
         await AuthorizationBootstrapper.EnsureSeededAsync(factory.Services, "owner@zwarden.test");
         await factory.CreateConfirmedUserAsync("operator@zwarden.test", StrongPassword);
-        using (IServiceScope scope = factory.Services.CreateScope())
+        using (AsyncServiceScope scope = factory.Services.CreateSystemScope())
         {
             ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
             ApplicationUser user = (await scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>()
@@ -1982,7 +1983,7 @@ public sealed class ServerDetailPageTests
     private static async Task<ServerId> SeedServerAsync(
         ZWardenWebAppFactory factory, string name, int? gamePort = null, int? queryPort = null)
     {
-        using IServiceScope scope = factory.Services.CreateScope();
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
         ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
         Server server = Server.Import(AgentId.New(), ServerId.New(), name, DateTimeOffset.UtcNow);
         if (gamePort is int game && queryPort is int query)

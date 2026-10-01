@@ -10,6 +10,7 @@ using ZWarden.Domain.Servers;
 using ZWarden.Infrastructure.Authorization;
 using ZWarden.Infrastructure.Persistence;
 using ZWarden.Web.Tests.Account;
+using ZWarden.Infrastructure.Tenancy;
 
 namespace ZWarden.Web.Tests.Servers;
 
@@ -283,7 +284,7 @@ public sealed class ServerDetailModBrowserTests
 
     private static Operation? FirstOperation(ZWardenWebAppFactory factory, ServerId serverId, OperationKind kind)
     {
-        using IServiceScope scope = factory.Services.CreateScope();
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
         ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
         return db.Set<Operation>().FirstOrDefault(o => o.ServerId == serverId && o.Kind == kind);
     }
@@ -307,7 +308,7 @@ public sealed class ServerDetailModBrowserTests
 
     private static async Task<ServerId> SeedServerAsync(ZWardenWebAppFactory factory, string name)
     {
-        using IServiceScope scope = factory.Services.CreateScope();
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
         ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
         Server server = Server.Import(AgentId.New(), ServerId.New(), name, DateTimeOffset.UtcNow);
         db.Set<Server>().Add(server);
@@ -319,7 +320,7 @@ public sealed class ServerDetailModBrowserTests
         ZWardenWebAppFactory factory, string name)
     {
         AgentId agent = AgentId.New();
-        using IServiceScope scope = factory.Services.CreateScope();
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
         ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
         Server server = Server.Import(agent, ServerId.New(), name, DateTimeOffset.UtcNow);
         db.Set<Server>().Add(server);

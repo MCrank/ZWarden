@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.SignalR;
 using ZWarden.Application.Agents;
 using ZWarden.Application.Configuration;
 using ZWarden.Contracts.Protocol;
@@ -50,7 +51,13 @@ public static class AgentControlPlaneServiceCollectionExtensions
             .AddJsonProtocol(options => options.PayloadSerializerOptions = ProtocolJson.Options)
             // #232: an explicit, bounded receive limit for the Agent hub (SignalR's 32 KB default closed the Agent's
             // connection on a log burst). Scoped to AgentHub only; see AgentHubProtocol for the message budgets.
-            .AddHubOptions<AgentHub>(options => options.MaximumReceiveMessageSize = AgentHubProtocol.MaxReceiveMessageBytes);
+            // #297: each hub scope gets the Agent's tenant claim assigned explicitly (fail closed without one).
+            .AddHubOptions<AgentHub>(options =>
+            {
+                options.MaximumReceiveMessageSize = AgentHubProtocol.MaxReceiveMessageBytes;
+                options.AddFilter<AgentTenantHubFilter>();
+            });
+        services.AddSingleton<AgentTenantHubFilter>();
 
         // The connection monitor: reconciles stale/silent connections to disconnected (the sweeper itself and
         // its options are registered by AddZWardenEnrollment).

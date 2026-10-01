@@ -42,7 +42,7 @@ public class HostCompositionTests
             await Assert.That(seeded).IsTrue();
             await Assert.That(again).IsFalse();
 
-            using IServiceScope scope = root.CreateScope();
+            await using AsyncServiceScope scope = root.CreateSystemScope();
             // The Identity managers and a tenant-scoped context all resolve from one scope.
             await Assert.That(scope.ServiceProvider.GetService<UserManager<ApplicationUser>>()).IsNotNull();
             await Assert.That(scope.ServiceProvider.GetService<SignInManager<ApplicationUser>>()).IsNotNull();

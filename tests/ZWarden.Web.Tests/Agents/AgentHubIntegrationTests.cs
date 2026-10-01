@@ -14,6 +14,7 @@ using ZWarden.Infrastructure.Agents;
 using ZWarden.Infrastructure.Persistence;
 using ZWarden.Web.Agents;
 using ZWarden.Web.Tests.Account;
+using ZWarden.Infrastructure.Tenancy;
 
 namespace ZWarden.Web.Tests.Agents;
 
@@ -396,7 +397,7 @@ public class AgentHubIntegrationTests
 
     private static async Task<(AgentId AgentId, string Credential)> SeedTrustedAgentAsync(ZWardenWebAppFactory factory)
     {
-        using IServiceScope scope = factory.Services.CreateScope();
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
         ICredentialHasher hasher = scope.ServiceProvider.GetRequiredService<ICredentialHasher>();
         ZWardenDbContext context = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
 
@@ -409,14 +410,14 @@ public class AgentHubIntegrationTests
 
     private static async Task<Agent> LoadAgentAsync(ZWardenWebAppFactory factory, AgentId agentId)
     {
-        using IServiceScope scope = factory.Services.CreateScope();
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
         AgentRepository repo = new(scope.ServiceProvider.GetRequiredService<ZWardenDbContext>());
         return (await repo.FindByIdAsync(agentId))!;
     }
 
     private static async Task<ServerId> SeedServerAsync(ZWardenWebAppFactory factory, AgentId agentId)
     {
-        using IServiceScope scope = factory.Services.CreateScope();
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
         ZWardenDbContext context = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
         // The ownership interceptor stamps the ambient (default) tenant on insert (ADR 0016), the same tenant the
         // hub reconciles under — so the reported transitions resolve to this Server.
@@ -428,14 +429,14 @@ public class AgentHubIntegrationTests
 
     private static async Task<Domain.Servers.Server> LoadServerAsync(ZWardenWebAppFactory factory, ServerId serverId)
     {
-        using IServiceScope scope = factory.Services.CreateScope();
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
         ZWardenDbContext context = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
         return (await context.Set<Domain.Servers.Server>().FirstAsync(s => s.Id == serverId));
     }
 
     private static async Task<bool> HasAuditActionAsync(ZWardenWebAppFactory factory, string action)
     {
-        using IServiceScope scope = factory.Services.CreateScope();
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
         ZWardenDbContext context = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
         return await context.Set<AuditEvent>().AnyAsync(e => e.Action == action);
     }

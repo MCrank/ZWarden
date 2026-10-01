@@ -13,6 +13,7 @@ using ZWarden.Infrastructure.Authorization;
 using ZWarden.Infrastructure.Persistence;
 using ZWarden.Web.Components.Servers;
 using ZWarden.Web.Tests.Account;
+using ZWarden.Infrastructure.Tenancy;
 
 namespace ZWarden.Web.Tests.Servers;
 
@@ -283,7 +284,7 @@ public sealed class ServerInventoryPageTests
         };
         await client.PostAsync(new Uri("/servers", UriKind.Relative), new FormUrlEncodedContent(form));
 
-        using IServiceScope scope = factory.Services.CreateScope();
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
         ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
         Operation provision = await db.Set<Operation>().SingleAsync(o => o.Kind == OperationKind.ProvisionServer);
         await Assert.That(ServerContainerPayload.FromJson(provision.CommandPayload!).GamePort).IsEqualTo(27015);
@@ -312,7 +313,7 @@ public sealed class ServerInventoryPageTests
 
         await Assert.That(html).Contains("data-register-message");
         await Assert.That(html).Contains("between 1024 and 65534");
-        using IServiceScope scope = factory.Services.CreateScope();
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
         await Assert.That(await scope.ServiceProvider.GetRequiredService<ZWardenDbContext>().Set<Server>().AnyAsync()).IsFalse();
         client.Dispose();
     }
@@ -360,7 +361,7 @@ public sealed class ServerInventoryPageTests
         HttpResponseMessage response = await client.PostAsync(new Uri("/servers", UriKind.Relative), new FormUrlEncodedContent(form));
 
         await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.Redirect);
-        using IServiceScope scope = factory.Services.CreateScope();
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
         Operation provision = await scope.ServiceProvider.GetRequiredService<ZWardenDbContext>()
             .Set<Operation>().SingleAsync(o => o.Kind == OperationKind.ProvisionServer);
         await Assert.That(provision.CommandPayload!).DoesNotContain("hunter2");
@@ -408,7 +409,7 @@ public sealed class ServerInventoryPageTests
 
         await Assert.That(warned).Contains("data-overcommit-warning");
         await Assert.That(SsrCheckbox.IsNative(warned, "register-acknowledge", "_registerForm.AcknowledgeOvercommit")).IsTrue();
-        using (IServiceScope scope = factory.Services.CreateScope())
+        using (AsyncServiceScope scope = factory.Services.CreateSystemScope())
         {
             await Assert.That(await scope.ServiceProvider.GetRequiredService<ZWardenDbContext>().Set<Server>().AnyAsync()).IsFalse();
         }
@@ -496,7 +497,7 @@ public sealed class ServerInventoryPageTests
         HttpResponseMessage response = await client.PostAsync(new Uri("/servers", UriKind.Relative), new FormUrlEncodedContent(form));
 
         await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.Redirect);
-        using IServiceScope scope = factory.Services.CreateScope();
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
         ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
         Operation provision = await db.Set<Operation>().SingleAsync(o => o.Kind == OperationKind.ProvisionServer);
         await Assert.That(ServerContainerPayload.FromJson(provision.CommandPayload!).Branch).IsEqualTo("42.19");
@@ -515,7 +516,7 @@ public sealed class ServerInventoryPageTests
 
         await client.PostAsync(new Uri("/servers", UriKind.Relative), new FormUrlEncodedContent(form));
 
-        using IServiceScope scope = factory.Services.CreateScope();
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
         Operation provision = await scope.ServiceProvider.GetRequiredService<ZWardenDbContext>()
             .Set<Operation>().SingleAsync(o => o.Kind == OperationKind.ProvisionServer);
         await Assert.That(ServerContainerPayload.FromJson(provision.CommandPayload!).Branch).IsEqualTo("my-test");
@@ -536,7 +537,7 @@ public sealed class ServerInventoryPageTests
 
         await Assert.That(html).Contains("data-register-message");
         await Assert.That(html).Contains("Build 42 only");
-        using IServiceScope scope = factory.Services.CreateScope();
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
         await Assert.That(await scope.ServiceProvider.GetRequiredService<ZWardenDbContext>().Set<Server>().AnyAsync()).IsFalse();
         client.Dispose();
     }
@@ -546,7 +547,7 @@ public sealed class ServerInventoryPageTests
     {
         await using ZWardenWebAppFactory factory = new();
         HttpClient client = await SignedInOperatorAsync(factory);
-        using (IServiceScope scope = factory.Services.CreateScope())
+        using (AsyncServiceScope scope = factory.Services.CreateSystemScope())
         {
             ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
             db.Set<Server>().Add(Server.Register(AgentId.New(), "on-public", DateTimeOffset.UtcNow));
@@ -579,7 +580,7 @@ public sealed class ServerInventoryPageTests
 
     private static async Task<(ServerId ServerId, AgentId AgentId)> SeedServerWithAgentAsync(ZWardenWebAppFactory factory, string name)
     {
-        using IServiceScope scope = factory.Services.CreateScope();
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
         ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
         AgentId agentId = AgentId.New();
         Server server = Server.Import(agentId, ServerId.New(), name, DateTimeOffset.UtcNow);
@@ -590,7 +591,7 @@ public sealed class ServerInventoryPageTests
 
     private static async Task<AgentId> SeedAgentAsync(ZWardenWebAppFactory factory)
     {
-        using IServiceScope scope = factory.Services.CreateScope();
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
         ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
         Agent agent = Agent.Enroll(AgentHash, EnrollmentId.New(), DateTimeOffset.UtcNow, "host-alpha");
         db.Set<Agent>().Add(agent);

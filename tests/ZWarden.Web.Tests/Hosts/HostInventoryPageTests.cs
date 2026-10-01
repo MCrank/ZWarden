@@ -11,6 +11,7 @@ using ZWarden.Infrastructure.Authorization;
 using ZWarden.Infrastructure.Persistence;
 using ZWarden.Web.Components.Pages.Hosts;
 using ZWarden.Web.Tests.Account;
+using ZWarden.Infrastructure.Tenancy;
 
 namespace ZWarden.Web.Tests.Hosts;
 
@@ -141,7 +142,7 @@ public sealed class HostInventoryPageTests
 
     private static async Task<AgentId> SeedHostAsync(ZWardenWebAppFactory factory)
     {
-        using IServiceScope scope = factory.Services.CreateScope();
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
         ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
         Agent agent = Agent.Enroll(AgentHash, EnrollmentId.New(), DateTimeOffset.UtcNow, "remote-alpha");
         agent.MarkConnected(protocolVersion: 1, DateTimeOffset.UtcNow);
@@ -153,7 +154,7 @@ public sealed class HostInventoryPageTests
 
     private static async Task<ServerId> SeedServerOnAsync(ZWardenWebAppFactory factory, AgentId agentId, string name)
     {
-        using IServiceScope scope = factory.Services.CreateScope();
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
         ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
         Server server = Server.Import(agentId, ServerId.New(), name, DateTimeOffset.UtcNow);
         db.Set<Server>().Add(server);

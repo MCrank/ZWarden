@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using ZWarden.Infrastructure.Tenancy;
 
 namespace ZWarden.Infrastructure.Operations;
 
@@ -56,7 +57,7 @@ public sealed partial class OperationReaperService : BackgroundService
     {
         try
         {
-            using IServiceScope scope = _scopeFactory.CreateScope();
+            await using AsyncServiceScope scope = _scopeFactory.CreateSystemScope();
             OperationReaper reaper = scope.ServiceProvider.GetRequiredService<OperationReaper>();
             int reaped = await reaper.ReapAsync(stoppingToken).ConfigureAwait(false);
             if (reaped > 0)

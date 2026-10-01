@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using ZWarden.Application.Setup;
 using ZWarden.Domain.Setup;
 using ZWarden.Web.Tests.Account;
+using ZWarden.Infrastructure.Tenancy;
 
 namespace ZWarden.Web.Tests.Setup;
 
@@ -118,7 +119,7 @@ public sealed class SetupFlowTests
         await Assert.That(servers.StatusCode).IsEqualTo(HttpStatusCode.OK);
 
         // Completion and the declared TLS mode persisted.
-        using IServiceScope scope = factory.Services.CreateScope();
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
         ISetupState setup = scope.ServiceProvider.GetRequiredService<ISetupState>();
         await Assert.That(await setup.IsSetupCompleteAsync()).IsTrue();
         await Assert.That(await setup.GetTlsModeAsync()).IsEqualTo(TlsMode.Public);
