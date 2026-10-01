@@ -1,8 +1,10 @@
+using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
 using ZWarden.Application.Authorization;
 using ZWarden.Application.Tenancy;
 using ZWarden.Domain.Authorization;
 using ZWarden.Domain.Ids;
+using ZWarden.Infrastructure.Identity;
 using ZWarden.Infrastructure.Persistence;
 
 namespace ZWarden.Infrastructure.Authorization;
@@ -118,8 +120,24 @@ public sealed class RoleAdministrationService
             .ConfigureAwait(false);
         _context.RemoveRange(assignments);
         _context.Remove(role);
+
+        // #297 (decision D4): a revoked assignment bumps its user's security stamp in the same save, so their
+        // session cookie and any open interactive page are re-validated off it within a minute.
+        HashSet<Guid> affected = [.. assignments.Select(a => a.UserId.Value)];
+        List<ApplicationUser> users = await _context.Users
+            .Where(u => affected.Contains(u.Id))
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        foreach (ApplicationUser user in users)
+        {
+            user.SecurityStamp = NewSecurityStamp();
+        }
+
         await _context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }
+
+    // The same shape Identity mints (a random value; only inequality with the old stamp matters).
+    private static string NewSecurityStamp() => Convert.ToHexString(RandomNumberGenerator.GetBytes(20));
 
     private async Task<IReadOnlySet<string>> RequireRoleManageAsync(UserId actor, CancellationToken cancellationToken)
     {
