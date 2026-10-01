@@ -26,6 +26,11 @@ public abstract class ServerSectionBase : ComponentBase
     [Inject]
     private UserManager<ApplicationUser> Users { get; set; } = default!;
 
+    /// <summary>The bookmarkable link to another rail section of this Server (#162).</summary>
+    protected string SectionHref(string section) => section == "overview"
+        ? $"/servers/{Server.Id}"
+        : $"/servers/{Server.Id}?section={section}";
+
     /// <summary>The signed-in operator, re-read on each submit.</summary>
     protected async Task<UserId> CurrentUserAsync()
     {
