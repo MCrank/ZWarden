@@ -30,8 +30,8 @@
 
   <ItemGroup>
     <!-- UI component library - exact pins (ADR 0003); never 3.*. -->
-    <PackageVersion Include="BlazorBlueprint.Components" Version="3.16.0" />
-    <PackageVersion Include="BlazorBlueprint.Primitives" Version="3.16.0" />
+    <PackageVersion Include="BlazorBlueprint.Components" Version="4.1.0" />
+    <PackageVersion Include="BlazorBlueprint.Primitives" Version="4.1.0" />
   </ItemGroup>
 
   <ItemGroup>
