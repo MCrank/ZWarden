@@ -7,7 +7,7 @@ drawer and dark-mode toggle. It uses **no interactive BlazorBlueprint
 components**, so it opens **no Blazor Server circuit**. This is a deliberate,
 documented exception to ADR 0003 ("prefer `Bb*` unless there is no SSR-safe fit").
 
-- Status: accepted
+- Status: accepted; amended by [ADR 0046](./0046-pages-may-opt-into-interactive-rendering-the-shell-stays-static.md)
 - Decided in: #157 (UI redesign epic #156); user-approved after a scale analysis
 - Bears on: ADR 0003 (Blueprint wrapper seam), PRD 12 (server-side authz), #63
   (static auth pages), #154 (authz-in-circuit concurrency)
@@ -65,6 +65,11 @@ Render the shell as **static SSR chrome**:
 Interactive render modes remain available and are used exactly where
 interactivity is genuinely needed — the ServerDetail `Live*` panels — as opt-in
 islands.
+
+> **Amendment ([ADR 0046](./0046-pages-may-opt-into-interactive-rendering-the-shell-stays-static.md), #296):**
+> a feature page may now opt into `@rendermode InteractiveServer` as a whole page, not only through
+> `Live*` islands. In v1.0 that's Server Detail and Settings. The shell itself is unchanged: it stays
+> static chrome, for the reasons above.
 
 ## Alternatives considered
 
