@@ -1997,6 +1997,10 @@ html {
   inset: 0px;
 }
 
+.m-auto {
+  margin: auto;
+}
+
 .mb-1 {
   margin-bottom: 0.25rem;
 }
