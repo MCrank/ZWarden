@@ -5,32 +5,19 @@
    1024-element form-collection limit (~5 values x 1024 rows); a larger post is refused by FormLimitGuardMiddleware with
    an operator message. config-editor.js normally posts just the changed rows. *@
 @attribute [Microsoft.AspNetCore.Mvc.RequestFormLimits(ValueCountLimit = 6144)]
-@using System.Globalization
 @using System.Security.Claims
 @using ZWarden.Application.Authorization
-@using ZWarden.Application.Backups
-@using ZWarden.Application.Configuration
-@using ZWarden.Application.Console
-@using ZWarden.Application.Diagnostics
-@using ZWarden.Application.Mods
 @using ZWarden.Application.Operations
-@using ZWarden.Application.Players
 @using ZWarden.Application.Servers
-@using ZWarden.Application.Workshop
 @using ZWarden.Domain.Authorization
-@using ZWarden.Domain.Backups
-@using ZWarden.Domain.Configuration
 @using ZWarden.Domain.Ids
 @using ZWarden.Domain.Operations
-@using ZWarden.Web.Hosting
 @using ZWarden.Web.Time
 @using ZWarden.Web.Components.Servers
 @using ZWarden.Web.Components.Pages.Servers.Sections
 @inject IServerInventory Inventory
 @inject IOperationStore OperationStore
-@inject NavigationManager Navigation
 @inject IServerLifecycle Lifecycle
-@inject IHostCapacityCache Capacity
 @inject IPermissionChecker PermissionChecker
 @inject IOperatorTimeZoneProvider OperatorTz
 @inject UserManager<ApplicationUser> Users
@@ -41,7 +28,10 @@
    per-server Player.* / Server.Configuration.Edit, re-checked in the service on submit (ADR 0018). The durable
    metadata + last-reported health render statically here; the LIVE meters/health and the LIVE roster ride
    interactive islands that read only the ownership-guarded in-memory caches (no tenant context, which a circuit
-   lacks). All Agent-reported text (including usernames) is untrusted and rendered as data (§8). *@
+   lacks). All Agent-reported text (including usernames) is untrusted and rendered as data (§8).
+   #298: the page owns the route, the Server load, every per-server permission gate, the header (lifecycle,
+   countdown restart, last failure) and the rail; each rail section is its own component under Sections/ and owns
+   its forms, handlers and data. *@
 
 <PageTitle>@(_server?.Name ?? "Server") — ZWarden</PageTitle>
 
@@ -257,243 +247,40 @@ else
         </nav>
 
         <div class="zw-secbody" data-section="@_activeSection">
-    @if (_activeSection == "overview")
-    {
-        <div class="grid gap-6 sm:grid-cols-2" data-overview>
-            <BbCard Class="p-5">
-                <h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Details</h2>
-                <dl class="mt-3 space-y-2 text-sm">
-                    <div class="flex justify-between gap-4">
-                        <dt class="text-muted-foreground">Host</dt>
-                        <dd class="font-mono text-xs">@_server.AgentId</dd>
-                    </div>
-                    <div class="flex justify-between gap-4">
-                        <dt class="text-muted-foreground">Ports</dt>
-                        <dd class="font-mono tabular-nums text-xs">@Ports()</dd>
-                    </div>
-                    @* #258: the Build 42 branch is fixed at create; the note says what an F17 Update does on it. *@
-                    <div class="flex justify-between gap-4">
-                        <dt class="text-muted-foreground">Branch</dt>
-                        <dd class="text-right">
-                            <span class="font-mono text-xs" data-server-branch>@ServerBranchView.Label(_server.Branch)</span>
-                            <span class="block text-xs text-muted-foreground">@ServerBranchView.Note(_server.Branch)</span>
-                        </dd>
-                    </div>
-                    <div class="flex justify-between gap-4">
-                        <dt class="text-muted-foreground">Version</dt>
-                        <dd class="font-mono tabular-nums text-xs" data-server-version
-                            title="@(_server.InstalledBuildId is { } build ? $"Steam build {build}" : null)">@(_server.GameVersion ?? _server.InstalledBuildId ?? "—")</dd>
-                    </div>
-                    @* #273: what the last Update game did. Agent-observed build ids — rendered as text. *@
-                    @if (_lastUpdate is { } lastUpdate)
-                    {
-                        <div class="flex justify-between gap-4" data-last-update>
-                            <dt class="text-muted-foreground">Last game update</dt>
-                            <dd class="text-right text-xs">
-                                <span class="block">@lastUpdate.Summary</span>
-                                <span class="block text-muted-foreground tabular-nums">@lastUpdate.At</span>
-                            </dd>
-                        </div>
-                    }
-                    <div class="flex justify-between gap-4">
-                        <dt class="text-muted-foreground">Last-reported health</dt>
-                        <dd data-last-health>@(_server.LastHealth?.ToString() ?? "—")</dd>
-                    </div>
-                    <div class="flex justify-between gap-4">
-                        <dt class="text-muted-foreground">Health reported (UTC)</dt>
-                        <dd class="tabular-nums">@Reported(_server.LastHealthReportedAt)</dd>
-                    </div>
-                </dl>
-
-                @* Container settings (#229 ports, #230 heap; ADR 0045): a data-preserving recreate of the container with a
-                   new host UDP pair and/or heap. Static-SSR form, gated on the server-scoped Server.Recreate the service
-                   re-checks on submit. *@
-                @if (_canRecreate)
-                {
-                    <div class="mt-5 border-t border-border pt-4" data-recreate>
-                        <h3 class="text-sm font-semibold">Container settings</h3>
-                        <p class="mt-1 text-xs text-muted-foreground">
-                            Recreates the container with a new host UDP pair (the game port and the one above it) and/or a new
-                            heap. The world, config and installed game are kept. A running server warns players, stops safely
-                            and comes back; a stopped one stays stopped. After a port change, update your firewall or
-                            port-forward to match. Leave a field blank to keep its current value.
-                        </p>
-                        <EditForm Model="_recreateForm" FormName="server-recreate" OnValidSubmit="RecreateAsync" class="mt-3">
-                            <DataAnnotationsValidator />
-                            <div class="flex flex-wrap items-end gap-3">
-                                <div class="flex flex-col text-sm">
-                                    <BbLabel For="recreate-port" Class="mb-1 text-muted-foreground">Game port</BbLabel>
-                                    <BbInput Id="recreate-port" Type="InputType.Number" @bind-Value="_recreateForm.GamePort"
-                                             Placeholder="@(_server.GamePort?.ToString(CultureInfo.InvariantCulture) ?? "Auto")" Class="w-32" />
-                                </div>
-                                <div class="flex flex-col text-sm">
-                                    <BbLabel For="recreate-heap" Class="mb-1 text-muted-foreground">Heap (GiB)</BbLabel>
-                                    <BbInput Id="recreate-heap" @bind-Value="_recreateForm.HeapGiB" inputmode="decimal"
-                                             Placeholder="@(_server.HeapSizeBytes is { } heap ? NewServerForm.FormatGiB(heap) : "Current")" Class="w-32" />
-                                </div>
-                                <div class="flex flex-col text-sm">
-                                    <BbLabel For="recreate-countdown" Class="mb-1 text-muted-foreground">Warn players</BbLabel>
-                                    @* Explicit Name for static-SSR binding on BbNativeSelect; default first (#84). *@
-                                    <BbNativeSelect TValue="string" Id="recreate-countdown" Name="_recreateForm.Countdown" @bind-Value="_recreateForm.Countdown">
-                                        <option value="5m" selected="@(_recreateForm.Countdown is null or "5m")">5 minutes</option>
-                                        <option value="15m" selected="@(_recreateForm.Countdown == "15m")">15 minutes</option>
-                                        <option value="1m" selected="@(_recreateForm.Countdown == "1m")">1 minute</option>
-                                        <option value="immediate" selected="@(_recreateForm.Countdown == "immediate")">Immediately (no warning)</option>
-                                    </BbNativeSelect>
-                                </div>
-                                <BbButton Variant="ButtonVariant.Secondary" Type="ButtonType.Submit" Size="ButtonSize.Small"
-                                          Disabled="@_status.Busy" data-action="recreate">Recreate container</BbButton>
-                            </div>
-                            @if (Capacity.GetLatest(_server.AgentId) is { } hostCapacity)
-                            {
-                                <p class="mt-2 text-xs text-muted-foreground" data-recreate-capacity>
-                                    @NewServerForm.ResizeCapacityLine(hostCapacity, _server.HeapSizeBytes)
-                                </p>
-                            }
-                            @* #230 follow-up: raising the heap past the host's free memory needs the same acknowledgement
-                               as the wizard; the service enforces it. Native checkbox — BbCheckbox needs a circuit. *@
-                            @if (_recreateOvercommitWarning is not null)
-                            {
-                                <div class="mt-3 space-y-2" data-recreate-overcommit-warning>
-                                    <BbAlert Variant="AlertVariant.Warning" AccentBorder>
-                                        <BbAlertDescription>@_recreateOvercommitWarning</BbAlertDescription>
-                                    </BbAlert>
-                                    <label class="flex items-center gap-2 text-sm">
-                                        <input type="checkbox" class="zw-checkbox" id="recreate-acknowledge"
-                                               name="_recreateForm.AcknowledgeOvercommit" value="true"
-                                               checked="@_recreateForm.AcknowledgeOvercommit" />
-                                        Recreate it anyway
-                                    </label>
-                                </div>
-                            }
-                        </EditForm>
-                    </div>
-                }
-
-                @* Delete (#271): the most destructive action, gated on the server-scoped Server.Delete. A native <dialog>
-                   (dialog.js) wraps a static-SSR form and keeps Delete disabled until the name is typed; the service
-                   re-checks the typed name on submit, so the dialog is a convenience, not the guard. *@
-                @if (_canDelete)
-                {
-                    bool running = _server.LastRunState is ServerRunState.Running or ServerRunState.Starting;
-                    <div class="mt-5 border-t border-border pt-4" data-delete-server>
-                        <h3 class="text-sm font-semibold text-destructive">Danger zone</h3>
-                        <p class="mt-1 text-xs text-muted-foreground">
-                            Removes this server's container from the host and the server from ZWarden. World data and
-                            backups stay on the host.
-                        </p>
-                        <BbButton Variant="ButtonVariant.Destructive" Type="ButtonType.Button" Size="ButtonSize.Small" Class="mt-3"
-                                  Disabled="@_status.Busy" data-zw-dialog-open="delete-server">Delete server…</BbButton>
-
-                        <dialog data-zw-dialog="delete-server" aria-labelledby="delete-server-title"
-                                class="m-auto w-[min(32rem,calc(100vw-2rem))] rounded-lg border border-border bg-card p-5 text-card-foreground shadow-lg backdrop:bg-black/60">
-                            <EditForm Model="_deleteForm" FormName="server-delete" OnValidSubmit="DeleteAsync">
-                                <h2 id="delete-server-title" class="text-base font-semibold">Delete @_server.Name?</h2>
-                                <dl class="mt-3 space-y-1 text-sm">
-                                    <div class="flex justify-between gap-4">
-                                        <dt class="text-muted-foreground">Host</dt>
-                                        <dd class="font-mono text-xs">@_server.AgentId</dd>
-                                    </div>
-                                    <div class="flex justify-between gap-4">
-                                        <dt class="text-muted-foreground">State</dt>
-                                        <dd>@_status.Label</dd>
-                                    </div>
-                                </dl>
-                                <ul class="mt-3 list-disc space-y-1 pl-5 text-sm">
-                                    @if (running)
-                                    {
-                                        <li>It's running: players are warned, then it's stopped safely so the world is saved.</li>
-                                    }
-                                    <li>Its container is removed from the host, and the server leaves the fleet.</li>
-                                    <li>
-                                        World data and backups are kept on the host, in the Agent's data directory (by default
-                                        <code class="font-mono text-xs">/srv/zwarden/pz-data/@_server.Id</code>). Getting them back is manual.
-                                    </li>
-                                    <li class="font-medium">This can't be undone.</li>
-                                </ul>
-                                @if (running)
-                                {
-                                    <div class="mt-3 flex flex-col text-sm">
-                                        <BbLabel For="delete-countdown" Class="mb-1 text-muted-foreground">Warn players</BbLabel>
-                                        @* Explicit Name for static-SSR binding on BbNativeSelect; default first (#84). *@
-                                        <BbNativeSelect TValue="string" Id="delete-countdown" Name="_deleteForm.Countdown" @bind-Value="_deleteForm.Countdown">
-                                            <option value="5m" selected="@(_deleteForm.Countdown is null or "5m")">5 minutes</option>
-                                            <option value="15m" selected="@(_deleteForm.Countdown == "15m")">15 minutes</option>
-                                            <option value="1m" selected="@(_deleteForm.Countdown == "1m")">1 minute</option>
-                                            <option value="immediate" selected="@(_deleteForm.Countdown == "immediate")">Immediately (no warning)</option>
-                                        </BbNativeSelect>
-                                    </div>
-                                }
-                                <div class="mt-3 flex flex-col text-sm">
-                                    <BbLabel For="delete-confirm" Class="mb-1 text-muted-foreground">
-                                        Type <strong class="font-mono text-foreground">@_server.Name</strong> to confirm
-                                    </BbLabel>
-                                    <BbInput Id="delete-confirm" @bind-Value="_deleteForm.ConfirmName" autocomplete="off" spellcheck="false"
-                                             data-zw-confirm-expected="@_server.Name" />
-                                </div>
-                                <div class="mt-4 flex justify-end gap-2">
-                                    <BbButton Variant="ButtonVariant.Outline" Type="ButtonType.Button" Size="ButtonSize.Small"
-                                              data-zw-dialog-close>Cancel</BbButton>
-                                    <BbButton Variant="ButtonVariant.Destructive" Type="ButtonType.Submit" Size="ButtonSize.Small"
-                                              Disabled="true" data-zw-confirm-submit data-action="delete">Delete server</BbButton>
-                                </div>
-                            </EditForm>
-                        </dialog>
-                    </div>
-                }
-            </BbCard>
-
-            <BbCard Class="p-5">
-                <h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Live telemetry</h2>
-                <div class="mt-3">
-                    <LiveServerPanel @rendermode="InteractiveServer"
-                                     ServerId="@_server.Id.ToString()"
-                                     AgentId="@_server.AgentId.ToString()"
-                                     InitialHealth="@(_server.LastHealth?.ToString())" />
-                </div>
-            </BbCard>
-        </div>
-    }
-
-    @if (_activeSection == "logs")
-    {
-        <LogsSection Server="_server" />
-    }
-
-    @if (_activeSection == "console")
-    {
-        <ConsoleSection Server="_server" />
-    }
-
-    @if (_activeSection == "diagnostics")
-    {
-        <DiagnosticsSection Server="_server" CanExport="_canExportDiagnostics" />
-    }
-
-    @if (_activeSection == "players")
-    {
-        <PlayersSection Server="_server" Perm="_perm" />
-    }
-
-    @if (_activeSection == "mods")
-    {
-        <ModsSection Server="_server" Perm="_modPerm" />
-    }
-
-    @if (_activeSection == "modbrowser")
-    {
-        <ModBrowserSection Server="_server" Perm="_modPerm" />
-    }
-
-    @if (_activeSection == "config")
-    {
-        <ConfigurationSection Server="_server" />
-    }
-
-    @if (_activeSection == "backups")
-    {
-        <BackupsSection Server="_server" Perm="_backupPerm" />
-    }
+            @* Only the selected section renders (and so only its forms post and only its data loads); the rail
+               and ResolveSection have already failed an unauthorized ?section= closed to the overview. *@
+            @switch (_activeSection)
+            {
+                case "logs":
+                    <LogsSection Server="_server" />
+                    break;
+                case "console":
+                    <ConsoleSection Server="_server" />
+                    break;
+                case "diagnostics":
+                    <DiagnosticsSection Server="_server" CanExport="_canExportDiagnostics" />
+                    break;
+                case "players":
+                    <PlayersSection Server="_server" Perm="_perm" />
+                    break;
+                case "mods":
+                    <ModsSection Server="_server" Perm="_modPerm" />
+                    break;
+                case "modbrowser":
+                    <ModBrowserSection Server="_server" Perm="_modPerm" />
+                    break;
+                case "config":
+                    <ConfigurationSection Server="_server" />
+                    break;
+                case "backups":
+                    <BackupsSection Server="_server" Perm="_backupPerm" />
+                    break;
+                default:
+                    <OverviewSection Server="_server" Status="_status" LastUpdate="_lastUpdate"
+                                     CanRecreate="_canRecreate" CanDelete="_canDelete"
+                                     OnLifecycleResult="OnLifecycleResultAsync" OnLifecycleWarning="OnLifecycleWarning" />
+                    break;
+            }
         </div>
     </div>
 }
@@ -515,12 +302,6 @@ else
     [SupplyParameterFromForm(FormName = "server-graceful-restart")]
     private GracefulRestartFormModel _gracefulForm { get; set; } = default!;
 
-    [SupplyParameterFromForm(FormName = "server-recreate")]
-    private RecreateFormModel _recreateForm { get; set; } = default!;
-
-    [SupplyParameterFromForm(FormName = "server-delete")]
-    private DeleteFormModel _deleteForm { get; set; } = default!;
-
     private ServerSummary? _server;
     private string _activeSection = "overview";
     private bool _canStart;
@@ -531,8 +312,6 @@ else
     private bool _canDelete;
     private bool _canUpdate;
 
-    // Set when a heap change was refused as over the host's free memory (#230 follow-up); shows the acknowledgement.
-    private string? _recreateOvercommitWarning;
     private ServerFailureView? _lastFailure;
 
     // #273: what the newest successful game update did ("Updated from Steam build A to B.") and when; null before any.
@@ -554,8 +333,6 @@ else
     {
         _lifecycleForm ??= new LifecycleModel();
         _gracefulForm ??= new GracefulRestartFormModel();
-        _recreateForm ??= new RecreateFormModel();
-        _deleteForm ??= new DeleteFormModel();
 
         if (!ServerId.TryParse(Id, out ServerId serverId))
         {
@@ -662,9 +439,6 @@ else
         await RefreshStatusAsync(serverId);
     }
 
-    // #114: the default warning schedule the operator control uses when "warn players" is left on. The Agent holds
-    // the authoritative default for a plain (header-button) restart; this is the schedule the configure form sends.
-    private static readonly int[] DefaultRestartWarning = [300, 60, 30, 10];
 
     private async Task GracefulRestartAsync()
     {
@@ -681,84 +455,26 @@ else
             return;
         }
 
-        var plan = new GracefulRestartPayload(CountdownLeads(_gracefulForm?.Countdown), message);
+        var plan = new GracefulRestartPayload(ServerDetailFormat.CountdownLeads(_gracefulForm?.Countdown), message);
 
         UserId user = await CurrentUserAsync();
         SetLifecycleResult("restart", await Lifecycle.RestartAsync(user, serverId, plan));
         await RefreshStatusAsync(serverId);
     }
 
-    // Map the operator's chosen preset to a descending countdown schedule (#213). "immediate" ⇒ an empty schedule
-    // (no broadcast); anything else warns players for that long before the stop.
-    private static IReadOnlyList<int> CountdownLeads(string? preset) => preset switch
+    // Overview's Recreate / Delete (#229, #271) answered by the lifecycle service: shown in the header like the header's
+    // own actions, with the status re-read so the page already says RECREATING / DELETING.
+    private async Task OnLifecycleResultAsync(LifecycleOutcome outcome)
     {
-        "immediate" => [],
-        "1m" => [60, 30, 10],
-        "15m" => [900, 300, 60, 30, 10],
-        _ => DefaultRestartWarning, // "5m" and any unexpected value ⇒ the default five-minute schedule.
-    };
-
-    // Recreate the container on a new host pair (#229, ADR 0045). Blank port ⇒ recreate on the current pair. The
-    // countdown only applies if the server is running — the Agent skips the warning for a stopped one.
-    private async Task RecreateAsync()
-    {
-        if (_server is null || !ServerId.TryParse(Id, out ServerId serverId))
-        {
-            return;
-        }
-
-        if (!HostPortInput.TryParse(_recreateForm?.GamePort, out int? gamePort, out string? portError))
-        {
-            _lifecycleAlert = AlertVariant.Warning;
-            _lifecycleMessage = portError;
-            return;
-        }
-
-        // #230: a typed heap in GiB; blank keeps the heap the container runs with (no player-count suggestion here).
-        if (!NewServerForm.TryResolveHeap(_recreateForm?.HeapGiB, expectedPlayers: null, out long? heap, out string? heapError))
-        {
-            _lifecycleAlert = AlertVariant.Warning;
-            _lifecycleMessage = heapError;
-            return;
-        }
-
-        var plan = new GracefulRestartPayload(CountdownLeads(_recreateForm?.Countdown));
-        UserId user = await CurrentUserAsync();
-        ServerLifecycleResult result = await Lifecycle.RecreateAsync(
-            user, serverId, gamePort, plan, heap, _recreateForm?.AcknowledgeOvercommit ?? false);
-        if (result.Failure == ServerLifecycleFailure.OverCapacity && heap is { } newHeap
-            && Capacity.GetLatest(_server.AgentId) is { } capacity)
-        {
-            // D1 as in the wizard: warn with the numbers and ask for the acknowledgement; the typed values survive.
-            _recreateOvercommitWarning = NewServerForm.ResizeShortfallWarning(capacity, _server.HeapSizeBytes, newHeap);
-            return;
-        }
-
-        SetLifecycleResult("recreate", result);
-        await RefreshStatusAsync(serverId);
+        SetLifecycleResult(outcome.Command, outcome.Result);
+        await RefreshStatusAsync(_server!.Id);
     }
 
-    // Delete the server (#271). The typed name is passed through verbatim — the service compares it with the Server's
-    // name and refuses a mismatch — and on success the page returns to the fleet, where the row shows DELETING until
-    // the Agent reports the container gone.
-    private async Task DeleteAsync()
+    // Overview's Recreate refused before it was sent (an invalid port or heap).
+    private void OnLifecycleWarning(string message)
     {
-        if (_server is null || !ServerId.TryParse(Id, out ServerId serverId))
-        {
-            return;
-        }
-
-        var plan = new GracefulRestartPayload(CountdownLeads(_deleteForm?.Countdown));
-        UserId user = await CurrentUserAsync();
-        ServerLifecycleResult result = await Lifecycle.DeleteAsync(user, serverId, _deleteForm?.ConfirmName ?? string.Empty, plan);
-        if (result.Succeeded)
-        {
-            Navigation.NavigateTo("/servers");
-            return;
-        }
-
-        SetLifecycleResult("delete", result);
-        await RefreshStatusAsync(serverId);
+        _lifecycleAlert = AlertVariant.Warning;
+        _lifecycleMessage = message;
     }
 
     private void SetLifecycleResult(string command, ServerLifecycleResult? result)
@@ -824,13 +540,6 @@ else
             CanConfigEdit: (await PermissionChecker.EvaluateAsync(user, Permissions.ServerConfigurationEdit, serverId)).IsAllowed);
     }
 
-    private string Ports() => _server is { GamePort: { } game, QueryPort: { } query }
-        ? $"{game} / {query} udp"
-        : "—";
-
-    private static string Reported(DateTimeOffset? at) =>
-        at?.UtcDateTime.ToString("yyyy-MM-dd HH:mm", System.Globalization.CultureInfo.InvariantCulture) ?? "never";
-
     private async Task LoadBackupPermissionsAsync(UserId user, ServerId serverId)
     {
         // Per-server permissions (fail-closed): the Backups rail item shows only where the caller holds Backup.View; the take
@@ -854,30 +563,6 @@ else
     {
         // The header lifecycle button's verb: "start" / "stop" / "restart" / "update".
         public string? Command { get; set; }
-    }
-
-    private sealed class RecreateFormModel
-    {
-        // The new host game port (#229) as typed; blank ⇒ recreate on the current pair. Parsed by HostPortInput.
-        public string? GamePort { get; set; }
-
-        // The warning preset before the safe stop, as the graceful-restart panel's (#213). Default first (#84).
-        public string Countdown { get; set; } = "5m";
-
-        // The new JVM heap in GiB as typed (#230); blank ⇒ keep the current heap. Parsed by NewServerForm.
-        public string? HeapGiB { get; set; }
-
-        // The operator confirmed a heap past the host's free memory (#230 follow-up, as the wizard's D1).
-        public bool AcknowledgeOvercommit { get; set; }
-    }
-
-    private sealed class DeleteFormModel
-    {
-        // The typed confirmation (#271); the service requires it to be exactly the Server's name.
-        public string? ConfirmName { get; set; }
-
-        // The warning preset before the safe stop of a running server, as the graceful-restart panel's (#213).
-        public string Countdown { get; set; } = "5m";
     }
 
     private sealed class GracefulRestartFormModel
