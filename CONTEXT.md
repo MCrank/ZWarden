@@ -298,3 +298,24 @@ _Avoid_: blob, cipher text (as the whole stored value)
 The set of encryption keys available at runtime — one active for protecting new values, all retained
 for reading existing ones. It is never stored alongside the values it protects.
 _Avoid_: keystore, key vault (which name external systems)
+
+### UI rendering
+
+**Static page**:
+A ZWarden.Web page rendered once per HTTP request, with no live connection behind it. The app shell
+is always static.
+_Avoid_: SSR page (as the name of the kind), server page
+
+**Interactive page**:
+A ZWarden.Web page that runs, as a whole, over a live server connection (a **circuit**) for as long
+as it's open, so its controls respond without a round trip.
+_Avoid_: SPA, live page, dynamic page
+
+**Island**:
+A single interactive component embedded in an otherwise static page. An interactive page has no
+islands; the whole page is interactive.
+_Avoid_: widget, interactive page (for a part of a page)
+
+**Circuit**:
+The live server connection and per-tab server state behind an interactive page or island.
+_Avoid_: session (which names the sign-in), socket, connection (unqualified)

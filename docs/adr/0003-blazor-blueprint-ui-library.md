@@ -111,6 +111,13 @@ Four reasons, in order of weight.
 > to **Tailwind v4** (pinned), so it shares the library's named layers. The seam absorbed the major
 > version without a single component call-site change. Details in `docs/agents/ui-components.md`.
 
+> **Amendment ([ADR 0046](./0046-pages-may-opt-into-interactive-rendering-the-shell-stays-static.md), #296):**
+> the house rule "prefer `Bb*` unless there's a security reason or no SSR-safe fit" now depends on the page.
+> On an **interactive page** (`@rendermode InteractiveServer`; in v1.0 Server Detail and Settings) every
+> Blueprint component is allowed, including the circuit-only ones (`BbCheckbox`, `BbSelect`, `BbDialog`,
+> `BbSheet`, `BbTabs`, `BbDataGrid`), and the security exception still applies. The SSR-safe list applies
+> only to **static pages**. Details in `docs/agents/ui-components.md`.
+
 ## Revisit trigger
 
 Fork at the pinned version — Apache-2.0 permits it, and the library is pure C# and CSS with no
