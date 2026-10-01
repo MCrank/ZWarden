@@ -148,7 +148,7 @@ else
                             <span class="font-semibold"><span data-last-failure-action>@_lastFailure?.Action</span> failed</span>
                             <span class="text-xs text-muted-foreground">· <span data-last-failure-at>@_lastFailure?.At</span></span>
                         </p>
-                        <p class="mt-1 break-words" data-last-failure-reason>@_lastFailure?.Reason</p>
+                        <p class="mt-1 wrap-break-word" data-last-failure-reason>@_lastFailure?.Reason</p>
                     </div>
                     <BbButton Variant="ButtonVariant.Ghost" Size="ButtonSize.Small" Type="ButtonType.Button"
                               data-last-failure-dismiss aria-label="Dismiss this failure">Dismiss</BbButton>

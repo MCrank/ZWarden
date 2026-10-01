@@ -40,7 +40,7 @@
          generated wwwroot/app.css IS committed and diffed by CI (ADR 0003). -->
     <Content Remove="Styles\**" />
     <None Include="Styles\**" />
-    <None Include="package.json;package-lock.json;tailwind.config.js" />
+    <None Include="package.json;package-lock.json" />
   </ItemGroup>
 
 </Project>
