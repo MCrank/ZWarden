@@ -2,6 +2,8 @@ using Microsoft.Extensions.DependencyInjection;
 using ZWarden.Application.Authorization;
 using ZWarden.Domain.Authorization;
 using ZWarden.Domain.Ids;
+using ZWarden.Application.Tenancy;
+using ZWarden.Infrastructure.Tenancy;
 
 namespace ZWarden.Infrastructure.Authorization;
 
@@ -15,19 +17,20 @@ namespace ZWarden.Infrastructure.Authorization;
 /// logic in <see cref="PermissionChecker"/> pure and directly unit-testable.
 /// </summary>
 /// <remarks>
-/// Tenant context still resolves correctly in the child scope: under an HTTP request the
-/// <c>IHttpContextAccessor</c> flows via <c>AsyncLocal</c>, and under an interactive circuit there is no
-/// HttpContext, so it falls back to the single default tenant (ADR 0016) — the same value the ambient scope
-/// would have produced.
+/// The child scope carries the caller's tenant explicitly (<see cref="TenantScopes"/>, #297): a circuit has no
+/// HttpContext to read it from, and the tenant context fails closed rather than defaulting.
 /// </remarks>
 public sealed class ScopedPermissionChecker : IPermissionChecker
 {
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly ITenantContext _tenant;
 
-    public ScopedPermissionChecker(IServiceScopeFactory scopeFactory)
+    public ScopedPermissionChecker(IServiceScopeFactory scopeFactory, ITenantContext tenant)
     {
         ArgumentNullException.ThrowIfNull(scopeFactory);
+        ArgumentNullException.ThrowIfNull(tenant);
         _scopeFactory = scopeFactory;
+        _tenant = tenant;
     }
 
     /// <inheritdoc />
@@ -37,7 +40,13 @@ public sealed class ScopedPermissionChecker : IPermissionChecker
         ServerId? server = null,
         CancellationToken cancellationToken = default)
     {
-        await using AsyncServiceScope scope = _scopeFactory.CreateAsyncScope();
+        // No tenant is a Deny, as in PermissionChecker itself, never an exception from the scope.
+        if (!_tenant.HasCurrentTenant)
+        {
+            return AuthorizationDecision.Deny("No authenticated tenant.");
+        }
+
+        await using AsyncServiceScope scope = _scopeFactory.CreateTenantScope(_tenant.CurrentTenantId);
         PermissionChecker inner = scope.ServiceProvider.GetRequiredService<PermissionChecker>();
         return await inner.EvaluateAsync(user, permission, server, cancellationToken).ConfigureAwait(false);
     }
@@ -47,7 +56,12 @@ public sealed class ScopedPermissionChecker : IPermissionChecker
         UserId user,
         CancellationToken cancellationToken = default)
     {
-        await using AsyncServiceScope scope = _scopeFactory.CreateAsyncScope();
+        if (!_tenant.HasCurrentTenant)
+        {
+            return new HashSet<string>(StringComparer.Ordinal);
+        }
+
+        await using AsyncServiceScope scope = _scopeFactory.CreateTenantScope(_tenant.CurrentTenantId);
         PermissionChecker inner = scope.ServiceProvider.GetRequiredService<PermissionChecker>();
         return await inner.GetTenantWidePermissionsAsync(user, cancellationToken).ConfigureAwait(false);
     }

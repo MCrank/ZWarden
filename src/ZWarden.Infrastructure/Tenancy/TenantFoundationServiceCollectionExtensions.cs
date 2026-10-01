@@ -20,6 +20,7 @@ public static class TenantFoundationServiceCollectionExtensions
     public static IServiceCollection AddTenantFoundation(this IServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
+        services.TryAddScoped<TenantAssignment>();
         services.TryAddScoped<ITenantContext, SingleTenantContext>();
         return services;
     }

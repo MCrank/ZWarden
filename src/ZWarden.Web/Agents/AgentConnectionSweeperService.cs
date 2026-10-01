@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Options;
 using ZWarden.Infrastructure.Agents;
+using ZWarden.Infrastructure.Tenancy;
 
 namespace ZWarden.Web.Agents;
 
@@ -53,7 +54,7 @@ public sealed partial class AgentConnectionSweeperService : BackgroundService
     {
         try
         {
-            using IServiceScope scope = _scopeFactory.CreateScope();
+            await using AsyncServiceScope scope = _scopeFactory.CreateSystemScope();
             AgentConnectionSweeper sweeper = scope.ServiceProvider.GetRequiredService<AgentConnectionSweeper>();
             int reconciled = await sweeper.SweepAsync(stoppingToken).ConfigureAwait(false);
             if (reconciled > 0)

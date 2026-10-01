@@ -12,8 +12,8 @@ namespace ZWarden.Infrastructure.Tests.Identity;
 
 /// <summary>
 /// F4 S5: the current tenant derives from the authenticated session (PRD 7A). The claims factory stamps
-/// the tenant claim at sign-in; <see cref="ClaimsPrincipalTenantContext"/> reads it back and falls back
-/// to the default tenant for an unauthenticated request (self-hosted); and the session context wins
+/// the tenant claim at sign-in; <see cref="ClaimsPrincipalTenantContext"/> reads it back, and an anonymous
+/// request belongs to the install's default tenant (self-hosted; the fail-closed cases are in FailClosedTenantContextTests); and the session context wins
 /// registration over the single-tenant default. Offline tier.
 /// </summary>
 public class SessionTenantContextTests
@@ -63,7 +63,7 @@ public class SessionTenantContextTests
     }
 
     [Test]
-    public async Task The_context_reads_the_claim_and_falls_back_to_the_default_tenant_when_anonymous()
+    public async Task The_context_reads_the_claim_and_an_anonymous_request_belongs_to_the_default_tenant()
     {
         // Authenticated principal carrying tenant A's claim.
         var tenantA = Domain.Ids.TenantId.New();
@@ -71,14 +71,16 @@ public class SessionTenantContextTests
             [new Claim(ClaimsPrincipalTenantContext.TenantClaimType, tenantA.ToString())],
             authenticationType: "Test"));
         var withClaim = new ClaimsPrincipalTenantContext(
-            new HttpContextAccessor { HttpContext = new DefaultHttpContext { User = signedIn } });
+            new HttpContextAccessor { HttpContext = new DefaultHttpContext { User = signedIn } },
+            new TenantAssignment());
 
         await Assert.That(withClaim.HasCurrentTenant).IsTrue();
         await Assert.That(withClaim.CurrentTenantId).IsEqualTo(tenantA);
 
         // Anonymous request (no claim) resolves to the default tenant in self-hosted.
         var anonymous = new ClaimsPrincipalTenantContext(
-            new HttpContextAccessor { HttpContext = new DefaultHttpContext() });
+            new HttpContextAccessor { HttpContext = new DefaultHttpContext() },
+            new TenantAssignment());
         await Assert.That(anonymous.CurrentTenantId).IsEqualTo(Tenant.DefaultId);
     }
 

@@ -11,8 +11,8 @@ namespace ZWarden.Infrastructure.Agents;
 /// net behind the live hub. It marks any Agent recorded <see cref="AgentConnectionState.Connected"/> whose
 /// last-seen is older than <see cref="AgentConnectionMonitorOptions.StaleAfter"/> as disconnected, and audits
 /// it. It only ever moves <c>Connected → Disconnected</c>: it never promotes a record back to current
-/// (trust-boundaries.md §3), that requires a fresh connection. Runs under the default-tenant fallback, which
-/// in single-tenant v1.0 covers every Agent (ADR 0016).
+/// (trust-boundaries.md §3), that requires a fresh connection. Runs in a system scope for the default tenant
+/// (<c>TenantScopes.CreateSystemScope</c>, #297), which in single-tenant v1.0 covers every Agent (ADR 0016).
 /// </summary>
 public sealed class AgentConnectionSweeper
 {

@@ -13,8 +13,8 @@ namespace ZWarden.Infrastructure.Operations;
 /// optimistic <c>Version</c> token means a completion that raced the reaper wins: the stale fail conflicts and
 /// is retried on the next sweep, by when the Operation is terminal and no longer due.
 /// <para>
-/// Like the F10 connection sweeper, it runs under the default-tenant fallback, which in single-tenant v1.0
-/// covers every Operation (ADR 0016). A hosted multi-tenant deployment (v1.1) would sweep per tenant.
+/// Like the F10 connection sweeper, it runs in a system scope for the default tenant (#297), which in single-tenant
+/// v1.0 covers every Operation (ADR 0016). A hosted multi-tenant deployment (v1.1) would sweep per tenant.
 /// </para>
 /// </summary>
 public sealed class OperationReaper

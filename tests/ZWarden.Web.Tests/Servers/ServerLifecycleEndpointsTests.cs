@@ -15,6 +15,7 @@ using ZWarden.Infrastructure.Authorization;
 using ZWarden.Infrastructure.Identity;
 using ZWarden.Infrastructure.Persistence;
 using ZWarden.Web.Tests.Account;
+using ZWarden.Infrastructure.Tenancy;
 
 namespace ZWarden.Web.Tests.Servers;
 
@@ -198,7 +199,7 @@ public sealed class ServerLifecycleEndpointsTests
     // Drives the Server's in-flight Operation to Running and applies an Agent progress report, as the hub would.
     internal static async Task ReportProgressAsync(ZWardenWebAppFactory factory, ServerId serverId, string statusLine)
     {
-        using IServiceScope scope = factory.Services.CreateScope();
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
         IOperationStore store = scope.ServiceProvider.GetRequiredService<IOperationStore>();
         ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
         Operation op = (await store.FindActiveForServerAsync(serverId))!;
@@ -531,7 +532,7 @@ public sealed class ServerLifecycleEndpointsTests
         await factory.CreateConfirmedUserAsync("owner@zwarden.test", StrongPassword);
         await AuthorizationBootstrapper.EnsureSeededAsync(factory.Services, "owner@zwarden.test");
         await factory.CreateConfirmedUserAsync("operator@zwarden.test", StrongPassword);
-        using (IServiceScope scope = factory.Services.CreateScope())
+        using (AsyncServiceScope scope = factory.Services.CreateSystemScope())
         {
             ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
             ApplicationUser user = (await scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>()
@@ -556,7 +557,7 @@ public sealed class ServerLifecycleEndpointsTests
     private static async Task<OperationId> SeedFinishedOperationAsync(
         ZWardenWebAppFactory factory, ServerId serverId, OperationKind kind, string? failureReason)
     {
-        using IServiceScope scope = factory.Services.CreateScope();
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
         ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
         Operation op = Operation.Enqueue(AgentId.New(), kind, isMutating: true, Guid.NewGuid().ToString("N"), Now, serverId);
         op.MarkDispatched(Now.AddMinutes(5), Now);
@@ -577,7 +578,7 @@ public sealed class ServerLifecycleEndpointsTests
     private static StringContent JsonContent(string json) => new(json, System.Text.Encoding.UTF8, "application/json");
     private static async Task<ServerId> SeedServerAsync(ZWardenWebAppFactory factory, ServerRunState? state = null)
     {
-        using IServiceScope scope = factory.Services.CreateScope();
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
         ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
         Server server = Server.Import(AgentId.New(), ServerId.New(), "survivors", Now);
         if (state is { } observed)
@@ -592,7 +593,7 @@ public sealed class ServerLifecycleEndpointsTests
 
     private static async Task<(ServerId ServerId, AgentId AgentId)> SeedFleetServerAsync(ZWardenWebAppFactory factory)
     {
-        using IServiceScope scope = factory.Services.CreateScope();
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
         ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
         AgentId agentId = AgentId.New();
         Server server = Server.Import(agentId, ServerId.New(), "fleet-facts", Now);

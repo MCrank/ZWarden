@@ -1,4 +1,5 @@
 using BlazorBlueprint.Components;
+using Microsoft.AspNetCore.Components.Server.Circuits;
 using ZWarden.Infrastructure.Agents;
 using ZWarden.Infrastructure.Audit;
 using ZWarden.Infrastructure.Backups;
@@ -29,6 +30,7 @@ using ZWarden.Web.Components.Players;
 using ZWarden.Web.Components.Servers;
 using ZWarden.Web.Diagnostics;
 using ZWarden.Web.Hosting;
+using ZWarden.Web.Tenancy;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
@@ -65,6 +67,8 @@ builder.Services.Configure<ZWarden.Web.Configuration.InstanceOptions>(
 builder.Services.AddSecurityFoundation();          // key ring from the environment (fail-closed, ADR 0015)
 builder.Services.AddZWardenDataProtection(builder.Configuration, builder.Environment); // #186: persist + encrypt the DP key ring (ADR 0015)
 builder.Services.AddSessionTenantContext();        // wins over the single-tenant default (S5)
+// #297: a circuit captures its tenant once, at open, and fails closed without one (ADR 0046 Q6).
+builder.Services.AddScoped<CircuitHandler, TenantCircuitHandler>();
 builder.Services.AddTenantFoundation();
 builder.Services.AddZWardenPersistence(provider, connectionString);
 builder.Services.AddZWardenAuthentication(allowedHosts);

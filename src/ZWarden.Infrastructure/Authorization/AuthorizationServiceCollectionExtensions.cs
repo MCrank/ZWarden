@@ -37,7 +37,9 @@ public static class AuthorizationServiceCollectionExtensions
         // rendering, where concurrent checks would otherwise collide on the one circuit-scoped DbContext
         // ("A second operation was started on this context…").
         services.AddScoped<IPermissionChecker>(sp =>
-            new ScopedPermissionChecker(sp.GetRequiredService<IServiceScopeFactory>()));
+            new ScopedPermissionChecker(
+                sp.GetRequiredService<IServiceScopeFactory>(),
+                sp.GetRequiredService<ITenantContext>()));
 
         services.AddScoped<RoleAdministrationService>();
 

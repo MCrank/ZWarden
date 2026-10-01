@@ -11,6 +11,7 @@ using ZWarden.Infrastructure.Agents;
 using ZWarden.Infrastructure.Persistence;
 using ZWarden.Web.Agents;
 using ZWarden.Web.Tests.Account;
+using ZWarden.Infrastructure.Tenancy;
 
 namespace ZWarden.Web.Tests.Agents;
 
@@ -106,7 +107,7 @@ public class AgentCredentialTheftAttackTests
 
     private static async Task<(AgentId AgentId, string Credential)> SeedTrustedAgentAsync(ZWardenWebAppFactory factory)
     {
-        using IServiceScope scope = factory.Services.CreateScope();
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
         ICredentialHasher hasher = scope.ServiceProvider.GetRequiredService<ICredentialHasher>();
         ZWardenDbContext context = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
 
@@ -124,7 +125,7 @@ public class AgentCredentialTheftAttackTests
     {
         // Generating the secret and its hash needs no database; the write itself goes through the retrying
         // mutation helper below.
-        using IServiceScope scope = factory.Services.CreateScope();
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
         ICredentialHasher hasher = scope.ServiceProvider.GetRequiredService<ICredentialHasher>();
         Domain.Security.SecretString fresh = hasher.Generate("zwa");
         string hash = hasher.Hash(fresh);
@@ -141,7 +142,7 @@ public class AgentCredentialTheftAttackTests
         // sticks — each mutation here (revoke/rotate/disable) is idempotent, so re-applying is safe.
         for (int attempt = 0; ; attempt++)
         {
-            using IServiceScope scope = factory.Services.CreateScope();
+            using AsyncServiceScope scope = factory.Services.CreateSystemScope();
             ZWardenDbContext context = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
             Agent agent = await context.Set<Agent>().FirstAsync(a => a.Id == agentId);
             mutate(agent);

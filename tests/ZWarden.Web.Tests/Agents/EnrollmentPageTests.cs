@@ -11,6 +11,7 @@ using ZWarden.Infrastructure.Identity;
 using ZWarden.Infrastructure.Persistence;
 using ZWarden.Web.Tests.Account;
 using EnrollmentPage = ZWarden.Web.Components.Pages.Hosts.Enrollment;
+using ZWarden.Infrastructure.Tenancy;
 
 namespace ZWarden.Web.Tests.Agents;
 
@@ -129,7 +130,7 @@ public sealed class EnrollmentPageTests
     private static async Task GrantBuiltInRoleAsync(
         ZWardenWebAppFactory factory, string email, BuiltInRoleKind role)
     {
-        using IServiceScope scope = factory.Services.CreateScope();
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
         Microsoft.AspNetCore.Identity.UserManager<ApplicationUser> users =
             scope.ServiceProvider.GetRequiredService<Microsoft.AspNetCore.Identity.UserManager<ApplicationUser>>();
         ApplicationUser user = await users.FindByEmailAsync(email)

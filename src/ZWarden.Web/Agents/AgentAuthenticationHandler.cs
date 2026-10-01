@@ -7,7 +7,9 @@ using ZWarden.Application.Audit;
 using ZWarden.Domain.Audit;
 using ZWarden.Domain.Ids;
 using ZWarden.Domain.Security;
+using ZWarden.Application.Tenancy;
 using ZWarden.Infrastructure.Agents;
+using ZWarden.Infrastructure.Tenancy;
 
 namespace ZWarden.Web.Agents;
 
@@ -16,8 +18,8 @@ namespace ZWarden.Web.Agents;
 /// credential, <b>before</b> any hub method runs. The credential arrives as a SignalR access token — the
 /// <c>access_token</c> query value on the WebSocket upgrade, or an <c>Authorization: Bearer</c> header on the
 /// negotiate/long-poll — and is resolved by <see cref="IAgentCredentialVerifier"/> (trusted iff enabled and
-/// matching, fail-closed). Success mints a principal carrying only the <see cref="AgentClaims.AgentIdClaimType"/>
-/// claim; a bad credential fails (→ 401) and is audited with its reason server-side, never disclosed to the
+/// matching, fail-closed). Success mints a principal carrying the <see cref="AgentClaims.AgentIdClaimType"/>
+/// claim and the tenant the credential was verified under; a bad credential fails (→ 401) and is audited with its reason server-side, never disclosed to the
 /// Agent. A request with no token at all yields <see cref="AuthenticateResult.NoResult"/>, so ordinary
 /// unauthenticated probes are a plain challenge, not an audit event.
 /// </summary>
@@ -54,8 +56,15 @@ public sealed class AgentAuthenticationHandler : AuthenticationHandler<Authentic
             return AuthenticateResult.Fail("The presented Agent credential is not valid.");
         }
 
+        // The verifier's lookup is tenant-filtered, so the tenant it ran under is the Agent's own tenant
+        // (the anonymous-request rule while the handshake is unauthenticated). Stamping it makes every later
+        // hub call carry its tenant explicitly (#297), instead of relying on a fallback.
+        TenantId tenant = Context.RequestServices.GetRequiredService<ITenantContext>().CurrentTenantId;
         ClaimsIdentity identity = new(
-            [new Claim(AgentClaims.AgentIdClaimType, agentId.Value.ToString())],
+            [
+                new Claim(AgentClaims.AgentIdClaimType, agentId.Value.ToString()),
+                new Claim(ClaimsPrincipalTenantContext.TenantClaimType, tenant.ToString()),
+            ],
             Scheme.Name);
         return AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(identity), Scheme.Name));
     }

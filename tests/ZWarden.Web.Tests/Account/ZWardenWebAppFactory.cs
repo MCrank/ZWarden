@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using ZWarden.Application.Setup;
 using ZWarden.Infrastructure.Identity;
+using ZWarden.Infrastructure.Tenancy;
 
 namespace ZWarden.Web.Tests.Account;
 
@@ -72,7 +73,7 @@ public class ZWardenWebAppFactory : WebApplicationFactory<Program>
         // wants the first-run gate active, mark setup complete so requests are not redirected to /setup.
         if (CompleteSetupOnStart)
         {
-            using IServiceScope scope = host.Services.CreateScope();
+            using AsyncServiceScope scope = host.Services.CreateSystemScope();
             ISetupState setup = scope.ServiceProvider.GetRequiredService<ISetupState>();
             setup.MarkSetupCompleteAsync().GetAwaiter().GetResult();
         }
@@ -93,7 +94,7 @@ public class ZWardenWebAppFactory : WebApplicationFactory<Program>
     /// then exercise). Confirmed because the sign-in policy requires it.</summary>
     public async Task CreateConfirmedUserAsync(string email, string password)
     {
-        using IServiceScope scope = Services.CreateScope();
+        using AsyncServiceScope scope = Services.CreateSystemScope();
         UserManager<ApplicationUser> users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
         ApplicationUser user = new(email) { Email = email, EmailConfirmed = true };
         IdentityResult result = await users.CreateAsync(user, password);
@@ -108,7 +109,7 @@ public class ZWardenWebAppFactory : WebApplicationFactory<Program>
     /// can compute a valid TOTP with <c>TestSupport.Totp</c>.</summary>
     public async Task<string> EnableAuthenticatorAsync(string email)
     {
-        using IServiceScope scope = Services.CreateScope();
+        using AsyncServiceScope scope = Services.CreateSystemScope();
         UserManager<ApplicationUser> users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
         MfaService mfa = scope.ServiceProvider.GetRequiredService<MfaService>();
         ApplicationUser user = await users.FindByEmailAsync(email)
@@ -122,7 +123,7 @@ public class ZWardenWebAppFactory : WebApplicationFactory<Program>
     /// <summary>Generates a password-reset token for an existing user (the token a reset link carries).</summary>
     public async Task<string> CreatePasswordResetTokenAsync(string email)
     {
-        using IServiceScope scope = Services.CreateScope();
+        using AsyncServiceScope scope = Services.CreateSystemScope();
         UserManager<ApplicationUser> users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
         ApplicationUser user = await users.FindByEmailAsync(email)
             ?? throw new InvalidOperationException($"No user {email}.");

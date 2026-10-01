@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.DependencyInjection;
+using ZWarden.Infrastructure.Tenancy;
 
 namespace ZWarden.Infrastructure.Identity;
 
@@ -31,7 +32,7 @@ public static class AdminBootstrapper
         ArgumentException.ThrowIfNullOrWhiteSpace(email);
         ArgumentException.ThrowIfNullOrWhiteSpace(password);
 
-        using IServiceScope scope = services.CreateScope();
+        await using AsyncServiceScope scope = services.CreateSystemScope();
         UserManager<ApplicationUser> users =
             scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
         RoleManager<ApplicationRole> roles =

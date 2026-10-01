@@ -5,6 +5,7 @@ using ZWarden.Domain.Enrollments;
 using ZWarden.Domain.Ids;
 using ZWarden.Domain.Security;
 using ZWarden.Infrastructure.Persistence;
+using ZWarden.Infrastructure.Tenancy;
 
 namespace ZWarden.Infrastructure.Agents;
 
@@ -50,7 +51,7 @@ public static class DevEnrollmentBootstrapper
 
         Guard(isDevelopment);
 
-        using IServiceScope scope = services.CreateScope();
+        await using AsyncServiceScope scope = services.CreateSystemScope();
         ZWardenDbContext context = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
         ICredentialHasher hasher = scope.ServiceProvider.GetRequiredService<ICredentialHasher>();
         TimeProvider clock = scope.ServiceProvider.GetRequiredService<TimeProvider>();

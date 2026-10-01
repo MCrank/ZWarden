@@ -54,7 +54,7 @@ public static class ZWardenPersistenceServiceCollectionExtensions
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(services);
-        using IServiceScope scope = services.CreateScope();
+        await using AsyncServiceScope scope = services.CreateSystemScope();
         ZWardenDbContext context = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
         await MigrationRunner.EnsureMigratedAsync(context, enabled: true, cancellationToken).ConfigureAwait(false);
         await TenantBootstrapper.EnsureDefaultTenantAsync(context, cancellationToken).ConfigureAwait(false);

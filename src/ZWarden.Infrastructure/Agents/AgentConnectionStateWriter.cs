@@ -7,8 +7,8 @@ namespace ZWarden.Infrastructure.Agents;
 
 /// <summary>
 /// Persists an Agent's observed connection state (F10) via the tenant-scoped <see cref="AgentRepository"/>.
-/// The connecting Agent has no browser session, so — like F9's enrollment exchange — these writes run under
-/// the default-tenant fallback (ADR 0016) with no <c>IgnoreQueryFilters</c>. A stamp for an Agent not visible
+/// The connecting Agent has no browser session, so these writes run under the Agent's tenant claim, assigned
+/// to the hub scope by <c>AgentTenantHubFilter</c> (#297, ADR 0016), with no <c>IgnoreQueryFilters</c>. A stamp for an Agent not visible
 /// in the ambient tenant is a no-op: the credential verifier has already resolved the Agent by the time the
 /// hub stamps its state, so a miss here is defensive, not an expected path, and must never tear the connection.
 /// </summary>

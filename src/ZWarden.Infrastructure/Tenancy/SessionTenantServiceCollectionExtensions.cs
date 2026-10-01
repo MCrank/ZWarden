@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using ZWarden.Application.Tenancy;
 
 namespace ZWarden.Infrastructure.Tenancy;
@@ -18,6 +19,7 @@ public static class SessionTenantServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
         services.AddHttpContextAccessor();
+        services.TryAddScoped<TenantAssignment>();
         services.AddScoped<ITenantContext, ClaimsPrincipalTenantContext>();
         return services;
     }

@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using ZWarden.Application.Setup;
 using ZWarden.Domain.Setup;
 using ZWarden.Web.Tests.Account;
+using ZWarden.Infrastructure.Tenancy;
 
 namespace ZWarden.Web.Tests.Setup;
 
@@ -35,7 +36,7 @@ public sealed class SetupGuidedStepsTests
         await Assert.That(RedirectPath(response)).IsEqualTo("/setup/enroll");
 
         // The mode was recorded, but setup is deliberately not complete yet.
-        using IServiceScope scope = factory.Services.CreateScope();
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
         ISetupState setup = scope.ServiceProvider.GetRequiredService<ISetupState>();
         await Assert.That(await setup.GetTlsModeAsync()).IsEqualTo(TlsMode.Private);
         await Assert.That(await setup.IsSetupCompleteAsync()).IsFalse();
@@ -86,7 +87,7 @@ public sealed class SetupGuidedStepsTests
         await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.Redirect);
         await Assert.That(RedirectPath(response)).IsEqualTo("/");
 
-        using IServiceScope scope = factory.Services.CreateScope();
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
         ISetupState setup = scope.ServiceProvider.GetRequiredService<ISetupState>();
         await Assert.That(await setup.IsSetupCompleteAsync()).IsTrue();
         client.Dispose();

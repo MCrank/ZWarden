@@ -6,8 +6,8 @@ namespace ZWarden.Web.Agents;
 /// <summary>
 /// The claim the <see cref="AgentAuthenticationHandler"/> mints for an authenticated Agent connection (F10):
 /// the resolved <see cref="AgentId"/> the credential verifier returned, carried on the connection's principal
-/// so the hub lifecycle can address the Agent without re-verifying. It is never a tenant or user claim — an
-/// Agent connection carries no session.
+/// so the hub lifecycle can address the Agent without re-verifying. It is never a user claim — an Agent connection carries no
+/// session. (The handler also stamps the tenant claim, #297.)
 /// </summary>
 public static class AgentClaims
 {

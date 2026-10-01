@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using ZWarden.Infrastructure.Persistence;
 using ZWarden.Web.Tests.Account;
+using ZWarden.Infrastructure.Tenancy;
 
 namespace ZWarden.Web.Tests.Setup;
 
@@ -21,7 +22,7 @@ public class FreshInstallDrillTests
         await using ZWardenWebAppFactory factory = new() { CompleteSetupOnStart = false };
         _ = factory.Services; // force the host (and its migrate-and-bootstrap startup) to run
 
-        using IServiceScope scope = factory.Services.CreateScope();
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
         ZWardenDbContext context = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
 
         // The bootstrap applied migrations (not EnsureCreated): every migration is applied and none is pending.

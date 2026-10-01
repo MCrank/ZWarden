@@ -10,6 +10,7 @@ using ZWarden.Infrastructure.Identity;
 using ZWarden.Infrastructure.Persistence;
 using ZWarden.Web.Components.Pages.Audit;
 using ZWarden.Web.Tests.Account;
+using ZWarden.Infrastructure.Tenancy;
 
 namespace ZWarden.Web.Tests.Audit;
 
@@ -180,7 +181,7 @@ public sealed class AuditViewerTests
         UserId? actor = null,
         ServerId? server = null)
     {
-        using IServiceScope scope = factory.Services.CreateScope();
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
         ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
         db.Set<AuditEvent>().Add(AuditEvent.Create(
             action, outcome, DateTimeOffset.UtcNow, actorUserId: actor, serverId: server));
@@ -189,7 +190,7 @@ public sealed class AuditViewerTests
 
     private static async Task<UserId> UserIdOfAsync(ZWardenWebAppFactory factory, string email)
     {
-        using IServiceScope scope = factory.Services.CreateScope();
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
         Microsoft.AspNetCore.Identity.UserManager<ApplicationUser> users =
             scope.ServiceProvider.GetRequiredService<Microsoft.AspNetCore.Identity.UserManager<ApplicationUser>>();
         ApplicationUser user = await users.FindByEmailAsync(email)

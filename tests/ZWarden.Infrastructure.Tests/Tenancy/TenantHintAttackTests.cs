@@ -35,7 +35,7 @@ public class TenantHintAttackTests
         context.Request.Headers[ClaimsPrincipalTenantContext.TenantClaimType] = attackerHint.ToString();
         context.Request.RouteValues["tenant"] = attackerHint.ToString();
 
-        ClaimsPrincipalTenantContext tenantContext = new(new HttpContextAccessor { HttpContext = context });
+        ClaimsPrincipalTenantContext tenantContext = new(new HttpContextAccessor { HttpContext = context }, new TenantAssignment());
 
         // The session claim wins; the hint has no path into the tenant context.
         await Assert.That(tenantContext.CurrentTenantId).IsEqualTo(sessionTenant);
@@ -52,7 +52,7 @@ public class TenantHintAttackTests
         context.Request.Headers["X-Tenant-Id"] = attackerHint.ToString();
         context.Request.RouteValues["tenant"] = attackerHint.ToString();
 
-        ClaimsPrincipalTenantContext tenantContext = new(new HttpContextAccessor { HttpContext = context });
+        ClaimsPrincipalTenantContext tenantContext = new(new HttpContextAccessor { HttpContext = context }, new TenantAssignment());
 
         // A pre-auth request cannot elevate itself into another tenant by asking; it is the default tenant.
         await Assert.That(tenantContext.CurrentTenantId).IsEqualTo(Tenant.DefaultId);

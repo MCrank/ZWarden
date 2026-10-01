@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using ZWarden.Application.Setup;
 using ZWarden.Domain.Setup;
 using ZWarden.Infrastructure.Persistence;
+using ZWarden.Infrastructure.Tenancy;
 
 namespace ZWarden.Infrastructure.Setup;
 
@@ -19,7 +20,7 @@ public static class SetupBootstrapper
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(services);
-        using IServiceScope scope = services.CreateScope();
+        await using AsyncServiceScope scope = services.CreateSystemScope();
         ZWardenDbContext context = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
 
         bool exists = await context.Set<InstallState>()
@@ -41,7 +42,7 @@ public static class SetupBootstrapper
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(services);
-        using IServiceScope scope = services.CreateScope();
+        await using AsyncServiceScope scope = services.CreateSystemScope();
         ISetupState setup = scope.ServiceProvider.GetRequiredService<ISetupState>();
         await setup.MarkSetupCompleteAsync(cancellationToken).ConfigureAwait(false);
     }
