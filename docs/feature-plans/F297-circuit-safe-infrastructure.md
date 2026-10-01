@@ -2,9 +2,9 @@
 
 **Status:** three PRs, in order. v1.0, epic [#294](https://github.com/MCrank/ZWarden/issues/294).
 
-- **PR-A** (branch `feat/297-fail-closed-tenant`): the fail-closed tenant, named default-tenant grants, the Agent
+- **PR-A** (branch `feat/297-fail-closed-tenant`, PR #303, merged): the fail-closed tenant, named default-tenant grants, the Agent
   tenant claim, the circuit tenant capture, tenant-carrying scopes, and arch tests.
-- **PR-B**: `IDbContextFactory` registration, a scope-per-action runner for interactive components, and the
+- **PR-B** (branch `feat/297-dbcontext-per-action`): `IDbContextFactory` registration, a scope-per-action runner for interactive components, and the
   32-concurrent-operations test.
 - **PR-C** (closes #297): auth revalidation about every minute (user exists, security stamp matches, still holds a
   role), plus a stamp bump when a role assignment is removed.
@@ -85,3 +85,20 @@ each action from an interactive page must get its own `DbContext`.
 
 - Multi-tenant iteration in background services. That's F3B: a system scope is single-tenant by name.
 - Making any page interactive (#299).
+
+## PR-B design
+
+- **`ZWardenDbContextFactory`** (scoped `IDbContextFactory<ZWardenDbContext>`) binds the scope's `ITenantContext`
+  and the optional secret protector. The scoped `ZWardenDbContext` is now `factory.CreateDbContext()`, so static
+  pages and all 37 constructor consumers are unchanged.
+- **`ActionScopeRunner`** (scoped, registered by both tenant foundations):
+  `RunAsync<TService[, TResult]>((service, ct) => …)` opens `CreateTenantScope(current tenant)`, resolves the
+  service there and disposes the scope afterwards. Interactive components (#299) call services through it.
+- **Arch test:** nothing under `ZWarden.Web/Components` references `ZWardenDbContext` or `IDbContextFactory`.
+- **Tests:**
+  - 32 concurrent actions in one circuit-marked scope (alternating `UserManager.FindByEmailAsync` and raw
+    context reads) all succeed on 16 distinct contexts;
+  - an action from a circuit sees only its tenant's servers, and one from an untenanted circuit throws;
+  - the factory and the scoped context bind the same scope tenant.
+- ADR 0046 gets a Q7 amendment note.
+- Today's `Live*` islands inject only singleton caches, so nothing needed migrating yet.

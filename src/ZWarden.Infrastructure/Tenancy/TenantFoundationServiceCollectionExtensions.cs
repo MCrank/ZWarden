@@ -21,6 +21,7 @@ public static class TenantFoundationServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
         services.TryAddScoped<TenantAssignment>();
+        services.TryAddScoped<ActionScopeRunner>();
         services.TryAddScoped<ITenantContext, SingleTenantContext>();
         return services;
     }
