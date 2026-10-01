@@ -1,4 +1,5 @@
 using BlazorBlueprint.Components;
+using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Components.Server.Circuits;
 using ZWarden.Infrastructure.Agents;
 using ZWarden.Infrastructure.Audit;
@@ -69,6 +70,9 @@ builder.Services.AddZWardenDataProtection(builder.Configuration, builder.Environ
 builder.Services.AddSessionTenantContext();        // wins over the single-tenant default (S5)
 // #297: a circuit captures its tenant once, at open, and fails closed without one (ADR 0046 Q6).
 builder.Services.AddScoped<CircuitHandler, TenantCircuitHandler>();
+// #297: an open circuit re-checks its session every minute (user exists, stamp matches, still holds a role).
+// Registered after AddRazorComponents, so it replaces the default ServerAuthenticationStateProvider.
+builder.Services.AddScoped<AuthenticationStateProvider, SessionRevalidatingAuthenticationStateProvider>();
 builder.Services.AddTenantFoundation();
 builder.Services.AddZWardenPersistence(provider, connectionString);
 builder.Services.AddZWardenAuthentication(allowedHosts);

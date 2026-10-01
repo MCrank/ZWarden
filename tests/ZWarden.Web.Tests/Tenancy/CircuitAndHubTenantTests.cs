@@ -106,6 +106,17 @@ public class CircuitAndHubTenantTests
             .IsEqualTo(verifiedUnder.ToString());
     }
 
+    [Test]
+    public async Task The_composed_host_revalidates_circuit_sessions()
+    {
+        // #297 PR-C: Program.cs replaces the default provider, so an open circuit re-checks its session.
+        await using Account.ZWardenWebAppFactory factory = new();
+        await using AsyncServiceScope scope = factory.Services.CreateSystemScope();
+
+        await Assert.That(scope.ServiceProvider.GetRequiredService<AuthenticationStateProvider>())
+            .IsTypeOf<SessionRevalidatingAuthenticationStateProvider>();
+    }
+
     private static ServiceProvider SessionScope(ClaimsPrincipal circuitUser, out TenantAssignment assignment)
     {
         ServiceCollection services = new();

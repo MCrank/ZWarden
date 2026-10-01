@@ -63,8 +63,19 @@ public static class IdentityAuthenticationServiceCollectionExtensions
         // double supplies it, and until then this service is simply never invoked (PRD 63).
         services.AddScoped<ExternalLoginService>();
 
+        // #297 (ADR 0046 Q3): the session cookie re-checks the user's security stamp every
+        // SessionRevalidator.Interval, so a deleted user or a bumped stamp (e.g. a revoked role) ends the session
+        // within a minute instead of at cookie expiry. Open interactive pages re-check through SessionRevalidator.
+        services.Configure<SecurityStampValidatorOptions>(options => options.ValidationInterval = SessionRevalidator.Interval);
+        services.TryAddScoped<ISecurityStampValidator, SecurityStampValidator<ApplicationUser>>();
+        services.AddSingleton<SessionRevalidator>();
+
         services.AddAuthentication(IdentityConstants.ApplicationScheme)
-            .AddCookie(IdentityConstants.ApplicationScheme, ConfigureApplicationCookie)
+            .AddCookie(IdentityConstants.ApplicationScheme, options =>
+            {
+                ConfigureApplicationCookie(options);
+                options.Events.OnValidatePrincipal = SecurityStampValidator.ValidatePrincipalAsync;
+            })
             .AddCookie(IdentityConstants.ExternalScheme, ConfigureTransientCookie)
             .AddCookie(IdentityConstants.TwoFactorUserIdScheme, ConfigureTransientCookie)
             .AddCookie(IdentityConstants.TwoFactorRememberMeScheme, ConfigureApplicationCookie);

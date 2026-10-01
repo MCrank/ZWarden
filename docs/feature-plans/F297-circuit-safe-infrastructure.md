@@ -6,7 +6,7 @@
   tenant claim, the circuit tenant capture, tenant-carrying scopes, and arch tests.
 - **PR-B** (branch `feat/297-dbcontext-per-action`): `IDbContextFactory` registration, a scope-per-action runner for interactive components, and the
   32-concurrent-operations test.
-- **PR-C** (closes #297): auth revalidation about every minute (user exists, security stamp matches, still holds a
+- **PR-C** (branch `feat/297-auth-revalidation`, stacked on PR-B, closes #297): auth revalidation about every minute (user exists, security stamp matches, still holds a
   role), plus a stamp bump when a role assignment is removed.
 
 **Written against:** issue #297;
@@ -102,3 +102,28 @@ each action from an interactive page must get its own `DbContext`.
   - the factory and the scoped context bind the same scope tenant.
 - ADR 0046 gets a Q7 amendment note.
 - Today's `Live*` islands inject only singleton caches, so nothing needed migrating yet.
+
+## PR-C design
+
+- **Found while building it:** the application cookie never validated the security stamp. It was added with
+  a bare `AddCookie`, with no `OnValidatePrincipal` hook, so a session stayed valid for its whole 8-hour
+  sliding lifetime even after the user was deleted. PR-C wires
+  `SecurityStampValidator.ValidatePrincipalAsync` on the application scheme with
+  `ValidationInterval = 1 min`, and registers `ISecurityStampValidator` explicitly. The two-factor
+  remember-me cookie is unchanged.
+- **`SessionRevalidator`** (Infrastructure, singleton) treats a principal as valid only when:
+  - it has a tenant claim;
+  - the user exists in that tenant (looked up in a fresh `CreateTenantScope`);
+  - the security stamp matches;
+  - the user holds at least one `RoleAssignment`.
+
+  `Interval` = 1 minute, shared with the cookie validator.
+- **`SessionRevalidatingAuthenticationStateProvider`** (Web) is a `RevalidatingServerAuthenticationStateProvider`
+  over `SessionRevalidator`, and replaces the default provider in `Program.cs`. When a check fails, the open
+  circuit's user becomes anonymous.
+- **Stamp bump (D4):** `RoleAdministrationService.DeleteRoleAsync` sets a new `SecurityStamp` on every user
+  who held the role, in the same save. It's the only place user-held assignments are revoked today; there's
+  no per-user unassign API yet. The tidy-up when a server is deleted (#271) doesn't bump stamps, because
+  those grants pointed at a server that no longer exists.
+- **A cost knowingly accepted:** a bumped stamp signs the user out (cookie) or blanks their open page
+  (circuit), even if they still hold other roles. They sign in again and get their remaining roles.
