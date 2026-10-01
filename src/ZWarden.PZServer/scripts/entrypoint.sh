@@ -31,7 +31,7 @@ if pz_needs_install "${SERVER_DIR}"; then
   # A fresh SteamCMD's first app_update often fails with "Missing configuration"; retry to
   # warm the config, and parse stdout for the result since exit codes are unreliable (F12/#65).
   install_rc=0
-  pz_install_with_retry "${STEAMCMD}" "${runscript}" || install_rc=$?
+  pz_install_with_retry "${STEAMCMD}" "${runscript}" "${SERVER_DIR}" || install_rc=$?
   rm -f "${runscript}"
   if [ "${install_rc}" -eq 0 ]; then
     pz_write_appid "${SERVER_DIR}"

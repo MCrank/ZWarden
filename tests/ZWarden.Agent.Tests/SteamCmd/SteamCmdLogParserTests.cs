@@ -84,7 +84,7 @@ public class SteamCmdLogParserTests
     public async Task An_update_that_never_started_fails_with_the_entrypoints_reason()
     {
         // #280: every attempt printed SteamCMD's "timed out … bailing" (and its misleading success line); the
-        // entrypoint's summary is the first error line, so it becomes the Operation's failure reason.
+        // entrypoint's summary is the (last) error line, so it becomes the Operation's failure reason.
         string stalled = " Update state (0x0) : Timed out waiting for update to start, bailing.";
         string log = Log(
             $"[zwarden] steamcmd update session {Session} begin",
@@ -97,6 +97,25 @@ public class SteamCmdLogParserTests
 
         await Assert.That(state.Outcome).IsEqualTo(SteamCmdOutcome.Failed);
         await Assert.That(state.FailureReason).Contains("timed out waiting for the update to start");
+    }
+
+    [Test]
+    public async Task With_several_error_lines_the_entrypoints_closing_summary_is_the_reason()
+    {
+        // #288: SteamCMD prints its own terse "Error! … state is 0x6" on every attempt; the entrypoint's ERROR! summary
+        // comes last and says what to do, so the LAST error line is the Operation's failure reason.
+        string stuck = "Error! App '380870' state is 0x6 after update job.";
+        string summary = "ERROR! SteamCMD update state is stuck (0x6) even after resetting the app manifest; check free disk space on the server volume. The installed build is unchanged.";
+        string log = Log(
+            $"[zwarden] steamcmd update session {Session} begin",
+            stuck, stuck, stuck,
+            summary,
+            $"[zwarden] steamcmd update session {Session} end (failure)");
+
+        SteamCmdUpdateState state = SteamCmdLogParser.Parse(log, Session);
+
+        await Assert.That(state.Outcome).IsEqualTo(SteamCmdOutcome.Failed);
+        await Assert.That(state.FailureReason).IsEqualTo(summary);
     }
 
     [Test]
