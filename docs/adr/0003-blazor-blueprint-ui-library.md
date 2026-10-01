@@ -105,6 +105,12 @@ Four reasons, in order of weight.
 3. **Pin exact versions.** `3.16.0`, never `3.*`. A 4.x landing mid-feature is the likeliest way
    this hurts.
 
+> **Amendment ([#295](https://github.com/MCrank/ZWarden/issues/295)):** upgraded to **4.1.0**, still pinned
+> exactly. v4 prefixes every library utility `bb:` in its own cascade layer, and that broke the
+> class-name overlap condition 2's Tailwind step had silently relied on. ZWarden's own build moved
+> to **Tailwind v4** (pinned), so it shares the library's named layers. The seam absorbed the major
+> version without a single component call-site change. Details in `docs/agents/ui-components.md`.
+
 ## Revisit trigger
 
 Fork at the pinned version — Apache-2.0 permits it, and the library is pure C# and CSS with no

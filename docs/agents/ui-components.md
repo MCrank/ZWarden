@@ -8,6 +8,31 @@ ZWarden page are a smell — replace them with `BbButton`, `BbInput`, `BbNativeS
 `BbCheckbox`, `BbCard`, `BbAlert`, etc., so the app keeps one cohesive look and feel and reskins from
 the token file alone.
 
+## Versions: BlazorBlueprint 4.1 on Tailwind v4
+
+We're on **BlazorBlueprint 4.1.0** (Components + Primitives, pinned exactly in `Directory.Packages.props`)
+and ZWarden's own CSS build is **Tailwind v4** (`@tailwindcss/cli`, pinned in `src/ZWarden.Web/package.json`)
+since #295. The MCP and llms.txt docs describe v4, so they match our code.
+
+How the two stylesheets fit together (get this wrong and every Bb component silently loses its styling):
+
+- `blazorblueprint.css` is the library's own prebuilt Tailwind v4 output. All of its utilities are
+  **prefixed `bb:`** and live in their own `bb-utilities` cascade layer. Its reset lives in the `base` layer.
+- `wwwroot/app.css` (built from `Styles/app.tailwind.css`) writes into the **same named layers**
+  (`theme`/`base`/`components`/`utilities`). So our reset sits underneath the library's utilities and
+  can't override them. **Never go back to an unlayered reset** (Tailwind v3's preflight). Its
+  `*{border-width:0}` and `button{background:transparent;padding:0}` beat every layered `bb:` utility, which
+  strips the borders, fills and padding from buttons, inputs and cards. On 3.16 this was hidden only
+  because the library's unprefixed class names happened to match utilities our own build emitted.
+- The Signal tokens (`zwarden.css`) and the shell chrome (`shell.css`) are **unlayered** on purpose, so they
+  beat the library's defaults. A `zw-*` class can restyle a Bb component (e.g. `.zw-cfg-sections-btn`).
+- A `Class="p-6"` on a Bb component still replaces the component's own `bb:p-4`: the library's `cn` merge
+  strips the prefix to resolve conflicts. You write plain utilities; never write `bb:` yourself.
+- Unset borders default to `var(--border)` (a `base`-layer rule in `app.tailwind.css`), not v3's gray-200.
+  `dark:` follows the `.dark` class on `<html>` (`@custom-variant dark`), not the OS preference.
+- Tailwind v4 scans only `Components/**/*.{razor,cs,html}` (`source(none)` + `@source`), like the old v3
+  content glob.
+
 ## Always check the current API first
 
 Component APIs evolve — **do not** work from memory. Before using or changing a component, pull its
@@ -71,7 +96,7 @@ Only a subset of Blueprint is safe there:
 - **bUnit needs `ctx.JSInterop.Mode = JSRuntimeMode.Loose;`** for any test that renders Blueprint
   controls (they call JSInterop in `OnAfterRender`, which real static SSR never runs).
 - **Blueprint's component CSS ships in `blazorblueprint.css`**, separate from ZWarden's Tailwind
-  content scan — so a new `Bb*` component needs no `tailwind.config.js` change, but still run
+  content scan — so a new `Bb*` component needs no `app.tailwind.css` change, but still run
   `npm run build:css` (removing raw utility classes shrinks the committed `wwwroot/app.css`, which CI
   diffs — ADR 0003 condition 2) and bump the `Web.Tests` `--minimum-expected-tests` floor when the
   test count changes.

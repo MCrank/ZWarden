@@ -84,6 +84,14 @@
           "AngleSharp.Css": "1.0.1"
         }
       },
+      "Ical.Net": {
+        "type": "Transitive",
+        "resolved": "5.2.3",
+        "contentHash": "zROvmrRPKqND0e0Bt/wSY+d8iYtL4+sP9mORyjT/ySBiIDfik4iovTjS+L9PFg+zoXfkJ5eBTHK2lX9c7lganw==",
+        "dependencies": {
+          "NodaTime": "3.2.2"
+        }
+      },
       "Loretta.CodeAnalysis.Common": {
         "type": "Transitive",
         "resolved": "0.2.13",
@@ -227,6 +235,11 @@
         "dependencies": {
           "Microsoft.Testing.Platform": "[2.4.0, 3.0.0)"
         }
+      },
+      "NodaTime": {
+        "type": "Transitive",
+        "resolved": "3.2.2",
+        "contentHash": "dmju5W0UYC3QP/UJM0juKAZkH0HSDMp0gH91A0+mT9M0kgyM2Jm67hUZPl/WRQLq8Lijjqmdk8kyAViWFWM7dA=="
       },
       "OpenTelemetry": {
         "type": "Transitive",
@@ -375,7 +388,7 @@
       "zwarden.web": {
         "type": "Project",
         "dependencies": {
-          "BlazorBlueprint.Components": "[3.16.0, )",
+          "BlazorBlueprint.Components": "[4.1.0, )",
           "OpenTelemetry.Exporter.Console": "[1.18.0, )",
           "OpenTelemetry.Exporter.OpenTelemetryProtocol": "[1.18.0, )",
           "OpenTelemetry.Extensions.Hosting": "[1.18.0, )",
@@ -392,22 +405,23 @@
       },
       "BlazorBlueprint.Components": {
         "type": "CentralTransitive",
-        "requested": "[3.16.0, )",
-        "resolved": "3.16.0",
-        "contentHash": "ER8A3yHoe4PkWwWHkT0D49TpsjtaQxqd12kUk/7ozrvGlA1qoGDbG6emWqxaaL2TvvtadHMDrTtCiotx7cuLJA==",
+        "requested": "[4.1.0, )",
+        "resolved": "4.1.0",
+        "contentHash": "Sda4S3J0Lt23eKZ4wmBOUjRk7xsGhe2LWK0epGeaR2hWhw7YQrxK35aHuLPT9DHpt/U3au5gwJsn5yWcOVOLSg==",
         "dependencies": {
           "BlazorBlueprint.Icons.Lucide": "2.0.0",
-          "BlazorBlueprint.Primitives": "3.16.0",
+          "BlazorBlueprint.Primitives": "4.1.0",
           "HtmlSanitizer": "9.1.982",
+          "Ical.Net": "5.2.3",
           "Markdig": "0.37.0",
           "TailwindMerge.NET": "1.3.0"
         }
       },
       "BlazorBlueprint.Primitives": {
         "type": "CentralTransitive",
-        "requested": "[3.16.0, )",
-        "resolved": "3.16.0",
-        "contentHash": "FQXgRNRTyqYp25MTm/Z3rSP6/vUOWiHIm6D4/fcY4Ksm58IqI1gyxf/o7bMrSJDngF1bUq8TDon8BbEX/kNerw=="
+        "requested": "[4.1.0, )",
+        "resolved": "4.1.0",
+        "contentHash": "0anddIj6dgRlpeb99vJvDl1BJGxmZvP7rCPDLQHMGimRoiccbihEGMOrrgL/GhNo24LH58ORs/zfex6rEQcrRA=="
       },
       "Loretta.CodeAnalysis.Lua": {
         "type": "CentralTransitive",

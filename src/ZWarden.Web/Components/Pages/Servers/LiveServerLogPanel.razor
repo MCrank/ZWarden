@@ -55,7 +55,7 @@
                 <div class="grid grid-cols-[max-content_1fr] gap-x-2 @(line.IsStderr ? "text-destructive" : "text-foreground")"
                      data-log-line data-stream="@(line.IsStderr ? "stderr" : "stdout")">
                     <span class="text-muted-foreground tabular-nums">@Time(line.Timestamp)</span>
-                    <span class="whitespace-pre-wrap break-words">@line.Text@if (line.Truncated)
+                    <span class="whitespace-pre-wrap wrap-break-word">@line.Text@if (line.Truncated)
                         {<span class="text-muted-foreground"> …</span>}</span>
                 </div>
             }

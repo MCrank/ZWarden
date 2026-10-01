@@ -21,7 +21,7 @@
 
     @* Blueprint form primitives over the seam (ADR 0003; issue #84) — SSR-safe subset, static POST. *@
     <div class="space-y-1">
-        <BbLabel For="code" Class="block text-xs font-medium uppercase tracking-[0.1em] text-muted-foreground">Authenticator code</BbLabel>
+        <BbLabel For="code" Class="block text-xs font-medium uppercase tracking-widest text-muted-foreground">Authenticator code</BbLabel>
         <BbInput Id="code" @bind-Value="Input.Code" autocomplete="one-time-code" inputmode="numeric" autofocus
                  Class="w-full text-center font-mono text-lg tracking-[0.3em]" />
         <ValidationMessage For="() => Input.Code" class="text-xs text-destructive" />

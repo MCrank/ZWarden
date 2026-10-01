@@ -43,7 +43,7 @@
     }
 
     <div class="space-y-1">
-        <BbLabel For="tls-mode" Class="block text-xs font-medium uppercase tracking-[0.1em] text-muted-foreground">TLS mode</BbLabel>
+        <BbLabel For="tls-mode" Class="block text-xs font-medium uppercase tracking-widest text-muted-foreground">TLS mode</BbLabel>
         @* Explicit Name for static-SSR binding on BbNativeSelect (issue #84). *@
         <BbNativeSelect TValue="string" Id="tls-mode" Name="Input.Mode" @bind-Value="Input.Mode" Class="w-full">
             <option value="@nameof(TlsMode.Public)" selected="@(string.IsNullOrEmpty(Input.Mode) || Input.Mode == nameof(TlsMode.Public))">Public — automatic HTTPS via Let's Encrypt</option>

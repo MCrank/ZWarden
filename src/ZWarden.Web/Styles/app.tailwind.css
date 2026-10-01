@@ -1,38 +1,163 @@
-/* ZWarden.Web Tailwind entry (ADR 0003). The generated wwwroot/app.css is
-   committed and CI-diffed - run `npm run build:css` after editing this file or
-   any markup, or the utilities silently vanish at runtime. */
+/* ZWarden.Web Tailwind entry (ADR 0003). Tailwind v4 (#295). The generated wwwroot/app.css is
+   committed and CI-diffed - run `npm run build:css` after editing this file or any markup, or the
+   utilities silently vanish at runtime.
 
-/* The "Signal" identity tokens (:root light / .dark dark), inlined by
-   postcss-import ahead of Tailwind so BlazorBlueprint and ZWarden utilities
-   both read the same CSS variables. Authoritative source: docs/style-guide/. */
+   Cascade layers (#295): BlazorBlueprint v4 ships its own prebuilt Tailwind v4 output in native layers
+   (theme/base/components/utilities, plus its bb:-prefixed bb-utilities). This build emits into the same
+   named layers, so our preflight sits under the library's utilities instead of overriding them. The
+   Signal tokens and the shell chrome stay UNLAYERED on purpose: they must win over the library's
+   defaults (tokens) and its component classes (e.g. .zw-cfg-sections-btn on a BbButton), as on v3. */
+
+/* The "Signal" identity tokens (:root light / .dark dark), inlined ahead of Tailwind so BlazorBlueprint
+   and ZWarden utilities both read the same CSS variables. Authoritative source: docs/style-guide/. */
 @import "./zwarden.css";
 
-/* The app-shell chrome (#157, ADR 0040) — static-SSR `zw-*` classes that read the
-   Signal tokens above. Imported here so the same build emits it into wwwroot/app.css. */
+/* The app-shell chrome (#157, ADR 0040) - static-SSR `zw-*` classes that read the Signal tokens above.
+   Imported here so the same build emits it into wwwroot/app.css. */
 @import "./shell.css";
 
-/* Self-hosted Chivo / Chivo Mono (OFL, see wwwroot/fonts/OFL.txt). No CDN in
-   production (style-guide.md); latin subset, normal style, only the weights the
-   UI uses. `font-display: swap` so text paints immediately on the fallback. */
-@font-face { font-family: "Chivo"; font-style: normal; font-weight: 400; font-display: swap; src: url("/fonts/chivo-400.woff2") format("woff2"); }
-@font-face { font-family: "Chivo"; font-style: normal; font-weight: 600; font-display: swap; src: url("/fonts/chivo-600.woff2") format("woff2"); }
-@font-face { font-family: "Chivo"; font-style: normal; font-weight: 800; font-display: swap; src: url("/fonts/chivo-800.woff2") format("woff2"); }
-@font-face { font-family: "Chivo"; font-style: normal; font-weight: 900; font-display: swap; src: url("/fonts/chivo-900.woff2") format("woff2"); }
-@font-face { font-family: "Chivo Mono"; font-style: normal; font-weight: 400; font-display: swap; src: url("/fonts/chivo-mono-400.woff2") format("woff2"); }
-@font-face { font-family: "Chivo Mono"; font-style: normal; font-weight: 500; font-display: swap; src: url("/fonts/chivo-mono-500.woff2") format("woff2"); }
-@font-face { font-family: "Chivo Mono"; font-style: normal; font-weight: 700; font-display: swap; src: url("/fonts/chivo-mono-700.woff2") format("woff2"); }
+/* Scan exactly ZWarden's own markup (as the v3 content glob did), not the whole project. Class names in
+   .cs switch expressions (e.g. StatusBadge's status ramp) must be full literal strings to be detected. */
+@import "tailwindcss" source(none);
+@source "../Components/**/*.{razor,cs,html}";
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* `dark:` follows the .dark class the theme toggle sets on <html> (shell.js), not the OS preference. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* The "Signal" palette, mapped onto the CSS variables in zwarden.css. `inline` puts var(--background)
+   etc. straight into each utility, so they resolve per theme and --radius is not self-referential.
+   The server-state ramp and meter thresholds: StatusBadge / MeterBar are the only sanctioned consumers
+   (style-guide.md). Squared with a hairline round (3px), keyed off the token. */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-status-running: var(--status-running);
+  --color-status-stopped: var(--status-stopped);
+  --color-status-unhealthy: var(--status-unhealthy);
+  --color-status-busy: var(--status-busy);
+  --color-status-unknown: var(--status-unknown);
+
+  --color-meter-nominal: var(--meter-nominal);
+  --color-meter-watch: var(--meter-watch);
+  --color-meter-hot: var(--meter-hot);
+  --color-meter-track: var(--meter-track);
+
+  --radius: var(--radius);
+  --radius-sm: calc(var(--radius) - 1px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 2px);
+}
+
+/* Chivo for UI, Chivo Mono for tabular data (self-hosted, below). Plain @theme so --font-sans is a real
+   variable the html rule reads. */
+@theme {
+  --font-sans:
+    Chivo, ui-sans-serif, system-ui, Segoe UI, Roboto, Helvetica Neue, Arial,
+    sans-serif;
+  --font-mono:
+    Chivo Mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* Tailwind v4 (and BlazorBlueprint v4's preflight) default borders to currentcolor; Signal wants the
+   border token everywhere a raw `border` utility gives no colour (BlazorBlueprint v4 migration guide). */
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--border);
+  }
+}
+
+/* Self-hosted Chivo / Chivo Mono (OFL, see wwwroot/fonts/OFL.txt). No CDN in production (style-guide.md);
+   latin subset, normal style, only the weights the UI uses. `font-display: swap` so text paints
+   immediately on the fallback. */
+@layer base {
+  @font-face {
+    font-family: 'Chivo';
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url('/fonts/chivo-400.woff2') format('woff2');
+  }
+  @font-face {
+    font-family: 'Chivo';
+    font-style: normal;
+    font-weight: 600;
+    font-display: swap;
+    src: url('/fonts/chivo-600.woff2') format('woff2');
+  }
+  @font-face {
+    font-family: 'Chivo';
+    font-style: normal;
+    font-weight: 800;
+    font-display: swap;
+    src: url('/fonts/chivo-800.woff2') format('woff2');
+  }
+  @font-face {
+    font-family: 'Chivo';
+    font-style: normal;
+    font-weight: 900;
+    font-display: swap;
+    src: url('/fonts/chivo-900.woff2') format('woff2');
+  }
+  @font-face {
+    font-family: 'Chivo Mono';
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url('/fonts/chivo-mono-400.woff2') format('woff2');
+  }
+  @font-face {
+    font-family: 'Chivo Mono';
+    font-style: normal;
+    font-weight: 500;
+    font-display: swap;
+    src: url('/fonts/chivo-mono-500.woff2') format('woff2');
+  }
+  @font-face {
+    font-family: 'Chivo Mono';
+    font-style: normal;
+    font-weight: 700;
+    font-display: swap;
+    src: url('/fonts/chivo-mono-700.woff2') format('woff2');
+  }
+}
 
 @layer base {
   /* Dark-first ground; the whole app reads the tokens through Tailwind's
-     bg-background / text-foreground (mapped in tailwind.config.js). */
+     bg-background / text-foreground (mapped in @theme above). */
   html {
     background-color: var(--background);
     color: var(--foreground);
-    font-family: theme("fontFamily.sans");
+    font-family: var(--font-sans);
   }
 
   /* Tabular data (player counts, CPU/mem, uptime, versions) is Chivo Mono with
