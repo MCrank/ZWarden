@@ -27,11 +27,6 @@
 @using ZWarden.Web.Components.Servers
 @using ZWarden.Web.Components.Pages.Servers.Sections
 @inject IServerInventory Inventory
-@inject IServerBackup ServerBackups
-@inject IServerRestore ServerRestores
-@inject IBackupQuery BackupQuery
-@inject IPlayerManagement Players
-@inject IBanQuery Bans
 @inject IOperationStore OperationStore
 @inject NavigationManager Navigation
 @inject IServerConfigurationEditor ConfigEditor
@@ -486,143 +481,7 @@ else
 
     @if (_activeSection == "players")
     {
-        <BbCard Class="p-5" data-players-card>
-            <h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Players</h2>
-
-            @if (_playerMessage is not null)
-            {
-                <div class="mt-3" data-player-message>
-                    <BbAlert Variant="AlertVariant.Warning" AccentBorder>
-                        <BbAlertDescription>@_playerMessage</BbAlertDescription>
-                    </BbAlert>
-                </div>
-            }
-
-            <EditForm Model="_actionForm" FormName="player-action" OnValidSubmit="ActionAsync" class="mt-4">
-                <DataAnnotationsValidator />
-
-                @if (_perm.CanView)
-                {
-                    <div class="flex items-center justify-between gap-3">
-                        <h3 class="text-sm font-medium">Connected players</h3>
-                        <BbButton Variant="ButtonVariant.Outline" Type="ButtonType.Submit" Size="ButtonSize.Small"
-                                  name="_actionForm.Target" value="refresh" data-action="refresh">Refresh</BbButton>
-                    </div>
-                    <div class="mt-3">
-                        <LivePlayerRosterPanel @rendermode="InteractiveServer"
-                                               ServerId="@_server.Id.ToString()"
-                                               AgentId="@_server.AgentId.ToString()" />
-                    </div>
-                }
-
-                @if (_perm.CanKick || _perm.CanBan || _perm.CanUnban)
-                {
-                    <div class="mt-6 border-t border-border pt-4">
-                        <h3 class="text-sm font-medium">Act on a player</h3>
-                        <p class="mt-1 text-xs text-muted-foreground">Enter the player's account username exactly (case-sensitive).</p>
-                        <div class="mt-3 grid gap-3 sm:grid-cols-2">
-                            @* BbInput auto-derives the full model-path Name (_actionForm.Username) under the EditForm — matches the Configuration/Mods sections below (#121). *@
-                            <div class="flex flex-col text-sm">
-                                <BbLabel For="player-username" Class="mb-1 text-muted-foreground">Username</BbLabel>
-                                <BbInput Id="player-username" @bind-Value="_actionForm.Username" autocomplete="off" />
-                            </div>
-                            <div class="flex flex-col text-sm">
-                                <BbLabel For="player-reason" Class="mb-1 text-muted-foreground">Reason (optional, kick/ban)</BbLabel>
-                                <BbInput Id="player-reason" @bind-Value="_actionForm.Reason" autocomplete="off" />
-                            </div>
-                        </div>
-                        <div class="mt-3 flex flex-wrap gap-2">
-                            @if (_perm.CanKick)
-                            {
-                                <BbButton Variant="ButtonVariant.Secondary" Type="ButtonType.Submit" Size="ButtonSize.Small"
-                                          name="_actionForm.Target" value="kick" data-action="kick">Kick</BbButton>
-                            }
-                            @if (_perm.CanBan)
-                            {
-                                <BbButton Variant="ButtonVariant.Destructive" Type="ButtonType.Submit" Size="ButtonSize.Small"
-                                          name="_actionForm.Target" value="ban" data-action="ban">Ban</BbButton>
-                            }
-                            @if (_perm.CanUnban)
-                            {
-                                <BbButton Variant="ButtonVariant.Outline" Type="ButtonType.Submit" Size="ButtonSize.Small"
-                                          name="_actionForm.Target" value="unban" data-action="unban">Unban</BbButton>
-                            }
-                            @if (_perm.CanBan)
-                            {
-                                <BbButton Variant="ButtonVariant.Outline" Type="ButtonType.Submit" Size="ButtonSize.Small"
-                                          name="_actionForm.Target" value="remove" data-action="remove-from-whitelist">Remove from whitelist</BbButton>
-                            }
-                        </div>
-                    </div>
-                }
-
-                @if (_perm.CanConfigEdit)
-                {
-                    <div class="mt-6 border-t border-border pt-4">
-                        <h3 class="text-sm font-medium">Whitelist mode</h3>
-                        <p class="mt-1 text-xs text-muted-foreground">
-                            Open lets clients join without a whitelist account; closing it admits only whitelisted
-                            players. Applied at runtime over RCON.
-                        </p>
-                        <div class="mt-3 flex flex-wrap gap-2">
-                            <BbButton Variant="ButtonVariant.Outline" Type="ButtonType.Submit" Size="ButtonSize.Small"
-                                      name="_actionForm.Target" value="whitelist-open" data-action="whitelist-open">Open to all</BbButton>
-                            <BbButton Variant="ButtonVariant.Outline" Type="ButtonType.Submit" Size="ButtonSize.Small"
-                                      name="_actionForm.Target" value="whitelist-close" data-action="whitelist-close">Whitelist only</BbButton>
-                        </div>
-                    </div>
-                }
-            </EditForm>
-
-            @if (_perm.CanView || _perm.CanUnban)
-            {
-                <div class="mt-6 border-t border-border pt-4">
-                    <h3 class="text-sm font-medium">Bans issued through ZWarden</h3>
-                    <p class="mt-1 text-xs text-muted-foreground">
-                        Bans this control plane issued — not a mirror of the server's full ban list (bans made
-                        in-game or from the console do not appear).
-                    </p>
-                    @if (_bans.Count == 0)
-                    {
-                        <p class="mt-3 text-sm text-muted-foreground" data-bans-empty>No bans on record.</p>
-                    }
-                    else
-                    {
-                        <EditForm Model="_unbanForm" FormName="ban-unban" OnValidSubmit="UnbanRowAsync" class="mt-3 block overflow-x-auto">
-                            <table class="w-full border-collapse text-left text-sm" data-bans-table>
-                                <thead>
-                                    <tr class="border-b border-border text-muted-foreground">
-                                        <th class="py-2 pr-4 font-medium">Username</th>
-                                        <th class="py-2 pr-4 font-medium">Reason</th>
-                                        <th class="py-2 pr-4 font-medium">Status</th>
-                                        <th class="py-2 pr-4 font-medium">Issued (UTC)</th>
-                                        <th class="py-2 font-medium"></th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    @foreach (BanView ban in _bans)
-                                    {
-                                        <tr class="border-b border-border/60" data-ban-row>
-                                            <td class="py-2 pr-4 font-mono">@ban.Username</td>
-                                            <td class="py-2 pr-4 text-muted-foreground">@(string.IsNullOrWhiteSpace(ban.Reason) ? "—" : ban.Reason)</td>
-                                            <td class="py-2 pr-4">@(ban.IsActive ? "Active" : "Lifted")</td>
-                                            <td class="py-2 pr-4 tabular-nums">@BanIssued(ban.IssuedAt)</td>
-                                            <td class="py-2">
-                                                @if (ban.IsActive && _perm.CanUnban)
-                                                {
-                                                    <BbButton Variant="ButtonVariant.Outline" Type="ButtonType.Submit" Size="ButtonSize.Small"
-                                                              name="_unbanForm.Target" value="@ban.Username" data-action="unban-row">Unban</BbButton>
-                                                }
-                                            </td>
-                                        </tr>
-                                    }
-                                </tbody>
-                            </table>
-                        </EditForm>
-                    }
-                </div>
-            }
-        </BbCard>
+        <PlayersSection Server="_server" Perm="_perm" />
     }
 
     @if (_activeSection == "mods")
@@ -1369,79 +1228,7 @@ else
 
     @if (_activeSection == "backups")
     {
-        <BbCard Class="p-5" data-backups-card>
-            <h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Backups</h2>
-            <p class="mt-1 text-xs text-muted-foreground">
-                A backup is a verifiable <span class="font-mono">.tar.gz</span> copy of this server's world data,
-                taken on the host and checksummed (SHA-256). Taking one is a durable operation that briefly locks
-                the server against other changes; deleting one removes the archive from the host. Restoring overwrites
-                the live world — <strong>stop the server first</strong>, and a protective backup of the current world
-                is taken automatically before the swap.
-            </p>
-
-            @if (_backupMessage is not null)
-            {
-                <div class="mt-3" data-backup-message>
-                    <BbAlert Variant="_backupAlert" AccentBorder>
-                        <BbAlertDescription>@_backupMessage</BbAlertDescription>
-                    </BbAlert>
-                </div>
-            }
-
-            <EditForm Model="_backupForm" FormName="backup-manage" OnValidSubmit="BackupManageAsync" class="mt-4">
-                @if (_backupPerm.CanCreate)
-                {
-                    <BbButton Type="ButtonType.Submit" Size="ButtonSize.Small"
-                              name="_backupForm.Command" value="create" data-action="backup-create">Take backup</BbButton>
-                }
-
-                @if (_backups.Count == 0)
-                {
-                    <p class="mt-3 text-sm text-muted-foreground" data-backups-empty>No backups yet.</p>
-                }
-                else
-                {
-                    <div class="mt-4 block overflow-x-auto">
-                        <table class="w-full border-collapse text-left text-sm" data-backups-table>
-                            <thead>
-                                <tr class="border-b border-border text-muted-foreground">
-                                    <th class="py-2 pr-4 font-medium">Created (UTC)</th>
-                                    <th class="py-2 pr-4 font-medium">Reason</th>
-                                    <th class="py-2 pr-4 font-medium">Size</th>
-                                    <th class="py-2 pr-4 font-medium">Checksum</th>
-                                    <th class="py-2 font-medium"></th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach (BackupSummary backup in _backups)
-                                {
-                                    <tr class="border-b border-border/60" data-backup-row>
-                                        <td class="py-2 pr-4 tabular-nums">@BackupCreated(backup.CreatedAt)</td>
-                                        <td class="py-2 pr-4">@(backup.Reason == BackupReason.PreOperation ? "Pre-operation" : "Manual")</td>
-                                        <td class="py-2 pr-4 tabular-nums">@FormatSize(backup.SizeBytes)</td>
-                                        <td class="py-2 pr-4 font-mono text-xs">@ShortChecksum(backup.Sha256)</td>
-                                        <td class="py-2">
-                                            <div class="flex gap-2">
-                                                @if (_backupPerm.CanRestore)
-                                                {
-                                                    <BbButton Type="ButtonType.Submit" Size="ButtonSize.Small"
-                                                              name="_backupForm.Command" value="@($"restore|{backup.Id}")" data-action="backup-restore">Restore</BbButton>
-                                                }
-                                                @if (_backupPerm.CanDelete)
-                                                {
-                                                    <BbButton Variant="ButtonVariant.Destructive" Type="ButtonType.Submit" Size="ButtonSize.Small"
-                                                              name="_backupForm.Command" value="@($"delete|{backup.Id}")" data-action="backup-delete">Delete</BbButton>
-                                                }
-                                            </div>
-                                        </td>
-                                    </tr>
-                                }
-                            </tbody>
-                        </table>
-                    </div>
-                }
-            </EditForm>
-        </BbCard>
+        <BackupsSection Server="_server" Perm="_backupPerm" />
     }
         </div>
     </div>
@@ -1484,12 +1271,6 @@ else
     [SupplyParameterFromForm(FormName = "server-delete")]
     private DeleteFormModel _deleteForm { get; set; } = default!;
 
-    [SupplyParameterFromForm(FormName = "player-action")]
-    private PlayerActionModel _actionForm { get; set; } = default!;
-
-    [SupplyParameterFromForm(FormName = "ban-unban")]
-    private UnbanModel _unbanForm { get; set; } = default!;
-
     [SupplyParameterFromForm(FormName = "server-config")]
     private ConfigFormModel _configForm { get; set; } = default!;
 
@@ -1507,9 +1288,6 @@ else
 
     [SupplyParameterFromForm(FormName = "mod-manage")]
     private ModManageModel _modManageForm { get; set; } = default!;
-
-    [SupplyParameterFromForm(FormName = "backup-manage")]
-    private BackupManageModel _backupForm { get; set; } = default!;
 
     [SupplyParameterFromForm(FormName = "modbrowser-preview")]
     private ModBrowserPreviewModel _browserForm { get; set; } = default!;
@@ -1549,8 +1327,6 @@ else
     private HashSet<string> _installedWorkshopIds = [];
     private string? _modManageMessage;
     private AlertVariant _modManageAlert = AlertVariant.Warning;
-    private IReadOnlyList<BanView> _bans = [];
-    private string? _playerMessage;
 
     // Mod Browser (#110): keyless preview + key-gated search, both feeding F22's install verb.
     private bool _searchAvailable;
@@ -1574,14 +1350,9 @@ else
     private static readonly TimeSpan ConfigRefreshWindow = TimeSpan.FromMinutes(2);
 
     private BackupPermissions _backupPerm;
-    private IReadOnlyList<BackupSummary> _backups = [];
-    private string? _backupMessage;
-    private AlertVariant _backupAlert = AlertVariant.Warning;
 
     protected override async Task OnInitializedAsync()
     {
-        _actionForm ??= new PlayerActionModel();
-        _unbanForm ??= new UnbanModel();
         _configForm ??= new ConfigFormModel();
         _editorForm ??= new ConfigEditorModel();
         _restoreForm ??= new ConfigRestoreModel();
@@ -1590,7 +1361,6 @@ else
         _modManageForm ??= new ModManageModel();
         _browserForm ??= new ModBrowserPreviewModel();
         _searchForm ??= new ModBrowserSearchModel();
-        _backupForm ??= new BackupManageModel();
         _lifecycleForm ??= new LifecycleModel();
         _gracefulForm ??= new GracefulRestartFormModel();
         _recreateForm ??= new RecreateFormModel();
@@ -1608,7 +1378,7 @@ else
         _server = await Inventory.GetVisibleAsync(user, serverId);
         if (_server is not null)
         {
-            await LoadPlayersAsync(user, serverId);
+            await LoadPlayerPermissionsAsync(user, serverId);
             _canViewLogs = (await PermissionChecker.EvaluateAsync(user, Permissions.ConsoleView, serverId)).IsAllowed;
             _canExecuteConsole = (await PermissionChecker.EvaluateAsync(user, Permissions.ConsoleExecute, serverId)).IsAllowed;
             // Diagnostics.View / .Export are tenant-wide (not server-scoped), so they evaluate without a Server.
@@ -1622,7 +1392,7 @@ else
             _canDelete = (await PermissionChecker.EvaluateAsync(user, Permissions.ServerDelete, serverId)).IsAllowed;
             _canUpdate = (await PermissionChecker.EvaluateAsync(user, Permissions.ServerUpdate, serverId)).IsAllowed;
             await LoadModManagementAsync(user, serverId);
-            await LoadBackupsAsync(user, serverId);
+            await LoadBackupPermissionsAsync(user, serverId);
             await RefreshStatusAsync(serverId);
 
             // Resolve the active section only after the per-section gates are known, so an unknown or
@@ -2131,7 +1901,7 @@ else
                     <span class="font-mono">@item.WorkshopId</span>
                     @if (item.SizeBytes is { } size)
                     {
-                        <span> · @FormatSize(size)</span>
+                        <span> · @ServerDetailFormat.FormatSize(size)</span>
                     }
                     @if (item.UpdatedAt is { } updated)
                     {
@@ -2258,7 +2028,7 @@ else
     private static string ShortDate(DateTimeOffset at) =>
         at.UtcDateTime.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
 
-    private async Task LoadPlayersAsync(UserId user, ServerId serverId)
+    private async Task LoadPlayerPermissionsAsync(UserId user, ServerId serverId)
     {
         // Per-server permissions (fail-closed): a control shows only where the caller holds the matching
         // server-scoped permission; the service re-checks server-side on submit.
@@ -2268,57 +2038,6 @@ else
             CanBan: (await PermissionChecker.EvaluateAsync(user, Permissions.PlayerBan, serverId)).IsAllowed,
             CanUnban: (await PermissionChecker.EvaluateAsync(user, Permissions.PlayerUnban, serverId)).IsAllowed,
             CanConfigEdit: (await PermissionChecker.EvaluateAsync(user, Permissions.ServerConfigurationEdit, serverId)).IsAllowed);
-
-        _bans = (_perm.CanView || _perm.CanUnban)
-            ? await Bans.ListForServerAsync(serverId)
-            : [];
-    }
-
-    private async Task ActionAsync()
-    {
-        if (_server is null || !ServerId.TryParse(Id, out ServerId serverId))
-        {
-            return;
-        }
-
-        UserId user = await CurrentUserAsync();
-        PlayerActionModel form = _actionForm ?? new PlayerActionModel();
-        string verb = form.Target ?? string.Empty;
-        string username = form.Username?.Trim() ?? string.Empty;
-
-        PlayerManagementResult? result = verb switch
-        {
-            "refresh" => await Players.ListPlayersAsync(user, serverId),
-            "kick" => await Players.KickAsync(user, serverId, username, NullIfBlank(form.Reason)),
-            "ban" => await Players.BanAsync(user, serverId, username, NullIfBlank(form.Reason)),
-            "unban" => await Players.UnbanAsync(user, serverId, username),
-            "remove" => await Players.RemoveFromWhitelistAsync(user, serverId, username),
-            "whitelist-open" => await Players.SetWhitelistModeAsync(user, serverId, open: true),
-            "whitelist-close" => await Players.SetWhitelistModeAsync(user, serverId, open: false),
-            _ => null,
-        };
-
-        _playerMessage = Describe(verb, result);
-        await LoadPlayersAsync(user, serverId); // reflect a just-lifted/issued ban in the list
-    }
-
-    private async Task UnbanRowAsync()
-    {
-        if (_server is null || !ServerId.TryParse(Id, out ServerId serverId))
-        {
-            return;
-        }
-
-        UserId user = await CurrentUserAsync();
-        string username = _unbanForm?.Target?.Trim() ?? string.Empty;
-        if (username.Length == 0)
-        {
-            return;
-        }
-
-        PlayerManagementResult result = await Players.UnbanAsync(user, serverId, username);
-        _playerMessage = Describe("unban", result);
-        await LoadPlayersAsync(user, serverId);
     }
 
     private async Task ConfigAsync()
@@ -2741,40 +2460,6 @@ else
     private static string Recorded(DateTimeOffset at) =>
         at.UtcDateTime.ToString("yyyy-MM-dd HH:mm", System.Globalization.CultureInfo.InvariantCulture);
 
-    private static string? NullIfBlank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
-
-    private static string Describe(string verb, PlayerManagementResult? result)
-    {
-        if (result is null)
-        {
-            return "Choose an action.";
-        }
-
-        if (result.Succeeded)
-        {
-            string what = verb switch
-            {
-                "refresh" => "Roster refresh started",
-                "kick" => "Kick enqueued",
-                "ban" => "Ban enqueued",
-                "unban" => "Unban enqueued",
-                "remove" => "Whitelist removal enqueued",
-                "whitelist-open" => "Whitelist opened",
-                "whitelist-close" => "Whitelist closed",
-                _ => "Action enqueued",
-            };
-            return $"{what} (operation {result.Operation}). The outcome appears on that operation shortly.";
-        }
-
-        return result.Failure switch
-        {
-            PlayerManagementFailure.NotAuthorized => "You are not permitted to perform that action on this server.",
-            PlayerManagementFailure.ServerNotFound => "That server is no longer available.",
-            PlayerManagementFailure.InvalidInput => result.Detail ?? "That username or reason is not valid.",
-            _ => "The action could not be completed.",
-        };
-    }
-
     // #228: why a managed port row is read-only, naming the host port players actually dial. The file holds the
     // container's fixed port; the host side is the stride-allocated binding recorded on the Server.
     private string ManagedNote(string path) => path switch
@@ -2792,127 +2477,15 @@ else
     private static string Reported(DateTimeOffset? at) =>
         at?.UtcDateTime.ToString("yyyy-MM-dd HH:mm", System.Globalization.CultureInfo.InvariantCulture) ?? "never";
 
-    private static string BanIssued(DateTimeOffset at) =>
-        at.UtcDateTime.ToString("yyyy-MM-dd HH:mm", System.Globalization.CultureInfo.InvariantCulture);
-
-    private async Task LoadBackupsAsync(UserId user, ServerId serverId)
+    private async Task LoadBackupPermissionsAsync(UserId user, ServerId serverId)
     {
-        // Per-server permissions (fail-closed): the panel shows only where the caller holds Backup.View; the take
+        // Per-server permissions (fail-closed): the Backups rail item shows only where the caller holds Backup.View; the take
         // and delete controls show only with their own permission; the service re-checks server-side on submit.
         _backupPerm = new BackupPermissions(
             CanView: (await PermissionChecker.EvaluateAsync(user, Permissions.BackupView, serverId)).IsAllowed,
             CanCreate: (await PermissionChecker.EvaluateAsync(user, Permissions.BackupCreate, serverId)).IsAllowed,
             CanRestore: (await PermissionChecker.EvaluateAsync(user, Permissions.BackupRestore, serverId)).IsAllowed,
             CanDelete: (await PermissionChecker.EvaluateAsync(user, Permissions.BackupDelete, serverId)).IsAllowed);
-
-        _backups = _backupPerm.CanView
-            ? await BackupQuery.ListForServerAsync(serverId)
-            : [];
-    }
-
-    private async Task BackupManageAsync()
-    {
-        if (_server is null || !ServerId.TryParse(Id, out ServerId serverId))
-        {
-            return;
-        }
-
-        UserId user = await CurrentUserAsync();
-        string command = _backupForm?.Command ?? string.Empty;
-
-        if (command == "create")
-        {
-            SetBackupCreateResult(await ServerBackups.CreateAsync(user, serverId, BackupReason.Manual));
-        }
-        else if (command.StartsWith("restore|", StringComparison.Ordinal)
-                 && BackupId.TryParse(command["restore|".Length..], out BackupId restoreId))
-        {
-            SetBackupRestoreResult(await ServerRestores.RestoreAsync(user, restoreId));
-        }
-        else if (command.StartsWith("delete|", StringComparison.Ordinal)
-                 && BackupId.TryParse(command["delete|".Length..], out BackupId backupId))
-        {
-            SetBackupDeleteResult(await ServerBackups.DeleteAsync(user, backupId));
-        }
-
-        await LoadBackupsAsync(user, serverId);
-    }
-
-    private void SetBackupCreateResult(BackupRequestResult result)
-    {
-        if (result.Succeeded)
-        {
-            SetBackupMessage($"Backup enqueued (operation {result.Operation}). It appears in the list once the archive is written.", ok: true);
-            return;
-        }
-
-        SetBackupMessage(result.Failure switch
-        {
-            BackupRequestFailure.NotAuthorized => "You are not permitted to back up this server.",
-            BackupRequestFailure.ServerNotFound => "That server is no longer available.",
-            BackupRequestFailure.ServerBusy => "The server is busy with another operation; try again once it finishes.",
-            _ => "The backup could not be started.",
-        }, ok: false);
-    }
-
-    private void SetBackupDeleteResult(BackupDeletionOutcome result)
-    {
-        if (result.Succeeded)
-        {
-            SetBackupMessage($"Deletion enqueued (operation {result.Operation}). The backup is removed once it completes.", ok: true);
-            return;
-        }
-
-        SetBackupMessage(result.Failure switch
-        {
-            BackupDeletionFailure.NotAuthorized => "You are not permitted to delete this server's backups.",
-            BackupDeletionFailure.BackupNotFound => "That backup is no longer available.",
-            _ => "The backup could not be deleted.",
-        }, ok: false);
-    }
-
-    private void SetBackupRestoreResult(RestoreRequestResult result)
-    {
-        if (result.Succeeded)
-        {
-            SetBackupMessage(
-                $"Restore enqueued (operation {result.Operation}). A protective backup of the current world is taken first, then the world is swapped in.",
-                ok: true);
-            return;
-        }
-
-        SetBackupMessage(result.Failure switch
-        {
-            RestoreRequestFailure.NotAuthorized => "You are not permitted to restore this server.",
-            RestoreRequestFailure.BackupNotFound => "That backup is no longer available.",
-            RestoreRequestFailure.ServerBusy => "The server is busy with another operation; try again once it finishes.",
-            RestoreRequestFailure.ServerRunning => "Stop the server before restoring — a restore overwrites the live world.",
-            _ => "The restore could not be started.",
-        }, ok: false);
-    }
-
-    private void SetBackupMessage(string message, bool ok)
-    {
-        _backupMessage = message;
-        _backupAlert = ok ? AlertVariant.Success : AlertVariant.Warning;
-    }
-
-    private static string BackupCreated(DateTimeOffset at) => at.UtcDateTime.ToString("yyyy-MM-dd HH:mm");
-
-    private static string ShortChecksum(string sha256) => sha256.Length <= 12 ? sha256 : sha256[..12];
-
-    private static string FormatSize(long bytes)
-    {
-        string[] units = ["B", "KiB", "MiB", "GiB", "TiB"];
-        double size = bytes;
-        int unit = 0;
-        while (size >= 1024 && unit < units.Length - 1)
-        {
-            size /= 1024;
-            unit++;
-        }
-
-        return unit == 0 ? $"{bytes} {units[unit]}" : $"{size:0.0} {units[unit]}";
     }
 
     private async Task<UserId> CurrentUserAsync()
@@ -2921,22 +2494,6 @@ else
         return Guid.TryParse(Users.GetUserId(principal), out Guid id)
             ? UserId.FromGuid(id)
             : throw new InvalidOperationException("Authenticated request carries no user id claim.");
-    }
-
-    private sealed class PlayerActionModel
-    {
-        public string? Username { get; set; }
-
-        public string? Reason { get; set; }
-
-        // The submit button's verb ("refresh"/"kick"/"ban"/"unban"/"remove"/"whitelist-open"/"whitelist-close").
-        public string? Target { get; set; }
-    }
-
-    private sealed class UnbanModel
-    {
-        // The username of the ban row whose Unban button was pressed.
-        public string? Target { get; set; }
     }
 
     private sealed class ConfigFormModel
@@ -3054,22 +2611,6 @@ else
         public string? Command { get; set; }
     }
 
-    private readonly record struct PlayerPermissions(bool CanView, bool CanKick, bool CanBan, bool CanUnban, bool CanConfigEdit)
-    {
-        public bool CanAny => CanView || CanKick || CanBan || CanUnban || CanConfigEdit;
-    }
-
-    private readonly record struct ModManagePermissions(bool CanInstall, bool CanRemove, bool CanUpdate, bool CanRestart)
-    {
-        public bool CanAny => CanInstall || CanRemove || CanUpdate || CanRestart;
-    }
-
-    private sealed class BackupManageModel
-    {
-        // The submit button's command token: "create", or "delete|{backupId}" for a per-row delete.
-        public string? Command { get; set; }
-    }
-
     private sealed class LifecycleModel
     {
         // The header lifecycle button's verb: "start" / "stop" / "restart" / "update".
@@ -3109,6 +2650,4 @@ else
         // warning; mapped to a descending schedule in GracefulRestartAsync.
         public string Countdown { get; set; } = "5m";
     }
-
-    private readonly record struct BackupPermissions(bool CanView, bool CanCreate, bool CanRestore, bool CanDelete);
 }

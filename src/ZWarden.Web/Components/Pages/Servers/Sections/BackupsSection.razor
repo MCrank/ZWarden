@@ -1,0 +1,199 @@
+@inherits ServerSectionBase
+@using ZWarden.Application.Backups
+@using ZWarden.Domain.Backups
+@inject IServerBackup ServerBackups
+@inject IServerRestore ServerRestores
+@inject IBackupQuery BackupQuery
+
+@* The Backups rail section (F24/F25): take, restore and delete verifiable world backups, gated per control on the
+   per-server Backup.* grants the page evaluates; the services re-check on submit. *@
+
+<BbCard Class="p-5" data-backups-card>
+    <h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Backups</h2>
+    <p class="mt-1 text-xs text-muted-foreground">
+        A backup is a verifiable <span class="font-mono">.tar.gz</span> copy of this server's world data,
+        taken on the host and checksummed (SHA-256). Taking one is a durable operation that briefly locks
+        the server against other changes; deleting one removes the archive from the host. Restoring overwrites
+        the live world — <strong>stop the server first</strong>, and a protective backup of the current world
+        is taken automatically before the swap.
+    </p>
+
+    @if (_backupMessage is not null)
+    {
+        <div class="mt-3" data-backup-message>
+            <BbAlert Variant="_backupAlert" AccentBorder>
+                <BbAlertDescription>@_backupMessage</BbAlertDescription>
+            </BbAlert>
+        </div>
+    }
+
+    <EditForm Model="_backupForm" FormName="backup-manage" OnValidSubmit="BackupManageAsync" class="mt-4">
+        @if (Perm.CanCreate)
+        {
+            <BbButton Type="ButtonType.Submit" Size="ButtonSize.Small"
+                      name="_backupForm.Command" value="create" data-action="backup-create">Take backup</BbButton>
+        }
+
+        @if (_backups.Count == 0)
+        {
+            <p class="mt-3 text-sm text-muted-foreground" data-backups-empty>No backups yet.</p>
+        }
+        else
+        {
+            <div class="mt-4 block overflow-x-auto">
+                <table class="w-full border-collapse text-left text-sm" data-backups-table>
+                    <thead>
+                        <tr class="border-b border-border text-muted-foreground">
+                            <th class="py-2 pr-4 font-medium">Created (UTC)</th>
+                            <th class="py-2 pr-4 font-medium">Reason</th>
+                            <th class="py-2 pr-4 font-medium">Size</th>
+                            <th class="py-2 pr-4 font-medium">Checksum</th>
+                            <th class="py-2 font-medium"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (BackupSummary backup in _backups)
+                        {
+                            <tr class="border-b border-border/60" data-backup-row>
+                                <td class="py-2 pr-4 tabular-nums">@BackupCreated(backup.CreatedAt)</td>
+                                <td class="py-2 pr-4">@(backup.Reason == BackupReason.PreOperation ? "Pre-operation" : "Manual")</td>
+                                <td class="py-2 pr-4 tabular-nums">@ServerDetailFormat.FormatSize(backup.SizeBytes)</td>
+                                <td class="py-2 pr-4 font-mono text-xs">@ShortChecksum(backup.Sha256)</td>
+                                <td class="py-2">
+                                    <div class="flex gap-2">
+                                        @if (Perm.CanRestore)
+                                        {
+                                            <BbButton Type="ButtonType.Submit" Size="ButtonSize.Small"
+                                                      name="_backupForm.Command" value="@($"restore|{backup.Id}")" data-action="backup-restore">Restore</BbButton>
+                                        }
+                                        @if (Perm.CanDelete)
+                                        {
+                                            <BbButton Variant="ButtonVariant.Destructive" Type="ButtonType.Submit" Size="ButtonSize.Small"
+                                                      name="_backupForm.Command" value="@($"delete|{backup.Id}")" data-action="backup-delete">Delete</BbButton>
+                                        }
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </EditForm>
+</BbCard>
+
+@code {
+    /// <summary>The caller's per-server backup grants (fail-closed).</summary>
+    [Parameter, EditorRequired]
+    public BackupPermissions Perm { get; set; }
+
+    [SupplyParameterFromForm(FormName = "backup-manage")]
+    private BackupManageModel _backupForm { get; set; } = default!;
+
+    private IReadOnlyList<BackupSummary> _backups = [];
+    private string? _backupMessage;
+    private AlertVariant _backupAlert = AlertVariant.Warning;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _backupForm ??= new BackupManageModel();
+        await LoadBackupsAsync();
+    }
+
+    private async Task LoadBackupsAsync() =>
+        _backups = Perm.CanView
+            ? await BackupQuery.ListForServerAsync(Server.Id)
+            : [];
+
+    private async Task BackupManageAsync()
+    {
+        UserId user = await CurrentUserAsync();
+        string command = _backupForm?.Command ?? string.Empty;
+
+        if (command == "create")
+        {
+            SetBackupCreateResult(await ServerBackups.CreateAsync(user, Server.Id, BackupReason.Manual));
+        }
+        else if (command.StartsWith("restore|", StringComparison.Ordinal)
+                 && BackupId.TryParse(command["restore|".Length..], out BackupId restoreId))
+        {
+            SetBackupRestoreResult(await ServerRestores.RestoreAsync(user, restoreId));
+        }
+        else if (command.StartsWith("delete|", StringComparison.Ordinal)
+                 && BackupId.TryParse(command["delete|".Length..], out BackupId backupId))
+        {
+            SetBackupDeleteResult(await ServerBackups.DeleteAsync(user, backupId));
+        }
+
+        await LoadBackupsAsync();
+    }
+
+    private void SetBackupCreateResult(BackupRequestResult result)
+    {
+        if (result.Succeeded)
+        {
+            SetBackupMessage($"Backup enqueued (operation {result.Operation}). It appears in the list once the archive is written.", ok: true);
+            return;
+        }
+
+        SetBackupMessage(result.Failure switch
+        {
+            BackupRequestFailure.NotAuthorized => "You are not permitted to back up this server.",
+            BackupRequestFailure.ServerNotFound => "That server is no longer available.",
+            BackupRequestFailure.ServerBusy => "The server is busy with another operation; try again once it finishes.",
+            _ => "The backup could not be started.",
+        }, ok: false);
+    }
+
+    private void SetBackupDeleteResult(BackupDeletionOutcome result)
+    {
+        if (result.Succeeded)
+        {
+            SetBackupMessage($"Deletion enqueued (operation {result.Operation}). The backup is removed once it completes.", ok: true);
+            return;
+        }
+
+        SetBackupMessage(result.Failure switch
+        {
+            BackupDeletionFailure.NotAuthorized => "You are not permitted to delete this server's backups.",
+            BackupDeletionFailure.BackupNotFound => "That backup is no longer available.",
+            _ => "The backup could not be deleted.",
+        }, ok: false);
+    }
+
+    private void SetBackupRestoreResult(RestoreRequestResult result)
+    {
+        if (result.Succeeded)
+        {
+            SetBackupMessage(
+                $"Restore enqueued (operation {result.Operation}). A protective backup of the current world is taken first, then the world is swapped in.",
+                ok: true);
+            return;
+        }
+
+        SetBackupMessage(result.Failure switch
+        {
+            RestoreRequestFailure.NotAuthorized => "You are not permitted to restore this server.",
+            RestoreRequestFailure.BackupNotFound => "That backup is no longer available.",
+            RestoreRequestFailure.ServerBusy => "The server is busy with another operation; try again once it finishes.",
+            RestoreRequestFailure.ServerRunning => "Stop the server before restoring — a restore overwrites the live world.",
+            _ => "The restore could not be started.",
+        }, ok: false);
+    }
+
+    private void SetBackupMessage(string message, bool ok)
+    {
+        _backupMessage = message;
+        _backupAlert = ok ? AlertVariant.Success : AlertVariant.Warning;
+    }
+
+    private static string BackupCreated(DateTimeOffset at) => at.UtcDateTime.ToString("yyyy-MM-dd HH:mm");
+
+    private static string ShortChecksum(string sha256) => sha256.Length <= 12 ? sha256 : sha256[..12];
+
+    private sealed class BackupManageModel
+    {
+        // The submit button's command token: "create", or "delete|{backupId}" for a per-row delete.
+        public string? Command { get; set; }
+    }
+}
