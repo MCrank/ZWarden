@@ -1,0 +1,81 @@
+@inherits ServerSectionBase
+@using ZWarden.Application.Operations
+@using ZWarden.Domain.Operations
+@inject IOperationCoordinator Operations
+
+@* The Diagnostics rail section (F29/F30): a read-only per-server gather whose bundle streams into the live panel,
+   plus the support-package export. Gated on the tenant-wide Diagnostics.View / .Export by the page. *@
+
+<BbCard Class="p-5" data-diagnostics-card>
+    <h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Diagnostics</h2>
+    <p class="mt-1 text-xs text-muted-foreground">
+        Run a read-only diagnostics gather for this server — RCON, game port, filesystem, SteamCMD, mods,
+        configuration, and compatibility, plus the host's Docker and disk. Nothing is changed; results
+        appear below as they are gathered.
+    </p>
+
+    @if (_diagnosticsMessage is not null)
+    {
+        <div class="mt-3" data-diagnostics-message>
+            <BbAlert Variant="@_diagnosticsAlert" AccentBorder>
+                <BbAlertDescription>@_diagnosticsMessage</BbAlertDescription>
+            </BbAlert>
+        </div>
+    }
+
+    <div class="mt-4 flex flex-wrap items-center gap-2">
+        <EditForm Model="_diagnosticsForm" FormName="diagnostics-gather" OnValidSubmit="DiagnosticsGatherAsync">
+            <BbButton Variant="ButtonVariant.Secondary" Type="ButtonType.Submit" Size="ButtonSize.Small"
+                      data-action="run-diagnostics">Run diagnostics</BbButton>
+        </EditForm>
+
+        @if (CanExport)
+        {
+            @* A native POST to the export endpoint so the browser downloads the returned ZIP; the endpoint
+               authorizes Diagnostics.Export fail-closed and refuses (without emitting) if a secret is found. *@
+            <form method="post" action="@($"/api/servers/{Server.Id}/diagnostics/support-package")"
+                  data-diagnostics-export>
+                <BbButton Variant="ButtonVariant.Outline" Type="ButtonType.Submit" Size="ButtonSize.Small"
+                          data-action="export-support-package">Export support package</BbButton>
+            </form>
+        }
+    </div>
+
+    <div class="mt-4">
+        <LiveServerDiagnosticsPanel @rendermode="InteractiveServer"
+                                    ServerId="@Server.Id.ToString()"
+                                    AgentId="@Server.AgentId.ToString()" />
+    </div>
+</BbCard>
+
+@code {
+    /// <summary>Whether the caller holds Diagnostics.Export (the support-package button).</summary>
+    [Parameter]
+    public bool CanExport { get; set; }
+
+    [SupplyParameterFromForm(FormName = "diagnostics-gather")]
+    private DiagnosticsFormModel _diagnosticsForm { get; set; } = default!;
+
+    private string? _diagnosticsMessage;
+    private AlertVariant _diagnosticsAlert = AlertVariant.Info;
+
+    protected override void OnInitialized() => _diagnosticsForm ??= new DiagnosticsFormModel();
+
+    private async Task DiagnosticsGatherAsync()
+    {
+        // A read-only, non-mutating per-server gather (F29): it never claims the per-server lock, so it can run
+        // during other activity. The Agent reports the bundle, which lands in the live panel below.
+        UserId user = await CurrentUserAsync();
+        await Operations.EnqueueAsync(
+            new EnqueueOperationRequest(
+                Server.AgentId, OperationKind.GatherServerDiagnostics, IsMutating: false, Guid.NewGuid().ToString("N"),
+                ServerId: Server.Id),
+            user);
+
+        _diagnosticsAlert = AlertVariant.Info;
+        _diagnosticsMessage = "Diagnostics gather started. Results appear below as they are gathered.";
+    }
+
+    // The diagnostics gather is a parameterless action — the form carries no fields, only the submit.
+    private sealed class DiagnosticsFormModel;
+}

@@ -25,14 +25,13 @@
 @using ZWarden.Web.Hosting
 @using ZWarden.Web.Time
 @using ZWarden.Web.Components.Servers
+@using ZWarden.Web.Components.Pages.Servers.Sections
 @inject IServerInventory Inventory
 @inject IServerBackup ServerBackups
 @inject IServerRestore ServerRestores
 @inject IBackupQuery BackupQuery
 @inject IPlayerManagement Players
 @inject IBanQuery Bans
-@inject IConsoleCommandService ConsoleService
-@inject IOperationCoordinator Operations
 @inject IOperationStore OperationStore
 @inject NavigationManager Navigation
 @inject IServerConfigurationEditor ConfigEditor
@@ -472,117 +471,17 @@ else
 
     @if (_activeSection == "logs")
     {
-        <BbCard Class="p-5" data-logs-card>
-            <h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Live logs</h2>
-            <p class="mt-1 text-xs text-muted-foreground">
-                The server's live console output (stdout and stderr), streamed from the host only while this panel is
-                open. Lines are shown as-is and are not stored — a live tail, not a searchable history.
-            </p>
-            <div class="mt-4">
-                <LiveServerLogPanel @rendermode="InteractiveServer"
-                                    ServerId="@_server.Id.ToString()"
-                                    AgentId="@_server.AgentId.ToString()"
-                                    TimeZoneId="@OperatorTz.Zone.Id" />
-            </div>
-        </BbCard>
+        <LogsSection Server="_server" />
     }
 
     @if (_activeSection == "console")
     {
-        <BbCard Class="p-5" data-console-card>
-            <h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Console</h2>
-            <p class="mt-1 text-xs text-muted-foreground">
-                Run an admin RCON command against the running server. Quote multi-word arguments
-                (e.g. <span class="font-mono">servermsg "Hello all"</span>). Credential commands
-                (<span class="font-mono">adduser</span>, <span class="font-mono">setpassword</span>, …) and
-                <span class="font-mono">quit</span> are blocked; stop the server from its lifecycle controls instead.
-                Every command is recorded in the audit log.
-            </p>
-
-            @if (_consoleMessage is not null)
-            {
-                <div class="mt-3" data-console-message>
-                    <BbAlert Variant="@_consoleAlert" AccentBorder>
-                        <BbAlertDescription>@_consoleMessage</BbAlertDescription>
-                    </BbAlert>
-                </div>
-            }
-
-            <EditForm Model="_consoleForm" FormName="console-command" OnValidSubmit="ConsoleAsync" class="mt-4">
-                <DataAnnotationsValidator />
-                <div class="flex flex-col gap-2 sm:flex-row sm:items-end">
-                    <div class="flex flex-1 flex-col text-sm">
-                        <BbLabel For="console-input" Class="mb-1 text-muted-foreground">Command</BbLabel>
-                        @* BbInput auto-derives the model-path Name (_consoleForm.Input) under the EditForm (#121). *@
-                        <BbInput Id="console-input" @bind-Value="_consoleForm.Input" autocomplete="off"
-                                 spellcheck="false" Class="font-mono" Placeholder="players" />
-                    </div>
-                    <BbButton Variant="ButtonVariant.Secondary" Type="ButtonType.Submit" Size="ButtonSize.Small"
-                              data-action="run-console">Run</BbButton>
-                </div>
-            </EditForm>
-
-            <div class="mt-4">
-                <h3 class="text-sm font-medium">Output</h3>
-                <p class="mt-1 text-xs text-muted-foreground">
-                    The server's reply to the last command, shown as-is and not stored — each command replaces it.
-                    The audit log keeps the history of commands run.
-                </p>
-                <div class="mt-3">
-                    <LiveConsoleOutputPanel @rendermode="InteractiveServer"
-                                            ServerId="@_server.Id.ToString()"
-                                            AgentId="@_server.AgentId.ToString()"
-                                            OperationId="@_consoleOperationId"
-                                            Command="@_consoleCommand"
-                                            TimeZoneId="@OperatorTz.Zone.Id" />
-                </div>
-            </div>
-        </BbCard>
+        <ConsoleSection Server="_server" />
     }
 
     @if (_activeSection == "diagnostics")
     {
-        <BbCard Class="p-5" data-diagnostics-card>
-            <h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Diagnostics</h2>
-            <p class="mt-1 text-xs text-muted-foreground">
-                Run a read-only diagnostics gather for this server — RCON, game port, filesystem, SteamCMD, mods,
-                configuration, and compatibility, plus the host's Docker and disk. Nothing is changed; results
-                appear below as they are gathered.
-            </p>
-
-            @if (_diagnosticsMessage is not null)
-            {
-                <div class="mt-3" data-diagnostics-message>
-                    <BbAlert Variant="@_diagnosticsAlert" AccentBorder>
-                        <BbAlertDescription>@_diagnosticsMessage</BbAlertDescription>
-                    </BbAlert>
-                </div>
-            }
-
-            <div class="mt-4 flex flex-wrap items-center gap-2">
-                <EditForm Model="_diagnosticsForm" FormName="diagnostics-gather" OnValidSubmit="DiagnosticsGatherAsync">
-                    <BbButton Variant="ButtonVariant.Secondary" Type="ButtonType.Submit" Size="ButtonSize.Small"
-                              data-action="run-diagnostics">Run diagnostics</BbButton>
-                </EditForm>
-
-                @if (_canExportDiagnostics)
-                {
-                    @* A native POST to the export endpoint so the browser downloads the returned ZIP; the endpoint
-                       authorizes Diagnostics.Export fail-closed and refuses (without emitting) if a secret is found. *@
-                    <form method="post" action="@($"/api/servers/{_server.Id}/diagnostics/support-package")"
-                          data-diagnostics-export>
-                        <BbButton Variant="ButtonVariant.Outline" Type="ButtonType.Submit" Size="ButtonSize.Small"
-                                  data-action="export-support-package">Export support package</BbButton>
-                    </form>
-                }
-            </div>
-
-            <div class="mt-4">
-                <LiveServerDiagnosticsPanel @rendermode="InteractiveServer"
-                                            ServerId="@_server.Id.ToString()"
-                                            AgentId="@_server.AgentId.ToString()" />
-            </div>
-        </BbCard>
+        <DiagnosticsSection Server="_server" CanExport="_canExportDiagnostics" />
     }
 
     @if (_activeSection == "players")
@@ -1591,12 +1490,6 @@ else
     [SupplyParameterFromForm(FormName = "ban-unban")]
     private UnbanModel _unbanForm { get; set; } = default!;
 
-    [SupplyParameterFromForm(FormName = "console-command")]
-    private ConsoleFormModel _consoleForm { get; set; } = default!;
-
-    [SupplyParameterFromForm(FormName = "diagnostics-gather")]
-    private DiagnosticsFormModel _diagnosticsForm { get; set; } = default!;
-
     [SupplyParameterFromForm(FormName = "server-config")]
     private ConfigFormModel _configForm { get; set; } = default!;
 
@@ -1645,17 +1538,8 @@ else
     private PlayerPermissions _perm;
     private bool _canViewLogs;
     private bool _canExecuteConsole;
-    private string? _consoleMessage;
-
-    // The console Operation just enqueued and its command line, handed to the output pane so it shows that reply
-    // alone (#242).
-    private string? _consoleOperationId;
-    private string? _consoleCommand;
-    private AlertVariant _consoleAlert = AlertVariant.Warning;
     private bool _canViewDiagnostics;
     private bool _canExportDiagnostics;
-    private string? _diagnosticsMessage;
-    private AlertVariant _diagnosticsAlert = AlertVariant.Info;
     private bool _canViewMods;
     private string? _modMessage;
 
@@ -1698,7 +1582,6 @@ else
     {
         _actionForm ??= new PlayerActionModel();
         _unbanForm ??= new UnbanModel();
-        _consoleForm ??= new ConsoleFormModel();
         _configForm ??= new ConfigFormModel();
         _editorForm ??= new ConfigEditorModel();
         _restoreForm ??= new ConfigRestoreModel();
@@ -1708,7 +1591,6 @@ else
         _browserForm ??= new ModBrowserPreviewModel();
         _searchForm ??= new ModBrowserSearchModel();
         _backupForm ??= new BackupManageModel();
-        _diagnosticsForm ??= new DiagnosticsFormModel();
         _lifecycleForm ??= new LifecycleModel();
         _gracefulForm ??= new GracefulRestartFormModel();
         _recreateForm ??= new RecreateFormModel();
@@ -2439,69 +2321,6 @@ else
         await LoadPlayersAsync(user, serverId);
     }
 
-    private async Task ConsoleAsync()
-    {
-        if (_server is null || !ServerId.TryParse(Id, out ServerId serverId))
-        {
-            return;
-        }
-
-        string input = _consoleForm?.Input?.Trim() ?? string.Empty;
-        if (input.Length == 0)
-        {
-            _consoleAlert = AlertVariant.Warning;
-            _consoleMessage = "Enter a command to run.";
-            return;
-        }
-
-        UserId user = await CurrentUserAsync();
-        ConsoleExecutionResult result = await ConsoleService.ExecuteAsync(user, serverId, input);
-        _consoleAlert = result.Succeeded ? AlertVariant.Info : AlertVariant.Warning;
-        _consoleMessage = DescribeConsole(result);
-        if (result.Succeeded)
-        {
-            _consoleOperationId = result.Operation!.Value.ToString();
-            _consoleCommand = input;
-        }
-    }
-
-    private static string DescribeConsole(ConsoleExecutionResult result)
-    {
-        if (result.Succeeded)
-        {
-            return $"Command enqueued (operation {result.Operation}). Its reply appears in Output below.";
-        }
-
-        return result.Failure switch
-        {
-            ConsoleCommandFailure.NotAuthorized => "You are not permitted to run console commands on this server.",
-            ConsoleCommandFailure.ServerNotFound => "That server is no longer available.",
-            ConsoleCommandFailure.InvalidInput => result.Detail ?? "That command is not valid.",
-            ConsoleCommandFailure.Denied => result.Detail ?? "That command is not allowed from the console.",
-            _ => "The command could not be run.",
-        };
-    }
-
-    private async Task DiagnosticsGatherAsync()
-    {
-        if (_server is null || !ServerId.TryParse(Id, out ServerId serverId))
-        {
-            return;
-        }
-
-        // A read-only, non-mutating per-server gather (F29): it never claims the per-server lock, so it can run
-        // during other activity. The Agent reports the bundle, which lands in the live panel below.
-        UserId user = await CurrentUserAsync();
-        await Operations.EnqueueAsync(
-            new EnqueueOperationRequest(
-                _server.AgentId, OperationKind.GatherServerDiagnostics, IsMutating: false, Guid.NewGuid().ToString("N"),
-                ServerId: serverId),
-            user);
-
-        _diagnosticsAlert = AlertVariant.Info;
-        _diagnosticsMessage = "Diagnostics gather started. Results appear below as they are gathered.";
-    }
-
     private async Task ConfigAsync()
     {
         if (_server is null || !ServerId.TryParse(Id, out ServerId serverId))
@@ -3119,15 +2938,6 @@ else
         // The username of the ban row whose Unban button was pressed.
         public string? Target { get; set; }
     }
-
-    private sealed class ConsoleFormModel
-    {
-        // The operator-authored RCON command line to run (validated + policy-checked in the service).
-        public string? Input { get; set; }
-    }
-
-    // The diagnostics gather is a parameterless action — the form carries no fields, only the submit.
-    private sealed class DiagnosticsFormModel;
 
     private sealed class ConfigFormModel
     {
