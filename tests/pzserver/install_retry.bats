@@ -30,6 +30,10 @@ case "$(sed -n "${n}p" "${STUB_OUTCOMES}")" in
   # #280: SteamCMD gives up on starting the job yet still prints the success line.
   stalled) printf '%s
 ' " Update state (0x0) : Timed out waiting for update to start, bailing." "Success! App '380870' fully installed." ;;
+  # #288: a previous failed job left StateFlags/UpdateResult 6 in the app manifest; SteamCMD reads it and
+  # aborts before downloading anything, every run, until the manifest is reset.
+  stuck)   printf '%s
+' " Update state (0x3) reconfiguring, progress: 0.00 (0 / 0)" "Error! App '380870' state is 0x6 after update job." ;;
   *)       echo "unrelated chatter" ;;
 esac
 STUB
@@ -111,4 +115,60 @@ calls() { cat "${COUNT}" 2>/dev/null || echo 0; }
 @test "the success check rejects output where the job never started" {
   run pz_install_succeeded <<< $' Update state (0x0) : Timed out waiting for update to start, bailing.\nSuccess! App \'380870\' fully installed.'
   assert_failure
+}
+
+# #288: SteamCMD's sticky "state is 0x6 after update job" - a failed job wrote StateFlags/UpdateResult 6 into
+# steamapps/appmanifest_380870.acf, and every later run reads that and gives up without downloading. Retrying
+# can never clear it; moving the manifest aside does (SteamCMD rebuilds it; `validate` re-checks the files).
+manifest_setup() {
+  SERVER_DIR="${PZ_ROOT}/server"
+  MANIFEST="${SERVER_DIR}/steamapps/appmanifest_380870.acf"
+  mkdir -p "${SERVER_DIR}/steamapps"
+  printf '"AppState"\n{\n\t"StateFlags"\t\t"6"\n}\n' > "${MANIFEST}"
+}
+
+@test "a stuck 0x6 app state resets the app manifest once and the retry succeeds" {
+  manifest_setup
+  printf 'stuck\nsuccess\n' > "${OUTCOMES}"
+  ZW_PZ_INSTALL_ATTEMPTS=3
+  run pz_install_with_retry "${STEAMCMD}" "${RUNSCRIPT}" "${SERVER_DIR}"
+  assert_success
+  [ "$(calls)" -eq 2 ]
+  [ ! -e "${MANIFEST}" ]
+  [ -f "${MANIFEST}.bak" ]
+  assert_output_contains "[zwarden] SteamCMD app state stuck (0x6); reset the app manifest and retrying"
+}
+
+@test "a 0x6 that survives the manifest reset fails with a clear reason after one reset only" {
+  manifest_setup
+  printf 'stuck\nstuck\nstuck\n' > "${OUTCOMES}"
+  ZW_PZ_INSTALL_ATTEMPTS=3
+  run pz_install_with_retry "${STEAMCMD}" "${RUNSCRIPT}" "${SERVER_DIR}"
+  assert_failure
+  [ "$(calls)" -eq 3 ]
+  # One reset: SteamCMD would recreate the manifest; a second rename must not clobber the first backup.
+  [ "$(grep -c 'reset the app manifest' <<< "${output}")" -eq 1 ]
+  [ -f "${MANIFEST}.bak" ]
+  assert_output_contains "ERROR! SteamCMD update state is stuck (0x6) even after resetting the app manifest; check free disk space on the server volume. The installed build is unchanged."
+}
+
+@test "an attempt without 0x6 never touches the app manifest" {
+  manifest_setup
+  printf 'missing\nsuccess\n' > "${OUTCOMES}"
+  ZW_PZ_INSTALL_ATTEMPTS=3
+  run pz_install_with_retry "${STEAMCMD}" "${RUNSCRIPT}" "${SERVER_DIR}"
+  assert_success
+  [ -f "${MANIFEST}" ]
+  [ ! -e "${MANIFEST}.bak" ]
+}
+
+@test "a stuck 0x6 with no manifest on disk still retries and reports the stuck state" {
+  SERVER_DIR="${PZ_ROOT}/server"
+  mkdir -p "${SERVER_DIR}"
+  printf 'stuck\nstuck\n' > "${OUTCOMES}"
+  ZW_PZ_INSTALL_ATTEMPTS=2
+  run pz_install_with_retry "${STEAMCMD}" "${RUNSCRIPT}" "${SERVER_DIR}"
+  assert_failure
+  [ "$(calls)" -eq 2 ]
+  assert_output_contains "ERROR! SteamCMD update state is stuck (0x6)"
 }

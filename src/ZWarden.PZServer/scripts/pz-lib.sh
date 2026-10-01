@@ -81,11 +81,14 @@ pz_install_succeeded() {
 # seconds between tries; returns 1 only after every attempt fails, or 2 at once when Steam rejects
 # the ZW_PZ_BETA branch (#258: nothing to retry; the reason is logged). SteamCMD output is teed
 # through so operators still watch progress live.
+# #288: with [server_dir], an attempt that ends "state is 0x6 after update job" moves the app manifest
+# aside ONCE (pz_reset_app_manifest) before the next attempt - SteamCMD's sticky failed-job state, which
+# no amount of plain retrying clears.
 pz_install_with_retry() {
-  local steamcmd="$1" runscript="$2"
+  local steamcmd="$1" runscript="$2" server_dir="${3:-}"
   local attempts="${ZW_PZ_INSTALL_ATTEMPTS:-3}"
   local delay="${ZW_PZ_INSTALL_RETRY_DELAY:-15}"
-  local n out stalled=0
+  local n out stalled=0 stuck=0 reset=0
   for (( n = 1; n <= attempts; n++ )); do
     echo "[zwarden] SteamCMD install attempt ${n}/${attempts}..." >&2
     # SteamCMD exits non-zero on a failed app_update (@ShutdownOnFailedCommand); keep the
@@ -105,7 +108,15 @@ pz_install_with_retry() {
     case "${out}" in
       *"Timed out waiting for update to start"*) stalled=$(( stalled + 1 )) ;;
     esac
+    stuck=0
+    case "${out}" in
+      *"state is 0x6 after update job"*) stuck=1 ;;
+    esac
     echo "[zwarden] attempt ${n}/${attempts} did not report a completed install." >&2
+    if [ "${stuck}" -eq 1 ] && [ "${reset}" -eq 0 ] && [ -n "${server_dir}" ]; then
+      pz_reset_app_manifest "${server_dir}"
+      reset=1
+    fi
     if [ "${n}" -lt "${attempts}" ]; then
       sleep "${delay}"
     fi
@@ -114,8 +125,25 @@ pz_install_with_retry() {
   # tag) so the Agent's SteamCmdLogParser takes it as the Operation's failure reason.
   if [ "${stalled}" -eq "${attempts}" ]; then
     echo "ERROR! SteamCMD timed out waiting for the update to start on every attempt; the installed build is unchanged."
+  elif [ "${stuck}" -eq 1 ]; then
+    # #288: still 0x6 on the last attempt (a full disk causes the same state). Same ERROR! contract as above.
+    echo "ERROR! SteamCMD update state is stuck (0x6) even after resetting the app manifest; check free disk space on the server volume. The installed build is unchanged."
   fi
   return 1
+}
+
+# pz_reset_app_manifest <server_dir>
+# #288: a failed SteamCMD job writes StateFlags/UpdateResult 6 into steamapps/appmanifest_<app>.acf, and every
+# later run reads that and aborts ("state is 0x6 after update job") without downloading - a long-standing Valve
+# bug. Moving the manifest aside makes SteamCMD rebuild it; the game files and the world are untouched, and the
+# runscript's `validate` re-checks the install. Renamed (not deleted) so an operator can restore it; an older
+# .bak is overwritten. Best-effort: no manifest is fine.
+pz_reset_app_manifest() {
+  local manifest="$1/steamapps/appmanifest_${PZ_STEAM_APP_ID}.acf"
+  if [ -f "${manifest}" ]; then
+    mv -f "${manifest}" "${manifest}.bak"
+  fi
+  echo "[zwarden] SteamCMD app state stuck (0x6); reset the app manifest and retrying" >&2
 }
 
 # pz_write_appid <server_dir>
@@ -203,15 +231,15 @@ pz_clear_update_request() {
   rm -f "${data_dir}/${PZ_UPDATE_REQUEST}"
 }
 
-# pz_run_update <steamcmd> <runscript> <session>
+# pz_run_update <steamcmd> <runscript> <session> [server_dir]
 # Runs the same anonymous `app_update ... validate` as an install (via pz_install_with_retry,
 # so the "Missing configuration" retry still applies), bracketed by a begin/end banner carrying
 # the session id. The Agent keys its log-parse window on these banners; the end banner also
 # states the stdout-decided outcome authoritatively. Returns the run's success/failure.
 pz_run_update() {
-  local steamcmd="$1" runscript="$2" session="$3"
+  local steamcmd="$1" runscript="$2" session="$3" server_dir="${4:-}"
   echo "[zwarden] steamcmd update session ${session} begin"
-  if pz_install_with_retry "${steamcmd}" "${runscript}"; then
+  if pz_install_with_retry "${steamcmd}" "${runscript}" "${server_dir}"; then
     echo "[zwarden] steamcmd update session ${session} end (success)"
     return 0
   fi
@@ -230,7 +258,7 @@ pz_apply_update() {
   session="$(pz_read_update_session "${data_dir}")"
   runscript="$(mktemp)"
   pz_build_steamcmd_runscript "${server_dir}" > "${runscript}"
-  if pz_run_update "${steamcmd}" "${runscript}" "${session}"; then
+  if pz_run_update "${steamcmd}" "${runscript}" "${session}" "${server_dir}"; then
     pz_write_appid "${server_dir}"
     touch "${server_dir}/${PZ_INSTALL_MARKER}"
     rc=0

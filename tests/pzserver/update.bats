@@ -31,6 +31,7 @@ echo "${n}" > "${STUB_COUNT}"
 case "$(sed -n "${n}p" "${STUB_OUTCOMES}")" in
   success) echo "Success! App '380870' fully installed" ;;
   missing) echo "ERROR! Failed to install app '380870' (Missing configuration)" ;;
+  stuck)   echo "Error! App '380870' state is 0x6 after update job." ;;
   *)       echo "unrelated chatter" ;;
 esac
 STUB
@@ -124,4 +125,17 @@ calls() { cat "${COUNT}" 2>/dev/null || echo 0; }
   run pz_apply_update "${STEAMCMD}" "${SERVER_DIR}" "${DATA_DIR}"
   assert_failure
   [ ! -e "${DATA_DIR}/.zwarden-update-requested" ]
+}
+
+# #288: the update path hands its server dir down, so a sticky 0x6 resets the app manifest and the retry recovers.
+@test "apply-update recovers from a stuck 0x6 app state by resetting the app manifest" {
+  mkdir -p "${SERVER_DIR}/steamapps"
+  printf '"AppState"\n{\n\t"StateFlags"\t\t"6"\n}\n' > "${SERVER_DIR}/steamapps/appmanifest_380870.acf"
+  printf 'stuck\nsuccess\n' > "${OUTCOMES}"
+  printf 'op-1\n' > "${DATA_DIR}/.zwarden-update-requested"
+  run pz_apply_update "${STEAMCMD}" "${SERVER_DIR}" "${DATA_DIR}"
+  assert_success
+  [ "$(calls)" -eq 2 ]
+  [ -f "${SERVER_DIR}/steamapps/appmanifest_380870.acf.bak" ]
+  assert_output_contains "steamcmd update session op-1 end (success)"
 }

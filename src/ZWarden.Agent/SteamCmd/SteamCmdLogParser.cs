@@ -90,7 +90,9 @@ public static partial class SteamCmdLogParser
                 continue;
             }
 
-            if (failureReason is null && ErrorRegex().IsMatch(line))
+            // The LAST error line wins (#288): SteamCMD repeats its own terse error on every attempt, and the
+            // entrypoint's ERROR! summary - the actionable one - is printed after them, just before the end banner.
+            if (ErrorRegex().IsMatch(line))
             {
                 failureReason = line; // untrusted; the caller length-bounds before persisting (trust §8).
             }
