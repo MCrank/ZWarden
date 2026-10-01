@@ -1,6 +1,6 @@
 # Feature #298 Mini-Plan — Split ServerDetail.razor into per-section components (no behaviour change)
 
-**Status:** one PR (branch `feat/298-split-server-detail`, closes #298). v1.0, epic [#294](https://github.com/MCrank/ZWarden/issues/294).
+**Status:** one PR (branch `feat/298-split-server-detail`, closes #298), all slices done. v1.0, epic [#294](https://github.com/MCrank/ZWarden/issues/294).
 
 **Written against:** issue #298;
 [ADR 0046](../adr/0046-pages-may-opt-into-interactive-rendering-the-shell-stays-static.md) (decision Q10),
@@ -69,3 +69,15 @@ cuts the page into one component per section **without changing any markup or be
 - The real-host tests are green with no assertion changes, and the Web.Tests count is unchanged.
 - The golden diff is empty.
 - `ServerDetail.razor` is under about 500 lines.
+
+## Result (2026-10-01)
+
+- `ServerDetail.razor`: 3,304 → 577 lines. The rest is the header (lifecycle buttons, countdown restart, last
+  failure), the rail, the permission gates and the section `@switch`, which the issue keeps on the page. Getting
+  under ~500 would mean moving the countdown-restart panel or the rail out as well; that's left to #299.
+- The golden capture (14 GETs + 28 posts) is identical before and after, apart from the stack trace of one 500
+  that was already there: a `config-editor` post with no rows throws an NRE on `_editorForm.Rows`. That bug is
+  kept as-is here and needs its own issue.
+- Full-page screenshots of all nine sections are pixel-identical (same seeded DB, pre-split worktree vs. this
+  branch).
+- Web.Tests 535 (unchanged), Architecture 77.
