@@ -1,0 +1,117 @@
+@inherits ServerSectionBase
+@using ZWarden.Application.Console
+@using ZWarden.Web.Time
+@inject IConsoleCommandService ConsoleService
+@inject IOperatorTimeZoneProvider OperatorTz
+
+@* The Console rail section (F28): one admin RCON command per static-SSR post, gated on the per-server
+   Console.Execute by the page and re-checked in the service. The reply streams into the output island. *@
+
+<BbCard Class="p-5" data-console-card>
+    <h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Console</h2>
+    <p class="mt-1 text-xs text-muted-foreground">
+        Run an admin RCON command against the running server. Quote multi-word arguments
+        (e.g. <span class="font-mono">servermsg "Hello all"</span>). Credential commands
+        (<span class="font-mono">adduser</span>, <span class="font-mono">setpassword</span>, …) and
+        <span class="font-mono">quit</span> are blocked; stop the server from its lifecycle controls instead.
+        Every command is recorded in the audit log.
+    </p>
+
+    @if (_consoleMessage is not null)
+    {
+        <div class="mt-3" data-console-message>
+            <BbAlert Variant="@_consoleAlert" AccentBorder>
+                <BbAlertDescription>@_consoleMessage</BbAlertDescription>
+            </BbAlert>
+        </div>
+    }
+
+    <EditForm Model="_consoleForm" FormName="console-command" OnValidSubmit="ConsoleAsync" class="mt-4">
+        <DataAnnotationsValidator />
+        <div class="flex flex-col gap-2 sm:flex-row sm:items-end">
+            <div class="flex flex-1 flex-col text-sm">
+                <BbLabel For="console-input" Class="mb-1 text-muted-foreground">Command</BbLabel>
+                @* BbInput auto-derives the model-path Name (_consoleForm.Input) under the EditForm (#121). *@
+                <BbInput Id="console-input" @bind-Value="_consoleForm.Input" autocomplete="off"
+                         spellcheck="false" Class="font-mono" Placeholder="players" />
+            </div>
+            <BbButton Variant="ButtonVariant.Secondary" Type="ButtonType.Submit" Size="ButtonSize.Small"
+                      data-action="run-console">Run</BbButton>
+        </div>
+    </EditForm>
+
+    <div class="mt-4">
+        <h3 class="text-sm font-medium">Output</h3>
+        <p class="mt-1 text-xs text-muted-foreground">
+            The server's reply to the last command, shown as-is and not stored — each command replaces it.
+            The audit log keeps the history of commands run.
+        </p>
+        <div class="mt-3">
+            <LiveConsoleOutputPanel @rendermode="InteractiveServer"
+                                    ServerId="@Server.Id.ToString()"
+                                    AgentId="@Server.AgentId.ToString()"
+                                    OperationId="@_consoleOperationId"
+                                    Command="@_consoleCommand"
+                                    TimeZoneId="@OperatorTz.Zone.Id" />
+        </div>
+    </div>
+</BbCard>
+
+@code {
+    [SupplyParameterFromForm(FormName = "console-command")]
+    private ConsoleFormModel _consoleForm { get; set; } = default!;
+
+    private string? _consoleMessage;
+
+    // The console Operation just enqueued and its command line, handed to the output pane so it shows that reply
+    // alone (#242).
+    private string? _consoleOperationId;
+    private string? _consoleCommand;
+    private AlertVariant _consoleAlert = AlertVariant.Warning;
+
+    protected override void OnInitialized() => _consoleForm ??= new ConsoleFormModel();
+
+    private async Task ConsoleAsync()
+    {
+        string input = _consoleForm?.Input?.Trim() ?? string.Empty;
+        if (input.Length == 0)
+        {
+            _consoleAlert = AlertVariant.Warning;
+            _consoleMessage = "Enter a command to run.";
+            return;
+        }
+
+        UserId user = await CurrentUserAsync();
+        ConsoleExecutionResult result = await ConsoleService.ExecuteAsync(user, Server.Id, input);
+        _consoleAlert = result.Succeeded ? AlertVariant.Info : AlertVariant.Warning;
+        _consoleMessage = DescribeConsole(result);
+        if (result.Succeeded)
+        {
+            _consoleOperationId = result.Operation!.Value.ToString();
+            _consoleCommand = input;
+        }
+    }
+
+    private static string DescribeConsole(ConsoleExecutionResult result)
+    {
+        if (result.Succeeded)
+        {
+            return $"Command enqueued (operation {result.Operation}). Its reply appears in Output below.";
+        }
+
+        return result.Failure switch
+        {
+            ConsoleCommandFailure.NotAuthorized => "You are not permitted to run console commands on this server.",
+            ConsoleCommandFailure.ServerNotFound => "That server is no longer available.",
+            ConsoleCommandFailure.InvalidInput => result.Detail ?? "That command is not valid.",
+            ConsoleCommandFailure.Denied => result.Detail ?? "That command is not allowed from the console.",
+            _ => "The command could not be run.",
+        };
+    }
+
+    private sealed class ConsoleFormModel
+    {
+        // The operator-authored RCON command line to run (validated + policy-checked in the service).
+        public string? Input { get; set; }
+    }
+}
