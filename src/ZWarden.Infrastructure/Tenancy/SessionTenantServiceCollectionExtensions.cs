@@ -20,6 +20,7 @@ public static class SessionTenantServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         services.AddHttpContextAccessor();
         services.TryAddScoped<TenantAssignment>();
+        services.TryAddScoped<ActionScopeRunner>();
         services.AddScoped<ITenantContext, ClaimsPrincipalTenantContext>();
         return services;
     }

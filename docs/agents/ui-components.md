@@ -84,9 +84,15 @@ Use them and don't write static workarounds. The rules:
 
 - **Tenant and data only through the circuit-safe infrastructure (#297).** The tenant is captured from
   the user's claims when the circuit starts and **fails closed**: never read `HttpContext` from code
-  that runs in the circuit, and never fall back to `Tenant.DefaultId`. Data access goes through
-  `IDbContextFactory<ZWardenDbContext>`, with one context per operation, created and disposed inside the
-  service call. A component never holds a `DbContext` across awaits or events (the #154 bug class).
+  that runs in the circuit, and never fall back to `Tenant.DefaultId`. **Call every
+  service through `ActionScopeRunner`**, never by injecting it into the component: the runner opens a fresh
+  DI scope (with the circuit's tenant) per action, so the action gets its own `DbContext`, including the one
+  behind `UserManager`. A service injected straight into a component lives in the circuit's scope and shares
+  one context across every event and render (the #154 bug class).
+  `await Actions.RunAsync<IServerLifecycle, ServerLifecycleResult>((s, ct) => s.StartAsync(user, id, ct), ct);`
+  Return plain results, never a tracked entity or an `IQueryable`, since they die with the scope. Components
+  never reference `ZWardenDbContext` or its factory (arch-tested). Singleton caches (the `Live*` panels') can be
+  injected directly.
 - **Permissions are checked in the service, every time.** Hiding or disabling a control is UX, not a
   guard. Every mutating action re-checks its permission in its Application service. Auth state also
   revalidates about every minute.

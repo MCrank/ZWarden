@@ -33,15 +33,14 @@ public static class ZWardenPersistenceServiceCollectionExtensions
         DbContextOptions<ZWardenDbContext> options = builder.Options;
 
         // When the security foundation is present, the context encrypts sensitive Identity token values
-        // at rest (F4/ADR 0015); without it (some tests, and pre-F4 hosts) the context is unprotected.
-        services.AddScoped(sp =>
-        {
-            ITenantContext tenantContext = sp.GetRequiredService<ITenantContext>();
-            ISecretProtector? protector = sp.GetService<ISecretProtector>();
-            return protector is null
-                ? new ZWardenDbContext(options, tenantContext)
-                : new ZWardenDbContext(options, tenantContext, protector);
-        });
+        // at rest (F4/ADR 0015); without it (some tests, and pre-F4 hosts) the context is unprotected. The
+        // factory is scoped so it binds the scope's tenant (#297); the scoped context is built from it, and DI
+        // disposes it.
+        services.AddScoped<IDbContextFactory<ZWardenDbContext>>(sp => new ZWardenDbContextFactory(
+            options,
+            sp.GetRequiredService<ITenantContext>(),
+            sp.GetService<ISecretProtector>()));
+        services.AddScoped(sp => sp.GetRequiredService<IDbContextFactory<ZWardenDbContext>>().CreateDbContext());
         return services;
     }
 

@@ -71,6 +71,15 @@ Two latent hazards stand in the way of putting tenant-scoped work in a circuit:
   enforces it. (Q6)
 - **One `DbContext` per unit of work.** Services take `IDbContextFactory<ZWardenDbContext>` and create a
   context for each operation. Components never hold a context across awaits or events. (Q7)
+
+  > **Amendment (#297, maintainer decision D2, 2026-10-01):** the unit of work is a **DI scope per action**,
+  > not a factory call inside each service. 37 classes take a `ZWardenDbContext` in their constructor, and
+  > `UserManager`'s Identity store uses the scoped context too, so rewriting them all would be a huge change
+  > that still left `UserManager` needing a workaround. Instead, `IDbContextFactory<ZWardenDbContext>` is
+  > registered **scoped** (so it binds the scope's tenant) and the scoped context is built from it; an
+  > interactive component calls every service through `ActionScopeRunner`, which opens a fresh scope carrying
+  > the circuit's tenant. Each action gets its own context, `UserManager` included, and static pages are
+  > unchanged. An architecture test keeps `ZWardenDbContext` and the factory out of `ZWarden.Web/Components`.
 - **Authorization is re-checked where it matters.** Every mutating action re-checks its permission inside
   its Application service, as it does today. A UI that hides a button is never the guard (PRD 12, ADR 0018).
   Open circuits also revalidate authentication about **every minute** (a
@@ -130,7 +139,8 @@ Two latent hazards stand in the way of putting tenant-scoped work in a circuit:
 - The tenant fallback goes away. Code that relied on it, including tests that never set a principal, has
   to supply a tenant. That's the point, but it touches a lot of tests (#297).
 - `IDbContextFactory` changes how services are written. That's a broad mechanical change, and a lasting
-  rule for new code.
+  rule for new code. *(Superseded by the Q7 amendment: services are unchanged; interactive components call
+  them through `ActionScopeRunner` instead.)*
 - The static-page gotchas in `docs/agents/ui-components.md` (`BbNativeSelect` `selected`, native checkbox,
   explicit `Name`, `dialog.js`) still apply to the static pages and to Server Detail until #299 lands.
 - CI grows a browser tier. Playwright smoke tests are slower and flakier than bUnit, and they're the only
