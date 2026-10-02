@@ -1,6 +1,6 @@
 # Feature #299 Mini-Plan — Make Server Detail + Settings interactive
 
-**Status:** three PRs (A → B → C); C closes #299. PR-A (branch `feat/299a-playwright-tier`): the Playwright tier, 11 tests green. v1.0, epic
+**Status:** done — three PRs: A (#309) and B (#310) merged, C closes #299. v1.0, epic
 [#294](https://github.com/MCrank/ZWarden/issues/294). Blocks Mods #292.
 
 **Written against:** issue #299;
@@ -165,3 +165,27 @@ What landed, and where it differs from the design:
   - The `Live*` panels still take string ids.
   - A rail or tab click is an enhanced navigation, so the server also prerenders the page for that request. A config
     file switch reads the host twice.
+
+## Result — PR-B (#310, merged 2026-10-02)
+
+## Result — PR-C (2026-10-02; closes #299)
+
+- **Settings is interactive.**
+  - The Workshop key save and clear are circuit handlers, through `ActionScopeRunner`.
+  - `SettingsQuery` loads the TLS mode, the key status and the three card gates in one scope; it reaches the circuit
+    through `[PersistentState]`, as does the time-display preference.
+  - It replaces the page's three `AuthorizeView` policies, which would have evaluated concurrently against the
+    circuit's `DbContext`. The time-zone toggle keeps using `shell.js`.
+- **The reconnect dialog.** `Layout/ReconnectModal.razor` is rendered by `App`, with `wwwroot/js/reconnect.js` after
+  the .NET 10 template and `Styles/reconnect.css` in Signal tokens, for light and dark. It has one message per state:
+  rejoining, retrying with a countdown, failed with Retry, paused with Resume, and resume-failed with Reload.
+- **Tests:**
+  - The bUnit harness is now `InteractivePageHarness`, serving any interactive page. The Settings key test moved to it.
+  - New: a browser test pauses the circuit, sees the dialog, resumes, and acts on the page again. A real-host test
+    checks the dialog markup, and a test checks the shipped CSS.
+  - Counts: Web.Tests 536, browser 14.
+- **Docs:**
+  - `ui-components.md` (page kinds, the `[PersistentState]` rule, no `AuthorizeView` on interactive pages, the
+    reconnect dialog, and the confirmation pattern);
+  - ADR 0046 (the D1 durability amendment);
+  - CONTEXT.md (**Config draft**).
