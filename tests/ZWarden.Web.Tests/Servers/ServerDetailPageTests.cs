@@ -1320,137 +1320,17 @@ public sealed class ServerDetailPageTests
         string html = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
 
         await Assert.That(html).Contains("data-recreate");
-        await Assert.That(html).Contains("name=\"_recreateForm.GamePort\"");
-        await Assert.That(html).Contains("name=\"_recreateForm.Countdown\"");
+        await Assert.That(html).Contains("id=\"recreate-port\"");
+        await Assert.That(html).Contains("id=\"recreate-heap\"");
+        await Assert.That(html).Contains("id=\"recreate-countdown\"");
         await Assert.That(html).Contains("data-action=\"recreate\"");
         client.Dispose();
     }
 
-    [Test]
-    public async Task The_change_ports_form_enqueues_a_recreate_carrying_the_port_and_countdown()
-    {
-        await using ZWardenWebAppFactory factory = new();
-        HttpClient client = await SignedInOperatorAsync(factory);
-        ServerId serverId = await SeedServerAsync(factory, "move-me", gamePort: 16261, queryPort: 16262);
-
-        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
-        Dictionary<string, string> form = new(StringComparer.Ordinal)
-        {
-            ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
-            ["_handler"] = "server-recreate",
-            ["_recreateForm.GamePort"] = "27015",
-            ["_recreateForm.Countdown"] = "1m",
-        };
-        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}", UriKind.Relative), new FormUrlEncodedContent(form));
-
-        await Assert.That((int)post.StatusCode).IsLessThan(400);
-        string? payload = EnqueuedPayload(factory, serverId, OperationKind.RecreateServer);
-        await Assert.That(payload).IsNotNull();
-        ServerContainerPayload parsed = ServerContainerPayload.FromJson(payload!);
-        await Assert.That(parsed.GamePort).IsEqualTo(27015);
-        await Assert.That(parsed.Plan!.WarningLeadSeconds).IsEquivalentTo([60, 30, 10]);
-        client.Dispose();
-    }
+    // --- #271: delete (the dialog and its actions are OverviewSectionTests) -------------------------------------
 
     [Test]
-    public async Task The_container_settings_form_recreates_with_a_new_heap()
-    {
-        // #230: the recreate form also changes the heap (typed in GiB; blank keeps the current heap).
-        await using ZWardenWebAppFactory factory = new();
-        HttpClient client = await SignedInOperatorAsync(factory);
-        ServerId serverId = await SeedServerAsync(factory, "grow-me", gamePort: 16261, queryPort: 16262);
-
-        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
-        await Assert.That(page).Contains("name=\"_recreateForm.HeapGiB\"");
-        Dictionary<string, string> form = new(StringComparer.Ordinal)
-        {
-            ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
-            ["_handler"] = "server-recreate",
-            ["_recreateForm.HeapGiB"] = "8",
-            ["_recreateForm.Countdown"] = "5m",
-        };
-        await client.PostAsync(new Uri($"/servers/{serverId}", UriKind.Relative), new FormUrlEncodedContent(form));
-
-        ServerContainerPayload parsed = ServerContainerPayload.FromJson(EnqueuedPayload(factory, serverId, OperationKind.RecreateServer)!);
-        await Assert.That(parsed.HeapSizeBytes).IsEqualTo(8L * 1024 * 1024 * 1024);
-        await Assert.That(parsed.GamePort).IsNull();
-        client.Dispose();
-    }
-
-    [Test]
-    public async Task Raising_the_heap_past_the_hosts_free_memory_warns_and_recreates_only_once_acknowledged()
-    {
-        // #230 follow-up: the wizard's overcommit gate on a heap change too. 16 GiB host, 2 reserved, 20 committed:
-        // this server's own 10 GiB (4 + 6) counts as released ⇒ 4 GiB free, so an 8 GiB heap (14 GiB limit) is 10 short.
-        const long GiB = 1024L * 1024 * 1024;
-        await using ZWardenWebAppFactory factory = new();
-        HttpClient client = await SignedInOperatorAsync(factory);
-        ServerId serverId = await SeedServerAsync(factory, "grow-big", gamePort: 16261, queryPort: 16262);
-        AgentId agent;
-        using (AsyncServiceScope scope = factory.Services.CreateSystemScope())
-        {
-            agent = (await scope.ServiceProvider.GetRequiredService<ZWardenDbContext>().Set<Server>().SingleAsync(s => s.Id == serverId)).AgentId;
-        }
-
-        factory.Services.GetRequiredService<IHostCapacityCache>()
-            .Record(new HostCapacity(agent, 16 * GiB, 20 * GiB, 6 * GiB, 4 * GiB, 2 * GiB, DateTimeOffset.UtcNow));
-
-        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
-        await Assert.That(page).Contains("4 GiB free on this host for this server");
-        Dictionary<string, string> form = new(StringComparer.Ordinal)
-        {
-            ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
-            ["_handler"] = "server-recreate",
-            ["_recreateForm.HeapGiB"] = "8",
-            ["_recreateForm.Countdown"] = "1m",
-        };
-
-        string warned = await (await client.PostAsync(new Uri($"/servers/{serverId}", UriKind.Relative), new FormUrlEncodedContent(form)))
-            .Content.ReadAsStringAsync();
-
-        await Assert.That(warned).Contains("data-recreate-overcommit-warning");
-        // The re-render keeps the chosen countdown selected, so the acknowledged resubmit does not revert to 5m.
-        await Assert.That(SsrSelect.SelectedValue(warned, "_recreateForm.Countdown")).IsEqualTo("1m");
-        await Assert.That(warned).Contains("10 GiB short");
-        await Assert.That(SsrCheckbox.IsNative(warned, "recreate-acknowledge", "_recreateForm.AcknowledgeOvercommit")).IsTrue();
-        await Assert.That(EnqueuedKind(factory, serverId, OperationKind.RecreateServer)).IsFalse();
-
-        form["__RequestVerificationToken"] = ParseHiddenInputs(warned)["__RequestVerificationToken"];
-        form["_recreateForm.AcknowledgeOvercommit"] = "true";
-        await client.PostAsync(new Uri($"/servers/{serverId}", UriKind.Relative), new FormUrlEncodedContent(form));
-
-        await Assert.That(ServerContainerPayload.FromJson(EnqueuedPayload(factory, serverId, OperationKind.RecreateServer)!).HeapSizeBytes)
-            .IsEqualTo(8 * GiB);
-        client.Dispose();
-    }
-
-    [Test]
-    public async Task The_change_ports_form_refuses_an_invalid_port_without_enqueueing()
-    {
-        await using ZWardenWebAppFactory factory = new();
-        HttpClient client = await SignedInOperatorAsync(factory);
-        ServerId serverId = await SeedServerAsync(factory, "bad-move", gamePort: 16261, queryPort: 16262);
-
-        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
-        Dictionary<string, string> form = new(StringComparer.Ordinal)
-        {
-            ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
-            ["_handler"] = "server-recreate",
-            ["_recreateForm.GamePort"] = "80",
-        };
-        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}", UriKind.Relative), new FormUrlEncodedContent(form));
-        string html = await post.Content.ReadAsStringAsync();
-
-        await Assert.That(html).Contains("data-lifecycle-message");
-        await Assert.That(html).Contains("between 1024 and 65534");
-        await Assert.That(EnqueuedKind(factory, serverId, OperationKind.RecreateServer)).IsFalse();
-        client.Dispose();
-    }
-
-    // --- #271: delete ------------------------------------------------------------------------------------------
-
-    [Test]
-    public async Task An_owner_sees_the_delete_dialog_naming_the_server_and_what_is_kept()
+    public async Task An_owner_sees_the_delete_control()
     {
         await using ZWardenWebAppFactory factory = new();
         HttpClient client = await SignedInOperatorAsync(factory);
@@ -1458,49 +1338,10 @@ public sealed class ServerDetailPageTests
 
         string html = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
 
-        await Assert.That(html).Contains("data-zw-dialog-open=\"delete-server\"");
-        await Assert.That(html).Contains("data-zw-dialog=\"delete-server\"");
-        // Tailwind's preflight zeroes <dialog>'s UA margin:auto, so it must be restored or the modal pins top-left.
-        await Assert.That(Regex.Match(html, "<dialog[^>]*data-zw-dialog=\"delete-server\"[^>]*>").Value).Contains("m-auto");
-        await Assert.That(html).Contains("data-zw-confirm-expected=\"doomed\"");
-        await Assert.That(html).Contains("World data and backups are kept");
-        await Assert.That(html).Contains("can't be undone");
-        // The submit starts disabled; the dialog script enables it once the typed name matches.
-        Match submit = Regex.Match(html, "<button[^>]*data-zw-confirm-submit[^>]*>");
-        await Assert.That(submit.Success).IsTrue();
-        await Assert.That(submit.Value).Contains("aria-disabled=\"true\"");
-        client.Dispose();
-    }
-
-    [Test]
-    public async Task Posting_the_delete_form_with_the_servers_name_enqueues_the_delete_and_returns_to_the_fleet()
-    {
-        await using ZWardenWebAppFactory factory = new();
-        HttpClient client = await SignedInOperatorAsync(factory);
-        ServerId serverId = await SeedServerAsync(factory, "doomed", gamePort: 16261, queryPort: 16262);
-
-        HttpResponseMessage post = await PostDeleteAsync(client, serverId, "doomed");
-
-        await Assert.That(EnqueuedKind(factory, serverId, OperationKind.DeleteServer)).IsTrue();
-        await Assert.That(GracefulRestartPayload.FromJson(EnqueuedPayload(factory, serverId, OperationKind.DeleteServer)!).WarningLeadSeconds)
-            .IsEquivalentTo([60, 30, 10]);
-        await Assert.That((int)post.StatusCode).IsEqualTo(302);
-        await Assert.That(new Uri(new Uri("https://localhost"), post.Headers.Location!).AbsolutePath).IsEqualTo("/servers");
-        client.Dispose();
-    }
-
-    [Test]
-    public async Task Posting_the_delete_form_with_the_wrong_name_is_refused_by_the_server()
-    {
-        await using ZWardenWebAppFactory factory = new();
-        HttpClient client = await SignedInOperatorAsync(factory);
-        ServerId serverId = await SeedServerAsync(factory, "doomed", gamePort: 16261, queryPort: 16262);
-
-        string html = await (await PostDeleteAsync(client, serverId, "Doomed")).Content.ReadAsStringAsync();
-
-        await Assert.That(html).Contains("data-lifecycle-message");
-        await Assert.That(html).Contains("did not match");
-        await Assert.That(EnqueuedKind(factory, serverId, OperationKind.DeleteServer)).IsFalse();
+        await Assert.That(html).Contains("data-delete-server");
+        await Assert.That(html).Contains("data-action=\"delete-open\"");
+        // The confirmation is a circuit dialog now; nothing of the old native <dialog> remains.
+        await Assert.That(html).DoesNotContain("data-zw-dialog");
         client.Dispose();
     }
 
@@ -1526,25 +1367,10 @@ public sealed class ServerDetailPageTests
         await LoginAsync(client, "operator@zwarden.test", StrongPassword);
 
         string html = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
-        await Assert.That(html).DoesNotContain("data-zw-dialog=\"delete-server\"");
-
-        // A crafted post of the form is refused by the service all the same.
-        await PostDeleteAsync(client, serverId, "kept");
-        await Assert.That(EnqueuedKind(factory, serverId, OperationKind.DeleteServer)).IsFalse();
+        // The control is withheld; the lifecycle service refuses a delete without Server.Delete all the same
+        // (ServerLifecycleTests).
+        await Assert.That(html).DoesNotContain("data-delete-server");
         client.Dispose();
-    }
-
-    private static async Task<HttpResponseMessage> PostDeleteAsync(HttpClient client, ServerId serverId, string confirmName)
-    {
-        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
-        Dictionary<string, string> form = new(StringComparer.Ordinal)
-        {
-            ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
-            ["_handler"] = "server-delete",
-            ["_deleteForm.ConfirmName"] = confirmName,
-            ["_deleteForm.Countdown"] = "1m",
-        };
-        return await client.PostAsync(new Uri($"/servers/{serverId}", UriKind.Relative), new FormUrlEncodedContent(form));
     }
 
     [Test]

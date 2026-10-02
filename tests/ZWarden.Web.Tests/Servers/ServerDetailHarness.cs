@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.DependencyInjection;
 using ZWarden.Application.Mods;
+using ZWarden.Application.Servers;
 using ZWarden.Domain.Backups;
 using ZWarden.Domain.Ids;
 using ZWarden.Domain.Operations;
@@ -66,12 +67,17 @@ internal sealed class ServerDetailHarness : IAsyncDisposable
         return new ServerDetailHarness(factory, context, scope);
     }
 
-    /// <summary>Adds an imported Server to the database.</summary>
-    public async Task<ServerId> SeedServerAsync(string name)
+    /// <summary>Adds an imported Server to the database, on a host port pair when one is given.</summary>
+    public async Task<ServerId> SeedServerAsync(string name, int? gamePort = null, int? queryPort = null)
     {
         await using AsyncServiceScope scope = Factory.Services.CreateSystemScope();
         ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
         Server server = Server.Import(AgentId.New(), ServerId.New(), name, DateTimeOffset.UtcNow);
+        if (gamePort is int game && queryPort is int query)
+        {
+            server.RecordContainer($"pz-{name}", game, query);
+        }
+
         db.Set<Server>().Add(server);
         await db.SaveChangesAsync();
         return server.Id;
@@ -89,6 +95,18 @@ internal sealed class ServerDetailHarness : IAsyncDisposable
         Factory.Services.GetRequiredService<IModInventoryCache>()
             .Record(new ModInventory(serverId, agent, installed, workshop, enabled, [], DateTimeOffset.UtcNow));
     }
+
+    /// <summary>Records the host capacity <paramref name="serverId"/>'s Agent last reported.</summary>
+    public void SeedHostCapacity(ServerId serverId, long total, long committed, long ownLimit, long ownHeap, long reserved)
+    {
+        using AsyncServiceScope scope = Factory.Services.CreateSystemScope();
+        AgentId agent = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>().Set<Server>().Single(s => s.Id == serverId).AgentId;
+        Factory.Services.GetRequiredService<IHostCapacityCache>()
+            .Record(new HostCapacity(agent, total, committed, ownLimit, ownHeap, reserved, DateTimeOffset.UtcNow));
+    }
+
+    /// <summary>The <c>CommandPayload</c> of the first Operation of <paramref name="kind"/> for the Server.</summary>
+    public string? Payload(ServerId serverId, OperationKind kind) => FirstOperation(serverId, kind)?.CommandPayload;
 
     /// <summary>Records a verified backup of <paramref name="serverId"/> on its own Agent.</summary>
     public async Task<BackupId> SeedBackupAsync(ServerId serverId, string archiveName)
