@@ -126,3 +126,42 @@ Playwright green.
 - Operators see identical behaviour, minus the full-page reloads.
 - The config-editor draft survives a dropped connection and reconnect (D1).
 - The user live-tests each PR branch on DMZ before merging.
+
+## Result — PR-A (#309, merged 2026-10-02)
+
+- The Playwright tier (11 tests), and `tier3-e2e-browser` in CI.
+
+## Result — PR-B (2026-10-02)
+
+What landed, and where it differs from the design:
+
+- **The page and every section are circuit handlers.** Their service calls go through `ActionScopeRunner`; singleton
+  caches (mod inventory, host capacity, live panels) are still injected directly.
+  - `ServerDetailQuery` loads the Server, the permission flags and the header in one scope. The prerender hands that
+    to the circuit as `[PersistentState]`, along with the operator's time-zone id. The zone is cascaded to the sections
+    (`ServerSectionBase.OperatorZone`), because a circuit has no request cookie to read it from.
+  - The header poll runs every 2 s while busy and 5 s when idle. When the Server is gone it navigates to `/servers`,
+    as `live-status.js` did on a 404.
+- **The Config section:**
+  - `ConfigEditorDraft` holds the rows, the baseline, the live read and the raw text, in `[PersistentState]`.
+  - Apply re-reads the host for the drift check, then tracks the write in the circuit. A `?op=` link is still
+    honoured.
+  - #308 (the no-rows NRE) is gone with the form binding.
+- **Delete** is a `BbAlertDialog` rendered into the page's own `BbPortalHost`.
+- **Removed:** `dialog.js` and `config-editor.js`. `live-status.js` serves Fleet only. Small ES modules keep the
+  browser-only preferences: `dismissed-failures.js` and `local-prefs.js`.
+- **Two circuit-only bugs the browser tier caught:**
+  1. A `BbInput` reports its value on blur by default, so a click could reach the circuit first. Every action input
+     now uses `UpdateTiming.Immediate`.
+  2. A section with its own `[SupplyParameterFromQuery]` throws "Collection was modified" when the rail creates it.
+     The page now reads `?file=`/`?op=` and passes them down.
+- **D1 is verified in the browser.** `Blazor.pauseCircuit()` then `resumeCircuit()` keeps the unsaved edit, and the
+  test fails without the attribute. bUnit's persistent-state double can't drive the declarative `[PersistentState]`.
+- **Tests:**
+  - The POST tests moved to bUnit via `ServerDetailHarness`, which renders the page on the factory's real services.
+  - The form-limit guard is now tested on `/login`.
+  - Counts: Web.Tests 534 (the floor moved from 535: some POST tests merged), browser 13.
+- **Not done here (follow-ups):**
+  - The `Live*` panels still take string ids.
+  - A rail or tab click is an enhanced navigation, so the server also prerenders the page for that request. A config
+    file switch reads the host twice.
