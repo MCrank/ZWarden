@@ -17,6 +17,8 @@
     <PackageVersion Include="TUnit" Version="1.66.27" />
     <PackageVersion Include="TUnit.Mocks" Version="1.66.27" />
     <PackageVersion Include="bunit" Version="2.10.3" />
+    <!-- The browser smoke tier (#299, ADR 0046 Q4): Chromium driven against the real host on Kestrel. -->
+    <PackageVersion Include="Microsoft.Playwright" Version="1.63.0" />
     <PackageVersion Include="Testcontainers.PostgreSql" Version="4.15.0" />
     <!-- Core Testcontainers, for the F13 Docker-runtime integration tier: seed labelled containers and run the
          wollomatic socket-proxy allowlist drift test (ADR 0008). Same band as Testcontainers.PostgreSql. -->
