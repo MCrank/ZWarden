@@ -1,12 +1,9 @@
 @inherits ServerSectionBase
 @using ZWarden.Application.Backups
 @using ZWarden.Domain.Backups
-@inject IServerBackup ServerBackups
-@inject IServerRestore ServerRestores
-@inject IBackupQuery BackupQuery
 
 @* The Backups rail section (F24/F25): take, restore and delete verifiable world backups, gated per control on the
-   per-server Backup.* grants the page evaluates; the services re-check on submit. *@
+   per-server Backup.* grants the page evaluates; the services re-check on every action (circuit handlers, #299). *@
 
 <BbCard Class="p-5" data-backups-card>
     <h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Backups</h2>
@@ -27,11 +24,10 @@
         </div>
     }
 
-    <EditForm Model="_backupForm" FormName="backup-manage" OnValidSubmit="BackupManageAsync" class="mt-4">
+    <div class="mt-4">
         @if (Perm.CanCreate)
         {
-            <BbButton Type="ButtonType.Submit" Size="ButtonSize.Small"
-                      name="_backupForm.Command" value="create" data-action="backup-create">Take backup</BbButton>
+            <BbButton Size="ButtonSize.Small" Disabled="_acting" OnClick="CreateAsync" data-action="backup-create">Take backup</BbButton>
         }
 
         @if (_backups.Count == 0)
@@ -63,13 +59,13 @@
                                     <div class="flex gap-2">
                                         @if (Perm.CanRestore)
                                         {
-                                            <BbButton Type="ButtonType.Submit" Size="ButtonSize.Small"
-                                                      name="_backupForm.Command" value="@($"restore|{backup.Id}")" data-action="backup-restore">Restore</BbButton>
+                                            <BbButton Size="ButtonSize.Small" Disabled="_acting"
+                                                      OnClick="@(() => RestoreAsync(backup.Id))" data-action="backup-restore">Restore</BbButton>
                                         }
                                         @if (Perm.CanDelete)
                                         {
-                                            <BbButton Variant="ButtonVariant.Destructive" Type="ButtonType.Submit" Size="ButtonSize.Small"
-                                                      name="_backupForm.Command" value="@($"delete|{backup.Id}")" data-action="backup-delete">Delete</BbButton>
+                                            <BbButton Variant="ButtonVariant.Destructive" Size="ButtonSize.Small" Disabled="_acting"
+                                                      OnClick="@(() => DeleteAsync(backup.Id))" data-action="backup-delete">Delete</BbButton>
                                         }
                                     </div>
                                 </td>
@@ -79,7 +75,7 @@
                 </table>
             </div>
         }
-    </EditForm>
+    </div>
 </BbCard>
 
 @code {
@@ -87,45 +83,49 @@
     [Parameter, EditorRequired]
     public BackupPermissions Perm { get; set; }
 
-    [SupplyParameterFromForm(FormName = "backup-manage")]
-    private BackupManageModel _backupForm { get; set; } = default!;
-
     private IReadOnlyList<BackupSummary> _backups = [];
     private string? _backupMessage;
     private AlertVariant _backupAlert = AlertVariant.Warning;
+    private bool _acting;
 
-    protected override async Task OnInitializedAsync()
+    protected override async Task OnInitializedAsync() => await LoadBackupsAsync();
+
+    private async Task LoadBackupsAsync()
     {
-        _backupForm ??= new BackupManageModel();
-        await LoadBackupsAsync();
+        ServerId serverId = Server.Id;
+        _backups = Perm.CanView
+            ? await Actions.RunAsync<IBackupQuery, IReadOnlyList<BackupSummary>>((query, ct) => query.ListForServerAsync(serverId, ct))
+            : [];
     }
 
-    private async Task LoadBackupsAsync() =>
-        _backups = Perm.CanView
-            ? await BackupQuery.ListForServerAsync(Server.Id)
-            : [];
-
-    private async Task BackupManageAsync()
+    private Task CreateAsync() => ActAsync(async user =>
     {
-        UserId user = await CurrentUserAsync();
-        string command = _backupForm?.Command ?? string.Empty;
+        ServerId serverId = Server.Id;
+        SetBackupCreateResult(await Actions.RunAsync<IServerBackup, BackupRequestResult>(
+            (backups, ct) => backups.CreateAsync(user, serverId, BackupReason.Manual, ct)));
+    });
 
-        if (command == "create")
-        {
-            SetBackupCreateResult(await ServerBackups.CreateAsync(user, Server.Id, BackupReason.Manual));
-        }
-        else if (command.StartsWith("restore|", StringComparison.Ordinal)
-                 && BackupId.TryParse(command["restore|".Length..], out BackupId restoreId))
-        {
-            SetBackupRestoreResult(await ServerRestores.RestoreAsync(user, restoreId));
-        }
-        else if (command.StartsWith("delete|", StringComparison.Ordinal)
-                 && BackupId.TryParse(command["delete|".Length..], out BackupId backupId))
-        {
-            SetBackupDeleteResult(await ServerBackups.DeleteAsync(user, backupId));
-        }
+    private Task RestoreAsync(BackupId backupId) => ActAsync(async user =>
+        SetBackupRestoreResult(await Actions.RunAsync<IServerRestore, RestoreRequestResult>(
+            (restores, ct) => restores.RestoreAsync(user, backupId, ct))));
 
-        await LoadBackupsAsync();
+    private Task DeleteAsync(BackupId backupId) => ActAsync(async user =>
+        SetBackupDeleteResult(await Actions.RunAsync<IServerBackup, BackupDeletionOutcome>(
+            (backups, ct) => backups.DeleteAsync(user, backupId, ct))));
+
+    // One action at a time, then the list is re-read so a just-taken or just-deleted backup shows its state.
+    private async Task ActAsync(Func<UserId, Task> action)
+    {
+        _acting = true;
+        try
+        {
+            await action(await CurrentUserAsync());
+            await LoadBackupsAsync();
+        }
+        finally
+        {
+            _acting = false;
+        }
     }
 
     private void SetBackupCreateResult(BackupRequestResult result)
@@ -190,10 +190,4 @@
     private static string BackupCreated(DateTimeOffset at) => at.UtcDateTime.ToString("yyyy-MM-dd HH:mm");
 
     private static string ShortChecksum(string sha256) => sha256.Length <= 12 ? sha256 : sha256[..12];
-
-    private sealed class BackupManageModel
-    {
-        // The submit button's command token: "create", or "delete|{backupId}" for a per-row delete.
-        public string? Command { get; set; }
-    }
 }

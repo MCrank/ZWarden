@@ -4,6 +4,7 @@ using Bunit;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.DependencyInjection;
+using ZWarden.Domain.Backups;
 using ZWarden.Domain.Ids;
 using ZWarden.Domain.Operations;
 using ZWarden.Domain.Servers;
@@ -73,6 +74,18 @@ internal sealed class ServerDetailHarness : IAsyncDisposable
         db.Set<Server>().Add(server);
         await db.SaveChangesAsync();
         return server.Id;
+    }
+
+    /// <summary>Records a verified backup of <paramref name="serverId"/> on its own Agent.</summary>
+    public async Task<BackupId> SeedBackupAsync(ServerId serverId, string archiveName)
+    {
+        await using AsyncServiceScope scope = Factory.Services.CreateSystemScope();
+        ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
+        Server server = db.Set<Server>().Single(s => s.Id == serverId);
+        Backup backup = Backup.Record(serverId, server.AgentId, archiveName, 2048, "abc123", BackupReason.Manual, DateTimeOffset.UtcNow);
+        db.Set<Backup>().Add(backup);
+        await db.SaveChangesAsync();
+        return backup.Id;
     }
 
     /// <summary>Records <paramref name="state"/> as the Agent-observed run-state (it enables the matching header
