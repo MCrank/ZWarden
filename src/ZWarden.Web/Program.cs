@@ -99,6 +99,7 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ZWarden.Web.Time.IOperatorTimeZoneProvider, ZWarden.Web.Time.OperatorTimeZoneProvider>();
 // #299: the interactive Server Detail page's load and header poll, run through ActionScopeRunner (a scope per call).
 builder.Services.AddScoped<ZWarden.Web.Components.Pages.Servers.ServerDetailQuery>();
+builder.Services.AddScoped<ZWarden.Web.Components.Pages.Settings.SettingsQuery>();
 
 WebApplication app = builder.Build();
 

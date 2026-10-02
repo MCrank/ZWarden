@@ -18,7 +18,7 @@ public sealed class HeaderTests
     [Test]
     public async Task Start_enqueues_a_mutating_start_server_operation()
     {
-        await using ServerDetailHarness harness = await ServerDetailHarness.StartAsync();
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
         ServerId serverId = await harness.SeedServerAsync("startable");
         IRenderedComponent<ServerDetail> cut = harness.Render(serverId);
 
@@ -32,7 +32,7 @@ public sealed class HeaderTests
     [Test]
     public async Task Restart_enqueues_a_restart_server_operation()
     {
-        await using ServerDetailHarness harness = await ServerDetailHarness.StartAsync();
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
         ServerId serverId = await harness.SeedServerAsync("restartable-header");
         await harness.SetRunStateAsync(serverId, ZWarden.Domain.Servers.ServerRunState.Running);
         IRenderedComponent<ServerDetail> cut = harness.Render(serverId);
@@ -45,7 +45,7 @@ public sealed class HeaderTests
     [Test]
     public async Task Update_game_enqueues_an_update_and_the_header_says_updating()
     {
-        await using ServerDetailHarness harness = await ServerDetailHarness.StartAsync();
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
         ServerId serverId = await harness.SeedServerAsync("update-header");
         await harness.SetRunStateAsync(serverId, ZWarden.Domain.Servers.ServerRunState.Stopped);
         IRenderedComponent<ServerDetail> cut = harness.Render(serverId);
@@ -61,12 +61,12 @@ public sealed class HeaderTests
     [Test]
     public async Task The_countdown_restart_carries_the_message_and_the_default_five_minute_plan()
     {
-        await using ServerDetailHarness harness = await ServerDetailHarness.StartAsync();
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
         ServerId serverId = await harness.SeedServerAsync("graceful-enqueue");
         await harness.SetRunStateAsync(serverId, ZWarden.Domain.Servers.ServerRunState.Running);
         IRenderedComponent<ServerDetail> cut = harness.Render(serverId);
 
-        await ServerDetailHarness.TypeAsync(cut, "graceful-message", "Scheduled maintenance.");
+        await InteractivePageHarness.TypeAsync(cut, "graceful-message", "Scheduled maintenance.");
         await cut.Find("[data-graceful-restart] form").SubmitAsync();
 
         cut.WaitForState(() => harness.FirstOperation(serverId, OperationKind.RestartServer) is not null);
@@ -78,7 +78,7 @@ public sealed class HeaderTests
     [Test]
     public async Task The_immediate_countdown_restarts_with_no_warning()
     {
-        await using ServerDetailHarness harness = await ServerDetailHarness.StartAsync();
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
         ServerId serverId = await harness.SeedServerAsync("graceful-immediate");
         await harness.SetRunStateAsync(serverId, ZWarden.Domain.Servers.ServerRunState.Running);
         IRenderedComponent<ServerDetail> cut = harness.Render(serverId);
@@ -95,7 +95,7 @@ public sealed class HeaderTests
     [Test]
     public async Task Dismissing_the_last_failure_hides_it_and_remembers_it_in_the_browser()
     {
-        await using ServerDetailHarness harness = await ServerDetailHarness.StartAsync();
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
         ServerId serverId = await harness.SeedServerAsync("refused");
         await using (AsyncServiceScope scope = harness.Factory.Services.CreateSystemScope())
         {

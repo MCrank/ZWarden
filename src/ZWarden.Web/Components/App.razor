@@ -33,6 +33,8 @@
 
 <body>
     <Routes />
+    @* The Signal-styled circuit reconnect dialog (#299); it only shows on an interactive page. *@
+    <ReconnectModal />
     <script src="@Assets["_framework/blazor.web.js"]"></script>
     @* App-shell behaviour (menus, mobile drawer, theme toggle) — static-SSR progressive enhancement,
        delegated on document so it survives enhanced-navigation DOM merges (ADR 0040). *@
@@ -42,6 +44,8 @@
     @* Live fleet status (#253): polls the batched status endpoint to re-tone the static Fleet board. The interactive
        Server Detail page (#299) updates its header through its circuit instead. *@
     <script src="@Assets["js/live-status.js"]"></script>
+    @* Opens/closes the reconnect dialog and runs Retry / Resume (#299, after the .NET 10 template). *@
+    <script src="@Assets["js/reconnect.js"]"></script>
 </body>
 
 </html>

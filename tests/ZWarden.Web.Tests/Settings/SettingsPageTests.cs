@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.RegularExpressions;
+using Bunit;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Identity;
@@ -159,40 +160,25 @@ public sealed class SettingsPageTests
     [Test]
     public async Task An_owner_can_configure_then_clear_the_search_key_without_the_key_ever_being_echoed()
     {
+        // The save and clear are circuit handlers on the interactive page (#299), driven in bUnit on the real host.
         const string key = "ABCDEF0123456789ABCDEF0123456789";
-        await using ZWardenWebAppFactory factory = new();
-        HttpClient client = await SignedInOwnerAsync(factory, "owner@zwarden.test");
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
+        IRenderedComponent<SettingsPage> cut = harness.RenderPage<SettingsPage>("/settings");
 
         // Configure the key via the write-only form.
-        string afterSet = await SubmitWorkshopFormAsync(client, "settings-workshop-key", ("Input.ApiKey", key));
-        await Assert.That(afterSet).Contains("A search key is configured");
-        await Assert.That(afterSet).DoesNotContain(key); // write-only: never echoed back
+        await InteractivePageHarness.TypeAsync(cut, "workshop-key", key);
+        await cut.Find("[data-settings-workshop] form").SubmitAsync();
+        cut.WaitForState(() => cut.Markup.Contains("A search key is configured", StringComparison.Ordinal));
+        await Assert.That(cut.Markup).DoesNotContain(key); // write-only: never echoed back
 
-        // A reload still reports configured and still never shows the key.
-        string reloaded = await GetStringAsync(client, "/settings");
-        await Assert.That(reloaded).Contains("A search key is configured");
-        await Assert.That(reloaded).DoesNotContain(key);
+        // A fresh page still reports configured and still never shows the key.
+        IRenderedComponent<SettingsPage> reloaded = harness.RenderPage<SettingsPage>("/settings");
+        await Assert.That(reloaded.Markup).Contains("A search key is configured");
+        await Assert.That(reloaded.Markup).DoesNotContain(key);
 
         // Clear it.
-        string afterClear = await SubmitWorkshopFormAsync(client, "settings-workshop-clear");
-        await Assert.That(afterClear).Contains("No search key configured");
-        client.Dispose();
-    }
-
-    // Posts one of the Settings-page SSR forms, carrying the antiforgery token and form handler the page emitted.
-    private static async Task<string> SubmitWorkshopFormAsync(
-        HttpClient client, string formName, params (string Key, string Value)[] fields)
-    {
-        HttpResponseMessage page = await client.GetAsync(new Uri("/settings", UriKind.Relative));
-        Dictionary<string, string> form = ParseHiddenInputs(await page.Content.ReadAsStringAsync());
-        form["_handler"] = formName;
-        foreach ((string key, string value) in fields)
-        {
-            form[key] = value;
-        }
-
-        HttpResponseMessage response = await client.PostAsync(new Uri("/settings", UriKind.Relative), new FormUrlEncodedContent(form));
-        return await response.Content.ReadAsStringAsync();
+        await reloaded.Find("[data-settings-workshop] button.bb\\:bg-destructive, [data-settings-workshop] button:not([type=submit])").ClickAsync(new());
+        reloaded.WaitForState(() => reloaded.Markup.Contains("No search key configured", StringComparison.Ordinal));
     }
 
     private static async Task<HttpClient> SignedInOwnerAsync(ZWardenWebAppFactory factory, string email)

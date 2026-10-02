@@ -16,6 +16,9 @@
    Imported here so the same build emits it into wwwroot/app.css. */
 @import "./shell.css";
 
+/* The circuit reconnect dialog (#299) for the interactive pages, in the same Signal style. */
+@import "./reconnect.css";
+
 /* Scan exactly ZWarden's own markup (as the v3 content glob did), not the whole project. Class names in
    .cs switch expressions (e.g. StatusBadge's status ramp) must be full literal strings to be detected. */
 @import "tailwindcss" source(none);

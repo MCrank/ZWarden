@@ -12,11 +12,11 @@ public sealed class ConsoleAndDiagnosticsSectionTests
     [Test]
     public async Task Run_enqueues_a_non_mutating_console_command_carrying_the_line()
     {
-        await using ServerDetailHarness harness = await ServerDetailHarness.StartAsync();
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
         ServerId serverId = await harness.SeedServerAsync("console-enqueue");
         IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "console");
 
-        await ServerDetailHarness.TypeAsync(cut, "console-input", "servermsg \"hello\"");
+        await InteractivePageHarness.TypeAsync(cut, "console-input", "servermsg \"hello\"");
         await cut.Find("[data-console-card] form").SubmitAsync();
 
         cut.WaitForState(() => harness.FirstOperation(serverId, OperationKind.ExecuteConsoleCommand) is not null);
@@ -29,11 +29,11 @@ public sealed class ConsoleAndDiagnosticsSectionTests
     [Test]
     public async Task A_policy_blocked_command_is_refused_without_enqueuing()
     {
-        await using ServerDetailHarness harness = await ServerDetailHarness.StartAsync();
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
         ServerId serverId = await harness.SeedServerAsync("console-denied");
         IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "console");
 
-        await ServerDetailHarness.TypeAsync(cut, "console-input", "setpassword \"bob\" \"pw\"");
+        await InteractivePageHarness.TypeAsync(cut, "console-input", "setpassword \"bob\" \"pw\"");
         await cut.Find("[data-console-card] form").SubmitAsync();
 
         cut.WaitForState(() => cut.FindAll("[data-console-message]").Count == 1);
@@ -43,7 +43,7 @@ public sealed class ConsoleAndDiagnosticsSectionTests
     [Test]
     public async Task Run_diagnostics_enqueues_a_read_only_gather()
     {
-        await using ServerDetailHarness harness = await ServerDetailHarness.StartAsync();
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
         ServerId serverId = await harness.SeedServerAsync("diagnosable");
         IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "diagnostics");
 

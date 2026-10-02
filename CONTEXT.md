@@ -319,3 +319,9 @@ _Avoid_: widget, interactive page (for a part of a page)
 **Circuit**:
 The live server connection and per-tab server state behind an interactive page or island.
 _Avoid_: session (which names the sign-in), socket, connection (unqualified)
+
+**Config draft**:
+An operator's unsaved edits in the configuration editor, held with the **circuit** so that a dropped connection or
+an evicted circuit brings them back. It lives in server memory, never in the browser, and is gone after a web
+restart or once the edits are applied.
+_Avoid_: autosave, saved draft (nothing is written until Apply)

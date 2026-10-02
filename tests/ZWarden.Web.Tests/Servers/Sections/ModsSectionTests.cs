@@ -16,7 +16,7 @@ public sealed class ModsSectionTests
     [Test]
     public async Task Refresh_enqueues_a_discovery()
     {
-        await using ServerDetailHarness harness = await ServerDetailHarness.StartAsync();
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
         ServerId serverId = await harness.SeedServerAsync("discoverable");
         IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "mods");
 
@@ -29,12 +29,12 @@ public sealed class ModsSectionTests
     [Test]
     public async Task Add_enqueues_a_config_apply_touching_workshop_items()
     {
-        await using ServerDetailHarness harness = await ServerDetailHarness.StartAsync();
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
         ServerId serverId = await harness.SeedServerAsync("addable");
         harness.SeedInventory(serverId, installed: [], workshop: ["100"], enabled: []);
         IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "mods");
 
-        await ServerDetailHarness.TypeAsync(cut, "mod-workshop-id", "200");
+        await InteractivePageHarness.TypeAsync(cut, "mod-workshop-id", "200");
         await cut.Find("[data-action=mod-add]").ClickAsync(new());
 
         cut.WaitForState(() => harness.FirstOperation(serverId, OperationKind.ConfigApply) is not null);
@@ -47,7 +47,7 @@ public sealed class ModsSectionTests
     [Test]
     public async Task Enable_applies_the_first_candidate_by_default()
     {
-        await using ServerDetailHarness harness = await ServerDetailHarness.StartAsync();
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
         ServerId serverId = await harness.SeedServerAsync("enableable");
         harness.SeedInventory(
             serverId,
@@ -67,7 +67,7 @@ public sealed class ModsSectionTests
     [Test]
     public async Task Disable_enqueues_a_config_apply_touching_the_mods_list()
     {
-        await using ServerDetailHarness harness = await ServerDetailHarness.StartAsync();
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
         ServerId serverId = await harness.SeedServerAsync("disableable");
         harness.SeedInventory(
             serverId,
@@ -85,7 +85,7 @@ public sealed class ModsSectionTests
     [Test]
     public async Task Restart_to_apply_restarts_but_never_runs_the_game_update()
     {
-        await using ServerDetailHarness harness = await ServerDetailHarness.StartAsync();
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
         ServerId serverId = await harness.SeedServerAsync("restartable-mods");
         harness.SeedInventory(serverId, installed: [], workshop: ["100"], enabled: []);
         IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "mods");

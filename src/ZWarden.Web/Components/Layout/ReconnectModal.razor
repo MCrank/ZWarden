@@ -1,0 +1,37 @@
+@* The circuit's reconnect UI (#299, ADR 0046), in the Signal style. Blazor finds this dialog by its id and, instead of
+   its unstyled default, adds a state class to it (components-reconnect-show / -retrying / -failed / -paused /
+   -resume-failed) and raises components-reconnect-state-changed; wwwroot/js/reconnect.js opens and closes it and
+   drives Retry/Resume. It only ever shows on an interactive page (Server Detail, Settings): a static page has no
+   circuit to lose. Rendered by App, outside the layout, like the template's. *@
+
+<dialog id="components-reconnect-modal" class="zw-reconnect" aria-labelledby="zw-reconnect-title" data-nosnippet>
+    <div class="zw-reconnect-card">
+        <div class="zw-reconnect-spinner zw-reconnect-busy" aria-hidden="true"></div>
+        <h2 id="zw-reconnect-title" class="zw-reconnect-title">
+            <span class="zw-reconnect-busy">Reconnecting…</span>
+            <span class="zw-reconnect-on-failed">Connection lost</span>
+            <span class="zw-reconnect-on-paused">Session paused</span>
+            <span class="zw-reconnect-on-resume-failed">Session ended</span>
+        </h2>
+        <p class="zw-reconnect-text zw-reconnect-on-first">
+            The connection to ZWarden dropped. Your unsaved configuration edits are kept while it rejoins.
+        </p>
+        <p class="zw-reconnect-text zw-reconnect-on-retrying">
+            Still trying — next attempt in <span id="components-seconds-to-next-attempt"></span> s.
+        </p>
+        <p class="zw-reconnect-text zw-reconnect-on-failed">
+            ZWarden could not rejoin this page. Retry, or reload it.
+        </p>
+        <p class="zw-reconnect-text zw-reconnect-on-paused">
+            This page's session was paused. Resume to pick up where you left off.
+        </p>
+        <p class="zw-reconnect-text zw-reconnect-on-resume-failed">
+            The session could not be resumed. Reload the page to continue.
+        </p>
+        <div class="zw-reconnect-actions">
+            <button type="button" id="components-reconnect-button" class="zw-reconnect-btn zw-reconnect-on-failed">Retry</button>
+            <button type="button" id="components-resume-button" class="zw-reconnect-btn zw-reconnect-on-paused">Resume</button>
+            <button type="button" class="zw-reconnect-btn zw-reconnect-on-resume-failed" data-reconnect-reload>Reload</button>
+        </div>
+    </div>
+</dialog>

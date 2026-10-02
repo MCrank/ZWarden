@@ -80,7 +80,7 @@ public sealed class ServerDetailModBrowserTests
     [Test]
     public async Task Preview_resolves_a_pasted_reference_and_renders_a_card()
     {
-        await using ServerDetailHarness harness = await ServerDetailHarness.StartAsync(Fakes(out FakePreview preview, out _, out _));
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(Fakes(out FakePreview preview, out _, out _));
         preview.Result = WorkshopPreview.OfItem(
             new WorkshopItemMetadata("2392709985", Found: true, Title: "Brita Weapon Pack", SizeBytes: 123456));
         ServerId serverId = await harness.SeedServerAsync("mb-preview");
@@ -95,7 +95,7 @@ public sealed class ServerDetailModBrowserTests
     [Test]
     public async Task A_hostile_workshop_title_is_rendered_escaped()
     {
-        await using ServerDetailHarness harness = await ServerDetailHarness.StartAsync(Fakes(out FakePreview preview, out _, out _));
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(Fakes(out FakePreview preview, out _, out _));
         preview.Result = WorkshopPreview.OfItem(new WorkshopItemMetadata("111", Found: true, Title: "<script>alert(1)</script>"));
         ServerId serverId = await harness.SeedServerAsync("mb-xss");
 
@@ -108,12 +108,12 @@ public sealed class ServerDetailModBrowserTests
     [Test]
     public async Task An_unresolvable_input_shows_a_message()
     {
-        await using ServerDetailHarness harness = await ServerDetailHarness.StartAsync(Fakes(out FakePreview preview, out _, out _));
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(Fakes(out FakePreview preview, out _, out _));
         preview.Result = WorkshopPreview.Unresolvable;
         ServerId serverId = await harness.SeedServerAsync("mb-unresolvable");
         IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "modbrowser");
 
-        await ServerDetailHarness.TypeAsync(cut, "modbrowser-input", "not-a-workshop-link");
+        await InteractivePageHarness.TypeAsync(cut, "modbrowser-input", "not-a-workshop-link");
         await cut.Find("[data-modbrowser-lookup]").Closest("form")!.SubmitAsync();
 
         cut.WaitForState(() => cut.FindAll("[data-modbrowser-unresolvable]").Count == 1);
@@ -122,7 +122,7 @@ public sealed class ServerDetailModBrowserTests
     [Test]
     public async Task Install_from_a_preview_card_enqueues_a_config_apply_touching_workshop_items()
     {
-        await using ServerDetailHarness harness = await ServerDetailHarness.StartAsync(Fakes(out FakePreview preview, out _, out _));
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(Fakes(out FakePreview preview, out _, out _));
         preview.Result = WorkshopPreview.OfItem(new WorkshopItemMetadata("200", Found: true, Title: "New Pack"));
         ServerId serverId = await harness.SeedServerAsync("mb-install");
         // AddWorkshopItem recomputes WorkshopItems= from the last observed inventory, so one must exist.
@@ -143,13 +143,13 @@ public sealed class ServerDetailModBrowserTests
     [Test]
     public async Task Search_renders_result_cards_when_keyed()
     {
-        await using ServerDetailHarness harness = await ServerDetailHarness.StartAsync(Fakes(out _, out FakeSearch search, out FakeSettings settings));
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(Fakes(out _, out FakeSearch search, out FakeSettings settings));
         settings.Available = true;
         search.Result = WorkshopSearchResults.From([new WorkshopSearchResult("500", Title: "Hydrocraft", Subscriptions: 9001)]);
         ServerId serverId = await harness.SeedServerAsync("mb-search");
         IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "modbrowser");
 
-        await ServerDetailHarness.TypeAsync(cut, "modbrowser-query", "hydro");
+        await InteractivePageHarness.TypeAsync(cut, "modbrowser-query", "hydro");
         await cut.Find("[data-modbrowser-search] form").SubmitAsync();
 
         cut.WaitForState(() => cut.FindAll("[data-modbrowser-search-results]").Count == 1);
@@ -160,7 +160,7 @@ public sealed class ServerDetailModBrowserTests
     [Test]
     public async Task An_installed_item_preview_shows_compatibility_chips()
     {
-        await using ServerDetailHarness harness = await ServerDetailHarness.StartAsync(Fakes(out FakePreview preview, out _, out _));
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(Fakes(out FakePreview preview, out _, out _));
         preview.Result = WorkshopPreview.OfItem(new WorkshopItemMetadata("100", Found: true, Title: "Installed Pack"));
         ServerId serverId = await harness.SeedServerAsync("mb-compat");
         // The item is on disk with a declared PZ version — the card enriches from the observed inventory.
@@ -180,10 +180,10 @@ public sealed class ServerDetailModBrowserTests
     }
 
     // Opens the Mod Browser, pastes the reference and previews it; waits for the result cards.
-    private static async Task<IRenderedComponent<ServerDetail>> PreviewAsync(ServerDetailHarness harness, ServerId serverId, string input)
+    private static async Task<IRenderedComponent<ServerDetail>> PreviewAsync(InteractivePageHarness harness, ServerId serverId, string input)
     {
         IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "modbrowser");
-        await ServerDetailHarness.TypeAsync(cut, "modbrowser-input", input);
+        await InteractivePageHarness.TypeAsync(cut, "modbrowser-input", input);
         await cut.Find("[data-modbrowser-lookup]").Closest("form")!.SubmitAsync();
         cut.WaitForState(() => cut.FindAll("[data-modbrowser-results]").Count == 1);
         return cut;
