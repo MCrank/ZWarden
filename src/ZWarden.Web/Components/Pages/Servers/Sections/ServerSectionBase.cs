@@ -18,6 +18,9 @@ namespace ZWarden.Web.Components.Pages.Servers.Sections;
 /// The page is interactive (#299, ADR 0046), so a section lives in a circuit as long as it's shown. Every service
 /// call goes through <see cref="Actions"/>, which gives the call a DI scope (and a <c>DbContext</c>) of its own;
 /// services injected straight into a section would share the circuit's scope across every event and render.
+/// Every <c>BbInput</c> that feeds an action uses <c>UpdateTiming.Immediate</c>: its default reports the value on
+/// blur, and a click on Run/Apply can reach the circuit before that report does, so the action would see the old
+/// value (the browser smoke tier caught it).
 /// </remarks>
 public abstract class ServerSectionBase : ComponentBase
 {

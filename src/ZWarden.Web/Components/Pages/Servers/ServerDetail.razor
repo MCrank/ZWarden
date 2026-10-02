@@ -158,7 +158,7 @@ else
                     </div>
                     <div class="flex flex-1 flex-col text-sm">
                         <BbLabel For="graceful-message" Class="mb-1 text-muted-foreground">Message to players (optional)</BbLabel>
-                        <BbInput Id="graceful-message" @bind-Value="_gracefulForm.Message" autocomplete="off"
+                        <BbInput Id="graceful-message" UpdateTiming="UpdateTiming.Immediate" @bind-Value="_gracefulForm.Message" autocomplete="off"
                                  Placeholder="Scheduled maintenance." />
                     </div>
                     <BbButton Variant="ButtonVariant.Secondary" Type="ButtonType.Submit" Size="ButtonSize.Small"

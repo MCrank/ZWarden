@@ -61,10 +61,26 @@ public sealed class BrowserSession : IAsyncDisposable
     }
 
     /// <summary>An interactive page marks itself <c>[data-circuit=on]</c> once its circuit has rendered; until then
-    /// the prerendered buttons are inert. A static page has no marker and is ready as loaded.</summary>
-    public async Task WaitForCircuitAsync() =>
+    /// the prerendered buttons are inert. Blueprint inputs then import their JS modules and attach their listeners
+    /// (a value typed before that is never reported), so this also waits for the network to go quiet. A static page
+    /// has no marker and is ready as loaded.</summary>
+    public async Task WaitForCircuitAsync()
+    {
         await Page.WaitForFunctionAsync(
             "() => !document.querySelector('[data-circuit]') || document.querySelector('[data-circuit=\"on\"]') !== null");
+        await Page.WaitForLoadStateAsync(LoadState.NetworkIdle);
+    }
+
+    /// <summary>
+    /// Types into a field the way a person does. A <c>BbInput</c> with <c>UpdateTiming.Immediate</c> sends its value
+    /// to the circuit on the next animation frame, so a click in the same frame (which only automation manages) would
+    /// reach the circuit first. Waiting two frames lets the value go out before the next action.
+    /// </summary>
+    public async Task FillAsync(string selector, string value)
+    {
+        await Page.FillAsync(selector, value);
+        await Page.EvaluateAsync("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))");
+    }
 
     /// <summary>Fails the test if the browser reported any error.</summary>
     public async Task AssertNoErrorsAsync()

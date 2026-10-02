@@ -68,7 +68,7 @@
                         <div class="flex flex-wrap items-end gap-2" data-mod-add>
                             <div class="flex flex-col text-sm">
                                 <BbLabel For="mod-workshop-id" Class="mb-1 text-muted-foreground">Add Workshop item</BbLabel>
-                                <BbInput Id="mod-workshop-id" @bind-Value="_modManageForm.WorkshopId" autocomplete="off"
+                                <BbInput Id="mod-workshop-id" UpdateTiming="UpdateTiming.Immediate" @bind-Value="_modManageForm.WorkshopId" autocomplete="off"
                                          inputmode="numeric" Placeholder="Workshop id, e.g. 2392709985" />
                             </div>
                             <BbButton Size="ButtonSize.Small" Disabled="_acting"

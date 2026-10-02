@@ -13,7 +13,7 @@ public sealed class SettingsSmokeTests(BrowserHost host)
         await using BrowserSession session = await host.OpenAsync("/settings");
         ILocator workshop = session.Page.Locator("[data-settings-workshop]");
 
-        await session.Page.FillAsync("#workshop-key", "ABCDEF0123456789ABCDEF0123456789");
+        await session.FillAsync("#workshop-key", "ABCDEF0123456789ABCDEF0123456789");
         await workshop.GetByRole(AriaRole.Button, new() { Name = "Save key" }).ClickAsync();
         await Expect(workshop).ToContainTextAsync("A search key is configured");
 

@@ -28,7 +28,7 @@
         <div class="flex flex-col gap-2 sm:flex-row sm:items-end">
             <div class="flex flex-1 flex-col text-sm">
                 <BbLabel For="console-input" Class="mb-1 text-muted-foreground">Command</BbLabel>
-                <BbInput Id="console-input" @bind-Value="_consoleForm.Input" autocomplete="off"
+                <BbInput Id="console-input" UpdateTiming="UpdateTiming.Immediate" @bind-Value="_consoleForm.Input" autocomplete="off"
                          spellcheck="false" Class="font-mono" Placeholder="players" />
             </div>
             <BbButton Variant="ButtonVariant.Secondary" Type="ButtonType.Submit" Size="ButtonSize.Small" Disabled="_acting"

@@ -1,18 +1,17 @@
 @inherits ServerSectionBase
+@implements IDisposable
 @using ZWarden.Application.Configuration
 @using ZWarden.Application.Operations
 @using ZWarden.Domain.Configuration
 @using ZWarden.Domain.Operations
-@using ZWarden.Web.Hosting
-@inject IOperationStore OperationStore
 @inject NavigationManager Navigation
-@inject IServerConfigurationEditor ConfigEditor
-@inject IServerConfigurationReader ConfigReader
-@inject IServerConfigurationHistory ConfigHistory
+@inject IJSRuntime JS
 
-@* The Config rail section (F20/F20c): the live schema editor, the gated raw edit, the scalar apply and the revision
-   history, all static-SSR forms gated on the per-server Server.Configuration.Edit by the page and re-checked in the
-   services. Values read from the host are untrusted Agent text, rendered as data. *@
+@* The Config rail section (F20/F20c): the live schema editor, the gated raw edit, the by-path apply and the revision
+   history, gated on the per-server Server.Configuration.Edit by the page and re-checked in the services. Values read
+   from the host are untrusted Agent text, rendered as data. Interactive since #299: search, the changed-row mark,
+   collapse/expand-all and the "applying…" tracking are circuit state (config-editor.js is gone), and the unsaved
+   edits are a [PersistentState] draft (D1), kept in server memory only — the values include secrets. *@
 
 <BbCard Class="p-5" data-config-card>
     <h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Configuration</h2>
@@ -39,41 +38,38 @@
         </div>
     }
 
-    @if (_configOperation is { } configOp && _configMessage is null)
+    @if (_write is { } write && _configMessage is null)
     {
-        @if (!configOp.IsTerminal)
+        @if (!write.IsTerminal)
         {
-            <div class="mt-3" data-config-applying data-cfg-refresh="@(_configAutoRefresh ? "2" : null)">
+            <div class="mt-3" data-config-applying data-cfg-refresh="@(_tracking ? "2" : null)">
                 <BbAlert Variant="AlertVariant.Info" AccentBorder>
                     <BbAlertDescription>
-                        @if (_configAutoRefresh)
+                        @if (_tracking)
                         {
-                            <span>Applying your changes… This page refreshes when the host has written them.</span>
+                            <span>Applying your changes… The editor reloads when the host has written them.</span>
                         }
                         else
                         {
                             <span>This change is still waiting to be applied — the host may be offline or busy.
-                                <a class="underline hover:no-underline" href="@ConfigOperationHref(_selectedFile, configOp.Id)">Check again</a>.</span>
+                                <BbButton Variant="ButtonVariant.Link" Size="ButtonSize.Small" Class="h-auto p-0"
+                                          OnClick="CheckWriteAgainAsync" data-action="config-check-again">Check again</BbButton>.</span>
                         }
-                        @if (!string.IsNullOrWhiteSpace(configOp.StatusLine))
+                        @if (!string.IsNullOrWhiteSpace(write.StatusLine))
                         {
-                            <span class="block text-xs">@configOp.StatusLine</span>
+                            <span class="block text-xs">@write.StatusLine</span>
                         }
-                        <span class="block font-mono text-xs text-muted-foreground">operation @configOp.Id</span>
+                        <span class="block font-mono text-xs text-muted-foreground">operation @write.Id</span>
                     </BbAlertDescription>
                 </BbAlert>
-                @if (_configAutoRefresh)
-                {
-                    <noscript><meta http-equiv="refresh" content="2" /></noscript>
-                }
             </div>
         }
-        else if (configOp.State == OperationState.Succeeded)
+        else if (write.State == OperationState.Succeeded)
         {
             <div class="mt-3" data-config-applied>
                 <BbAlert Variant="AlertVariant.Success" AccentBorder>
                     <BbAlertDescription>
-                        @(string.IsNullOrWhiteSpace(configOp.StatusLine) ? "Applied." : configOp.StatusLine)
+                        @(string.IsNullOrWhiteSpace(write.StatusLine) ? "Applied." : write.StatusLine)
                         The editor shows the values now on the host.
                     </BbAlertDescription>
                 </BbAlert>
@@ -85,27 +81,14 @@
                 <BbAlert Variant="AlertVariant.Warning" AccentBorder>
                     <BbAlertDescription>
                         The change was not applied:
-                        @(configOp.State == OperationState.Cancelled
+                        @(write.State == OperationState.Cancelled
                             ? "the operation was cancelled."
-                            : configOp.FailureReason ?? "the host reported a failure.")
+                            : write.FailureReason ?? "the host reported a failure.")
                         The editor shows the values currently on the host.
                     </BbAlertDescription>
                 </BbAlert>
             </div>
         }
-    }
-
-    @if (!string.IsNullOrEmpty(FormRejected) && _configMessage is null)
-    {
-        <div class="mt-3" data-config-form-rejected>
-            <BbAlert Variant="AlertVariant.Warning" AccentBorder>
-                <BbAlertDescription>
-                    That submission was too large for the server to accept, so nothing was applied. Reload
-                    from host and apply your changes again — with scripts enabled only the changed settings
-                    are sent.
-                </BbAlertDescription>
-            </BbAlert>
-        </div>
     }
 
     @if (_configMessage is not null)
@@ -117,8 +100,7 @@
         </div>
     }
 
-    @* File tabs — bookmarkable GET switching (?file=), like the section rail. Switching files discards
-       unsaved edits, which is why it is a navigation, not a form control. *@
+    @* File tabs — bookmarkable switching (?file=), like the section rail. Switching files discards unsaved edits. *@
     <div class="zw-cfg-tabs" data-config-tabs>
         @foreach (PzConfigFile file in ConfigFiles)
         {
@@ -127,38 +109,38 @@
         }
     </div>
 
-    @if (_configView is { IsRead: true } view && view.Sections.Count > 0)
+    @* While a tracked write runs the host still holds the old values, so the editor is withheld rather than shown
+       stale; it reloads once the Agent is done (#226). *@
+    @if (_tracking)
     {
-        <EditForm Model="_editorForm" FormName="config-editor" OnValidSubmit="ConfigEditorAsync"
-                  class="mt-2" data-cfg-form>
-            <input type="hidden" name="_editorForm.File" value="@_selectedFile" />
-            <input type="hidden" name="_editorForm.BaselineHash" value="@_editorForm.BaselineHash" />
-
+    }
+    else if (Draft is { View: { IsRead: true } view } draft && view.Sections.Count > 0)
+    {
+        <div class="mt-2" data-cfg-form>
             <div class="zw-cfg-toolbar">
                 <label class="zw-cfg-searchbox">
                     <ShellIcon Name="search" />
-                    <input type="search" placeholder="Search settings…" autocomplete="off"
-                           spellcheck="false" aria-label="Search settings" data-cfg-search />
+                    <input type="search" placeholder="Search settings…" autocomplete="off" spellcheck="false"
+                           aria-label="Search settings" data-cfg-search
+                           @bind="_search" @bind:event="oninput" />
                 </label>
-                @* #243: collapse/expand every section, remembered per browser. JS-only, so hidden until
-                   config-editor.js reveals it; without JS every section simply stays open. *@
-                <span class="zw-cfg-sections" data-cfg-sections-controls hidden>
+                @* #243: collapse/expand every section, remembered per browser. *@
+                <span class="zw-cfg-sections" data-cfg-sections-controls>
                     @* Outline in the brand accent (style guide: primary marks controls, never status), a step
                        below the filled Apply button. *@
-                    <BbButton Type="ButtonType.Button" Variant="ButtonVariant.Outline" Size="ButtonSize.Small"
-                              Class="zw-cfg-sections-btn" data-cfg-sections="collapse">
+                    <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small"
+                              Class="zw-cfg-sections-btn" OnClick="@(() => SetAllSectionsAsync(collapsed: true))" data-cfg-sections="collapse">
                         <ShellIcon Name="chevrons-down-up" />Collapse all
                     </BbButton>
-                    <BbButton Type="ButtonType.Button" Variant="ButtonVariant.Outline" Size="ButtonSize.Small"
-                              Class="zw-cfg-sections-btn" data-cfg-sections="expand">
+                    <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small"
+                              Class="zw-cfg-sections-btn" OnClick="@(() => SetAllSectionsAsync(collapsed: false))" data-cfg-sections="expand">
                         <ShellIcon Name="chevrons-up-down" />Expand all
                     </BbButton>
                 </span>
                 <span class="zw-spacer"></span>
-                <a class="text-xs text-muted-foreground hover:text-foreground" href="@ConfigFileHref(_selectedFile)"
-                   data-action="config-reload">Reload from host</a>
-                <BbButton Type="ButtonType.Submit" Size="ButtonSize.Small"
-                          name="_editorForm.Target" value="apply" data-action="config-apply-batch">Apply changes</BbButton>
+                <BbButton Variant="ButtonVariant.Link" Size="ButtonSize.Small" Class="h-auto p-0 text-xs text-muted-foreground hover:text-foreground"
+                          OnClick="ReloadFromHostAsync" Disabled="_acting" data-action="config-reload">Reload from host</BbButton>
+                <BbButton Size="ButtonSize.Small" OnClick="ApplyEditsAsync" Disabled="_acting" data-action="config-apply-batch">Apply changes</BbButton>
             </div>
 
             <p class="mt-2 text-xs text-muted-foreground">@RestartHint(_selectedFile)</p>
@@ -166,25 +148,32 @@
             @{ int rowIndex = 0; }
             @foreach (ConfigSection section in view.Sections)
             {
-                <details class="zw-cfg-sec" open data-cfg-sec>
-                    <summary>
+                int first = rowIndex;
+                rowIndex += section.Settings.Count;
+                List<(ConfigSettingView Setting, ConfigEditorRow Row)> shown = [];
+                for (int s = 0; s < section.Settings.Count; s++)
+                {
+                    ConfigSettingView setting = section.Settings[s];
+                    if (Matches(setting) && draft.Rows.Count > first + s)
+                    {
+                        shown.Add((setting, draft.Rows[first + s]));
+                    }
+                }
+
+                if (shown.Count == 0)
+                {
+                    continue;
+                }
+
+                <details class="zw-cfg-sec" open="@IsOpen(section.Name)" data-cfg-sec @key="section.Name">
+                    <summary @onclick="@(() => ToggleSection(section.Name))" @onclick:preventDefault>
                         <span>@section.Name</span>
                         <span class="zw-cfg-count">@section.Settings.Count</span>
                     </summary>
-                    @foreach (ConfigSettingView setting in section.Settings)
+                    @foreach ((ConfigSettingView setting, ConfigEditorRow row) in shown)
                     {
-                        int i = rowIndex++;
-                        ConfigEditorRow row = _editorForm.Rows.Count > i ? _editorForm.Rows[i] : new ConfigEditorRow();
-                        <div class="zw-cfg-row" data-cfg-row data-cfg-terms="@Terms(setting)"
-                             data-cfg-original="@row.Original">
-                            <input type="hidden" name="_editorForm.Rows[@i].Path" value="@row.Path" />
-                            <input type="hidden" name="_editorForm.Rows[@i].Kind" value="@row.Kind" />
-                            <input type="hidden" name="_editorForm.Rows[@i].Original" value="@row.Original" />
-                            @if (row.Toggle)
-                            {
-                                <input type="hidden" name="_editorForm.Rows[@i].Toggle" value="true" />
-                            }
-
+                        <div class="zw-cfg-row @(row.IsDirty ? "zw-cfg-changed" : string.Empty)" data-cfg-row
+                             data-cfg-path="@setting.Path" @key="setting.Path">
                             <div class="zw-cfg-name">
                                 <span class="zw-cfg-changed-dot" aria-hidden="true">•</span>
                                 <div class="min-w-0">
@@ -230,44 +219,43 @@
                             <div class="zw-cfg-control">
                                 @if (setting.Managed)
                                 {
-                                    @* #228: ZWarden-managed (the INI ports). Read-only, so it posts its unchanged value and
-                                       never becomes an edit; every apply path refuses a change regardless. *@
-                                    <input type="text" class="zw-cfg-input" name="_editorForm.Rows[@i].Value"
-                                           value="@row.Value" readonly aria-readonly="true" data-cfg-value />
+                                    @* #228: ZWarden-managed (the INI ports). Read-only, so it never becomes an edit; every
+                                       apply path refuses a change regardless. *@
+                                    <input type="text" class="zw-cfg-input" value="@row.Value" readonly aria-readonly="true" data-cfg-value />
                                 }
                                 else if (setting.Options.Count > 0)
                                 {
-                                    <select class="zw-cfg-input" name="_editorForm.Rows[@i].Value" data-cfg-value>
+                                    <select class="zw-cfg-input" @bind="row.Value" data-cfg-value>
                                         @foreach (ConfigOption opt in setting.Options)
                                         {
-                                            <option value="@opt.Value" selected="@(string.Equals(opt.Value, row.Value, StringComparison.Ordinal))">@opt.Label</option>
+                                            <option value="@opt.Value">@opt.Label</option>
                                         }
-                                        @if (!setting.Options.Any(o => string.Equals(o.Value, row.Value, StringComparison.Ordinal)))
+                                        @* A value that isn't one of the choices — damaged on the host (#223), or an edit carried
+                                           across a drift (#226) — stays selectable as itself. *@
+                                        @foreach (string extra in ExtraChoices(setting, row))
                                         {
-                                            <option value="@row.Value" selected>@(string.IsNullOrEmpty(row.Value) ? "(empty)" : row.Value)</option>
+                                            <option value="@extra">@(string.IsNullOrEmpty(extra) ? "(empty)" : extra)</option>
                                         }
                                     </select>
                                 }
                                 else if (setting.Shape == ConfigValueShape.Boolean)
                                 {
                                     <label class="zw-cfg-toggle">
-                                        <input type="checkbox" class="zw-cfg-switch" name="_editorForm.Rows[@i].Flag"
-                                               value="true" checked="@row.Flag" data-cfg-value />
+                                        <input type="checkbox" class="zw-cfg-switch" @bind="row.Flag" data-cfg-value />
                                         <span class="zw-cfg-state">@(row.Flag ? "On" : "Off")</span>
                                     </label>
                                 }
                                 else if (setting.Shape is ConfigValueShape.Whole or ConfigValueShape.Fractional)
                                 {
-                                    <input type="number" class="zw-cfg-input" name="_editorForm.Rows[@i].Value"
-                                           value="@row.Value" data-cfg-value
+                                    <input type="number" class="zw-cfg-input" @bind="row.Value" @bind:event="oninput" data-cfg-value
                                            step="@(setting.Shape == ConfigValueShape.Whole ? "1" : "any")"
                                            min="@(setting.Min?.ToString(System.Globalization.CultureInfo.InvariantCulture))"
                                            max="@(setting.Max?.ToString(System.Globalization.CultureInfo.InvariantCulture))" />
                                 }
                                 else
                                 {
-                                    <input type="text" class="zw-cfg-input" name="_editorForm.Rows[@i].Value"
-                                           value="@row.Value" autocomplete="off" spellcheck="false" data-cfg-value />
+                                    <input type="text" class="zw-cfg-input" @bind="row.Value" @bind:event="oninput"
+                                           autocomplete="off" spellcheck="false" data-cfg-value />
                                 }
                             </div>
                         </div>
@@ -276,55 +264,52 @@
             }
 
             <div class="mt-4 flex flex-wrap gap-2">
-                <BbButton Type="ButtonType.Submit" Size="ButtonSize.Small"
-                          name="_editorForm.Target" value="apply" data-action="config-apply-batch-bottom">Apply changes</BbButton>
+                <BbButton Size="ButtonSize.Small" OnClick="ApplyEditsAsync" Disabled="_acting" data-action="config-apply-batch-bottom">Apply changes</BbButton>
             </div>
-        </EditForm>
-    }
-    else if (_configView is not null && !_configView.IsRead)
-    {
-        <div class="zw-cfg-empty" data-config-unavailable="@_configView.Outcome">
-            @ReadOutcomeText(_configView)
         </div>
     }
-    else if (_configView is { IsRead: true })
+    else if (Draft is { View: { IsRead: false } unread })
+    {
+        <div class="zw-cfg-empty" data-config-unavailable="@unread.Outcome">
+            @ReadOutcomeText(unread)
+        </div>
+    }
+    else if (Draft is { View.IsRead: true })
     {
         <div class="zw-cfg-empty" data-config-empty>No editable settings were found in this file.</div>
     }
 
-    @if (_configView?.RawText is { Length: > 0 } rawText)
+    @if (!_tracking && Draft?.View.RawText is { Length: > 0 } rawText)
     {
         <details class="zw-cfg-raw" data-config-raw>
             <summary><ShellIcon Name="scroll-text" /> Raw file — @FileLabel(_selectedFile)</summary>
-            @if (_configView is { IsRead: true })
+            @if (Draft.View.IsRead)
             {
                 @* Gated raw whole-file edit (F20c PR-D, ADR 0042). Arbitrary operator text bypasses the
                    surgical writer and can stop the server on start, so it is gated behind an explicit
                    acknowledgement; the Agent still parse-validates, drift-checks, and writes BOM-less. *@
-                <EditForm Model="_rawForm" FormName="config-raw-edit" OnValidSubmit="RawEditAsync"
-                          class="mt-2" data-config-raweditform>
-                    <input type="hidden" name="_rawForm.File" value="@_selectedFile" />
-                    <input type="hidden" name="_rawForm.BaselineHash" value="@_rawForm.BaselineHash" />
+                <div class="mt-2" data-config-raweditform>
                     <p class="mb-2 text-xs text-muted-foreground">
                         Editing the whole file replaces every byte the game reads. A typo can stop the server
                         from starting. The text is re-parsed and re-checked against the live file before it is
                         written; a syntax error or a drift is refused. Prefer the structured editor above unless
                         you need a setting it does not surface (for example the spawn files).
                     </p>
-                    <textarea class="zw-cfg-rawedit" name="_rawForm.Content" rows="16" spellcheck="false"
-                              autocomplete="off" aria-label="Raw file contents">@(_rawForm.Content ?? rawText)</textarea>
-                    <label class="mt-2 flex items-start gap-2 text-xs text-muted-foreground">
-                        <input type="checkbox" name="_rawForm.Confirmed" value="true" checked="@_rawForm.Confirmed"
-                               data-config-rawconfirm />
-                        <span>I understand this replaces the whole file and can prevent the server from starting.</span>
-                    </label>
-                    <div class="mt-2 flex flex-wrap items-center gap-2">
-                        <BbButton Type="ButtonType.Submit" Size="ButtonSize.Small"
-                                  data-action="config-raw-apply">Apply raw edit</BbButton>
-                        <a class="text-xs text-muted-foreground hover:text-foreground" href="@ConfigFileHref(_selectedFile)"
-                           data-action="config-raw-reload">Reload from host</a>
+                    <BbTextarea Class="zw-cfg-rawedit" rows="16" spellcheck="false" autocomplete="off"
+                                AriaLabel="Raw file contents" Value="@(Draft.RawContent ?? rawText)"
+                                ValueChanged="@((string? text) => Draft.RawContent = text)" data-config-rawtext />
+                    <div class="mt-2 flex items-start gap-2 text-xs text-muted-foreground">
+                        <BbCheckbox Id="config-raw-confirm" @bind-Checked="Draft.RawConfirmed" data-config-rawconfirm />
+                        <BbLabel For="config-raw-confirm" Class="text-xs font-normal text-muted-foreground">
+                            I understand this replaces the whole file and can prevent the server from starting.
+                        </BbLabel>
                     </div>
-                </EditForm>
+                    <div class="mt-2 flex flex-wrap items-center gap-2">
+                        <BbButton Size="ButtonSize.Small" OnClick="RawEditAsync" Disabled="_acting" data-action="config-raw-apply">Apply raw edit</BbButton>
+                        <BbButton Variant="ButtonVariant.Link" Size="ButtonSize.Small" Class="h-auto p-0 text-xs text-muted-foreground hover:text-foreground"
+                                  OnClick="ReloadFromHostAsync" Disabled="_acting" data-action="config-raw-reload">Reload from host</BbButton>
+                    </div>
+                </div>
             }
             else
             {
@@ -337,41 +322,38 @@
        offline, and covers a key the structured editor does not surface (e.g. a spawn-file value). *@
     <details class="mt-6 border-t border-border pt-4" data-config-advanced>
         <summary class="cursor-pointer text-sm font-medium">Advanced — edit a single setting by path</summary>
-        <EditForm Model="_configForm" FormName="server-config" OnValidSubmit="ConfigAsync" class="mt-3">
+        <EditForm Model="_configForm" OnValidSubmit="ConfigAsync" class="mt-3">
             <DataAnnotationsValidator />
             <div class="grid gap-3 sm:grid-cols-4">
                 <div class="flex flex-col text-sm">
                     <BbLabel For="config-file" Class="mb-1 text-muted-foreground">File</BbLabel>
-                    @* BbNativeSelect auto-derives only the leaf name under static SSR; set the full model path (#84). *@
-                    <BbNativeSelect TValue="string" Id="config-file" Name="_configForm.File" @bind-Value="_configForm!.File">
-                        <option value="Ini" selected="@(_configForm!.File is null or "Ini")">servertest.ini</option>
-                        <option value="SandboxVars" selected="@(_configForm!.File == "SandboxVars")">SandboxVars.lua</option>
-                        <option value="SpawnRegions" selected="@(_configForm!.File == "SpawnRegions")">spawnregions.lua</option>
-                        <option value="SpawnPoints" selected="@(_configForm!.File == "SpawnPoints")">spawnpoints.lua</option>
+                    <BbNativeSelect TValue="string" Id="config-file" @bind-Value="_configForm.File">
+                        <option value="Ini">servertest.ini</option>
+                        <option value="SandboxVars">SandboxVars.lua</option>
+                        <option value="SpawnRegions">spawnregions.lua</option>
+                        <option value="SpawnPoints">spawnpoints.lua</option>
                     </BbNativeSelect>
                 </div>
                 <div class="flex flex-col text-sm">
                     <BbLabel For="config-path" Class="mb-1 text-muted-foreground">Setting path</BbLabel>
-                    <BbInput Id="config-path" @bind-Value="_configForm!.Path" autocomplete="off" Placeholder="e.g. Map.AllowMiniMap" />
+                    <BbInput Id="config-path" UpdateTiming="UpdateTiming.Immediate" @bind-Value="_configForm.Path" autocomplete="off" Placeholder="e.g. Map.AllowMiniMap" />
                 </div>
                 <div class="flex flex-col text-sm">
                     <BbLabel For="config-kind" Class="mb-1 text-muted-foreground">Type</BbLabel>
-                    <BbNativeSelect TValue="string" Id="config-kind" Name="_configForm.Kind" @bind-Value="_configForm!.Kind">
-                        <option value="Bool" selected="@(_configForm!.Kind is null or "Bool")">true / false</option>
-                        <option value="Number" selected="@(_configForm!.Kind == "Number")">number</option>
-                        <option value="Text" selected="@(_configForm!.Kind == "Text")">text</option>
+                    <BbNativeSelect TValue="string" Id="config-kind" @bind-Value="_configForm.Kind">
+                        <option value="Bool">true / false</option>
+                        <option value="Number">number</option>
+                        <option value="Text">text</option>
                     </BbNativeSelect>
                 </div>
                 <div class="flex flex-col text-sm">
                     <BbLabel For="config-value" Class="mb-1 text-muted-foreground">New value</BbLabel>
-                    <BbInput Id="config-value" @bind-Value="_configForm!.Value" autocomplete="off" />
+                    <BbInput Id="config-value" UpdateTiming="UpdateTiming.Immediate" @bind-Value="_configForm.Value" autocomplete="off" />
                 </div>
             </div>
             <div class="mt-3 flex flex-wrap gap-2">
-                <BbButton Type="ButtonType.Submit" Size="ButtonSize.Small"
-                          name="_configForm.Target" value="apply" data-action="config-apply">Apply edit</BbButton>
-                <BbButton Variant="ButtonVariant.Outline" Type="ButtonType.Submit" Size="ButtonSize.Small"
-                          name="_configForm.Target" value="load" data-action="config-load">Load history</BbButton>
+                <BbButton Type="ButtonType.Submit" Size="ButtonSize.Small" Disabled="_acting" data-action="config-apply">Apply edit</BbButton>
+                <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="LoadAdvancedHistory" data-action="config-load">Load history</BbButton>
             </div>
         </EditForm>
     </details>
@@ -392,7 +374,7 @@
         }
         else
         {
-            <EditForm Model="_restoreForm" FormName="config-restore" OnValidSubmit="RestoreAsync" class="mt-3 block overflow-x-auto">
+            <div class="mt-3 block overflow-x-auto">
                 <table class="w-full border-collapse text-left text-sm" data-revisions-table>
                     <thead>
                         <tr class="border-b border-border text-muted-foreground">
@@ -430,384 +412,304 @@
                                 <td class="py-2">
                                     @if (!rev.IsCurrent)
                                     {
-                                        <BbButton Variant="ButtonVariant.Outline" Type="ButtonType.Submit" Size="ButtonSize.Small"
-                                                  name="_restoreForm.Target" value="@($"{rev.File}|{rev.Id}")" data-action="config-restore">Restore</BbButton>
+                                        <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" Disabled="_acting"
+                                                  OnClick="@(() => RestoreAsync(rev.Id))" data-action="config-restore">Restore</BbButton>
                                     }
                                 </td>
                             </tr>
                         }
                     </tbody>
                 </table>
-            </EditForm>
+            </div>
         }
     </div>
 </BbCard>
 
 @code {
-    // Which config file the live editor shows (F20c). Bookmarkable, GET-switched like ?section=; Ini by default.
+    // How often a tracked write is re-checked, and for how long before the page stops on its own (#226).
+    private static readonly TimeSpan WritePoll = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan ConfigRefreshWindow = TimeSpan.FromMinutes(2);
+
+    // The browser preference (#243) for collapse/expand-all, one choice for every editor.
+    private const string SectionsPrefKey = "zw-cfg-sections";
+
+    // Which config file the live editor shows (F20c). Bookmarkable like ?section=; Ini by default.
     [SupplyParameterFromQuery(Name = "file")]
     public string? FileParam { get; set; }
 
-    // Set by the form-limit guard (#224) when a post was refused before it reached this page; any value shows the
-    // "nothing was applied" notice.
-    [SupplyParameterFromQuery(Name = FormLimitGuardMiddleware.RejectedQueryKey)]
-    public string? FormRejected { get; set; }
-
-    // The configuration write this page is tracking (#226), set by the post-apply redirect. Only a config write for
-    // this Server, visible in the tenant, is honoured; anything else is ignored (fail-closed).
+    // A configuration write to track (#226) from a link (e.g. "Load history" for another file after a by-path edit).
+    // Only a config write for this Server, visible in the tenant, is honoured; anything else is ignored (fail-closed).
     [SupplyParameterFromQuery(Name = "op")]
     public string? OperationParam { get; set; }
 
-    [SupplyParameterFromForm(FormName = "server-config")]
-    private ConfigFormModel _configForm { get; set; } = default!;
+    /// <summary>The unsaved editor state (D1): restored from the prerender, or after a reconnect.</summary>
+    [PersistentState]
+    public ConfigEditorDraft? Draft { get; set; }
 
-    [SupplyParameterFromForm(FormName = "config-editor")]
-    private ConfigEditorModel _editorForm { get; set; } = default!;
-
-    [SupplyParameterFromForm(FormName = "config-restore")]
-    private ConfigRestoreModel _restoreForm { get; set; } = default!;
-
-    [SupplyParameterFromForm(FormName = "config-raw-edit")]
-    private ConfigRawEditModel _rawForm { get; set; } = default!;
-
+    private readonly ConfigFormModel _configForm = new();
+    private readonly Dictionary<string, bool> _sectionOverrides = new(StringComparer.Ordinal);
+    private (PzConfigFile File, string? Operation)? _loadedFor;
     private PzConfigFile _selectedFile = PzConfigFile.Ini;
     private IReadOnlyList<ConfigRevisionView> _revisions = [];
-    private ConfigDocumentView? _configView;
     private string? _configMessage;
     private AlertVariant _configAlert = AlertVariant.Warning;
     private bool _configDrift;
+    private bool _acting;
+    private string _search = string.Empty;
+    private bool _collapseAll;
+    private IJSObjectReference? _prefs;
 
-    // The tracked configuration write (#226) and whether the page should keep refreshing while it runs.
-    private Operation? _configOperation;
-    private bool _configAutoRefresh;
+    // The tracked configuration write (#226), and whether the circuit is still polling it.
+    private ConfigWriteView? _write;
+    private bool _tracking;
+    private CancellationTokenSource? _trackingCts;
 
-    // How long the page keeps auto-refreshing a write that has not finished (e.g. a queued write to an offline host).
-    private static readonly TimeSpan ConfigRefreshWindow = TimeSpan.FromMinutes(2);
-
-    protected override async Task OnInitializedAsync()
+    protected override async Task OnParametersSetAsync()
     {
-        _configForm ??= new ConfigFormModel();
-        _editorForm ??= new ConfigEditorModel();
-        _restoreForm ??= new ConfigRestoreModel();
-        _rawForm ??= new ConfigRawEditModel();
-        _configForm.File ??= nameof(PzConfigFile.Ini);
-        _configForm.Kind ??= nameof(ConfigEditKind.Bool);
-
-        // Only this section reads the host, and the page renders it only for a permitted operator. The file is
-        // chosen by the ?file= query param (bookmarkable tab switching, GET); Ini by default. On a GET — or a post
-        // from another form — the editor's row list is empty, so load the current values from the host now. A
-        // config-editor POST arrives with its rows already bound and its submit handler applies them and then
-        // re-reads, so we must not clobber those posted rows here.
-        UserId user = await CurrentUserAsync();
-        ServerId serverId = Server.Id;
-        _selectedFile = ParseFile(FileParam ?? _editorForm.File ?? _configForm.File);
-        await LoadHistoryAsync(user, serverId);
-        await LoadConfigOperationAsync(serverId);
-        // Always read so the editor form is present in this render — static SSR dispatches a form's submit handler
-        // only to a form that is actually rendered. Rebuild the editable row list from the read on a GET (or a post
-        // from another form); on a config-editor post the rows are already bound with the operator's edits, so
-        // preserve them for the submit handler to diff. While a tracked write is still running (#226) the host
-        // still holds the old values, so the editor is withheld rather than shown stale; the page refreshes and
-        // reads once the Agent is done.
-        if (!_configAutoRefresh)
-        {
-            await ReadConfigViewAsync(user, serverId, rebuildRows: _editorForm.Rows.Count == 0);
-        }
-    }
-
-    private async Task ConfigAsync()
-    {
-        ServerId serverId = Server.Id;
-
-        UserId user = await CurrentUserAsync();
-        ConfigFormModel form = _configForm ?? new ConfigFormModel();
-        _selectedFile = ParseFile(form.File);
-
-        if (string.Equals(form.Target, "apply", StringComparison.Ordinal))
-        {
-            string path = form.Path?.Trim() ?? string.Empty;
-            if (path.Length == 0)
-            {
-                SetConfigMessage("Enter the setting path to change (e.g. Map.AllowMiniMap).", ok: false);
-            }
-            else
-            {
-                // Drift-check against the file as it is now (#226), not ZWarden's last recorded revision — PZ or an
-                // in-game editor may have changed values since, which would refuse every by-path edit. Reuse this
-                // request's read when it is of the same file; otherwise read that file. No read ⇒ the recorded
-                // revision (the enqueuer's fallback), so an edit to an offline host still queues.
-                ConfigDocumentView live = _configView is { IsRead: true } && string.Equals(
-                        _editorForm.File, _selectedFile.ToString(), StringComparison.Ordinal)
-                    ? _configView
-                    : await ConfigReader.ReadAsync(user, serverId, _selectedFile);
-                ConfigApplyEdit edit = new(path, ParseKind(form.Kind), form.Value ?? string.Empty);
-                ServerConfigurationResult result = await ConfigEditor.ApplyAsync(
-                    user, serverId, _selectedFile, [edit], expectedBaselineHash: live.IsRead ? live.BaselineHash : null);
-                SetConfigResult(result, $"Edit to {path} enqueued");
-            }
-        }
-
-        await LoadHistoryAsync(user, serverId);
-    }
-
-    private async Task RestoreAsync()
-    {
-        ServerId serverId = Server.Id;
-
-        // The restore button carries "{file}|{revisionId}" so the right file's history reloads after the post.
-        string token = _restoreForm?.Target ?? string.Empty;
-        string[] parts = token.Split('|', 2);
-        if (parts.Length == 2 && Enum.TryParse(parts[0], out PzConfigFile file)
-            && ConfigurationRevisionId.TryParse(parts[1], out ConfigurationRevisionId revisionId))
-        {
-            _selectedFile = file;
-            UserId user = await CurrentUserAsync();
-            ServerConfigurationResult result = await ConfigEditor.RestoreAsync(user, serverId, revisionId);
-            SetConfigResult(result, "Restore enqueued");
-            await LoadHistoryAsync(user, serverId);
-        }
-    }
-
-    // Resolves the ?op= write this page is tracking (#226): a ConfigApply/ConfigApplyRaw for this Server, visible
-    // through the tenant filter; anything else is ignored. While it runs the page refreshes itself (for a bounded
-    // window), so the editor is re-read — showing the written values and a fresh baseline — once the Agent is done.
-    private async Task LoadConfigOperationAsync(ServerId serverId)
-    {
-        if (!OperationId.TryParse(OperationParam, out OperationId operationId))
+        // The page re-renders this section on every header poll; load only when the file or tracked write changes.
+        PzConfigFile file = ParseFile(FileParam);
+        if (_loadedFor == (file, OperationParam))
         {
             return;
         }
 
-        Operation? operation = await OperationStore.FindAsync(operationId);
-        if (operation is null || operation.ServerId != serverId
-            || operation.Kind is not (OperationKind.ConfigApply or OperationKind.ConfigApplyRaw))
+        bool fileChanged = _loadedFor?.File != file;
+        _loadedFor = (file, OperationParam);
+        _selectedFile = file;
+        _configForm.File = file.ToString();
+        if (fileChanged)
+        {
+            _configMessage = null;
+            _configDrift = false;
+            _search = string.Empty;
+            _sectionOverrides.Clear();
+        }
+
+        await LoadHistoryAsync();
+        if (await TrackLinkedWriteAsync())
         {
             return;
         }
 
-        _configOperation = operation;
-        _configAutoRefresh = !operation.IsTerminal
-            && TimeProvider.System.GetUtcNow() - operation.EnqueuedAt < ConfigRefreshWindow;
-    }
-
-    // Reads the live Configuration View of the selected file from the host and rebuilds the editor's row list
-    // from it (F20c). Fail-closed and non-throwing: every unavailable/denied case is an outcome on _configView
-    // that the markup renders as an operator message. Nothing is persisted (ADR 0011).
-    private async Task ReadConfigViewAsync(UserId user, ServerId serverId, bool rebuildRows)
-    {
-        _configView = await ConfigReader.ReadAsync(user, serverId, _selectedFile);
-        _editorForm.File = _selectedFile.ToString();
-        if (rebuildRows)
+        // A draft for this file (from the prerender, or kept across a reconnect) is the editor as the operator left
+        // it; anything else is a fresh read. Switching files discards the other file's unsaved edits.
+        if (Draft is null || Draft.File != file)
         {
-            _editorForm.Rows = BuildRows(_configView);
-            // Carry the baseline the operator is about to see, so a later apply drift-checks against it (ADR 0042).
-            _editorForm.BaselineHash = _configView.IsRead ? _configView.BaselineHash : null;
-        }
-
-        // Prime the raw-edit form's file + baseline from this read too — but only when it is not itself being
-        // submitted (Content bound), so a raw-edit post keeps the baseline the operator saw for its drift check.
-        if (_rawForm.Content is null)
-        {
-            _rawForm.File = _selectedFile.ToString();
-            _rawForm.BaselineHash = _configView.IsRead ? _configView.BaselineHash : null;
+            await ReadAsync();
         }
     }
 
-    // Flattens the view's sections into the editor's row list, in render order, so a row's index matches the
-    // markup's running index and the posted _editorForm.Rows[i] binds back to the same setting.
-    private static List<ConfigEditorRow> BuildRows(ConfigDocumentView view)
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        List<ConfigEditorRow> rows = [];
-        if (!view.IsRead)
+        if (!firstRender)
         {
-            return rows;
+            return;
         }
 
-        foreach (ConfigSection section in view.Sections)
+        _prefs = await JS.InvokeAsync<IJSObjectReference>("import", "./js/local-prefs.js");
+        if (await _prefs.InvokeAsync<string?>("get", SectionsPrefKey) == "collapsed")
         {
-            foreach (ConfigSettingView setting in section.Settings)
-            {
-                // Mirrors the markup: a choice list wins over the toggle, so only a Boolean with no options renders
-                // (and posts) the switch.
-                bool toggle = setting.Shape == ConfigValueShape.Boolean && setting.Options.Count == 0;
-                rows.Add(new ConfigEditorRow
-                {
-                    Path = setting.Path,
-                    Kind = setting.Kind.ToString(),
-                    Original = setting.Value,
-                    Value = setting.Value,
-                    Toggle = toggle,
-                    Flag = toggle && string.Equals(setting.Value, "true", StringComparison.Ordinal),
-                });
-            }
+            _collapseAll = true;
+            StateHasChanged();
         }
-
-        return rows;
     }
 
-    // The batch-apply submit handler (F20c): diff each posted row against the value it was rendered with and
-    // enqueue only the changed ones as a single surgical apply, then re-read to refresh the editor and history.
-    private async Task ConfigEditorAsync()
-    {
-        ServerId serverId = Server.Id;
+    // ---- reading -------------------------------------------------------------------------------------------------
 
+    // Reads the live Configuration View of the selected file from the host and resets the draft to it (F20c).
+    // Fail-closed and non-throwing: every unavailable/denied case is an outcome the markup renders as a message.
+    private async Task ReadAsync() => Draft = ConfigEditorDraft.From(_selectedFile, await FreshReadAsync(_selectedFile));
+
+    private async Task<ConfigDocumentView> FreshReadAsync(PzConfigFile file)
+    {
         UserId user = await CurrentUserAsync();
-        _selectedFile = ParseFile(_editorForm.File);
+        ServerId serverId = Server.Id;
+        return await Actions.RunAsync<IServerConfigurationReader, ConfigDocumentView>(
+            (reader, ct) => reader.ReadAsync(user, serverId, file, ct));
+    }
 
-        List<ConfigApplyEdit> edits = [];
-        foreach (ConfigEditorRow row in _editorForm.Rows)
+    private async Task LoadHistoryAsync()
+    {
+        UserId user = await CurrentUserAsync();
+        ServerId serverId = Server.Id;
+        PzConfigFile file = _selectedFile;
+        _revisions = await Actions.RunAsync<IServerConfigurationHistory, IReadOnlyList<ConfigRevisionView>>(
+            (history, ct) => history.GetHistoryAsync(user, serverId, file, ct));
+    }
+
+    private async Task ReloadFromHostAsync()
+    {
+        await ActAsync(async () =>
         {
-            if (string.IsNullOrEmpty(row.Path))
-            {
-                continue;
-            }
+            _configMessage = null;
+            _configDrift = false;
+            await ReadAsync();
+        });
+    }
 
-            // The posted value comes from the control the row rendered, not its Kind (#223): a toggle posts Flag, every
-            // other control (including a boolean offered as a choice list) posts Value.
-            ConfigEditKind kind = ParseKind(row.Kind);
-            string current = row.Toggle ? (row.Flag ? "true" : "false") : row.Value ?? string.Empty;
-            if (!string.Equals(current, row.Original ?? string.Empty, StringComparison.Ordinal))
-            {
-                edits.Add(new ConfigApplyEdit(row.Path!, kind, current));
-            }
+    // ---- applying ------------------------------------------------------------------------------------------------
+
+    // The batch apply (F20c): enqueue the changed rows as one surgical apply. A fresh read first confirms the file
+    // still matches the baseline the operator was shown; a mismatch (or a read that could not confirm the current
+    // state) refuses and shows the current values with the edits carried on top. The Agent's own fail-closed check
+    // (ADR 0011) still guards the race between this read and the write (ADR 0042).
+    private Task ApplyEditsAsync() => ActAsync(async () =>
+    {
+        if (Draft is not { } draft)
+        {
+            return;
         }
 
-        // OnInitializedAsync already re-read the live file for this POST (so the form could render), so the drift
-        // pre-check is free: compare the baseline the operator was shown (the posted hidden field) against the
-        // fresh read. A mismatch — or a read that could not confirm the current state — refuses to enqueue and
-        // shows the confirm-and-override banner over the current values; the Agent's own fail-closed check (ADR
-        // 0011) still guards the residual race between this read and the write (F20c, ADR 0042).
-        string? liveBaseline = _configView is { IsRead: true } ? _configView.BaselineHash : null;
-        bool inSync = liveBaseline is not null
-            && !string.IsNullOrEmpty(_editorForm.BaselineHash)
-            && string.Equals(_editorForm.BaselineHash, liveBaseline, StringComparison.Ordinal);
-
+        List<ConfigApplyEdit> edits = draft.Edits();
         if (edits.Count == 0)
         {
             SetConfigMessage("No changes to apply — every setting still holds its loaded value.", ok: false);
+            return;
         }
-        else if (_configView is not { IsRead: true })
+
+        ConfigDocumentView live = await FreshReadAsync(draft.File);
+        if (!live.IsRead)
         {
-            // The live re-read failed (host offline/timeout/parse), so the current state cannot be confirmed —
-            // refuse rather than write against an unknown baseline.
             SetConfigMessage(
                 "Could not read the current configuration from the host, so nothing was applied. "
                 + "Try Reload from host, then apply again.",
                 ok: false);
+            return;
         }
-        else if (!inSync)
+
+        if (!InSync(draft.BaselineHash, live))
         {
-            // Drift: the file changed since the operator loaded it (or the baseline could not be matched). Show the
-            // current values and the confirm-and-override banner; do not enqueue.
+            // Drift: show the current values with the operator's edits kept on top; a second Apply writes them.
             _configDrift = true;
+            Draft = ConfigEditorDraft.From(draft.File, live);
+            Draft.Carry(edits);
+            return;
         }
-        else
-        {
-            ServerConfigurationResult result = await ConfigEditor.ApplyAsync(
-                user, serverId, _selectedFile, edits, expectedBaselineHash: _editorForm.BaselineHash);
-            SetConfigResult(result, $"{edits.Count} change{(edits.Count == 1 ? string.Empty : "s")} enqueued");
-        }
-
-        // Nothing was enqueued (a successful apply redirects, #226): refresh the editor from the view already read for
-        // this request (OnInitializedAsync read it so the form could render). Refreshing the baseline too means a
-        // reapply after drift carries the current hash (the operator is now writing on top of the live state).
-        ConfigDocumentView refreshed = _configView ?? ConfigDocumentView.OfOutcome(ConfigReadOutcome.Read);
-        _editorForm.Rows = BuildRows(refreshed);
-        _editorForm.BaselineHash = refreshed.IsRead ? refreshed.BaselineHash : null;
-        if (_configDrift)
-        {
-            // Keep the operator's edits across a drift refusal (#226): carry each onto the fresh row, whose Original
-            // is now the current host value, so it shows as changed and a second Apply writes it on top.
-            CarryEdits(_editorForm.Rows, edits);
-        }
-
-        await LoadHistoryAsync(user, serverId);
-    }
-
-    private static void CarryEdits(List<ConfigEditorRow> rows, List<ConfigApplyEdit> edits)
-    {
-        Dictionary<string, string> byPath = edits
-            .GroupBy(e => e.Path, StringComparer.Ordinal)
-            .ToDictionary(g => g.Key, g => g.Last().Value, StringComparer.Ordinal);
-        foreach (ConfigEditorRow row in rows)
-        {
-            if (row.Path is null || !byPath.TryGetValue(row.Path, out string? value))
-            {
-                continue;
-            }
-
-            if (row.Toggle)
-            {
-                row.Flag = string.Equals(value, "true", StringComparison.Ordinal);
-            }
-            else
-            {
-                row.Value = value;
-            }
-        }
-    }
-
-    // The gated raw whole-file edit submit handler (F20c PR-D, ADR 0042). Requires the explicit acknowledgement,
-    // drift-pre-checks against the fresh read exactly like the structured editor, then stages the text and enqueues
-    // a ConfigApplyRaw Operation. The Agent still parse-validates and drift-checks before it writes.
-    private async Task RawEditAsync()
-    {
-        ServerId serverId = Server.Id;
 
         UserId user = await CurrentUserAsync();
-        _selectedFile = ParseFile(_rawForm.File);
-        string content = _rawForm.Content ?? string.Empty;
+        ServerId serverId = Server.Id;
+        string? baseline = draft.BaselineHash;
+        PzConfigFile file = draft.File;
+        ServerConfigurationResult result = await Actions.RunAsync<IServerConfigurationEditor, ServerConfigurationResult>(
+            (editor, ct) => editor.ApplyAsync(user, serverId, file, edits, expectedBaselineHash: baseline, ct));
+        await SetConfigResultAsync(result, file, $"{edits.Count} change{(edits.Count == 1 ? string.Empty : "s")} enqueued");
+    });
 
-        string? liveBaseline = _configView is { IsRead: true } ? _configView.BaselineHash : null;
-        bool inSync = liveBaseline is not null
-            && !string.IsNullOrEmpty(_rawForm.BaselineHash)
-            && string.Equals(_rawForm.BaselineHash, liveBaseline, StringComparison.Ordinal);
+    // The gated raw whole-file edit (F20c PR-D, ADR 0042): the acknowledgement, a drift pre-check against a fresh read
+    // like the structured editor, then a staged ConfigApplyRaw. The Agent still parse-validates and drift-checks.
+    private Task RawEditAsync() => ActAsync(async () =>
+    {
+        if (Draft is not { } draft)
+        {
+            return;
+        }
 
-        if (!_rawForm.Confirmed)
+        string content = draft.RawContent ?? draft.View.RawText;
+        if (!draft.RawConfirmed)
         {
             SetConfigMessage("Confirm you understand a raw edit replaces the whole file before applying it.", ok: false);
+            return;
         }
-        else if (string.IsNullOrWhiteSpace(content))
+
+        if (string.IsNullOrWhiteSpace(content))
         {
             SetConfigMessage("The edited file text is empty, so nothing was applied.", ok: false);
+            return;
         }
-        else if (_configView is not { IsRead: true })
+
+        ConfigDocumentView live = await FreshReadAsync(draft.File);
+        if (!live.IsRead)
         {
             SetConfigMessage(
                 "Could not read the current configuration from the host, so the raw edit was not applied. "
                 + "Try Reload from host, then apply again.",
                 ok: false);
-        }
-        else if (!inSync)
-        {
-            // Drift: the file changed since the operator loaded it. A raw edit cannot be auto-merged, so keep their
-            // text, do not enqueue, and show the banner — they Reload from host to pick up the current text and
-            // re-make their change. The stale baseline is left in place so a blind re-submit re-drifts (fail closed).
-            _configDrift = true;
-        }
-        else
-        {
-            ServerConfigurationResult result = await ConfigEditor.ApplyRawAsync(
-                user, serverId, _selectedFile, content, expectedBaselineHash: _rawForm.BaselineHash);
-            SetConfigResult(result, "raw whole-file edit enqueued");
+            return;
         }
 
-        await LoadHistoryAsync(user, serverId);
+        if (!InSync(draft.BaselineHash, live))
+        {
+            // A raw edit can't be auto-merged: keep the text and the stale baseline (a blind re-apply re-drifts, fail
+            // closed) and show the banner; Reload from host picks up the current text.
+            _configDrift = true;
+            return;
+        }
+
+        UserId user = await CurrentUserAsync();
+        ServerId serverId = Server.Id;
+        string? baseline = draft.BaselineHash;
+        PzConfigFile file = draft.File;
+        ServerConfigurationResult result = await Actions.RunAsync<IServerConfigurationEditor, ServerConfigurationResult>(
+            (editor, ct) => editor.ApplyRawAsync(user, serverId, file, content, expectedBaselineHash: baseline, ct));
+        await SetConfigResultAsync(result, file, "raw whole-file edit enqueued");
+    });
+
+    // The by-path single edit. Drift-checks against the file as it is now (#226), not ZWarden's last recorded
+    // revision; with no read (an offline host) it falls back to the recorded revision, so the edit still queues.
+    private Task ConfigAsync() => ActAsync(async () =>
+    {
+        PzConfigFile file = ParseFile(_configForm.File);
+        string path = _configForm.Path?.Trim() ?? string.Empty;
+        if (path.Length == 0)
+        {
+            SetConfigMessage("Enter the setting path to change (e.g. Map.AllowMiniMap).", ok: false);
+            return;
+        }
+
+        ConfigDocumentView live = await FreshReadAsync(file);
+        var edit = new ConfigApplyEdit(path, ParseKind(_configForm.Kind), _configForm.Value ?? string.Empty);
+        UserId user = await CurrentUserAsync();
+        ServerId serverId = Server.Id;
+        string? baseline = live.IsRead ? live.BaselineHash : null;
+        ServerConfigurationResult result = await Actions.RunAsync<IServerConfigurationEditor, ServerConfigurationResult>(
+            (editor, ct) => editor.ApplyAsync(user, serverId, file, [edit], expectedBaselineHash: baseline, ct));
+        await SetConfigResultAsync(result, file, $"Edit to {path} enqueued");
+    });
+
+    private Task RestoreAsync(ConfigurationRevisionId revisionId) => ActAsync(async () =>
+    {
+        UserId user = await CurrentUserAsync();
+        ServerId serverId = Server.Id;
+        ServerConfigurationResult result = await Actions.RunAsync<IServerConfigurationEditor, ServerConfigurationResult>(
+            (editor, ct) => editor.RestoreAsync(user, serverId, revisionId, ct));
+        await SetConfigResultAsync(result, _selectedFile, "Restore enqueued");
+    });
+
+    // "Load history" for the Advanced form's file: show that file (its editor and history).
+    private void LoadAdvancedHistory()
+    {
+        PzConfigFile file = ParseFile(_configForm.File);
+        if (file != _selectedFile)
+        {
+            Navigation.NavigateTo(ConfigFileHref(file));
+        }
     }
 
-    private async Task LoadHistoryAsync(UserId user, ServerId serverId) =>
-        _revisions = await ConfigHistory.GetHistoryAsync(user, serverId, _selectedFile);
+    private static bool InSync(string? baseline, ConfigDocumentView live) =>
+        live.BaselineHash is { } current
+        && !string.IsNullOrEmpty(baseline)
+        && string.Equals(baseline, current, StringComparison.Ordinal);
 
-    private void SetConfigResult(ServerConfigurationResult result, string success)
+    private async Task SetConfigResultAsync(ServerConfigurationResult result, PzConfigFile file, string success)
     {
         if (result.Succeeded)
         {
+            _configDrift = false;
             if (result.Operation is { } operation)
             {
-                // Post/Redirect/Get onto the config section tracking this write (#226): it shows "Applying…" until
-                // the Agent finishes, then re-reads the host, so the operator sees the written values and a fresh
-                // baseline, never the pre-write read this POST rendered from.
-                Navigation.NavigateTo(ConfigOperationHref(_selectedFile, operation));
+                if (file == _selectedFile)
+                {
+                    // Track the write here (#226): the editor shows "Applying…" until the Agent finishes, then
+                    // re-reads, so the operator sees the written values and a fresh baseline.
+                    _configMessage = null;
+                    await TrackWriteAsync(operation);
+                }
+                else
+                {
+                    // A by-path edit to another file: show that file, tracking the write.
+                    Navigation.NavigateTo(ConfigOperationHref(file, operation));
+                }
+
                 return;
             }
 
@@ -827,10 +729,176 @@
         SetConfigMessage(message, ok: false);
     }
 
+    // ---- tracking a write (#226) ---------------------------------------------------------------------------------
+
+    // A ?op= link names a write to track: only a ConfigApply/ConfigApplyRaw for this Server, visible through the
+    // tenant filter, counts. Returns whether one is being tracked.
+    private async Task<bool> TrackLinkedWriteAsync()
+    {
+        if (!OperationId.TryParse(OperationParam, out OperationId operationId))
+        {
+            return false;
+        }
+
+        ConfigWriteView? write = await FindWriteAsync(operationId);
+        if (write is null)
+        {
+            return false;
+        }
+
+        if (write.IsTerminal)
+        {
+            _write = write;
+            return false;
+        }
+
+        await TrackWriteAsync(operationId);
+        return true;
+    }
+
+    private async Task TrackWriteAsync(OperationId operationId)
+    {
+        _write = await FindWriteAsync(operationId);
+        if (_write is null)
+        {
+            return;
+        }
+
+        if (_write.IsTerminal)
+        {
+            await WriteFinishedAsync();
+            return;
+        }
+
+        _tracking = TimeProvider.System.GetUtcNow() - _write.EnqueuedAt < ConfigRefreshWindow;
+        if (!_tracking)
+        {
+            return;
+        }
+
+        _trackingCts?.Cancel();
+        _trackingCts = new CancellationTokenSource();
+        _ = PollWriteAsync(operationId, _trackingCts.Token);
+    }
+
+    private async Task PollWriteAsync(OperationId operationId, CancellationToken ct)
+    {
+        try
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                await Task.Delay(WritePoll, ct);
+                ConfigWriteView? write = await FindWriteAsync(operationId);
+                await InvokeAsync(async () =>
+                {
+                    if (ct.IsCancellationRequested)
+                    {
+                        return;
+                    }
+
+                    _write = write;
+                    if (write is null || write.IsTerminal)
+                    {
+                        await WriteFinishedAsync();
+                    }
+                    else if (TimeProvider.System.GetUtcNow() - write.EnqueuedAt >= ConfigRefreshWindow)
+                    {
+                        _tracking = false;
+                    }
+
+                    StateHasChanged();
+                });
+
+                if (!_tracking)
+                {
+                    return;
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // The section closed, or a newer write is being tracked.
+        }
+    }
+
+    // The write is done (either way): the host now holds its values, so re-read and reset the draft.
+    private async Task WriteFinishedAsync()
+    {
+        _tracking = false;
+        await ReadAsync();
+        await LoadHistoryAsync();
+    }
+
+    private async Task CheckWriteAgainAsync()
+    {
+        if (_write is { } write)
+        {
+            ConfigWriteView? latest = await FindWriteAsync(write.Id);
+            _write = latest;
+            if (latest is null || latest.IsTerminal)
+            {
+                await WriteFinishedAsync();
+            }
+        }
+    }
+
+    private async Task<ConfigWriteView?> FindWriteAsync(OperationId operationId)
+    {
+        ServerId serverId = Server.Id;
+        return await Actions.RunAsync<IOperationStore, ConfigWriteView?>(async (store, ct) =>
+            await store.FindAsync(operationId, ct) is { } op && op.ServerId == serverId
+                && op.Kind is OperationKind.ConfigApply or OperationKind.ConfigApplyRaw
+                ? new ConfigWriteView(op.Id, op.State, op.IsTerminal, op.StatusLine, op.FailureReason, op.EnqueuedAt)
+                : null);
+    }
+
+    // ---- view state ----------------------------------------------------------------------------------------------
+
+    private async Task ActAsync(Func<Task> action)
+    {
+        _acting = true;
+        try
+        {
+            await action();
+        }
+        finally
+        {
+            _acting = false;
+        }
+    }
+
+    private bool Searching => !string.IsNullOrWhiteSpace(_search);
+
+    private bool Matches(ConfigSettingView setting) =>
+        !Searching || $"{setting.Label} {setting.Path}".Contains(_search.Trim(), StringComparison.OrdinalIgnoreCase);
+
+    // While searching every section with a hit opens; otherwise a section follows its own toggle, then the remembered
+    // collapse/expand-all.
+    private bool IsOpen(string section) =>
+        Searching || (_sectionOverrides.TryGetValue(section, out bool open) ? open : !_collapseAll);
+
+    private void ToggleSection(string section) => _sectionOverrides[section] = !IsOpen(section);
+
+    private async Task SetAllSectionsAsync(bool collapsed)
+    {
+        _collapseAll = collapsed;
+        _sectionOverrides.Clear();
+        if (_prefs is not null)
+        {
+            await _prefs.InvokeVoidAsync("set", SectionsPrefKey, collapsed ? "collapsed" : "expanded");
+        }
+    }
+
     private void SetConfigMessage(string message, bool ok)
     {
         _configMessage = message;
         _configAlert = ok ? AlertVariant.Success : AlertVariant.Warning;
+    }
+
+    public void Dispose()
+    {
+        _trackingCts?.Cancel();
+        _trackingCts?.Dispose();
     }
 
     private static PzConfigFile ParseFile(string? value) =>
@@ -862,9 +930,10 @@
         ? "servertest.ini changes are reloaded live on a running server (RCON reloadoptions); if that is not possible they take effect on the next restart. Mods and ports always need a restart."
         : "Sandbox and spawn changes take effect on the next server restart.";
 
-    // The lower-cased haystack the client-side search filters each row against (label + dotted path).
-    private static string Terms(ConfigSettingView setting) =>
-        $"{setting.Label} {setting.Path}".ToLowerInvariant();
+    private static IEnumerable<string> ExtraChoices(ConfigSettingView setting, ConfigEditorRow row) =>
+        new[] { row.Original ?? string.Empty, row.Value ?? string.Empty }
+            .Distinct(StringComparer.Ordinal)
+            .Where(v => !setting.Options.Any(o => string.Equals(o.Value, v, StringComparison.Ordinal)));
 
     private static bool HasHelp(ConfigSettingView setting) =>
         !string.IsNullOrWhiteSpace(setting.Tooltip) || setting.Options.Count > 0
@@ -933,81 +1002,22 @@
         _ => "Managed by ZWarden · the server's container depends on it",
     };
 
+    // A tracked configuration write as the section shows it (a plain record: the entity dies with its scope).
+    private sealed record ConfigWriteView(
+        OperationId Id, OperationState State, bool IsTerminal, string? StatusLine, string? FailureReason, DateTimeOffset EnqueuedAt);
+
     private sealed class ConfigFormModel
     {
-        // The PzConfigFile to edit and whose history is shown.
-        public string? File { get; set; }
+        // The PzConfigFile to edit by path.
+        public string? File { get; set; } = nameof(PzConfigFile.Ini);
 
         // The dotted path of the scalar to change.
         public string? Path { get; set; }
 
         // The ConfigEditKind name (Bool/Number/Text) interpreting Value.
-        public string? Kind { get; set; }
+        public string? Kind { get; set; } = nameof(ConfigEditKind.Bool);
 
         // The new value in wire form.
         public string? Value { get; set; }
-
-        // The submit button's verb ("apply"/"load").
-        public string? Target { get; set; }
-    }
-
-    private sealed class ConfigRestoreModel
-    {
-        // The restore button's "{file}|{revisionId}" token.
-        public string? Target { get; set; }
-    }
-
-    // The gated raw whole-file edit model (F20c PR-D, ADR 0042). Content is the operator-authored text; Confirmed is
-    // the required acknowledgement (a raw edit replaces the whole file and can stop the server on start); File and
-    // BaselineHash travel hidden so the apply targets the right file and drift-checks against what was loaded.
-    private sealed class ConfigRawEditModel
-    {
-        public string? File { get; set; }
-
-        public string? BaselineHash { get; set; }
-
-        public string? Content { get; set; }
-
-        public bool Confirmed { get; set; }
-    }
-
-    // The live schema editor's batch model (F20c): one row per rendered setting. The hidden Path/Kind/Original
-    // travel with each row so the changed set can be computed from the post alone, without a re-read that could
-    // race the host rewriting the file. Value carries text/number/enum controls; Flag carries the boolean toggle.
-    private sealed class ConfigEditorModel
-    {
-        // Which PzConfigFile these rows belong to (hidden) — the file the apply targets.
-        public string? File { get; set; }
-
-        // The live-read baseline the operator was shown (hidden): the canonical value hash of the state these
-        // rows were rendered from (F20c, ADR 0042). Sent back on apply so the Agent drift-checks against what the
-        // operator saw, and compared on post against a fresh read to raise the confirm-and-override banner.
-        public string? BaselineHash { get; set; }
-
-        // The submit button's verb; only "apply" today (file switching and reload are GETs via ?file=).
-        public string? Target { get; set; }
-
-        public List<ConfigEditorRow> Rows { get; set; } = [];
-    }
-
-    private sealed class ConfigEditorRow
-    {
-        // The dotted path of the scalar (hidden).
-        public string? Path { get; set; }
-
-        // The ConfigEditKind name (Bool/Number/Text) interpreting the value (hidden).
-        public string? Kind { get; set; }
-
-        // The value this row was rendered with, so a change can be detected on post (hidden).
-        public string? Original { get; set; }
-
-        // The edited value for text/number/enum controls.
-        public string? Value { get; set; }
-
-        // The edited value for a boolean toggle (a checkbox posts nothing when off, binding to false).
-        public bool Flag { get; set; }
-
-        // Whether this row rendered the boolean toggle (hidden), so the post reads Flag rather than Value (#223).
-        public bool Toggle { get; set; }
     }
 }

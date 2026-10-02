@@ -40,7 +40,7 @@ public sealed partial class ServerDetailSmokeTests(BrowserHost host)
     {
         await using BrowserSession session = await OpenSectionAsync("smoke-console", "console");
 
-        await session.Page.FillAsync("#console-input", "players");
+        await session.FillAsync("#console-input", "players");
         await session.Page.ClickAsync("[data-action=run-console]");
 
         await Expect(session.Page.Locator("[data-console-message]")).ToContainTextAsync("Command enqueued");
@@ -72,6 +72,25 @@ public sealed partial class ServerDetailSmokeTests(BrowserHost host)
     }
 
     [Test]
+    public async Task Config_keeps_an_unsaved_edit_across_a_circuit_pause_and_resume()
+    {
+        // #299 D1: the unsaved edits are a [PersistentState] draft. Pausing evicts the circuit after persisting its
+        // state, exactly as a dropped connection's eviction does; resuming builds a new circuit from that state.
+        await using BrowserSession session = await OpenSectionAsync("smoke-draft", "config", "&file=SandboxVars");
+        ILocator row = session.Page.Locator("[data-cfg-row]", new() { HasText = "Population" });
+        await row.Locator("select[data-cfg-value]").SelectOptionAsync("1");
+        await Expect(row).ToHaveClassAsync(ChangedRow());
+
+        await session.Page.EvaluateAsync("() => Blazor.pauseCircuit()");
+        await session.Page.EvaluateAsync("() => Blazor.resumeCircuit()");
+        await session.WaitForCircuitAsync();
+
+        await Expect(row).ToHaveClassAsync(ChangedRow());
+        await Expect(row.Locator("select[data-cfg-value]")).ToHaveValueAsync("1");
+        await session.AssertNoErrorsAsync();
+    }
+
+    [Test]
     public async Task Mods_starts_a_discovery()
     {
         await using BrowserSession session = await OpenSectionAsync("smoke-mods", "mods");
@@ -87,7 +106,7 @@ public sealed partial class ServerDetailSmokeTests(BrowserHost host)
     {
         await using BrowserSession session = await OpenSectionAsync("smoke-modbrowser", "modbrowser");
 
-        await session.Page.FillAsync("#modbrowser-input", "not a workshop item");
+        await session.FillAsync("#modbrowser-input", "not a workshop item");
         await session.Page.ClickAsync("[data-action=modbrowser-resolve]");
 
         await Expect(session.Page.Locator("[data-modbrowser-unresolvable]")).ToBeVisibleAsync();

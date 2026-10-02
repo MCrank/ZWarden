@@ -34,7 +34,7 @@
         <div class="mt-2 flex flex-wrap items-end gap-2" data-modbrowser-lookup>
             <div class="flex flex-1 flex-col text-sm">
                 <BbLabel For="modbrowser-input" Class="mb-1 text-muted-foreground">Workshop item id or collection URL</BbLabel>
-                <BbInput Id="modbrowser-input" @bind-Value="_browserForm.Input" autocomplete="off"
+                <BbInput Id="modbrowser-input" UpdateTiming="UpdateTiming.Immediate" @bind-Value="_browserForm.Input" autocomplete="off"
                          spellcheck="false" Placeholder="2392709985 or https://steamcommunity.com/…/?id=…" />
             </div>
             <BbButton Type="ButtonType.Submit" Size="ButtonSize.Small" Disabled="_acting"
@@ -82,7 +82,7 @@
                 <div class="mt-2 flex flex-wrap items-end gap-2">
                     <div class="flex flex-1 flex-col text-sm">
                         <BbLabel For="modbrowser-query" Class="mb-1 text-muted-foreground">Search text</BbLabel>
-                        <BbInput Id="modbrowser-query" @bind-Value="_searchForm.Query" autocomplete="off"
+                        <BbInput Id="modbrowser-query" UpdateTiming="UpdateTiming.Immediate" @bind-Value="_searchForm.Query" autocomplete="off"
                                  Placeholder="e.g. Brita, hydrocraft, map…" />
                     </div>
                     <BbButton Type="ButtonType.Submit" Size="ButtonSize.Small" Disabled="_acting"

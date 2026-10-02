@@ -72,12 +72,12 @@
                     <div class="flex flex-wrap items-end gap-3">
                         <div class="flex flex-col text-sm">
                             <BbLabel For="recreate-port" Class="mb-1 text-muted-foreground">Game port</BbLabel>
-                            <BbInput Id="recreate-port" Type="InputType.Number" @bind-Value="_recreateForm.GamePort"
+                            <BbInput Id="recreate-port" UpdateTiming="UpdateTiming.Immediate" Type="InputType.Number" @bind-Value="_recreateForm.GamePort"
                                      Placeholder="@(Server.GamePort?.ToString(CultureInfo.InvariantCulture) ?? "Auto")" Class="w-32" />
                         </div>
                         <div class="flex flex-col text-sm">
                             <BbLabel For="recreate-heap" Class="mb-1 text-muted-foreground">Heap (GiB)</BbLabel>
-                            <BbInput Id="recreate-heap" @bind-Value="_recreateForm.HeapGiB" inputmode="decimal"
+                            <BbInput Id="recreate-heap" UpdateTiming="UpdateTiming.Immediate" @bind-Value="_recreateForm.HeapGiB" inputmode="decimal"
                                      Placeholder="@(Server.HeapSizeBytes is { } heap ? NewServerForm.FormatGiB(heap) : "Current")" Class="w-32" />
                         </div>
                         <div class="flex flex-col text-sm">
