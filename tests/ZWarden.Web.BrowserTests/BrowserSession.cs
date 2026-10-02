@@ -56,7 +56,15 @@ public sealed class BrowserSession : IAsyncDisposable
         {
             throw new InvalidOperationException($"GET {relativeUrl} answered {response?.Status.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "nothing"}.");
         }
+
+        await WaitForCircuitAsync();
     }
+
+    /// <summary>An interactive page marks itself <c>[data-circuit=on]</c> once its circuit has rendered; until then
+    /// the prerendered buttons are inert. A static page has no marker and is ready as loaded.</summary>
+    public async Task WaitForCircuitAsync() =>
+        await Page.WaitForFunctionAsync(
+            "() => !document.querySelector('[data-circuit]') || document.querySelector('[data-circuit=\"on\"]') !== null");
 
     /// <summary>Fails the test if the browser reported any error.</summary>
     public async Task AssertNoErrorsAsync()

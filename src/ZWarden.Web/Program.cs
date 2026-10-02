@@ -97,6 +97,8 @@ builder.Services.AddProxyForwardedHeaders();       // F32: trust the reference C
 // in local time (default UTC). Static-SSR pages read it per request; interactive islands are handed the zone id.
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ZWarden.Web.Time.IOperatorTimeZoneProvider, ZWarden.Web.Time.OperatorTimeZoneProvider>();
+// #299: the interactive Server Detail page's load and header poll, run through ActionScopeRunner (a scope per call).
+builder.Services.AddScoped<ZWarden.Web.Components.Pages.Servers.ServerDetailQuery>();
 
 WebApplication app = builder.Build();
 

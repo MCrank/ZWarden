@@ -48,58 +48,10 @@ public sealed class ServerDetailPageTests
         await Assert.That(html).Contains("data-action=\"remove-from-whitelist\"");
         // The live roster island prerendered with its awaiting state (no roster cached yet).
         await Assert.That(html).Contains("data-roster-awaiting");
-        // The static-SSR form binds the username/reason by their model-path field names (BbInput auto-derives, #121).
-        await Assert.That(html).Contains("name=\"_actionForm.Username\"");
-        await Assert.That(html).Contains("name=\"_actionForm.Reason\"");
+        // The username and reason inputs (circuit-bound since #299; the actions are PlayersSectionTests).
+        await Assert.That(html).Contains("id=\"player-username\"");
+        await Assert.That(html).Contains("id=\"player-reason\"");
         await Assert.That(html).Contains("data-bans-empty");
-        client.Dispose();
-    }
-
-    [Test]
-    public async Task The_refresh_form_posts_and_enqueues_a_list_players_operation()
-    {
-        await using ZWardenWebAppFactory factory = new();
-        HttpClient client = await SignedInOperatorAsync(factory);
-        ServerId serverId = await SeedServerAsync(factory, "enumerable");
-
-        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}?section=players", UriKind.Relative))).Content.ReadAsStringAsync();
-        Dictionary<string, string> form = new(StringComparer.Ordinal)
-        {
-            ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
-            ["_handler"] = "player-action",
-            ["_actionForm.Target"] = "refresh",
-        };
-        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}?section=players", UriKind.Relative), new FormUrlEncodedContent(form));
-
-        await Assert.That((int)post.StatusCode).IsLessThan(400);
-        await Assert.That(EnqueuedKind(factory, serverId, OperationKind.ListPlayers)).IsTrue();
-        client.Dispose();
-    }
-
-    [Test]
-    public async Task The_kick_form_posts_and_enqueues_a_kick_carrying_the_username()
-    {
-        await using ZWardenWebAppFactory factory = new();
-        HttpClient client = await SignedInOperatorAsync(factory);
-        ServerId serverId = await SeedServerAsync(factory, "kickable");
-
-        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}?section=players", UriKind.Relative))).Content.ReadAsStringAsync();
-        Dictionary<string, string> form = new(StringComparer.Ordinal)
-        {
-            ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
-            ["_handler"] = "player-action",
-            ["_actionForm.Target"] = "kick",
-            ["_actionForm.Username"] = "Bob",
-        };
-        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}?section=players", UriKind.Relative), new FormUrlEncodedContent(form));
-
-        await Assert.That((int)post.StatusCode).IsLessThan(400);
-        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
-        ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
-        Operation? op = db.Set<Operation>().FirstOrDefault(o => o.ServerId == serverId && o.Kind == OperationKind.KickPlayer);
-        await Assert.That(op).IsNotNull();
-        await Assert.That(op!.IsMutating).IsFalse();
-        await Assert.That(op.CommandPayload).Contains("Bob");
         client.Dispose();
     }
 
@@ -245,8 +197,8 @@ public sealed class ServerDetailPageTests
     public async Task The_header_shows_an_in_flight_stop_and_disables_the_lifecycle_buttons()
     {
         // #249: the header is rendered from the observed state AND the in-flight lifecycle Operation, so the page
-        // after a Stop already says STOPPING (the container reports Running for the whole stop grace), and it is
-        // marked for live-status.js to keep current.
+        // after a Stop already says STOPPING (the container reports Running for the whole stop grace). Since #299 the
+        // circuit keeps it current (HeaderTests), not live-status.js.
         await using ZWardenWebAppFactory factory = new();
         HttpClient client = await SignedInOperatorAsync(factory);
         ServerId serverId = await SeedServerAsync(factory, "stopping");
@@ -254,7 +206,7 @@ public sealed class ServerDetailPageTests
 
         string html = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
 
-        await Assert.That(html).Contains($"data-live-status=\"/api/servers/{serverId}/status\"");
+        await Assert.That(html).DoesNotContain("data-live-status=");
         await Assert.That(html).Contains("data-status-busy=\"true\"");
         await Assert.That(html).Contains("STOPPING");
         await Assert.That(System.Text.RegularExpressions.Regex.IsMatch(
@@ -368,47 +320,6 @@ public sealed class ServerDetailPageTests
         // The apply carries the operator's live-read baseline (not the last recorded revision) as the drift
         // baseline, so the Agent checks against exactly the state they saw (F20c, ADR 0042).
         await Assert.That(op.CommandPayload).Contains("hash-abc");
-        client.Dispose();
-    }
-
-    [Test]
-    public async Task The_configuration_editor_applies_a_full_size_sandbox_file_posted_without_script()
-    {
-        // #224: a real B42 SandboxVars has ~280 scalars; posted whole (the no-JS path) that is well over the form
-        // reader's default 1024-value limit, which used to reject the POST with a bare 400 before the handler ran.
-        await using ZWardenWebAppFactory factory = new()
-        {
-            ConfigureTestServicesHook = static s =>
-                s.AddSingleton<IServerConfigurationReader>(new FakeConfigReader(LargeSandboxView(300))),
-        };
-        HttpClient client = await SignedInOperatorAsync(factory);
-        ServerId serverId = await SeedServerAsync(factory, "large-sandbox");
-
-        Uri url = new($"/servers/{serverId}?section=config&file=SandboxVars", UriKind.Relative);
-        string page = await (await client.GetAsync(url)).Content.ReadAsStringAsync();
-        List<KeyValuePair<string, string>> form =
-        [
-            new("__RequestVerificationToken", ParseHiddenInputs(page)["__RequestVerificationToken"]),
-            new("_handler", "config-editor"),
-            new("_editorForm.File", "SandboxVars"),
-            new("_editorForm.BaselineHash", "hash-large"),
-            new("_editorForm.Target", "apply"),
-        ];
-        for (int i = 0; i < 300; i++)
-        {
-            form.Add(new($"_editorForm.Rows[{i}].Path", $"Custom.Key{i}"));
-            form.Add(new($"_editorForm.Rows[{i}].Kind", "Number"));
-            form.Add(new($"_editorForm.Rows[{i}].Original", "1"));
-            form.Add(new($"_editorForm.Rows[{i}].Value", i == 150 ? "2" : "1"));
-        }
-
-        HttpResponseMessage post = await client.PostAsync(url, new FormUrlEncodedContent(form));
-
-        await Assert.That((int)post.StatusCode).IsLessThan(400);
-        Operation? op = FirstOperation(factory, serverId, OperationKind.ConfigApply);
-        await Assert.That(op).IsNotNull();
-        await Assert.That(op!.CommandPayload).Contains("Custom.Key150");
-        await Assert.That(op.CommandPayload).DoesNotContain("Custom.Key149");
         client.Dispose();
     }
 
@@ -1313,60 +1224,9 @@ public sealed class ServerDetailPageTests
 
         await Assert.That(html).Contains("data-graceful-restart");
         await Assert.That(html).Contains("data-action=\"graceful-restart\"");
-        await Assert.That(html).Contains("name=\"_gracefulForm.Message\"");
+        await Assert.That(html).Contains("id=\"graceful-message\"");
         // #213: the adjustable countdown preset selector is present.
-        await Assert.That(html).Contains("name=\"_gracefulForm.Countdown\"");
-        client.Dispose();
-    }
-
-    [Test]
-    public async Task The_graceful_restart_immediate_preset_enqueues_an_empty_countdown()
-    {
-        // #213: choosing "Immediately" restarts with no warning broadcast (an empty countdown schedule).
-        await using ZWardenWebAppFactory factory = new();
-        HttpClient client = await SignedInOperatorAsync(factory);
-        ServerId serverId = await SeedServerAsync(factory, "graceful-immediate");
-
-        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
-        Dictionary<string, string> form = new(StringComparer.Ordinal)
-        {
-            ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
-            ["_handler"] = "server-graceful-restart",
-            ["_gracefulForm.Countdown"] = "immediate",
-        };
-        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}", UriKind.Relative), new FormUrlEncodedContent(form));
-
-        await Assert.That((int)post.StatusCode).IsLessThan(400);
-        await Assert.That(EnqueuedKind(factory, serverId, OperationKind.RestartServer)).IsTrue();
-        string? payload = EnqueuedPayload(factory, serverId, OperationKind.RestartServer);
-        await Assert.That(payload).IsNotNull();
-        await Assert.That(payload!).Contains("\"warningLeadSeconds\":[]");
-        await Assert.That(payload!).DoesNotContain("300");
-        client.Dispose();
-    }
-
-    [Test]
-    public async Task The_graceful_restart_form_posts_and_enqueues_a_restart_carrying_the_plan()
-    {
-        await using ZWardenWebAppFactory factory = new();
-        HttpClient client = await SignedInOperatorAsync(factory);
-        ServerId serverId = await SeedServerAsync(factory, "graceful-enqueue");
-
-        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
-        Dictionary<string, string> form = new(StringComparer.Ordinal)
-        {
-            ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
-            ["_handler"] = "server-graceful-restart",
-            ["_gracefulForm.Message"] = "Scheduled maintenance.",
-        };
-        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}", UriKind.Relative), new FormUrlEncodedContent(form));
-
-        await Assert.That((int)post.StatusCode).IsLessThan(400);
-        await Assert.That(EnqueuedKind(factory, serverId, OperationKind.RestartServer)).IsTrue();
-        string? payload = EnqueuedPayload(factory, serverId, OperationKind.RestartServer);
-        await Assert.That(payload).IsNotNull();
-        await Assert.That(payload!).Contains("Scheduled maintenance.");
-        await Assert.That(payload!).Contains("300");
+        await Assert.That(html).Contains("id=\"graceful-countdown\"");
         client.Dispose();
     }
 
@@ -1638,8 +1498,8 @@ public sealed class ServerDetailPageTests
 
         string html = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
 
-        // Rendered (so the live script can fill it in) but hidden.
-        await Assert.That(Regex.IsMatch(html, "<div[^>]*data-last-failure[^>]*hidden")).IsTrue();
+        // Not rendered at all: the circuit renders it once a failure appears (#299; HeaderTests).
+        await Assert.That(html).DoesNotContain("data-last-failure");
         client.Dispose();
     }
 
