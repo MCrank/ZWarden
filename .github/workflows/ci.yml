@@ -207,14 +207,43 @@ jobs:
           exit $fail
 
   # ---------------------------------------------------------------------------
-  # End-to-end tier: assembly stub only in Feature 0. Playwright wiring is
-  # deferred (never exercised in the spike); this keeps the tier's shape visible.
+  # Browser tier (#299, ADR 0046 Q4): one Playwright smoke test per interactive
+  # section, in Chromium, against the real host on Kestrel (seeded SQLite, no
+  # Agent). It fails on any browser-console error, the only place circuit-only
+  # failures show. Needs a browser download, so it is its own job, not tier 1.
   # ---------------------------------------------------------------------------
-  e2e-stub:
-    name: tier3-e2e-stub
+  e2e:
+    name: tier3-e2e-browser
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
     steps:
-      - run: echo "E2E (Playwright) tier is a stub in Feature 0; wired by a later feature."
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - run: dotnet restore tests/ZWarden.Web.BrowserTests/ZWarden.Web.BrowserTests.csproj --locked-mode
+
+      - name: Build the browser tests
+        run: dotnet build tests/ZWarden.Web.BrowserTests/ZWarden.Web.BrowserTests.csproj -c Release --no-restore
+
+      - name: Install Chromium and its system dependencies
+        run: pwsh tests/ZWarden.Web.BrowserTests/bin/Release/net10.0/playwright.ps1 install --with-deps chromium
+
+      - name: Run the browser smoke tier
+        run: |
+          dotnet test --project tests/ZWarden.Web.BrowserTests/ZWarden.Web.BrowserTests.csproj -c Release --no-build \
+            --report-trx -- --output Detailed | grep -vE "^\s*$"
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: tier3-e2e-reports
+          path: "tests/ZWarden.Web.BrowserTests/**/TestResults/**"
+          if-no-files-found: warn
 
   # ---------------------------------------------------------------------------
   # Tier 2: scheduled / opt-in, network + Docker permitted. Testcontainers here.

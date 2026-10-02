@@ -1,6 +1,6 @@
 # Feature #299 Mini-Plan — Make Server Detail + Settings interactive
 
-**Status:** three PRs (A → B → C), each closing part of #299; C closes it. v1.0, epic
+**Status:** three PRs (A → B → C); C closes #299. PR-A (branch `feat/299a-playwright-tier`): the Playwright tier, 11 tests green. v1.0, epic
 [#294](https://github.com/MCrank/ZWarden/issues/294). Blocks Mods #292.
 
 **Written against:** issue #299;
