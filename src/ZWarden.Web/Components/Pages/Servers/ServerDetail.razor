@@ -31,8 +31,9 @@
 
 <p class="text-sm"><a href="/servers" class="text-muted-foreground hover:text-foreground">← Servers</a></p>
 @* "on" once the circuit has rendered the page, so a browser test knows the buttons are live (a click on the
-   prerendered markup before then does nothing). *@
-<span hidden data-circuit="@(_circuitReady ? "on" : "off")"></span>
+   prerendered markup before then does nothing). The instance id changes when a new circuit (a resume after a pause
+   or eviction) renders the page afresh. *@
+<span hidden data-circuit="@(_circuitReady ? "on" : "off")" data-circuit-instance="@_instance"></span>
 
 @if (_server is null || _perm is null)
 {
@@ -319,6 +320,7 @@ else
     private string? _checkedFailureId;
     private bool _loaded;
     private bool _circuitReady;
+    private readonly string _instance = Guid.NewGuid().ToString("N");
     private bool _acting;
     private string _activeSection = "overview";
     private TimeZoneInfo _zone = TimeZoneInfo.Utc;
