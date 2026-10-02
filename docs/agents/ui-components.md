@@ -68,13 +68,13 @@ Since [ADR 0046](../adr/0046-pages-may-opt-into-interactive-rendering-the-shell-
 one of two kinds, and the component rules differ:
 
 - An **interactive page** declares `@rendermode InteractiveServer` on the page itself and runs in a
-  Blazor Server circuit. In v1.0 that's **Server Detail and Settings** (once #299 lands). Making another
-  page interactive needs an ADR 0046 amendment.
+  Blazor Server circuit. In v1.0 that's **Server Detail and Settings** (#299). Making another page interactive
+  needs an ADR 0046 amendment.
 - A **static page** has no `@rendermode` and renders once per HTTP request: Account, Setup, Enrollment,
   Fleet, Audit and Hosts. The shell (`MainLayout`) is always static chrome (ADR 0040).
-- An **island** is one interactive component (`@rendermode` on the component, e.g. the `Live*` panels)
-  inside a static page. Islands are how Server Detail works until #299. Don't add new ones to a page that
-  is going interactive.
+- An **island** is one interactive component (`@rendermode` on the component) inside a static page, e.g. the
+  Fleet board and the audit table. On an interactive page, components such as the `Live*` panels are plain
+  children with no `@rendermode` of their own.
 
 ### On an interactive page
 
@@ -98,8 +98,19 @@ Use them and don't write static workarounds. The rules:
   revalidates about every minute.
 - **Overlays need a portal host on the page.** `BbPortalHost` (and the dialog/toast providers) go inside the
   interactive page's own markup, never in `MainLayout`, which is static and would leave them inert.
-- **`[PersistentState]` only for drafts worth keeping**, starting with unsaved config-editor edits. Everything
-  else reloads from the database when a circuit is rebuilt after a reconnect or a deploy.
+- **`[PersistentState]` for two things only:**
+  - **The prerender's first load**, so the circuit doesn't load it again: one plain record from a page query
+    (`ServerDetailQuery`, `SettingsQuery`), plus anything only the request knows, such as the operator's time zone
+    from its cookie.
+  - **Drafts worth keeping**, starting with unsaved config-editor edits (`ConfigEditorDraft`, #299 D1). A draft
+    lives in server memory, so it survives a dropped connection or an evicted circuit, not a process restart.
+
+  Everything else reloads from the database when a circuit is rebuilt.
+- **No `AuthorizeView` policies on an interactive page.** They evaluate in the circuit's own scope, and several
+  can run at once against one `DbContext`. Load the gating flags through the page query instead. The service
+  re-checks every action regardless.
+- **The reconnect dialog is `Layout/ReconnectModal.razor`**, rendered by `App` with `wwwroot/js/reconnect.js`, and
+  Signal-styled in `Styles/reconnect.css`. Pages don't add their own.
 - **One Playwright smoke test per section.** It loads the section in a real browser and fails on any
   console error. Circuit-only failures (like the `BbDataGrid` `List<T>` crash below) don't show up in bUnit or
   the real-host page tests. The tests live in `tests/ZWarden.Web.BrowserTests`, where `BrowserHost` serves the real
@@ -113,8 +124,6 @@ Use them and don't write static workarounds. The rules:
   section) must take `?file=`-style values as `[Parameter]`s from the page, not `[SupplyParameterFromQuery]`: it
   would subscribe during the location-changed dispatch, which throws "Collection was modified" in the circuit
   (caught by the rail-navigation browser test).
-- **Interactive pages call services through `ActionScopeRunner`** (a scope and a `DbContext` per action, #297).
-  Singleton caches (live inventories, rosters, capacity) may be injected directly.
 - **A `BbInput` that feeds an action uses `UpdateTiming="UpdateTiming.Immediate"`.** The default reports the value
   on blur, and a click can reach the circuit first, so the action would see the old value. Browser tests type
   through `BrowserSession.FillAsync` and wait for the network to settle after load, because a `BbInput` attaches its

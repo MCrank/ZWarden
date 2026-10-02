@@ -95,6 +95,16 @@ Two latent hazards stand in the way of putting tenant-scoped work in a circuit:
   `HybridCache` with a Redis backend. Adopt .NET 11's `Circuit.RequestCircuitPauseAsync` when it ships. (Q2)
 - `[PersistentState]` is used **only for drafts worth keeping**, starting with unsaved config-editor edits.
   Everything else is reloaded from the database when a circuit is rebuilt.
+
+  > **Amendment (#299, maintainer decisions D1/defaults, 2026-10-01):**
+  > - **What the draft survives.** In .NET 10 the persisted circuit state lives in `MemoryCache` unless a
+  >   distributed `HybridCache` is configured. Self-hosted, the draft therefore survives a dropped connection
+  >   and an evicted or paused circuit, but **not** a web-process restart. SaaS gets restart survival from
+  >   Redis `HybridCache`, and .NET 11's server-triggered pause will add it on deploys. The draft never goes
+  >   to browser storage, because config values include secrets.
+  > - **The prerender's first load.** `[PersistentState]` also hands each page's first load (one plain record
+  >   from a page query) from the prerender to the circuit, so it isn't loaded twice. A rebuilt circuit
+  >   reloads it, as above.
 - **Interactive pages don't make ZWarden scale out.** Running more than one web instance stays out of
   scope and on the F10A track. The in-process live caches (health, roster, mods, diagnostics) and the
   log-subscription coordinator are per-instance singletons that need a backplane first. (Q8)
@@ -142,7 +152,8 @@ Two latent hazards stand in the way of putting tenant-scoped work in a circuit:
   rule for new code. *(Superseded by the Q7 amendment: services are unchanged; interactive components call
   them through `ActionScopeRunner` instead.)*
 - The static-page gotchas in `docs/agents/ui-components.md` (`BbNativeSelect` `selected`, native checkbox,
-  explicit `Name`, `dialog.js`) still apply to the static pages and to Server Detail until #299 lands.
+  explicit `Name`) still apply to the static pages. Since #299 they no longer apply to Server Detail and Settings,
+  and `dialog.js` and `config-editor.js` are gone.
 - CI grows a browser tier. Playwright smoke tests are slower and flakier than bUnit, and they're the only
   thing that catches circuit-only failures.
 - Interactive pages add no scale-out. Until F10A provides a backplane, ZWarden runs one web instance.
