@@ -12,7 +12,7 @@ public sealed class BackupsSectionTests
     [Test]
     public async Task Take_backup_enqueues_a_mutating_manual_backup()
     {
-        await using ServerDetailHarness harness = await ServerDetailHarness.StartAsync();
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
         ServerId serverId = await harness.SeedServerAsync("backup-takeable");
         IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "backups");
 
@@ -28,7 +28,7 @@ public sealed class BackupsSectionTests
     [Test]
     public async Task Delete_enqueues_a_non_mutating_delete_of_that_archive()
     {
-        await using ServerDetailHarness harness = await ServerDetailHarness.StartAsync();
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
         ServerId serverId = await harness.SeedServerAsync("backup-deletable");
         await harness.SeedBackupAsync(serverId, "world-1.tar.gz");
         IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "backups");
@@ -44,7 +44,7 @@ public sealed class BackupsSectionTests
     [Test]
     public async Task Restore_enqueues_a_mutating_restore_of_that_archive()
     {
-        await using ServerDetailHarness harness = await ServerDetailHarness.StartAsync();
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
         ServerId serverId = await harness.SeedServerAsync("backup-restorable");
         await harness.SeedBackupAsync(serverId, "world-1.tar.gz");
         IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "backups");

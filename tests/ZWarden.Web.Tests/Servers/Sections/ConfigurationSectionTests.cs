@@ -27,7 +27,7 @@ public sealed class ConfigurationSectionTests
     public async Task Without_a_live_read_the_offline_state_and_the_by_path_fallback_show()
     {
         // No fake reader: the real coordinator has no connected Agent, so the read is AgentOffline.
-        await using ServerDetailHarness harness = await ServerDetailHarness.StartAsync();
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
         ServerId serverId = await harness.SeedServerAsync("config-offline");
         IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "config");
 
@@ -42,7 +42,7 @@ public sealed class ConfigurationSectionTests
     [Test]
     public async Task The_history_lists_a_recorded_revision()
     {
-        await using ServerDetailHarness harness = await ServerDetailHarness.StartAsync();
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
         ServerId serverId = await harness.SeedServerAsync("with-history");
         await SeedRevisionAsync(harness, serverId, PzConfigFile.Ini, "[[\"PublicName\",\"s:First\"]]", DateTimeOffset.UtcNow);
         IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "config");
@@ -54,7 +54,7 @@ public sealed class ConfigurationSectionTests
     [Test]
     public async Task The_editor_renders_grouped_prefilled_controls_from_a_live_read()
     {
-        await using ServerDetailHarness harness = await ServerDetailHarness.StartAsync(Reader(SampleView(), out _));
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(Reader(SampleView(), out _));
         ServerId serverId = await harness.SeedServerAsync("live-config");
         IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "config", "&file=SandboxVars");
 
@@ -78,7 +78,7 @@ public sealed class ConfigurationSectionTests
     {
         // #223: a schema boolean already damaged to "" is offered as a choice with the empty value still there,
         // never an Off toggle.
-        await using ServerDetailHarness harness = await ServerDetailHarness.StartAsync(Reader(IniView(), out _));
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(Reader(IniView(), out _));
         ServerId serverId = await harness.SeedServerAsync("ini-render");
         IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "config", "&file=Ini");
 
@@ -107,7 +107,7 @@ public sealed class ConfigurationSectionTests
                 ]),
             ],
             "DefaultPort=16261\nMaxPlayers=16\nRCONPort=27015\n", "hash-ini", [], null);
-        await using ServerDetailHarness harness = await ServerDetailHarness.StartAsync(Reader(view, out _));
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(Reader(view, out _));
         ServerId serverId = await harness.SeedServerAsync("ports", gamePort: 16265, queryPort: 16266);
         IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "config", "&file=Ini");
 
@@ -124,7 +124,7 @@ public sealed class ConfigurationSectionTests
     public async Task Collapse_and_expand_all_close_and_open_every_section_and_remember_the_choice()
     {
         // #243: one choice for every editor, remembered in this browser.
-        await using ServerDetailHarness harness = await ServerDetailHarness.StartAsync(Reader(SampleView(), out _));
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(Reader(SampleView(), out _));
         ServerId serverId = await harness.SeedServerAsync("cfg-collapse");
         IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "config", "&file=SandboxVars");
         await Assert.That(cut.FindAll("details[data-cfg-sec]").All(d => d.HasAttribute("open"))).IsTrue();
@@ -143,7 +143,7 @@ public sealed class ConfigurationSectionTests
     [Test]
     public async Task Search_shows_only_matching_rows_and_opens_their_sections()
     {
-        await using ServerDetailHarness harness = await ServerDetailHarness.StartAsync(Reader(SampleView(), out _));
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(Reader(SampleView(), out _));
         ServerId serverId = await harness.SeedServerAsync("cfg-search");
         IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "config", "&file=SandboxVars");
         await cut.Find("[data-cfg-sections=collapse]").ClickAsync(new());
@@ -159,7 +159,7 @@ public sealed class ConfigurationSectionTests
     [Test]
     public async Task Apply_sends_only_the_changed_settings_with_the_baseline_the_operator_saw()
     {
-        await using ServerDetailHarness harness = await ServerDetailHarness.StartAsync(Reader(SampleView(), out _));
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(Reader(SampleView(), out _));
         ServerId serverId = await harness.SeedServerAsync("live-config-apply");
         IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "config", "&file=SandboxVars");
 
@@ -183,7 +183,7 @@ public sealed class ConfigurationSectionTests
     public async Task A_full_size_file_applies_just_the_one_changed_row()
     {
         // #224: a real B42 SandboxVars has ~280 settings; only the changed one is applied.
-        await using ServerDetailHarness harness = await ServerDetailHarness.StartAsync(Reader(LargeSandboxView(300), out _));
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(Reader(LargeSandboxView(300), out _));
         ServerId serverId = await harness.SeedServerAsync("large-sandbox");
         IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "config", "&file=SandboxVars");
 
@@ -200,7 +200,7 @@ public sealed class ConfigurationSectionTests
     public async Task An_unrelated_apply_leaves_an_untouched_damaged_boolean_alone()
     {
         // #223 recovery: applying another change must not write the damaged boolean.
-        await using ServerDetailHarness harness = await ServerDetailHarness.StartAsync(Reader(IniView(), out _));
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(Reader(IniView(), out _));
         ServerId serverId = await harness.SeedServerAsync("ini-unrelated");
         IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "config", "&file=Ini");
 
@@ -217,7 +217,7 @@ public sealed class ConfigurationSectionTests
     [Test]
     public async Task A_schema_rejection_is_shown_and_nothing_is_applied()
     {
-        await using ServerDetailHarness harness = await ServerDetailHarness.StartAsync(Reader(IniView(), out _));
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(Reader(IniView(), out _));
         ServerId serverId = await harness.SeedServerAsync("ini-reject");
         IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "config", "&file=Ini");
 
@@ -234,7 +234,7 @@ public sealed class ConfigurationSectionTests
     [Test]
     public async Task Apply_with_no_changes_says_so_and_enqueues_nothing()
     {
-        await using ServerDetailHarness harness = await ServerDetailHarness.StartAsync(Reader(SampleView(), out _));
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(Reader(SampleView(), out _));
         ServerId serverId = await harness.SeedServerAsync("no-change");
         IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "config", "&file=SandboxVars");
 
@@ -250,7 +250,7 @@ public sealed class ConfigurationSectionTests
     {
         // #226: the file changed on the host since it was loaded; the refused edit (Zombies 4 → 1) is carried onto
         // the fresh row, whose Original is the current host value, so it stays highlighted and Apply again writes it.
-        await using ServerDetailHarness harness = await ServerDetailHarness.StartAsync(Reader(SampleView(), out SwitchableReader reader));
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(Reader(SampleView(), out SwitchableReader reader));
         ServerId serverId = await harness.SeedServerAsync("drift-keep");
         IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "config", "&file=SandboxVars");
         await cut.Find("[data-cfg-path=Zombies] select").ChangeAsync(new() { Value = "1" });
@@ -273,7 +273,7 @@ public sealed class ConfigurationSectionTests
     [Test]
     public async Task An_applied_change_withholds_the_stale_editor_until_the_write_finishes()
     {
-        await using ServerDetailHarness harness = await ServerDetailHarness.StartAsync(Reader(SampleView(), out _));
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(Reader(SampleView(), out _));
         ServerId serverId = await harness.SeedServerAsync("prg-done");
         IRenderedComponent<ServerDetail> cut = await ApplyZombiesChangeAsync(harness, serverId);
 
@@ -290,7 +290,7 @@ public sealed class ConfigurationSectionTests
     [Test]
     public async Task A_failed_write_shows_its_reason()
     {
-        await using ServerDetailHarness harness = await ServerDetailHarness.StartAsync(Reader(SampleView(), out _));
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(Reader(SampleView(), out _));
         ServerId serverId = await harness.SeedServerAsync("prg-failed");
         IRenderedComponent<ServerDetail> cut = await ApplyZombiesChangeAsync(harness, serverId);
         cut.WaitForState(() => cut.FindAll("[data-config-applying]").Count == 1);
@@ -304,7 +304,7 @@ public sealed class ConfigurationSectionTests
     [Test]
     public async Task An_op_link_for_another_servers_write_is_ignored()
     {
-        await using ServerDetailHarness harness = await ServerDetailHarness.StartAsync(Reader(SampleView(), out _));
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(Reader(SampleView(), out _));
         ServerId first = await harness.SeedServerAsync("op-owner");
         ServerId second = await harness.SeedServerAsync("op-other");
         await ApplyZombiesChangeAsync(harness, first);
@@ -322,14 +322,14 @@ public sealed class ConfigurationSectionTests
     public async Task The_by_path_edit_enqueues_against_the_live_reads_baseline()
     {
         // #226: the by-path form drift-checks against the file as it is now, not the last recorded revision.
-        await using ServerDetailHarness harness = await ServerDetailHarness.StartAsync(Reader(SampleView(), out _));
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(Reader(SampleView(), out _));
         ServerId serverId = await harness.SeedServerAsync("advanced-live");
         IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "config", "&file=SandboxVars");
 
         await cut.Find("#config-file").ChangeAsync(new() { Value = "SandboxVars" });
-        await ServerDetailHarness.TypeAsync(cut, "config-path", "Zombies");
+        await InteractivePageHarness.TypeAsync(cut, "config-path", "Zombies");
         await cut.Find("#config-kind").ChangeAsync(new() { Value = "Number" });
-        await ServerDetailHarness.TypeAsync(cut, "config-value", "3");
+        await InteractivePageHarness.TypeAsync(cut, "config-value", "3");
         await cut.Find("[data-config-advanced] form").SubmitAsync();
 
         cut.WaitForState(() => harness.Payload(serverId, OperationKind.ConfigApply) is not null);
@@ -342,7 +342,7 @@ public sealed class ConfigurationSectionTests
     [Test]
     public async Task Restore_re_applies_a_prior_revision()
     {
-        await using ServerDetailHarness harness = await ServerDetailHarness.StartAsync();
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
         ServerId serverId = await harness.SeedServerAsync("restorable");
         DateTimeOffset t0 = DateTimeOffset.UtcNow;
         await SeedRevisionAsync(harness, serverId, PzConfigFile.Ini, "[[\"PublicName\",\"s:First\"]]", t0);
@@ -358,7 +358,7 @@ public sealed class ConfigurationSectionTests
     [Test]
     public async Task A_raw_edit_without_the_acknowledgement_is_refused()
     {
-        await using ServerDetailHarness harness = await ServerDetailHarness.StartAsync(Reader(SampleView(), out _, raw: true));
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(Reader(SampleView(), out _, raw: true));
         ServerId serverId = await harness.SeedServerAsync("raw-unconfirmed");
         IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "config", "&file=SandboxVars");
 
@@ -373,7 +373,7 @@ public sealed class ConfigurationSectionTests
     [Test]
     public async Task A_confirmed_in_sync_raw_edit_stages_and_enqueues_a_raw_apply()
     {
-        await using ServerDetailHarness harness = await ServerDetailHarness.StartAsync(Reader(SampleView(), out _, raw: true));
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(Reader(SampleView(), out _, raw: true));
         ServerId serverId = await harness.SeedServerAsync("raw-apply");
         IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "config", "&file=SandboxVars");
 
@@ -392,7 +392,7 @@ public sealed class ConfigurationSectionTests
     [Test]
     public async Task A_raw_edit_against_a_moved_file_shows_the_drift_banner_and_enqueues_nothing()
     {
-        await using ServerDetailHarness harness = await ServerDetailHarness.StartAsync(Reader(SampleView(), out SwitchableReader reader, raw: true));
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(Reader(SampleView(), out SwitchableReader reader, raw: true));
         ServerId serverId = await harness.SeedServerAsync("raw-drift");
         IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "config", "&file=SandboxVars");
         reader.View = SampleView(baseline: "hash-moved");
@@ -411,7 +411,7 @@ public sealed class ConfigurationSectionTests
     // ---- helpers -------------------------------------------------------------------------------------------------
 
     // Applies Zombies 4 → 1 through the editor, in sync with SampleView's baseline.
-    private static async Task<IRenderedComponent<ServerDetail>> ApplyZombiesChangeAsync(ServerDetailHarness harness, ServerId serverId)
+    private static async Task<IRenderedComponent<ServerDetail>> ApplyZombiesChangeAsync(InteractivePageHarness harness, ServerId serverId)
     {
         IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "config", "&file=SandboxVars");
         await cut.Find("[data-cfg-path=Zombies] select").ChangeAsync(new() { Value = "1" });
@@ -421,7 +421,7 @@ public sealed class ConfigurationSectionTests
     }
 
     // Drives the Server's pending config write to a terminal state, as the Agent's completion would (#226).
-    private static async Task FinishWriteAsync(ServerDetailHarness harness, ServerId serverId, bool succeeded, string text)
+    private static async Task FinishWriteAsync(InteractivePageHarness harness, ServerId serverId, bool succeeded, string text)
     {
         await using AsyncServiceScope scope = harness.Factory.Services.CreateSystemScope();
         ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
@@ -448,7 +448,7 @@ public sealed class ConfigurationSectionTests
     }
 
     private static async Task SeedRevisionAsync(
-        ServerDetailHarness harness, ServerId server, PzConfigFile file, string canonicalText, DateTimeOffset at)
+        InteractivePageHarness harness, ServerId server, PzConfigFile file, string canonicalText, DateTimeOffset at)
     {
         await using AsyncServiceScope scope = harness.Factory.Services.CreateSystemScope();
         ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();

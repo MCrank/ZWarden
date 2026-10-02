@@ -17,22 +17,22 @@ using ZWarden.Infrastructure.Tenancy;
 using ZWarden.Web.Components.Pages.Servers;
 using ZWarden.Web.Tests.Account;
 
-namespace ZWarden.Web.Tests.Servers;
+namespace ZWarden.Web.Tests;
 
 /// <summary>
-/// Renders the interactive Server Detail page in bUnit on top of the real composed host (#299, decision D2). The
+/// Renders an interactive page (Server Detail, Settings) in bUnit on top of the real composed host (#299, D2). The
 /// page's services come from the host's own container through a tenant scope (the scope a circuit's actions open via
 /// <c>ActionScopeRunner</c>), so a click goes through the real Application services and lands in the real SQLite
 /// database: the same end-to-end assertions the static form-POST tests made. Blueprint's JS is loose.
 /// </summary>
-internal sealed class ServerDetailHarness : IAsyncDisposable
+internal sealed class InteractivePageHarness : IAsyncDisposable
 {
     public const string OperatorEmail = "op@zwarden.test";
     private const string StrongPassword = "correct horse battery staple";
 
     private readonly AsyncServiceScope _scope;
 
-    private ServerDetailHarness(ZWardenWebAppFactory factory, BunitContext context, AsyncServiceScope scope)
+    private InteractivePageHarness(ZWardenWebAppFactory factory, BunitContext context, AsyncServiceScope scope)
     {
         Factory = factory;
         Context = context;
@@ -44,7 +44,7 @@ internal sealed class ServerDetailHarness : IAsyncDisposable
     public BunitContext Context { get; }
 
     /// <summary>Boots the host and signs in <see cref="OperatorEmail"/> as the Tenant Owner (every permission).</summary>
-    public static async Task<ServerDetailHarness> StartAsync(Action<IServiceCollection>? configureServices = null)
+    public static async Task<InteractivePageHarness> StartAsync(Action<IServiceCollection>? configureServices = null)
     {
         var factory = new ZWardenWebAppFactory { ConfigureTestServicesHook = configureServices };
         await factory.CreateConfirmedUserAsync(OperatorEmail, StrongPassword);
@@ -64,7 +64,7 @@ internal sealed class ServerDetailHarness : IAsyncDisposable
                 new Claim(ClaimsPrincipalTenantContext.TenantClaimType, tenant.ToString()));
         context.Services.AddFallbackServiceProvider(scope.ServiceProvider);
         context.SetRendererInfo(new RendererInfo("Server", isInteractive: true));
-        return new ServerDetailHarness(factory, context, scope);
+        return new InteractivePageHarness(factory, context, scope);
     }
 
     /// <summary>Adds an imported Server to the database, on a host port pair when one is given.</summary>
@@ -129,6 +129,14 @@ internal sealed class ServerDetailHarness : IAsyncDisposable
         Server server = db.Set<Server>().Single(s => s.Id == serverId);
         server.RecordObservedState(state, DateTimeOffset.UtcNow);
         await db.SaveChangesAsync();
+    }
+
+    /// <summary>Renders <typeparamref name="TPage"/> as the page at <paramref name="url"/>.</summary>
+    public IRenderedComponent<TPage> RenderPage<TPage>(string url)
+        where TPage : IComponent
+    {
+        Context.Services.GetRequiredService<NavigationManager>().NavigateTo(url);
+        return Context.Render<TPage>();
     }
 
     /// <summary>Renders <c>/servers/{id}</c> with an optional <c>?section=</c> (plus any extra query, e.g.

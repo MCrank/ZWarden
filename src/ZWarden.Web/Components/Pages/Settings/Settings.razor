@@ -12,18 +12,20 @@
 @using ZWarden.Web.Configuration
 @using ZWarden.Web.Time
 @attribute [Authorize(Policy = "User.Manage")]
+@rendermode InteractiveServer
+@using ZWarden.Infrastructure.Tenancy
 @inject IOptions<InstanceOptions> Instance
 @inject IOptions<ForwardedHeadersOptions> Forwarded
-@inject ISetupState SetupState
-@inject IWorkshopSettingsService Workshop
+@inject ActionScopeRunner Actions
 @inject IOperatorTimeZoneProvider OperatorTz
 @inject UserManager<ApplicationUser> Users
 
 @* Control-plane Settings landing (#160, renamed from "Config" — per-server config stays inside Server Detail).
-   Static server render like the other operator pages: it runs per request with a live HttpContext so the
-   session-derived tenant resolves. Gated on User.Manage, which exactly the tenant-administrator tier holds
-   (Tenant Owner + Administrator) and no operational or read-only role does — that is the "Owner/Admin" gate the
-   ticket asks for; enforcement is server-side (PRD 12), the shell nav merely mirrors it. General and Security
+   Interactive (#299, ADR 0046): the Workshop key's save and clear are circuit handlers, through ActionScopeRunner.
+   The page's load (TLS mode, key status, the tenant-wide card gates) runs in one action scope on the prerender and
+   reaches the circuit through [PersistentState]. Gated on User.Manage, which exactly the tenant-administrator tier
+   holds (Tenant Owner + Administrator) and no operational or read-only role does — that is the "Owner/Admin" gate
+   the ticket asks for; enforcement is server-side (PRD 12), the shell nav merely mirrors it. General and Security
    are wired to the real, deploy-time configured values (config-as-truth: instance name, forwarded-header trust
    and session lifetime are all fixed at boot, so they are shown as status, not editable toggles). The Owner-only
    Enrollment section is gated a second time on Tenant.Enrollment.Manage so an Administrator sees the page but not
@@ -31,6 +33,9 @@
    already lives rather than duplicating it here. *@
 
 <PageTitle>Settings · ZWarden</PageTitle>
+
+@* "on" once the circuit has rendered the page (browser tests wait for it); see ServerDetail. *@
+<span hidden data-circuit="@(_circuitReady ? "on" : "off")" data-circuit-instance="@_instance"></span>
 
 <div data-settings-page>
     <h1 class="text-2xl font-semibold tracking-tight">Settings</h1>
@@ -72,7 +77,7 @@
             <BbCardContent>
                 <dl class="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-[12rem_1fr]">
                     <dt class="text-sm text-muted-foreground">TLS deployment mode</dt>
-                    <dd class="text-sm text-foreground" data-settings-tls-mode>@TlsModeLabel(_tlsMode)</dd>
+                    <dd class="text-sm text-foreground" data-settings-tls-mode>@TlsModeLabel(State?.TlsMode)</dd>
 
                     <dt class="text-sm text-muted-foreground">Trust <code class="font-mono">X-Forwarded-*</code></dt>
                     <dd class="text-sm text-foreground" data-settings-forwarded>@ForwardedSummary()</dd>
@@ -89,7 +94,8 @@
 
         @* Time display (#211) — a per-operator, per-browser preference (stored in a cookie, not the tenant), so it
            is visible to anyone who can reach Settings. Toggling is client-side (shell.js sets/clears the cookie
-           with the browser's detected zone, then reloads); the server reads the cookie to render audit/log times. *@
+           with the browser's detected zone, then reloads); the server reads the cookie to render audit/log times.
+           The prerender reads it (a circuit has no request cookie) and hands it on with the rest of the load. *@
         <BbCard data-settings-time>
             <BbCardHeader>
                 <BbCardTitle>Time display</BbCardTitle>
@@ -122,7 +128,8 @@
 
         @* Agent enrollment — Owner-only (Tenant.Enrollment.Manage). Links to the existing enrollment surface
            rather than duplicating token issuance here. *@
-        <AuthorizeView Policy="Tenant.Enrollment.Manage" Context="enroll">
+        @if (State is { CanManageEnrollment: true })
+        {
             <BbCard data-settings-enrollment>
                 <BbCardHeader>
                     <BbCardTitle>Agent enrollment</BbCardTitle>
@@ -139,13 +146,14 @@
                     </a>
                 </BbCardContent>
             </BbCard>
-        </AuthorizeView>
+        }
 
         @* Workshop search — Owner-only (Tenant.Manage). Optional, per-tenant Steam Web API key that unlocks
            free-text Workshop search (F110/ADR 0044). Names and previews work without a key; this only adds
            search. Write-only: the stored key is never echoed — only configured✓/not. Enforcement is
-           server-side in IWorkshopSettingsService (PRD 12); this AuthorizeView merely mirrors the gate. *@
-        <AuthorizeView Policy="Tenant.Manage" Context="workshop">
+           server-side in IWorkshopSettingsService (PRD 12); the flag (SettingsQuery) merely mirrors the gate. *@
+        @if (State is { CanManageWorkshop: true })
+        {
             <BbCard data-settings-workshop>
                 <BbCardHeader>
                     <BbCardTitle>Workshop search</BbCardTitle>
@@ -182,21 +190,21 @@
                         </div>
                     }
 
-                    <EditForm class="mt-4 flex flex-wrap items-end gap-3" Model="Input" method="post" OnValidSubmit="SaveAsync" FormName="settings-workshop-key">
-                        <DataAnnotationsValidator />
+                    @* A form so Enter saves, as the button does. Immediate, so a click right after typing saves the
+                       typed key (a BbInput otherwise reports on blur). *@
+                    <EditForm class="mt-4 flex flex-wrap items-end gap-3" Model="_input" OnValidSubmit="SaveAsync">
                         <div class="flex flex-col text-sm">
                             <BbLabel For="workshop-key" Class="mb-1 text-muted-foreground">Steam Web API key</BbLabel>
-                            <BbInput Id="workshop-key" Type="InputType.Password" @bind-Value="Input.ApiKey"
+                            <BbInput Id="workshop-key" Type="InputType.Password" UpdateTiming="UpdateTiming.Immediate" @bind-Value="_input.ApiKey"
+                                     autocomplete="off"
                                      Placeholder="@(_keyConfigured ? "Enter a new key to replace it" : "Your steamcommunity.com/dev/apikey key")" />
                         </div>
-                        <BbButton Type="ButtonType.Submit">Save key</BbButton>
+                        <BbButton Type="ButtonType.Submit" Disabled="_acting" data-action="workshop-save">Save key</BbButton>
                     </EditForm>
 
                     @if (_keyConfigured)
                     {
-                        <EditForm class="mt-3" Model="ClearInput" method="post" OnValidSubmit="ClearAsync" FormName="settings-workshop-clear">
-                            <BbButton Type="ButtonType.Submit" Variant="ButtonVariant.Destructive">Clear key</BbButton>
-                        </EditForm>
+                        <BbButton Class="mt-3" Variant="ButtonVariant.Destructive" Disabled="_acting" OnClick="ClearAsync" data-action="workshop-clear">Clear key</BbButton>
                     }
 
                     <p class="mt-4 text-xs text-muted-foreground">
@@ -207,7 +215,7 @@
                     </p>
                 </BbCardContent>
             </BbCard>
-        </AuthorizeView>
+        }
 
         @* Backups — the backup root is Agent-side, per-host config (F24); the control plane has no single
            backup path to edit, so this points at the hosts that own theirs. *@
@@ -226,7 +234,8 @@
 
         @* Users & roles — Owner+Admin (Role.Manage). The role/user administration backend exists (F5) but has
            no dedicated UI yet; this is the reserved entry. *@
-        <AuthorizeView Policy="Role.Manage" Context="roles">
+        @if (State is { CanManageRoles: true })
+        {
             <BbCard data-settings-users>
                 <BbCardHeader>
                     <BbCardTitle>Users &amp; roles</BbCardTitle>
@@ -239,52 +248,78 @@
                     </p>
                 </BbCardContent>
             </BbCard>
-        </AuthorizeView>
+        }
     </div>
 </div>
 
 @code {
-    private TlsMode? _tlsMode;
-    private bool _keyConfigured;
-    private bool _saved;
-    private string? _savedMessage;
-    private string? _error;
-    private bool _localTime;
-    private string? _zoneLabel;
+    /// <summary>The prerender's load, handed to the circuit (#299).</summary>
+    [PersistentState]
+    public SettingsState? State { get; set; }
+
+    /// <summary>The time-display preference, read from the request cookie while prerendering: whether local time is
+    /// on, and the zone's label (a circuit has no request cookie to read it from).</summary>
+    [PersistentState]
+    public string? TimeDisplay { get; set; }
 
     [CascadingParameter]
     private Task<AuthenticationState>? AuthState { get; set; }
 
     // Write-only: this only ever carries a newly-entered key; the stored key is never read back into it.
-    [SupplyParameterFromForm(FormName = "settings-workshop-key")]
-    private WorkshopKeyInput Input { get; set; } = default!;
+    private readonly WorkshopKeyInput _input = new();
+    private readonly string _instance = Guid.NewGuid().ToString("N");
+    private bool _saved;
+    private string? _savedMessage;
+    private string? _error;
+    private bool _acting;
+    private bool _circuitReady;
 
-    [SupplyParameterFromForm(FormName = "settings-workshop-clear")]
-    private WorkshopClearInput ClearInput { get; set; } = default!;
+    private bool _keyConfigured => State?.WorkshopKeyConfigured ?? false;
+
+    // TimeDisplay is "utc", or the local zone's label.
+    private bool _localTime => TimeDisplay is { } display && display != "utc";
+
+    private string? _zoneLabel => _localTime ? TimeDisplay : null;
 
     protected override async Task OnInitializedAsync()
     {
-        Input ??= new();
-        ClearInput ??= new();
-        _tlsMode = await SetupState.GetTlsModeAsync();
-        _keyConfigured = await Workshop.IsSearchAvailableAsync();
-
-        _localTime = OperatorTz.IsLocal;
-        if (_localTime)
+        if (TimeDisplay is null)
         {
             TimeZoneInfo zone = OperatorTz.Zone;
-            _zoneLabel = $"{zone.Id} ({OperatorTimeZone.OffsetLabel(zone.GetUtcOffset(DateTimeOffset.UtcNow))})";
+            TimeDisplay = OperatorTz.IsLocal
+                ? $"{zone.Id} ({OperatorTimeZone.OffsetLabel(zone.GetUtcOffset(DateTimeOffset.UtcNow))})"
+                : "utc";
         }
+
+        State ??= await LoadAsync();
+    }
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _circuitReady = true;
+            StateHasChanged();
+        }
+    }
+
+    private async Task<SettingsState> LoadAsync()
+    {
+        UserId user = await CurrentUserAsync();
+        return await Actions.RunAsync<SettingsQuery, SettingsState>((query, ct) => query.LoadAsync(user, ct));
     }
 
     private async Task SaveAsync()
     {
         _saved = false;
         _error = null;
-        string entered = Input.ApiKey?.Trim() ?? string.Empty;
+        string entered = _input.ApiKey?.Trim() ?? string.Empty;
+        _input.ApiKey = null; // never retain the entered value across the render
+        _acting = true;
         try
         {
-            await Workshop.SetApiKeyAsync(await CurrentUserAsync(), new SecretString(entered));
+            UserId user = await CurrentUserAsync();
+            await Actions.RunAsync<IWorkshopSettingsService>((workshop, ct) => workshop.SetApiKeyAsync(user, new SecretString(entered), ct));
             _saved = true;
             _savedMessage = "Search key saved. Search is now enabled.";
         }
@@ -295,18 +330,27 @@
         }
         finally
         {
-            Input.ApiKey = null; // never retain the entered value across the render
-            _keyConfigured = await Workshop.IsSearchAvailableAsync();
+            State = await LoadAsync();
+            _acting = false;
         }
     }
 
     private async Task ClearAsync()
     {
         _error = null;
-        await Workshop.ClearApiKeyAsync(await CurrentUserAsync());
-        _keyConfigured = await Workshop.IsSearchAvailableAsync();
-        _saved = true;
-        _savedMessage = "Search key cleared. Search is now off; enrichment still works.";
+        _acting = true;
+        try
+        {
+            UserId user = await CurrentUserAsync();
+            await Actions.RunAsync<IWorkshopSettingsService>((workshop, ct) => workshop.ClearApiKeyAsync(user, ct));
+            State = await LoadAsync();
+            _saved = true;
+            _savedMessage = "Search key cleared. Search is now off; enrichment still works.";
+        }
+        finally
+        {
+            _acting = false;
+        }
     }
 
     private async Task<UserId> CurrentUserAsync()
@@ -322,9 +366,6 @@
         public string? ApiKey { get; set; }
     }
 
-    private sealed class WorkshopClearInput
-    {
-    }
 
     private static string TlsModeLabel(TlsMode? mode) => mode switch
     {

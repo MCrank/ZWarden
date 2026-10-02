@@ -13,7 +13,7 @@ public sealed class PlayersSectionTests
     [Test]
     public async Task Refresh_enqueues_a_list_players_operation()
     {
-        await using ServerDetailHarness harness = await ServerDetailHarness.StartAsync();
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
         ServerId serverId = await harness.SeedServerAsync("enumerable");
         IRenderedComponent<Web.Components.Pages.Servers.ServerDetail> cut = harness.Render(serverId, "players");
 
@@ -27,11 +27,11 @@ public sealed class PlayersSectionTests
     [Test]
     public async Task Kick_enqueues_a_kick_carrying_the_username()
     {
-        await using ServerDetailHarness harness = await ServerDetailHarness.StartAsync();
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
         ServerId serverId = await harness.SeedServerAsync("kickable");
         IRenderedComponent<Web.Components.Pages.Servers.ServerDetail> cut = harness.Render(serverId, "players");
 
-        await ServerDetailHarness.TypeAsync(cut, "player-username", "Bob");
+        await InteractivePageHarness.TypeAsync(cut, "player-username", "Bob");
         await cut.Find("[data-action=kick]").ClickAsync(new());
 
         Operation? op = null;
