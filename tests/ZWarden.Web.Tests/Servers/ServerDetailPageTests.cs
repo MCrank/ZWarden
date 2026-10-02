@@ -1033,26 +1033,6 @@ public sealed class ServerDetailPageTests
     }
 
     [Test]
-    public async Task The_mod_refresh_form_posts_and_enqueues_a_discovery()
-    {
-        await using ZWardenWebAppFactory factory = new();
-        HttpClient client = await SignedInOperatorAsync(factory);
-        ServerId serverId = await SeedServerAsync(factory, "discoverable");
-
-        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}?section=mods", UriKind.Relative))).Content.ReadAsStringAsync();
-        Dictionary<string, string> form = new(StringComparer.Ordinal)
-        {
-            ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
-            ["_handler"] = "mod-discovery",
-        };
-        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}?section=mods", UriKind.Relative), new FormUrlEncodedContent(form));
-
-        await Assert.That((int)post.StatusCode).IsLessThan(400);
-        await Assert.That(EnqueuedKind(factory, serverId, OperationKind.ModDiscovery)).IsTrue();
-        client.Dispose();
-    }
-
-    [Test]
     public async Task The_mod_management_section_shows_awaiting_without_a_cached_inventory()
     {
         await using ZWardenWebAppFactory factory = new();
@@ -1087,7 +1067,7 @@ public sealed class ServerDetailPageTests
 
         await Assert.That(html).DoesNotContain("data-mod-manage-awaiting");
         await Assert.That(html).Contains("data-action=\"mod-add\"");
-        await Assert.That(html).Contains("name=\"_modManageForm.WorkshopId\"");
+        await Assert.That(html).Contains("id=\"mod-workshop-id\"");
         await Assert.That(html).Contains("data-mod-enabled-row");
         await Assert.That(html).Contains("data-action=\"mod-disable\"");
         // ModB is installed but not enabled, so it is offered as an enable candidate.
@@ -1102,115 +1082,6 @@ public sealed class ServerDetailPageTests
         client.Dispose();
     }
 
-    [Test]
-    public async Task The_add_workshop_form_posts_and_enqueues_a_config_apply_touching_workshop_items()
-    {
-        await using ZWardenWebAppFactory factory = new();
-        HttpClient client = await SignedInOperatorAsync(factory);
-        (ServerId serverId, AgentId agent) = await SeedServerAndAgentAsync(factory, "addable");
-        SeedInventory(factory, serverId, agent, installed: [], workshop: ["100"], enabled: []);
-
-        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}?section=mods", UriKind.Relative))).Content.ReadAsStringAsync();
-        Dictionary<string, string> form = new(StringComparer.Ordinal)
-        {
-            ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
-            ["_handler"] = "mod-manage",
-            ["_modManageForm.WorkshopId"] = "200",
-            ["_modManageForm.Command"] = "add",
-        };
-        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}?section=mods", UriKind.Relative), new FormUrlEncodedContent(form));
-
-        await Assert.That((int)post.StatusCode).IsLessThan(400);
-        Operation? op = FirstOperation(factory, serverId, OperationKind.ConfigApply);
-        await Assert.That(op).IsNotNull();
-        await Assert.That(op!.IsMutating).IsTrue();
-        await Assert.That(op.CommandPayload).Contains("WorkshopItems");
-        await Assert.That(op.CommandPayload).Contains("200");
-        client.Dispose();
-    }
-
-    [Test]
-    public async Task The_enable_form_posts_and_enqueues_a_config_apply_touching_the_mods_list()
-    {
-        await using ZWardenWebAppFactory factory = new();
-        HttpClient client = await SignedInOperatorAsync(factory);
-        (ServerId serverId, AgentId agent) = await SeedServerAndAgentAsync(factory, "enableable");
-        SeedInventory(
-            factory, serverId, agent,
-            installed: [new InstalledWorkshopItem("100", [new InstalledMod("ModB", null)])],
-            workshop: ["100"],
-            enabled: []);
-
-        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}?section=mods", UriKind.Relative))).Content.ReadAsStringAsync();
-        Dictionary<string, string> form = new(StringComparer.Ordinal)
-        {
-            ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
-            ["_handler"] = "mod-manage",
-            ["_modManageForm.EnableModId"] = "ModB",
-            ["_modManageForm.Command"] = "enable",
-        };
-        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}?section=mods", UriKind.Relative), new FormUrlEncodedContent(form));
-
-        await Assert.That((int)post.StatusCode).IsLessThan(400);
-        Operation? op = FirstOperation(factory, serverId, OperationKind.ConfigApply);
-        await Assert.That(op).IsNotNull();
-        await Assert.That(op!.CommandPayload).Contains("Mods");
-        await Assert.That(op.CommandPayload).Contains("ModB");
-        client.Dispose();
-    }
-
-    [Test]
-    public async Task The_disable_button_posts_and_enqueues_a_config_apply()
-    {
-        await using ZWardenWebAppFactory factory = new();
-        HttpClient client = await SignedInOperatorAsync(factory);
-        (ServerId serverId, AgentId agent) = await SeedServerAndAgentAsync(factory, "disableable");
-        SeedInventory(
-            factory, serverId, agent,
-            installed: [new InstalledWorkshopItem("100", [new InstalledMod("ModA", null)])],
-            workshop: ["100"],
-            enabled: ["ModA", "ModB"]);
-
-        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}?section=mods", UriKind.Relative))).Content.ReadAsStringAsync();
-        Dictionary<string, string> form = new(StringComparer.Ordinal)
-        {
-            ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
-            ["_handler"] = "mod-manage",
-            ["_modManageForm.Command"] = "disable|ModB",
-        };
-        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}?section=mods", UriKind.Relative), new FormUrlEncodedContent(form));
-
-        await Assert.That((int)post.StatusCode).IsLessThan(400);
-        Operation? op = FirstOperation(factory, serverId, OperationKind.ConfigApply);
-        await Assert.That(op).IsNotNull();
-        await Assert.That(op!.CommandPayload).Contains("Mods");
-        client.Dispose();
-    }
-
-    [Test]
-    public async Task The_restart_button_posts_and_enqueues_a_restart_server_operation()
-    {
-        await using ZWardenWebAppFactory factory = new();
-        HttpClient client = await SignedInOperatorAsync(factory);
-        (ServerId serverId, AgentId agent) = await SeedServerAndAgentAsync(factory, "restartable-mods");
-        SeedInventory(factory, serverId, agent, installed: [], workshop: ["100"], enabled: []);
-
-        string page = await (await client.GetAsync(new Uri($"/servers/{serverId}?section=mods", UriKind.Relative))).Content.ReadAsStringAsync();
-        Dictionary<string, string> form = new(StringComparer.Ordinal)
-        {
-            ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
-            ["_handler"] = "mod-manage",
-            ["_modManageForm.Command"] = "restart",
-        };
-        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}?section=mods", UriKind.Relative), new FormUrlEncodedContent(form));
-
-        await Assert.That((int)post.StatusCode).IsLessThan(400);
-        await Assert.That(EnqueuedKind(factory, serverId, OperationKind.RestartServer)).IsTrue();
-        // #273: the Mods refresh never runs the game update, so it can't change the game build.
-        await Assert.That(EnqueuedKind(factory, serverId, OperationKind.UpdateServer)).IsFalse();
-        await Assert.That(await post.Content.ReadAsStringAsync()).Contains("Workshop updates download as the server boots");
-        client.Dispose();
-    }
 
     [Test]
     public async Task The_graceful_restart_control_shows_for_a_permitted_operator()

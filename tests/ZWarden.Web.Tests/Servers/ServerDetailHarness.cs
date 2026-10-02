@@ -4,6 +4,7 @@ using Bunit;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.DependencyInjection;
+using ZWarden.Application.Mods;
 using ZWarden.Domain.Backups;
 using ZWarden.Domain.Ids;
 using ZWarden.Domain.Operations;
@@ -74,6 +75,19 @@ internal sealed class ServerDetailHarness : IAsyncDisposable
         db.Set<Server>().Add(server);
         await db.SaveChangesAsync();
         return server.Id;
+    }
+
+    /// <summary>Records <paramref name="serverId"/>'s mod inventory as its own Agent last reported it.</summary>
+    public void SeedInventory(
+        ServerId serverId,
+        IReadOnlyList<InstalledWorkshopItem> installed,
+        IReadOnlyList<string> workshop,
+        IReadOnlyList<string> enabled)
+    {
+        using AsyncServiceScope scope = Factory.Services.CreateSystemScope();
+        AgentId agent = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>().Set<Server>().Single(s => s.Id == serverId).AgentId;
+        Factory.Services.GetRequiredService<IModInventoryCache>()
+            .Record(new ModInventory(serverId, agent, installed, workshop, enabled, [], DateTimeOffset.UtcNow));
     }
 
     /// <summary>Records a verified backup of <paramref name="serverId"/> on its own Agent.</summary>
