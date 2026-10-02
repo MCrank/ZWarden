@@ -106,8 +106,15 @@ Use them and don't write static workarounds. The rules:
   `Program` on Kestrel with a signed-in owner and no Agent, and `BrowserSession` records console and page errors. CI
   runs them in the `tier3-e2e-browser` job. To run them locally, build once, then run
   `pwsh tests/ZWarden.Web.BrowserTests/bin/Debug/net10.0/playwright.ps1 install chromium` and the built test exe.
-- **No new static-only JS.** `dialog.js`, `config-editor.js` and Server Detail's use of `live-status.js` are
-  replaced by components in each section's PR (ADR 0046). `live-status.js` stays for Fleet.
+- **No new static-only JS.** Since #299 `dialog.js` and `config-editor.js` are gone and `live-status.js` serves
+  only Fleet. Browser-only conveniences on an interactive page are small ES modules imported through
+  `IJSRuntime` (`dismissed-failures.js`, `local-prefs.js`), guarded so the page works without storage.
+- **Interactive pages call services through `ActionScopeRunner`** (a scope and a `DbContext` per action, #297).
+  Singleton caches (live inventories, rosters, capacity) may be injected directly.
+- **A `BbInput` that feeds an action uses `UpdateTiming="UpdateTiming.Immediate"`.** The default reports the value
+  on blur, and a click can reach the circuit first, so the action would see the old value. Browser tests type
+  through `BrowserSession.FillAsync` and wait for the network to settle after load, because a `BbInput` attaches its
+  listener only once its JS module has loaded.
 - An interactive grid's row parameter must be a real `List<T>`, not an array behind `IReadOnlyList<T>`, or
   the circuit throws "component operations is not valid".
 
@@ -155,28 +162,21 @@ so none of them is needed.
   diffs — ADR 0003 condition 2) and bump the `Web.Tests` `--minimum-expected-tests` floor when the
   test count changes.
 
-## Confirming a destructive action on a static page (#271)
+## Confirming a destructive action (#271)
 
-On an interactive page, use `BbAlertDialog` (with the portal host) instead. The "server is the guard" rule below
-still applies there too.
+Confirmations run on an interactive page, as a `BbAlertDialog` rendered into the page's own `BbPortalHost`
+(Server Detail's Delete, #299). The static `dialog.js` pattern is gone. A static page that needs a confirmation
+first needs an ADR 0046 amendment to go interactive.
 
-Static pages have no circuit, so `BbAlertDialog`/`BbDialog` are out. The pattern for an "are you sure?"
-confirmation is a **native `<dialog>` wrapping an ordinary static `EditForm`**, driven by
-`wwwroot/js/dialog.js` (delegated on `document`, so it survives enhanced navigation):
-
-- Opener: a `BbButton Type="ButtonType.Button"` with `data-zw-dialog-open="<name>"`.
-- Dialog: `<dialog data-zw-dialog="<name>" aria-labelledby="…">`. **Give it `m-auto`**: Tailwind's preflight zeroes
-  every margin, including the UA `margin: auto` that centres a modal dialog, so without it the dialog pins top-left.
-  Style it with Tailwind (`backdrop:bg-black/60`
-  for the scrim). Say what goes, what is kept, and that it can't be undone.
-- Typed confirmation (GitHub-style): a `BbInput` with `data-zw-confirm-expected="@exact text"`, plus a submit
-  `BbButton` with `data-zw-confirm-submit` and `Disabled="true"`. The script enables it only on an exact match.
-  `BbButton` renders `Disabled` as `aria-disabled` + `tabindex=-1` with no native `disabled`, so the script
-  keeps all three in step. In tests, assert `aria-disabled="true"`, not the word "disabled" (the class list
-  contains `disabled:opacity-50`).
-- Cancel: a `BbButton Type="ButtonType.Button"` with `data-zw-dialog-close`. Esc closes the dialog natively.
-  Reopening clears the input.
-- **The server is the guard.** The typed value is posted, and the service re-checks it (ordinal, exact).
-  `Delete server` returns `ServerLifecycleFailure.ConfirmationMismatch` and audits the refusal. Without JS the
-  dialog never opens, so nothing can be submitted (fail closed).
-- Verify the JS in a real browser (playwright via `run-web`). Page tests only see the markup.
+- Opener: a `BbButton` whose `OnClick` resets the confirmation and sets the dialog's `@bind-Open` flag.
+- Content: `BbAlertDialogContent` (put `data-*` hooks there; the root renders no element). Say what goes, what is
+  kept, and that it can't be undone.
+- Typed confirmation (GitHub-style): a `BbInput` with `UpdateTiming="UpdateTiming.Immediate"`, so the confirm button
+  enables on the keystroke that completes the name. The confirm button is a plain `BbButton` with
+  `Disabled="@(!Confirmed)"` and an `OnClick` handler. Don't wrap it in `BbAlertDialogAction`: that closes the
+  dialog before the async handler runs.
+- Cancel: `BbAlertDialogCancel` wrapping a `BbButton`.
+- **The server is the guard.** The typed value is passed through, and the service re-checks it (ordinal, exact).
+  `Delete server` returns `ServerLifecycleFailure.ConfirmationMismatch` and audits the refusal.
+- bUnit renders the dialog through the page's portal host, so a test can open it, type, and assert the button's
+  `disabled` attribute (`OverviewSectionTests`).

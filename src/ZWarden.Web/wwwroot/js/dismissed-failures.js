@@ -1,7 +1,7 @@
 // Which "last action failed" alerts this viewer dismissed (#266), remembered by operation id in this browser only.
 // A convenience: storage may be unavailable (private mode, blocked site data), so every access is guarded and the
-// alert simply stays visible. The interactive Server Detail page (#299) imports this module; live-status.js keeps
-// the same key for the static pages, so a dismissal carries across both.
+// alert simply stays visible. The interactive Server Detail page (#299) imports this module; the key is the one
+// live-status.js used before, so dismissals made then still hold.
 const KEY = 'zw-dismissed-failures';
 const MAX = 50;
 

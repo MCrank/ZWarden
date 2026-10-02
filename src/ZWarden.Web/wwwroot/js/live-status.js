@@ -1,30 +1,19 @@
-// Live server status (#249 header, #253 fleet) — static-SSR progressive enhancement. The page is rendered once,
-// so a stop/restart/boot never showed; this polls an authorized status endpoint and updates the badge (tone +
-// label) and the lifecycle buttons' enabled state in place. Two page shapes:
-//   [data-live-status="<url>"]  server-detail header — one status object; buttons anywhere on the page.
-//   [data-live-fleet="<url>"]   fleet board — an array of { id, ... }; each [data-live-row="<id>"] is updated
-//                               from its own entry (buttons scoped to that row), as are its fact cells
-//                               ([data-fleet-server="<id>"]: players, CPU, memory, uptime, version — #257) and
-//                               the KPI tiles ([data-kpi-strip]); a row with no entry (the Server left the list)
-//                               is left as rendered.
-// Poll-driven, no circuit: the endpoint runs under the operator's own request (tenant + Server.View), which a
-// circuit lacks. Faster while a mutating Operation is in flight, slower when idle, and only while the tab is
-// visible. One loop for the whole app, so it survives Blazor enhanced navigation (a page without a marker simply
-// isn't polled). Without JS the page stays as rendered and the service still re-checks every submit.
+// Live fleet status (#253) — static-SSR progressive enhancement for the Fleet board (/servers), which stays static
+// (ADR 0046). The page is rendered once, so a stop/restart/boot never showed; this polls the authorized batched
+// status endpoint ([data-live-fleet="<url>"]: an array of { id, ... }) and updates each [data-live-row="<id>"]'s
+// badge from its own entry, its fact cells ([data-fleet-server="<id>"]: players, CPU, memory, uptime, version —
+// #257) and the KPI tiles ([data-kpi-strip]); a row with no entry (the Server left the list) triggers one reload.
+// The Server Detail header used to ride this script too (#249); since #299 that page is interactive and its
+// circuit polls the header itself.
+// Poll-driven, no circuit: the endpoint runs under the operator's own request (tenant + Server.View). Faster while
+// a mutating Operation is in flight, slower when idle, and only while the tab is visible. One loop for the whole
+// app, so it survives Blazor enhanced navigation (a page without the marker simply isn't polled).
 (function () {
   'use strict';
   var doc = document;
   var TONES = ['running', 'stopped', 'busy', 'unhealthy', 'unknown'];
   var BUSY_MS = 2000;
   var IDLE_MS = 5000;
-  // Which status flag enables which lifecycle control (header buttons + the graceful-restart panel).
-  var CONTROLS = {
-    'server-start': 'canStart',
-    'server-stop': 'canStop',
-    'server-restart': 'canRestart',
-    'server-update': 'canUpdate',
-    'graceful-restart': 'canRestart'
-  };
   // The fleet's last answer by Server id: re-applied when the interactive board re-renders its rows (a sort
   // moves them), which would otherwise leave a badge showing another row's status until the next poll.
   var lastFleet = null;
@@ -65,83 +54,9 @@
     }
   }
 
-  function applyControls(scope, s) {
-    Object.keys(CONTROLS).forEach(function (action) {
-      scope.querySelectorAll('[data-action="' + action + '"]').forEach(function (b) {
-        var disabled = !s[CONTROLS[action]];
-        if (b.disabled !== disabled) { b.disabled = disabled; }
-      });
-    });
-  }
-
   function setBusy(root, busy) {
     var value = busy ? 'true' : 'false';
     if (root.getAttribute('data-status-busy') !== value) { root.setAttribute('data-status-busy', value); }
-  }
-
-  // #266: the last action's failure ([data-last-failure], outside the header root). The reason is Agent text, so
-  // textContent only. A viewer may dismiss one failure; that is remembered per operation id in this browser only
-  // (a convenience — storage may be unavailable, so every access is guarded and the alert simply stays visible).
-  var DISMISSED_KEY = 'zw-dismissed-failures';
-  var MAX_DISMISSED = 50;
-
-  function dismissedIds() {
-    try {
-      var raw = window.localStorage.getItem(DISMISSED_KEY);
-      var ids = raw ? JSON.parse(raw) : [];
-      return Array.isArray(ids) ? ids : [];
-    } catch (e) { return []; }
-  }
-
-  function rememberDismissed(id) {
-    try {
-      var ids = dismissedIds().filter(function (x) { return x !== id; });
-      ids.push(id);
-      window.localStorage.setItem(DISMISSED_KEY, JSON.stringify(ids.slice(-MAX_DISMISSED)));
-    } catch (e) { /* storage unavailable: dismissal lasts until the next poll re-shows it */ }
-  }
-
-  function failureBox() {
-    return doc.querySelector('[data-last-failure]');
-  }
-
-  // Hide a server-rendered failure the viewer already dismissed (on load and after every enhanced navigation).
-  function hideDismissed() {
-    var box = failureBox();
-    var id = box && box.getAttribute('data-last-failure-id');
-    if (id && dismissedIds().indexOf(id) !== -1) { setHidden(box, true); }
-  }
-
-  function applyFailure(f) {
-    var box = failureBox();
-    if (!box) { return; }
-    var id = f && typeof f.operationId === 'string' ? f.operationId : null;
-    if (!id || dismissedIds().indexOf(id) !== -1) {
-      setHidden(box, true);
-      return;
-    }
-    setAttr(box, 'data-last-failure-id', id);
-    setText(box.querySelector('[data-last-failure-action]'), String(f.action || ''));
-    setText(box.querySelector('[data-last-failure-reason]'), String(f.reason || ''));
-    setText(box.querySelector('[data-last-failure-at]'), String(f.at || ''));
-    setHidden(box, false);
-  }
-
-  doc.addEventListener('click', function (e) {
-    var button = e.target && e.target.closest ? e.target.closest('[data-last-failure-dismiss]') : null;
-    if (!button) { return; }
-    var box = button.closest('[data-last-failure]');
-    var id = box && box.getAttribute('data-last-failure-id');
-    if (id) { rememberDismissed(id); }
-    setHidden(box, true);
-  });
-
-  function applyHeader(root, s) {
-    if (!s || TONES.indexOf(s.tone) === -1) { return; }
-    applyBadge(root, s);
-    setBusy(root, s.busy);
-    applyControls(doc, s);
-    applyFailure(s.failure);
   }
 
   // #257: the fleet facts. Every value is Agent-observed data, so it is written with textContent only. Uptime and
@@ -262,10 +177,7 @@
       var id = row.getAttribute('data-live-row');
       var s = byId[id];
       if (!s) { gone.push(id); return; }
-      if (TONES.indexOf(s.tone) !== -1) {
-        applyBadge(row, s);
-        applyControls(row, s);
-      }
+      if (TONES.indexOf(s.tone) !== -1) { applyBadge(row, s); }
     });
     // A rendered server the batch no longer reports has left the fleet (#271, deleted). Reload so the board, its
     // counts and KPI tiles re-render without it — at most once per set of missing servers, so a render/batch mismatch
@@ -284,11 +196,11 @@
   }
 
   function currentRoot() {
-    return doc.querySelector('[data-live-status]') || doc.querySelector('[data-live-fleet]');
+    return doc.querySelector('[data-live-fleet]');
   }
 
   function urlOf(root) {
-    return root.getAttribute('data-live-status') || root.getAttribute('data-live-fleet');
+    return root.getAttribute('data-live-fleet');
   }
 
   function schedule(root) {
@@ -300,39 +212,23 @@
     var root = currentRoot();
     if (!root || doc.visibilityState === 'hidden' || !window.fetch) { schedule(root); return; }
     var url = urlOf(root);
-    var fleet = root.hasAttribute('data-live-fleet');
-    if (fleet) { observeFleet(root); } else { lastFleet = null; lastFleetRoot = null; }
+    observeFleet(root);
     window.fetch(url, { credentials: 'same-origin', headers: { 'Accept': 'application/json' }, cache: 'no-store' })
-      .then(function (r) {
-        // The server this page shows is gone (#271, deleted): go back to the fleet rather than show a stale page.
-        if (!fleet && r.status === 404) { window.location.assign('/servers'); return null; }
-        return r.ok ? r.json() : null;
-      })
+      .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (s) {
         // Navigated elsewhere while the request was out? Only apply to the page that asked.
         var current = currentRoot();
-        if (!s || !current || urlOf(current) !== url) { return; }
-        if (fleet) {
-          if (!Array.isArray(s)) { return; }
-          var byId = {};
-          s.forEach(function (e) { if (e && typeof e.id === 'string') { byId[e.id] = e; } });
-          lastFleet = byId;
-          lastFleetRoot = current;
-          observeFleet(current);
-          applyFleet(current, byId);
-          applyKpis(s);
-        } else {
-          applyHeader(current, s);
-        }
+        if (!Array.isArray(s) || !current || urlOf(current) !== url) { return; }
+        var byId = {};
+        s.forEach(function (e) { if (e && typeof e.id === 'string') { byId[e.id] = e; } });
+        lastFleet = byId;
+        lastFleetRoot = current;
+        observeFleet(current);
+        applyFleet(current, byId);
+        applyKpis(s);
       })
       .catch(function () { /* transient: the next tick tries again */ })
       .then(function () { schedule(currentRoot()); });
-  }
-
-  hideDismissed();
-  // Blazor raises 'enhancedload' on its own event bus (not a DOM event); this script loads after blazor.web.js.
-  if (window.Blazor && typeof window.Blazor.addEventListener === 'function') {
-    try { window.Blazor.addEventListener('enhancedload', hideDismissed); } catch (e) { /* older runtime */ }
   }
 
   schedule(currentRoot());
