@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The browser smoke tier (#299, ADR 0046 Q4): one Playwright test per interactive section, run in Chromium against
+    the real Program host served on Kestrel (WebApplicationFactory.UseKestrel) over a seeded SQLite file, with no
+    Agent. Circuit-only failures are invisible to bUnit and to the real-host page tests, so every test also fails on
+    any browser-console error. Needs a Chromium download (playwright.ps1 install), so it is NOT a tier-1 offline
+    assembly: CI runs it in its own e2e job.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <LangVersion>14.0</LangVersion>
+    <TestingPlatformCommandLineArguments>--minimum-expected-tests 11</TestingPlatformCommandLineArguments>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="TUnit" />
+    <PackageReference Include="Microsoft.Playwright" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\ZWarden.Web\ZWarden.Web.csproj" />
+    <ProjectReference Include="..\ZWarden.TestSupport\ZWarden.TestSupport.csproj" />
+    <!-- The SQLite migration history, so the booted host's MigrateAsync finds the offline provider's migrations. -->
+    <ProjectReference Include="..\..\src\ZWarden.Migrations.Sqlite\ZWarden.Migrations.Sqlite.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The same host the real-host page tests boot (test key ring, throwaway SQLite, setup complete). -->
+    <Compile Include="..\ZWarden.Web.Tests\Account\ZWardenWebAppFactory.cs" Link="Hosting\ZWardenWebAppFactory.cs" />
+  </ItemGroup>
+
+</Project>

@@ -24,6 +24,7 @@
     <Project Path="tests/ZWarden.PzConfig.Tests/ZWarden.PzConfig.Tests.csproj" />
     <Project Path="tests/ZWarden.Rcon.Tests/ZWarden.Rcon.Tests.csproj" />
     <Project Path="tests/ZWarden.TestSupport/ZWarden.TestSupport.csproj" />
+    <Project Path="tests/ZWarden.Web.BrowserTests/ZWarden.Web.BrowserTests.csproj" />
     <Project Path="tests/ZWarden.Web.Tests/ZWarden.Web.Tests.csproj" />
   </Folder>
 </Solution>

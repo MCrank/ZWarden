@@ -102,7 +102,10 @@ Use them and don't write static workarounds. The rules:
   else reloads from the database when a circuit is rebuilt after a reconnect or a deploy.
 - **One Playwright smoke test per section.** It loads the section in a real browser and fails on any
   console error. Circuit-only failures (like the `BbDataGrid` `List<T>` crash below) don't show up in bUnit or
-  the real-host page tests.
+  the real-host page tests. The tests live in `tests/ZWarden.Web.BrowserTests`, where `BrowserHost` serves the real
+  `Program` on Kestrel with a signed-in owner and no Agent, and `BrowserSession` records console and page errors. CI
+  runs them in the `tier3-e2e-browser` job. To run them locally, build once, then run
+  `pwsh tests/ZWarden.Web.BrowserTests/bin/Debug/net10.0/playwright.ps1 install chromium` and the built test exe.
 - **No new static-only JS.** `dialog.js`, `config-editor.js` and Server Detail's use of `live-status.js` are
   replaced by components in each section's PR (ADR 0046). `live-status.js` stays for Fleet.
 - An interactive grid's row parameter must be a real `List<T>`, not an array behind `IReadOnlyList<T>`, or
