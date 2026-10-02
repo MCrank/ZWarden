@@ -1,9 +1,7 @@
 @inherits ServerSectionBase
-@using ZWarden.Web.Time
-@inject IOperatorTimeZoneProvider OperatorTz
 
-@* The Logs rail section (F27): a live tail of the server's console output, streamed by its interactive island only
-   while the panel is open. Gated on the per-server Console.View by the page. *@
+@* The Logs rail section (F27): a live tail of the server's console output, streamed by its live panel only while
+   the panel is open. Gated on the per-server Console.View by the page. *@
 
 <BbCard Class="p-5" data-logs-card>
     <h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Live logs</h2>
@@ -12,9 +10,8 @@
         open. Lines are shown as-is and are not stored — a live tail, not a searchable history.
     </p>
     <div class="mt-4">
-        <LiveServerLogPanel @rendermode="InteractiveServer"
-                            ServerId="@Server.Id.ToString()"
+        <LiveServerLogPanel ServerId="@Server.Id.ToString()"
                             AgentId="@Server.AgentId.ToString()"
-                            TimeZoneId="@OperatorTz.Zone.Id" />
+                            TimeZoneId="@OperatorZone.Id" />
     </div>
 </BbCard>

@@ -1,34 +1,29 @@
 @page "/servers/{Id}"
 @attribute [Authorize]
-@* #224: the config editor posts ~5 values per setting, so a full B42 SandboxVars (~280 settings) posted whole (the
-   no-JS path) exceeds the form reader's default 1024-value limit. Raised for this page only and bounded to Blazor's
-   1024-element form-collection limit (~5 values x 1024 rows); a larger post is refused by FormLimitGuardMiddleware with
-   an operator message. config-editor.js normally posts just the changed rows. *@
-@attribute [Microsoft.AspNetCore.Mvc.RequestFormLimits(ValueCountLimit = 6144)]
+@rendermode InteractiveServer
+@implements IAsyncDisposable
 @using System.Security.Claims
-@using ZWarden.Application.Authorization
+@using Microsoft.Extensions.Logging
 @using ZWarden.Application.Operations
-@using ZWarden.Application.Servers
-@using ZWarden.Domain.Authorization
 @using ZWarden.Domain.Ids
-@using ZWarden.Domain.Operations
+@using ZWarden.Infrastructure.Tenancy
 @using ZWarden.Web.Time
 @using ZWarden.Web.Components.Servers
 @using ZWarden.Web.Components.Pages.Servers.Sections
-@inject IServerInventory Inventory
-@inject IOperationStore OperationStore
-@inject IServerLifecycle Lifecycle
-@inject IPermissionChecker PermissionChecker
+@inject ActionScopeRunner Actions
 @inject IOperatorTimeZoneProvider OperatorTz
 @inject UserManager<ApplicationUser> Users
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+@inject ILogger<ServerDetail> Logger
 
-@* The server-detail page (F16/F19). Static server render like /servers: it runs per request with a live
-   HttpContext, so the session-derived tenant resolves and the authorized load is tenant-filtered. Authorization
-   is the fail-closed per-Server Server.View inside Inventory.GetVisibleAsync; the player controls gate on the
-   per-server Player.* / Server.Configuration.Edit, re-checked in the service on submit (ADR 0018). The durable
-   metadata + last-reported health render statically here; the LIVE meters/health and the LIVE roster ride
-   interactive islands that read only the ownership-guarded in-memory caches (no tenant context, which a circuit
-   lacks). All Agent-reported text (including usernames) is untrusted and rendered as data (§8).
+@* The server-detail page (F16/F19). Interactive (#299, ADR 0046): it runs in a circuit, so forms and buttons are
+   circuit handlers and the header updates in place. The first paint is prerendered on the request, and the load it
+   did (the Server, every permission flag, the header) reaches the circuit through [PersistentState] instead of being
+   loaded again. Every service call goes through ActionScopeRunner, a DI scope (and DbContext) per call carrying the
+   circuit's tenant (#297). Authorization is the fail-closed per-Server Server.View inside the inventory load; each
+   control gates on its per-server permission, and every service re-checks it on every action (ADR 0018). All
+   Agent-reported text (including usernames) is untrusted and rendered as data (§8).
    #298: the page owns the route, the Server load, every per-server permission gate, the header (lifecycle,
    countdown restart, last failure) and the rail; each rail section is its own component under Sections/ and owns
    its forms, handlers and data. *@
@@ -36,65 +31,71 @@
 <PageTitle>@(_server?.Name ?? "Server") — ZWarden</PageTitle>
 
 <p class="text-sm"><a href="/servers" class="text-muted-foreground hover:text-foreground">← Servers</a></p>
+@* "on" once the circuit has rendered the page, so a browser test knows the buttons are live (a click on the
+   prerendered markup before then does nothing). The instance id changes when a new circuit (a resume after a pause
+   or eviction) renders the page afresh. *@
+<span hidden data-circuit="@(_circuitReady ? "on" : "off")" data-circuit-instance="@_instance"></span>
 
-@if (_server is null)
+@if (_server is null || _perm is null)
 {
-    <div class="mt-6" data-server-missing>
-        <BbAlert Variant="AlertVariant.Warning" AccentBorder>
-            <BbAlertDescription>That server does not exist, or you do not have permission to view it.</BbAlertDescription>
-        </BbAlert>
-    </div>
+    @if (_loaded)
+    {
+        <div class="mt-6" data-server-missing>
+            <BbAlert Variant="AlertVariant.Warning" AccentBorder>
+                <BbAlertDescription>That server does not exist, or you do not have permission to view it.</BbAlertDescription>
+            </BbAlert>
+        </div>
+    }
 }
 else
 {
     @* Sticky server header (name + status + lifecycle), above the rail and content. The lifecycle controls
        (F15) render for whoever holds the matching Server.Start/Stop/Restart and are disabled by the last
-       observed run-state; the service re-checks fail-closed on submit. *@
-    @* #249: data-live-status names the authorized status endpoint live-status.js polls to re-tone the badge and
-       re-enable the lifecycle buttons in place (a safe stop, a restart, a boot) — no circuit, no reload. *@
-    <div class="zw-srvhead mt-2" data-live-status="/api/servers/@_server.Id/status" data-status-busy="@(_status.Busy ? "true" : "false")">
+       observed run-state; the service re-checks fail-closed on every action. The circuit re-reads the status
+       (#249) every few seconds, faster while an Operation is in flight. *@
+    <div class="zw-srvhead mt-2" data-server-header data-status-busy="@(_status.Busy ? "true" : "false")">
         <h1 class="text-2xl font-semibold tracking-tight">@_server.Name</h1>
         <StatusBadge State="_status.Tone" Text="@_status.Label" />
         @* #254: what the in-flight Operation is doing (e.g. the restart countdown). Untrusted Agent text, always
-           rendered as text; live-status.js keeps it current and hides it when there is none. *@
+           rendered as text; hidden when there is none. *@
         <span class="text-xs text-muted-foreground" data-status-detail hidden="@(_status.Detail is null)">@_status.Detail</span>
         <span class="zw-spacer"></span>
-        @if (_canStart || _canStop || _canRestartServer || _canUpdate)
+        @if (_perm.CanStart || _perm.CanStop || _perm.CanRestart || _perm.CanUpdate)
         {
-            <EditForm Model="_lifecycleForm" FormName="server-lifecycle" OnValidSubmit="LifecycleAsync" class="zw-lifebtns">
-                @if (_canStart)
+            <div class="zw-lifebtns">
+                @if (_perm.CanStart)
                 {
-                    <BbButton Variant="ButtonVariant.Outline" Type="ButtonType.Submit" Size="ButtonSize.Small"
-                              Disabled="@(!StartEnabled)" name="_lifecycleForm.Command" value="start" data-action="server-start">
+                    <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small"
+                              Disabled="@(!_status.CanStart || _acting)" OnClick="@(() => LifecycleAsync("start"))" data-action="server-start">
                         <ShellIcon Name="play" /><span class="ml-1">Start</span>
                     </BbButton>
                 }
-                @if (_canStop)
+                @if (_perm.CanStop)
                 {
-                    <BbButton Variant="ButtonVariant.Outline" Type="ButtonType.Submit" Size="ButtonSize.Small"
-                              Disabled="@(!StopEnabled)" name="_lifecycleForm.Command" value="stop" data-action="server-stop">
+                    <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small"
+                              Disabled="@(!_status.CanStop || _acting)" OnClick="@(() => LifecycleAsync("stop"))" data-action="server-stop">
                         <ShellIcon Name="square" /><span class="ml-1">Stop</span>
                     </BbButton>
                 }
-                @if (_canRestartServer)
+                @if (_perm.CanRestart)
                 {
-                    <BbButton Variant="ButtonVariant.Outline" Type="ButtonType.Submit" Size="ButtonSize.Small"
-                              Disabled="@(!RestartEnabled)" name="_lifecycleForm.Command" value="restart" data-action="server-restart">
+                    <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small"
+                              Disabled="@(!_status.CanRestart || _acting)" OnClick="@(() => LifecycleAsync("restart"))" data-action="server-restart">
                         <ShellIcon Name="rotate-cw" /><span class="ml-1">Restart</span>
                     </BbButton>
                 }
                 @* #273: the F17 game update (warn → safe stop → SteamCMD on the server's branch → boot), gated on
                    Server.Update. The note says which branch it pulls from; a pinned server stays on its version. *@
-                @if (_canUpdate)
+                @if (_perm.CanUpdate)
                 {
-                    <BbButton Variant="ButtonVariant.Outline" Type="ButtonType.Submit" Size="ButtonSize.Small"
-                              Disabled="@(!UpdateEnabled)" name="_lifecycleForm.Command" value="update" data-action="server-update"
+                    <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small"
+                              Disabled="@(!_status.CanUpdate || _acting)" OnClick="@(() => LifecycleAsync("update"))" data-action="server-update"
                               title="@ServerBranchView.UpdateNote(_server.Branch)">
                         <ShellIcon Name="download" /><span class="ml-1">Update game</span>
                     </BbButton>
                     <span class="text-xs text-muted-foreground" data-update-branch>@ServerBranchView.UpdateNote(_server.Branch)</span>
                 }
-            </EditForm>
+            </div>
         }
     </div>
     @if (!string.IsNullOrWhiteSpace(_server.Description))
@@ -110,32 +111,34 @@ else
         </div>
     }
 
-    @* #266: the last action's failure and why — a refused Recreate used to look like a silent no-op. Always rendered
-       (hidden when there is none) so live-status.js can show it the moment an in-flight action fails, and hide it once
-       a later action succeeds. The reason is untrusted Agent text: Razor escapes it; the script uses textContent.
-       Dismissal is a per-viewer convenience remembered by operation id in the browser. *@
-    <div class="mt-3" data-last-failure data-last-failure-id="@_lastFailure?.OperationId" hidden="@(_lastFailure is null)">
-        <BbAlert Variant="AlertVariant.Danger" AccentBorder>
-            <BbAlertDescription>
-                <div class="flex items-start gap-3">
-                    <div class="flex-1">
-                        <p>
-                            <span class="font-semibold"><span data-last-failure-action>@_lastFailure?.Action</span> failed</span>
-                            <span class="text-xs text-muted-foreground">· <span data-last-failure-at>@_lastFailure?.At</span></span>
-                        </p>
-                        <p class="mt-1 wrap-break-word" data-last-failure-reason>@_lastFailure?.Reason</p>
+    @* #266: the last action's failure and why — a refused Recreate used to look like a silent no-op. Shown until a
+       later action succeeds; the reason is untrusted Agent text, rendered as text. Dismissal is a per-viewer
+       convenience remembered by operation id in this browser (dismissed-failures.js). *@
+    @if (VisibleFailure is { } failure)
+    {
+        <div class="mt-3" data-last-failure data-last-failure-id="@failure.OperationId">
+            <BbAlert Variant="AlertVariant.Danger" AccentBorder>
+                <BbAlertDescription>
+                    <div class="flex items-start gap-3">
+                        <div class="flex-1">
+                            <p>
+                                <span class="font-semibold"><span data-last-failure-action>@failure.Action</span> failed</span>
+                                <span class="text-xs text-muted-foreground">· <span data-last-failure-at>@failure.At</span></span>
+                            </p>
+                            <p class="mt-1 wrap-break-word" data-last-failure-reason>@failure.Reason</p>
+                        </div>
+                        <BbButton Variant="ButtonVariant.Ghost" Size="ButtonSize.Small" OnClick="@(() => DismissFailureAsync(failure.OperationId))"
+                                  data-last-failure-dismiss aria-label="Dismiss this failure">Dismiss</BbButton>
                     </div>
-                    <BbButton Variant="ButtonVariant.Ghost" Size="ButtonSize.Small" Type="ButtonType.Button"
-                              data-last-failure-dismiss aria-label="Dismiss this failure">Dismiss</BbButton>
-                </div>
-            </BbAlertDescription>
-        </BbAlert>
-    </div>
+                </BbAlertDescription>
+            </BbAlert>
+        </div>
+    }
 
     @* Graceful restart (#114, #213): warn connected players with a countdown before the restart. Surfaced as an
        always-visible panel (not a collapsed disclosure) so it is discoverable, and the operator picks how long to
-       warn. Static-SSR form, gated on the same server-scoped Server.Restart the service re-checks on submit. *@
-    @if (_canRestartServer)
+       warn. Gated on the same server-scoped Server.Restart the service re-checks. *@
+    @if (_perm.CanRestart)
     {
         <div class="mt-3 rounded-md border border-border bg-card p-4" data-graceful-restart>
             <h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Restart with a countdown</h2>
@@ -143,59 +146,55 @@ else
                 Warn connected players in-game, then safely restart. Choose how long to warn before the restart —
                 mods and sandbox changes take effect on the next start.
             </p>
-            <EditForm Model="_gracefulForm" FormName="server-graceful-restart" OnValidSubmit="GracefulRestartAsync" class="mt-3">
+            <EditForm Model="_gracefulForm" OnValidSubmit="GracefulRestartAsync" class="mt-3">
                 <DataAnnotationsValidator />
                 <div class="flex flex-col gap-3 sm:flex-row sm:items-end">
                     <div class="flex flex-col text-sm">
                         <BbLabel For="graceful-countdown" Class="mb-1 text-muted-foreground">Countdown</BbLabel>
-                        @* Explicit Name for static-SSR binding on BbNativeSelect (#84). *@
-                        @* Default (5 minutes) first: under static SSR BbNativeSelect shows the first option, so the
-                           default option leads to keep the shown value and the model default in agreement (#84). *@
-                        <BbNativeSelect TValue="string" Id="graceful-countdown" Name="_gracefulForm.Countdown" @bind-Value="_gracefulForm.Countdown">
-                            <option value="5m" selected="@(_gracefulForm.Countdown is null or "5m")">5 minutes</option>
-                            <option value="15m" selected="@(_gracefulForm.Countdown == "15m")">15 minutes</option>
-                            <option value="1m" selected="@(_gracefulForm.Countdown == "1m")">1 minute</option>
-                            <option value="immediate" selected="@(_gracefulForm.Countdown == "immediate")">Immediately (no warning)</option>
+                        <BbNativeSelect TValue="string" Id="graceful-countdown" @bind-Value="_gracefulForm.Countdown">
+                            <option value="5m">5 minutes</option>
+                            <option value="15m">15 minutes</option>
+                            <option value="1m">1 minute</option>
+                            <option value="immediate">Immediately (no warning)</option>
                         </BbNativeSelect>
                     </div>
                     <div class="flex flex-1 flex-col text-sm">
                         <BbLabel For="graceful-message" Class="mb-1 text-muted-foreground">Message to players (optional)</BbLabel>
-                        @* BbInput auto-derives the model-path Name (_gracefulForm.Message) under the EditForm (#121). *@
-                        <BbInput Id="graceful-message" @bind-Value="_gracefulForm.Message" autocomplete="off"
+                        <BbInput Id="graceful-message" UpdateTiming="UpdateTiming.Immediate" @bind-Value="_gracefulForm.Message" autocomplete="off"
                                  Placeholder="Scheduled maintenance." />
                     </div>
                     <BbButton Variant="ButtonVariant.Secondary" Type="ButtonType.Submit" Size="ButtonSize.Small"
-                              Disabled="@(!RestartEnabled)" data-action="graceful-restart">Restart</BbButton>
+                              Disabled="@(!_status.CanRestart || _acting)" data-action="graceful-restart">Restart</BbButton>
                 </div>
             </EditForm>
         </div>
     }
 
     <div class="zw-srvlayout mt-6">
-        @* Grouped vertical rail (#162). Each item links to its ?section= (static SSR, bookmarkable), so only
-           the selected section — and its one Live* island — renders. A section appears only where the operator
-           holds its per-server permission; the reserved Mod Browser slot is a disabled placeholder. *@
+        @* Grouped vertical rail (#162). Each item links to its ?section= (bookmarkable), so only the selected
+           section — and its one live panel — renders. A section appears only where the operator holds its
+           per-server permission. *@
         <nav class="zw-rail" aria-label="Server sections" data-server-rail>
             <a class="zw-railitem @Active("overview")" href="@SectionHref("overview")" data-rail-item="overview">
                 <ShellIcon Name="layout-dashboard" /><span>Overview</span>
             </a>
 
-            @if (_perm.CanAny || _canExecuteConsole || _canViewLogs)
+            @if (_perm.Players.CanAny || _perm.CanExecuteConsole || _perm.CanViewLogs)
             {
                 <div class="zw-railgrp">Operate</div>
-                @if (_perm.CanAny)
+                @if (_perm.Players.CanAny)
                 {
                     <a class="zw-railitem @Active("players")" href="@SectionHref("players")" data-rail-item="players">
                         <ShellIcon Name="users" /><span>Players</span>
                     </a>
                 }
-                @if (_canExecuteConsole)
+                @if (_perm.CanExecuteConsole)
                 {
                     <a class="zw-railitem @Active("console")" href="@SectionHref("console")" data-rail-item="console">
                         <ShellIcon Name="terminal" /><span>Console</span>
                     </a>
                 }
-                @if (_canViewLogs)
+                @if (_perm.CanViewLogs)
                 {
                     <a class="zw-railitem @Active("logs")" href="@SectionHref("logs")" data-rail-item="logs">
                         <ShellIcon Name="scroll-text" /><span>Logs</span>
@@ -203,16 +202,16 @@ else
                 }
             }
 
-            @if (_perm.CanConfigEdit || _canViewMods)
+            @if (_perm.Players.CanConfigEdit || _perm.CanViewMods)
             {
                 <div class="zw-railgrp">Configure</div>
-                @if (_perm.CanConfigEdit)
+                @if (_perm.Players.CanConfigEdit)
                 {
                     <a class="zw-railitem @Active("config")" href="@SectionHref("config")" data-rail-item="config">
                         <ShellIcon Name="sliders" /><span>Config</span>
                     </a>
                 }
-                @if (_canViewMods)
+                @if (_perm.CanViewMods)
                 {
                     <a class="zw-railitem @Active("mods")" href="@SectionHref("mods")" data-rail-item="mods">
                         <ShellIcon Name="package" /><span>Mods</span>
@@ -220,7 +219,7 @@ else
                 }
                 @* Mod Browser (#110): preview/search Workshop content before installing. Gated on Mod.View, the same
                    read permission the service re-checks fail-closed on resolve. *@
-                @if (_canViewMods)
+                @if (_perm.CanViewMods)
                 {
                     <a class="zw-railitem @Active("modbrowser")" href="@SectionHref("modbrowser")" data-rail-item="modbrowser">
                         <ShellIcon Name="search" /><span>Mod Browser</span>
@@ -228,16 +227,16 @@ else
                 }
             }
 
-            @if (_backupPerm.CanView || _canViewDiagnostics)
+            @if (_perm.Backups.CanView || _perm.CanViewDiagnostics)
             {
                 <div class="zw-railgrp">Maintain</div>
-                @if (_backupPerm.CanView)
+                @if (_perm.Backups.CanView)
                 {
                     <a class="zw-railitem @Active("backups")" href="@SectionHref("backups")" data-rail-item="backups">
                         <ShellIcon Name="archive" /><span>Backups</span>
                     </a>
                 }
-                @if (_canViewDiagnostics)
+                @if (_perm.CanViewDiagnostics)
                 {
                     <a class="zw-railitem @Active("diagnostics")" href="@SectionHref("diagnostics")" data-rail-item="diagnostics">
                         <ShellIcon Name="activity" /><span>Diagnostics</span>
@@ -247,45 +246,55 @@ else
         </nav>
 
         <div class="zw-secbody" data-section="@_activeSection">
-            @* Only the selected section renders (and so only its forms post and only its data loads); the rail
-               and ResolveSection have already failed an unauthorized ?section= closed to the overview. *@
-            @switch (_activeSection)
-            {
-                case "logs":
-                    <LogsSection Server="_server" />
-                    break;
-                case "console":
-                    <ConsoleSection Server="_server" />
-                    break;
-                case "diagnostics":
-                    <DiagnosticsSection Server="_server" CanExport="_canExportDiagnostics" />
-                    break;
-                case "players":
-                    <PlayersSection Server="_server" Perm="_perm" />
-                    break;
-                case "mods":
-                    <ModsSection Server="_server" Perm="_modPerm" />
-                    break;
-                case "modbrowser":
-                    <ModBrowserSection Server="_server" Perm="_modPerm" />
-                    break;
-                case "config":
-                    <ConfigurationSection Server="_server" />
-                    break;
-                case "backups":
-                    <BackupsSection Server="_server" Perm="_backupPerm" />
-                    break;
-                default:
-                    <OverviewSection Server="_server" Status="_status" LastUpdate="_lastUpdate"
-                                     CanRecreate="_canRecreate" CanDelete="_canDelete"
-                                     OnLifecycleResult="OnLifecycleResultAsync" OnLifecycleWarning="OnLifecycleWarning" />
-                    break;
-            }
+            @* Only the selected section renders (and so only its data loads); ResolveSection has already failed an
+               unauthorized ?section= closed to the overview. *@
+            <CascadingValue Name="@ServerDetailCascade.OperatorZone" Value="_zone" IsFixed="true">
+                @switch (_activeSection)
+                {
+                    case "logs":
+                        <LogsSection Server="_server" />
+                        break;
+                    case "console":
+                        <ConsoleSection Server="_server" />
+                        break;
+                    case "diagnostics":
+                        <DiagnosticsSection Server="_server" CanExport="_perm.CanExportDiagnostics" />
+                        break;
+                    case "players":
+                        <PlayersSection Server="_server" Perm="_perm.Players" />
+                        break;
+                    case "mods":
+                        <ModsSection Server="_server" Perm="_perm.Mods" />
+                        break;
+                    case "modbrowser":
+                        <ModBrowserSection Server="_server" Perm="_perm.Mods" />
+                        break;
+                    case "config":
+                        <ConfigurationSection Server="_server" FileParam="@File" OperationParam="@Op" />
+                        break;
+                    case "backups":
+                        <BackupsSection Server="_server" Perm="_perm.Backups" />
+                        break;
+                    default:
+                        <OverviewSection Server="_server" Status="_status" LastUpdate="LastUpdate"
+                                         CanRecreate="_perm.CanRecreate" CanDelete="_perm.CanDelete"
+                                         OnLifecycleResult="OnLifecycleResultAsync" OnLifecycleWarning="OnLifecycleWarning" />
+                        break;
+                }
+            </CascadingValue>
         </div>
     </div>
 }
 
+@* Overlays (BbAlertDialog and friends) render into this page's own portal host: the shell is static, so a host
+   there would be inert (ADR 0046). *@
+<BbPortalHost />
+
 @code {
+    // Header re-read cadence (#249): faster while a mutating Operation holds the Server, slower when idle.
+    private static readonly TimeSpan BusyPoll = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan IdlePoll = TimeSpan.FromSeconds(5);
+
     [Parameter]
     public string Id { get; set; } = string.Empty;
 
@@ -293,90 +302,112 @@ else
     [SupplyParameterFromQuery]
     public string? Section { get; set; }
 
+    // The Config section's ?file= and ?op= (F20c, #226). Only the page reads the query: a section the page creates
+    // while the query changes must not subscribe to it, or the circuit's location-changed dispatch throws.
+    [SupplyParameterFromQuery(Name = "file")]
+    public string? File { get; set; }
+
+    [SupplyParameterFromQuery(Name = "op")]
+    public string? Op { get; set; }
+
+    /// <summary>The prerender's load, handed to the circuit (#299).</summary>
+    [PersistentState]
+    public ServerDetailState? State { get; set; }
+
+    /// <summary>The operator's display zone, read from the request cookie while prerendering: a circuit has no
+    /// request to read it from.</summary>
+    [PersistentState]
+    public string? ZoneId { get; set; }
+
     [CascadingParameter]
     private Task<AuthenticationState>? AuthState { get; set; }
 
-    [SupplyParameterFromForm(FormName = "server-lifecycle")]
-    private LifecycleModel _lifecycleForm { get; set; } = default!;
-
-    [SupplyParameterFromForm(FormName = "server-graceful-restart")]
-    private GracefulRestartFormModel _gracefulForm { get; set; } = default!;
-
-    private ServerSummary? _server;
+    private readonly GracefulRestartFormModel _gracefulForm = new();
+    private readonly HashSet<string> _dismissedFailures = new(StringComparer.Ordinal);
+    private CancellationTokenSource? _polling;
+    private IJSObjectReference? _failures;
+    private string? _checkedFailureId;
+    private bool _loaded;
+    private bool _circuitReady;
+    private readonly string _instance = Guid.NewGuid().ToString("N");
+    private bool _acting;
     private string _activeSection = "overview";
-    private bool _canStart;
-    private bool _canStop;
-    private ServerStatusView _status = ServerLiveStatus.Resolve(ServerRunState.Unknown, activeOperation: null);
-    private bool _canRestartServer;
-    private bool _canRecreate;
-    private bool _canDelete;
-    private bool _canUpdate;
-
-    private ServerFailureView? _lastFailure;
-
-    // #273: what the newest successful game update did ("Updated from Steam build A to B.") and when; null before any.
-    private (string Summary, string At)? _lastUpdate;
+    private TimeZoneInfo _zone = TimeZoneInfo.Utc;
     private string? _lifecycleMessage;
     private AlertVariant _lifecycleAlert = AlertVariant.Warning;
-    private PlayerPermissions _perm;
-    private bool _canViewLogs;
-    private bool _canExecuteConsole;
-    private bool _canViewDiagnostics;
-    private bool _canExportDiagnostics;
-    private bool _canViewMods;
 
-    private ModManagePermissions _modPerm;
+    private ServerSummary? _server => State?.Header.Server;
+    private ServerDetailPermissions? _perm => State?.Permissions;
+    private ServerStatusView _status => State?.Header.Status ?? ServerLiveStatus.Resolve(ServerRunState.Unknown, activeOperation: null);
 
-    private BackupPermissions _backupPerm;
+    private (string Summary, string At)? LastUpdate =>
+        State?.Header.LastUpdate is { } update ? (update.Summary, update.At) : null;
 
-    protected override async Task OnInitializedAsync()
+    private ServerFailureView? VisibleFailure =>
+        State?.Header.LastFailure is { } failure && !_dismissedFailures.Contains(failure.OperationId) ? failure : null;
+
+    protected override async Task OnParametersSetAsync()
     {
-        _lifecycleForm ??= new LifecycleModel();
-        _gracefulForm ??= new GracefulRestartFormModel();
+        ZoneId ??= OperatorTz.Zone.Id;
+        _zone = OperatorTimeZone.Resolve(ZoneId);
 
         if (!ServerId.TryParse(Id, out ServerId serverId))
         {
+            State = null;
+            _loaded = true;
             return;
         }
 
-        UserId user = await CurrentUserAsync();
-        _server = await Inventory.GetVisibleAsync(user, serverId);
-        if (_server is not null)
+        // The prerender's load arrives through [PersistentState]; load only when there is none, or when an enhanced
+        // navigation moved this page to another Server.
+        if (State is null || State.Header.Server.Id != serverId)
         {
-            await LoadPlayerPermissionsAsync(user, serverId);
-            _canViewLogs = (await PermissionChecker.EvaluateAsync(user, Permissions.ConsoleView, serverId)).IsAllowed;
-            _canExecuteConsole = (await PermissionChecker.EvaluateAsync(user, Permissions.ConsoleExecute, serverId)).IsAllowed;
-            // Diagnostics.View / .Export are tenant-wide (not server-scoped), so they evaluate without a Server.
-            _canViewDiagnostics = (await PermissionChecker.EvaluateAsync(user, Permissions.DiagnosticsView)).IsAllowed;
-            _canExportDiagnostics = (await PermissionChecker.EvaluateAsync(user, Permissions.DiagnosticsExport)).IsAllowed;
-            _canViewMods = (await PermissionChecker.EvaluateAsync(user, Permissions.ModView, serverId)).IsAllowed;
-            _canStart = (await PermissionChecker.EvaluateAsync(user, Permissions.ServerStart, serverId)).IsAllowed;
-            _canStop = (await PermissionChecker.EvaluateAsync(user, Permissions.ServerStop, serverId)).IsAllowed;
-            _canRestartServer = (await PermissionChecker.EvaluateAsync(user, Permissions.ServerRestart, serverId)).IsAllowed;
-            _canRecreate = (await PermissionChecker.EvaluateAsync(user, Permissions.ServerRecreate, serverId)).IsAllowed;
-            _canDelete = (await PermissionChecker.EvaluateAsync(user, Permissions.ServerDelete, serverId)).IsAllowed;
-            _canUpdate = (await PermissionChecker.EvaluateAsync(user, Permissions.ServerUpdate, serverId)).IsAllowed;
-            await LoadModPermissionsAsync(user, serverId);
-            await LoadBackupPermissionsAsync(user, serverId);
-            await RefreshStatusAsync(serverId);
+            UserId user = await CurrentUserAsync();
+            State = await Actions.RunAsync<ServerDetailQuery, ServerDetailState?>(
+                (query, ct) => query.LoadAsync(user, serverId, _zone, ct));
+        }
 
-            // Resolve the active section only after the per-section gates are known, so an unknown or
-            // unauthorized ?section= fails closed to the always-available overview.
-            _activeSection = ResolveSection(Section);
+        _loaded = true;
+
+        // Resolve the active section only after the per-section gates are known, so an unknown or unauthorized
+        // ?section= fails closed to the always-available overview.
+        _activeSection = ResolveSection(Section);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _polling = new CancellationTokenSource();
+            _ = PollHeaderAsync(_polling.Token);
+            _circuitReady = true;
+            StateHasChanged();
+        }
+
+        // Hide a failure this viewer dismissed before (checked once per failure, in the browser's storage).
+        if (State?.Header.LastFailure is { } failure && failure.OperationId != _checkedFailureId)
+        {
+            _checkedFailureId = failure.OperationId;
+            _failures ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/dismissed-failures.js");
+            if (await _failures.InvokeAsync<bool>("isDismissed", failure.OperationId))
+            {
+                _dismissedFailures.Add(failure.OperationId);
+                StateHasChanged();
+            }
         }
     }
 
-    // The rail is fail-closed: a section is selectable only where the operator holds its per-server permission.
-    private string ResolveSection(string? requested) => requested switch
+    // The fail-closed rail: a section is selectable only where the operator holds its per-server permission.
+    private string ResolveSection(string? requested) => _perm is not { } p ? "overview" : requested switch
     {
-        "players" when _perm.CanAny => "players",
-        "console" when _canExecuteConsole => "console",
-        "logs" when _canViewLogs => "logs",
-        "config" when _perm.CanConfigEdit => "config",
-        "mods" when _canViewMods => "mods",
-        "modbrowser" when _canViewMods => "modbrowser",
-        "backups" when _backupPerm.CanView => "backups",
-        "diagnostics" when _canViewDiagnostics => "diagnostics",
+        "players" when p.Players.CanAny => "players",
+        "console" when p.CanExecuteConsole => "console",
+        "logs" when p.CanViewLogs => "logs",
+        "config" when p.Players.CanConfigEdit => "config",
+        "mods" when p.CanViewMods => "mods",
+        "modbrowser" when p.CanViewMods => "modbrowser",
+        "backups" when p.Backups.CanView => "backups",
+        "diagnostics" when p.CanViewDiagnostics => "diagnostics",
         _ => "overview",
     };
 
@@ -386,68 +417,98 @@ else
         ? $"/servers/{Id}"
         : $"/servers/{Id}?section={section}";
 
-    // Lifecycle buttons are enabled by the live status (#249): the last observed run-state, all off while a mutating
-    // Operation holds the Server's lock. live-status.js keeps them current; the service still re-checks on submit.
-    private bool StartEnabled => _status.CanStart;
-    private bool StopEnabled => _status.CanStop;
-    private bool RestartEnabled => _status.CanRestart;
-    private bool UpdateEnabled => _status.CanUpdate;
-
-    // The header status from the observed state and the in-flight mutating Operation. Re-read after this request
-    // enqueues a lifecycle Operation so the page it renders already says STOPPING / RESTARTING.
-    private async Task RefreshStatusAsync(ServerId serverId)
+    // Re-reads the header in this circuit (#249), replacing live-status.js on this page. A failed read is logged and
+    // retried on the next tick: the header just stays as it was.
+    private async Task PollHeaderAsync(CancellationToken ct)
     {
-        if (_server is null)
+        try
         {
-            return;
+            while (!ct.IsCancellationRequested)
+            {
+                await Task.Delay(_status.Busy ? BusyPoll : IdlePoll, ct);
+                try
+                {
+                    await RefreshHeaderAsync(ct);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    Logger.LogWarning(ex, "Server Detail header refresh failed for {ServerId}; retrying.", Id);
+                }
+            }
         }
-
-        Operation? active = await OperationStore.FindActiveForServerAsync(serverId);
-        _status = ServerLiveStatus.Resolve(_server.LastRunState, active?.Kind, active?.StatusLine);
-
-        // #266: the last action's failure, unless a new action is already in flight (it supersedes the old one).
-        _lastFailure = active is null
-            ? ServerFailureView.From(await OperationStore.FindUnresolvedFailureForServerAsync(serverId), OperatorTz.Zone)
-            : null;
-
-        // #273: the last game update's result line (Agent-observed builds, set by the hub on completion).
-        Operation? updated = await OperationStore.FindLatestSucceededForServerAsync(serverId, OperationKind.UpdateServer);
-        _lastUpdate = updated is { StatusLine: { } summary } && !string.IsNullOrWhiteSpace(summary)
-            ? (summary, OperatorTimeZone.Format(updated.CompletedAt ?? updated.EnqueuedAt, OperatorTz.Zone))
-            : null;
+        catch (OperationCanceledException)
+        {
+            // The page closed.
+        }
     }
 
-    private async Task LifecycleAsync()
+    private async Task RefreshHeaderAsync(CancellationToken ct = default)
     {
-        if (_server is null || !ServerId.TryParse(Id, out ServerId serverId))
+        if (State is not { } state)
         {
             return;
         }
 
         UserId user = await CurrentUserAsync();
-        string command = _lifecycleForm?.Command ?? string.Empty;
-        ServerLifecycleResult? result = command switch
+        ServerId serverId = state.Header.Server.Id;
+        ServerDetailHeader? header = await Actions.RunAsync<ServerDetailQuery, ServerDetailHeader?>(
+            (query, token) => query.ReadHeaderAsync(user, serverId, _zone, token), ct);
+        if (header is null)
         {
-            "start" => await Lifecycle.StartAsync(user, serverId),
-            "stop" => await Lifecycle.StopAsync(user, serverId),
-            "restart" => await Lifecycle.RestartAsync(user, serverId),
-            "update" => await Lifecycle.UpdateAsync(user, serverId),
-            _ => null,
-        };
+            // The Server is gone (#271, deleted) or no longer viewable: back to the fleet, not a stale page.
+            await InvokeAsync(() => Navigation.NavigateTo("/servers"));
+            return;
+        }
 
-        SetLifecycleResult(command, result);
-        await RefreshStatusAsync(serverId);
+        await InvokeAsync(() =>
+        {
+            if (State is { } current && current.Header.Server.Id == serverId)
+            {
+                State = current with { Header = header };
+                StateHasChanged();
+            }
+        });
     }
 
-
-    private async Task GracefulRestartAsync()
+    private async Task LifecycleAsync(string command)
     {
-        if (_server is null || !ServerId.TryParse(Id, out ServerId serverId))
+        if (_server is not { } server)
         {
             return;
         }
 
-        string? message = string.IsNullOrWhiteSpace(_gracefulForm?.Message) ? null : _gracefulForm!.Message!.Trim();
+        _acting = true;
+        try
+        {
+            UserId user = await CurrentUserAsync();
+            ServerId serverId = server.Id;
+            ServerLifecycleResult? result = await Actions.RunAsync<IServerLifecycle, ServerLifecycleResult?>(
+                async (lifecycle, ct) => command switch
+                {
+                    "start" => await lifecycle.StartAsync(user, serverId, ct),
+                    "stop" => await lifecycle.StopAsync(user, serverId, ct),
+                    "restart" => await lifecycle.RestartAsync(user, serverId, cancellationToken: ct),
+                    "update" => await lifecycle.UpdateAsync(user, serverId, ct),
+                    _ => null,
+                });
+
+            SetLifecycleResult(command, result);
+            await RefreshHeaderAsync();
+        }
+        finally
+        {
+            _acting = false;
+        }
+    }
+
+    private async Task GracefulRestartAsync()
+    {
+        if (_server is not { } server)
+        {
+            return;
+        }
+
+        string? message = string.IsNullOrWhiteSpace(_gracefulForm.Message) ? null : _gracefulForm.Message.Trim();
         if (message is not null && BroadcastMessageRules.ValidateMessage(message) is { } invalid)
         {
             _lifecycleAlert = AlertVariant.Warning;
@@ -455,11 +516,28 @@ else
             return;
         }
 
-        var plan = new GracefulRestartPayload(ServerDetailFormat.CountdownLeads(_gracefulForm?.Countdown), message);
+        var plan = new GracefulRestartPayload(ServerDetailFormat.CountdownLeads(_gracefulForm.Countdown), message);
 
-        UserId user = await CurrentUserAsync();
-        SetLifecycleResult("restart", await Lifecycle.RestartAsync(user, serverId, plan));
-        await RefreshStatusAsync(serverId);
+        _acting = true;
+        try
+        {
+            UserId user = await CurrentUserAsync();
+            ServerId serverId = server.Id;
+            SetLifecycleResult("restart", await Actions.RunAsync<IServerLifecycle, ServerLifecycleResult>(
+                (lifecycle, ct) => lifecycle.RestartAsync(user, serverId, plan, ct)));
+            await RefreshHeaderAsync();
+        }
+        finally
+        {
+            _acting = false;
+        }
+    }
+
+    private async Task DismissFailureAsync(string operationId)
+    {
+        _dismissedFailures.Add(operationId);
+        _failures ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/dismissed-failures.js");
+        await _failures.InvokeVoidAsync("dismiss", operationId);
     }
 
     // Overview's Recreate / Delete (#229, #271) answered by the lifecycle service: shown in the header like the header's
@@ -467,7 +545,7 @@ else
     private async Task OnLifecycleResultAsync(LifecycleOutcome outcome)
     {
         SetLifecycleResult(outcome.Command, outcome.Result);
-        await RefreshStatusAsync(_server!.Id);
+        await RefreshHeaderAsync();
     }
 
     // Overview's Recreate refused before it was sent (an invalid port or heap).
@@ -517,40 +595,6 @@ else
         };
     }
 
-    private async Task LoadModPermissionsAsync(UserId user, ServerId serverId)
-    {
-        // Per-server mod permissions (fail-closed, re-checked in the service on submit): a control shows only where
-        // the caller holds the matching Mod.* / Server.Restart grant.
-        _modPerm = new ModManagePermissions(
-            CanInstall: (await PermissionChecker.EvaluateAsync(user, Permissions.ModInstall, serverId)).IsAllowed,
-            CanRemove: (await PermissionChecker.EvaluateAsync(user, Permissions.ModRemove, serverId)).IsAllowed,
-            CanUpdate: (await PermissionChecker.EvaluateAsync(user, Permissions.ModUpdate, serverId)).IsAllowed,
-            CanRestart: (await PermissionChecker.EvaluateAsync(user, Permissions.ServerRestart, serverId)).IsAllowed);
-    }
-
-    private async Task LoadPlayerPermissionsAsync(UserId user, ServerId serverId)
-    {
-        // Per-server permissions (fail-closed): a control shows only where the caller holds the matching
-        // server-scoped permission; the service re-checks server-side on submit.
-        _perm = new PlayerPermissions(
-            CanView: (await PermissionChecker.EvaluateAsync(user, Permissions.PlayerView, serverId)).IsAllowed,
-            CanKick: (await PermissionChecker.EvaluateAsync(user, Permissions.PlayerKick, serverId)).IsAllowed,
-            CanBan: (await PermissionChecker.EvaluateAsync(user, Permissions.PlayerBan, serverId)).IsAllowed,
-            CanUnban: (await PermissionChecker.EvaluateAsync(user, Permissions.PlayerUnban, serverId)).IsAllowed,
-            CanConfigEdit: (await PermissionChecker.EvaluateAsync(user, Permissions.ServerConfigurationEdit, serverId)).IsAllowed);
-    }
-
-    private async Task LoadBackupPermissionsAsync(UserId user, ServerId serverId)
-    {
-        // Per-server permissions (fail-closed): the Backups rail item shows only where the caller holds Backup.View; the take
-        // and delete controls show only with their own permission; the service re-checks server-side on submit.
-        _backupPerm = new BackupPermissions(
-            CanView: (await PermissionChecker.EvaluateAsync(user, Permissions.BackupView, serverId)).IsAllowed,
-            CanCreate: (await PermissionChecker.EvaluateAsync(user, Permissions.BackupCreate, serverId)).IsAllowed,
-            CanRestore: (await PermissionChecker.EvaluateAsync(user, Permissions.BackupRestore, serverId)).IsAllowed,
-            CanDelete: (await PermissionChecker.EvaluateAsync(user, Permissions.BackupDelete, serverId)).IsAllowed);
-    }
-
     private async Task<UserId> CurrentUserAsync()
     {
         ClaimsPrincipal principal = (await AuthState!).User;
@@ -559,10 +603,25 @@ else
             : throw new InvalidOperationException("Authenticated request carries no user id claim.");
     }
 
-    private sealed class LifecycleModel
+    public async ValueTask DisposeAsync()
     {
-        // The header lifecycle button's verb: "start" / "stop" / "restart" / "update".
-        public string? Command { get; set; }
+        if (_polling is not null)
+        {
+            await _polling.CancelAsync();
+            _polling.Dispose();
+        }
+
+        if (_failures is not null)
+        {
+            try
+            {
+                await _failures.DisposeAsync();
+            }
+            catch (JSDisconnectedException)
+            {
+                // The circuit is already gone; the module goes with it.
+            }
+        }
     }
 
     private sealed class GracefulRestartFormModel

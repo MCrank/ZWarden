@@ -1,7 +1,6 @@
 @inherits ServerSectionBase
 @using ZWarden.Application.Operations
 @using ZWarden.Domain.Operations
-@inject IOperationCoordinator Operations
 
 @* The Diagnostics rail section (F29/F30): a read-only per-server gather whose bundle streams into the live panel,
    plus the support-package export. Gated on the tenant-wide Diagnostics.View / .Export by the page. *@
@@ -24,10 +23,8 @@
     }
 
     <div class="mt-4 flex flex-wrap items-center gap-2">
-        <EditForm Model="_diagnosticsForm" FormName="diagnostics-gather" OnValidSubmit="DiagnosticsGatherAsync">
-            <BbButton Variant="ButtonVariant.Secondary" Type="ButtonType.Submit" Size="ButtonSize.Small"
-                      data-action="run-diagnostics">Run diagnostics</BbButton>
-        </EditForm>
+        <BbButton Variant="ButtonVariant.Secondary" Size="ButtonSize.Small" Disabled="_acting"
+                  OnClick="DiagnosticsGatherAsync" data-action="run-diagnostics">Run diagnostics</BbButton>
 
         @if (CanExport)
         {
@@ -42,9 +39,7 @@
     </div>
 
     <div class="mt-4">
-        <LiveServerDiagnosticsPanel @rendermode="InteractiveServer"
-                                    ServerId="@Server.Id.ToString()"
-                                    AgentId="@Server.AgentId.ToString()" />
+        <LiveServerDiagnosticsPanel ServerId="@Server.Id.ToString()" AgentId="@Server.AgentId.ToString()" />
     </div>
 </BbCard>
 
@@ -53,29 +48,29 @@
     [Parameter]
     public bool CanExport { get; set; }
 
-    [SupplyParameterFromForm(FormName = "diagnostics-gather")]
-    private DiagnosticsFormModel _diagnosticsForm { get; set; } = default!;
-
     private string? _diagnosticsMessage;
     private AlertVariant _diagnosticsAlert = AlertVariant.Info;
-
-    protected override void OnInitialized() => _diagnosticsForm ??= new DiagnosticsFormModel();
+    private bool _acting;
 
     private async Task DiagnosticsGatherAsync()
     {
         // A read-only, non-mutating per-server gather (F29): it never claims the per-server lock, so it can run
         // during other activity. The Agent reports the bundle, which lands in the live panel below.
-        UserId user = await CurrentUserAsync();
-        await Operations.EnqueueAsync(
-            new EnqueueOperationRequest(
+        _acting = true;
+        try
+        {
+            UserId user = await CurrentUserAsync();
+            var request = new EnqueueOperationRequest(
                 Server.AgentId, OperationKind.GatherServerDiagnostics, IsMutating: false, Guid.NewGuid().ToString("N"),
-                ServerId: Server.Id),
-            user);
+                ServerId: Server.Id);
+            await Actions.RunAsync<IOperationCoordinator>((operations, ct) => operations.EnqueueAsync(request, user, ct));
 
-        _diagnosticsAlert = AlertVariant.Info;
-        _diagnosticsMessage = "Diagnostics gather started. Results appear below as they are gathered.";
+            _diagnosticsAlert = AlertVariant.Info;
+            _diagnosticsMessage = "Diagnostics gather started. Results appear below as they are gathered.";
+        }
+        finally
+        {
+            _acting = false;
+        }
     }
-
-    // The diagnostics gather is a parameterless action — the form carries no fields, only the submit.
-    private sealed class DiagnosticsFormModel;
 }

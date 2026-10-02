@@ -1,15 +1,12 @@
 @inherits ServerSectionBase
 @using ZWarden.Application.Mods
 @using ZWarden.Application.Workshop
-@inject IServerModManager ModManager
 @inject IModInventoryCache ModInventories
-@inject IWorkshopMetadataService WorkshopMetadata
-@inject IWorkshopSearchService WorkshopSearch
-@inject IWorkshopSettingsService WorkshopSettings
 
 @* The Mod Browser rail section (#110): keyless preview of a pasted Workshop id / collection plus key-gated search,
    both feeding F22's install verb. Gated on Mod.View by the page; Install shows only with Mod.Install, and the
-   mod manager re-checks on submit. Workshop metadata is untrusted remote text, rendered as data. *@
+   mod manager re-checks on every action. Workshop metadata is untrusted remote text, rendered as data. Circuit
+   handlers since #299, so the preview and search results simply stay on screen across an Install. *@
 
 <BbCard Class="p-5" data-modbrowser-card>
     <h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Mod Browser</h2>
@@ -31,18 +28,17 @@
         </div>
     }
 
-    @* Keyless lookup — always available: paste an item id or a collection URL and preview it. The Input field
-       is re-posted with every button, so the preview persists across an Install post (static SSR). *@
-    <EditForm Model="_browserForm" FormName="modbrowser-preview" OnValidSubmit="PreviewAsync" class="mt-4">
+    @* Keyless lookup — always available: paste an item id or a collection URL and preview it (Enter or Preview). *@
+    <EditForm Model="_browserForm" OnValidSubmit="PreviewAsync" class="mt-4">
         <h3 class="text-sm font-medium">Preview by id or URL</h3>
         <div class="mt-2 flex flex-wrap items-end gap-2" data-modbrowser-lookup>
             <div class="flex flex-1 flex-col text-sm">
                 <BbLabel For="modbrowser-input" Class="mb-1 text-muted-foreground">Workshop item id or collection URL</BbLabel>
-                <BbInput Id="modbrowser-input" @bind-Value="_browserForm!.Input" autocomplete="off"
+                <BbInput Id="modbrowser-input" UpdateTiming="UpdateTiming.Immediate" @bind-Value="_browserForm.Input" autocomplete="off"
                          spellcheck="false" Placeholder="2392709985 or https://steamcommunity.com/…/?id=…" />
             </div>
-            <BbButton Type="ButtonType.Submit" Size="ButtonSize.Small"
-                      name="_browserForm.Command" value="resolve" data-action="modbrowser-resolve">Preview</BbButton>
+            <BbButton Type="ButtonType.Submit" Size="ButtonSize.Small" Disabled="_acting"
+                      data-action="modbrowser-resolve">Preview</BbButton>
         </div>
 
         @if (_preview is { Status: WorkshopPreviewStatus.Resolved } preview)
@@ -63,7 +59,7 @@
                 <div class="zw-mb-grid" data-modbrowser-results>
                     @foreach (WorkshopItemMetadata item in preview.Items)
                     {
-                        @ItemCard(item, "_browserForm.Command")
+                        @ItemCard(item)
                     }
                 </div>
             }
@@ -81,16 +77,16 @@
     @if (_searchAvailable)
     {
         <div class="mt-6 border-t border-border pt-4" data-modbrowser-search>
-            <EditForm Model="_searchForm" FormName="modbrowser-search" OnValidSubmit="SearchAsync">
+            <EditForm Model="_searchForm" OnValidSubmit="SearchAsync">
                 <h3 class="text-sm font-medium">Search the Workshop</h3>
                 <div class="mt-2 flex flex-wrap items-end gap-2">
                     <div class="flex flex-1 flex-col text-sm">
                         <BbLabel For="modbrowser-query" Class="mb-1 text-muted-foreground">Search text</BbLabel>
-                        <BbInput Id="modbrowser-query" @bind-Value="_searchForm!.Query" autocomplete="off"
+                        <BbInput Id="modbrowser-query" UpdateTiming="UpdateTiming.Immediate" @bind-Value="_searchForm.Query" autocomplete="off"
                                  Placeholder="e.g. Brita, hydrocraft, map…" />
                     </div>
-                    <BbButton Type="ButtonType.Submit" Size="ButtonSize.Small"
-                              name="_searchForm.Command" value="search" data-action="modbrowser-search">Search</BbButton>
+                    <BbButton Type="ButtonType.Submit" Size="ButtonSize.Small" Disabled="_acting"
+                              data-action="modbrowser-search">Search</BbButton>
                 </div>
 
                 @if (_searchResults is { SearchAvailable: true } results)
@@ -106,7 +102,7 @@
                         <div class="zw-mb-grid" data-modbrowser-search-results>
                             @foreach (WorkshopSearchResult result in results.Items)
                             {
-                                @SearchCard(result, "_searchForm.Command")
+                                @SearchCard(result)
                             }
                         </div>
                     }
@@ -135,82 +131,75 @@
     [Parameter, EditorRequired]
     public ModManagePermissions Perm { get; set; }
 
-    [SupplyParameterFromForm(FormName = "modbrowser-preview")]
-    private ModBrowserPreviewModel _browserForm { get; set; } = default!;
-
-    [SupplyParameterFromForm(FormName = "modbrowser-search")]
-    private ModBrowserSearchModel _searchForm { get; set; } = default!;
-
+    private readonly ModBrowserPreviewModel _browserForm = new();
+    private readonly ModBrowserSearchModel _searchForm = new();
     private ModInventory? _modInventory;
     private bool _searchAvailable;
     private WorkshopPreview? _preview;
     private WorkshopSearchResults? _searchResults;
     private string? _browserMessage;
     private AlertVariant _browserAlert = AlertVariant.Warning;
+    private bool _acting;
 
     protected override async Task OnInitializedAsync()
     {
-        _browserForm ??= new ModBrowserPreviewModel();
-        _searchForm ??= new ModBrowserSearchModel();
         LoadInventory();
 
         // The search box lights up only when this tenant has a Steam Web API key configured (F110 PR-B). Read the
         // non-secret capability flag; keyless preview/install work regardless.
-        _searchAvailable = await WorkshopSettings.IsSearchAvailableAsync();
+        _searchAvailable = await Actions.RunAsync<IWorkshopSettingsService, bool>((settings, ct) => settings.IsSearchAvailableAsync(ct));
     }
 
     private void LoadInventory() => _modInventory = ModInventoryView.Load(ModInventories, Server).Inventory;
 
-    // Keyless preview: resolve a pasted id/collection URL (or, on an Install button, add the chosen item then
-    // re-resolve so the preview persists across the post — static SSR re-renders the whole page).
+    // Keyless preview: resolve a pasted id/collection URL.
     private async Task PreviewAsync()
     {
-        ServerId serverId = Server.Id;
-
-        UserId user = await CurrentUserAsync();
-        string command = _browserForm?.Command ?? string.Empty;
-        string input = _browserForm?.Input?.Trim() ?? string.Empty;
-
-        if (command.StartsWith("install|", StringComparison.Ordinal))
-        {
-            await InstallFromBrowserAsync(user, serverId, command["install|".Length..]);
-        }
-        else if (input.Length == 0)
+        string input = _browserForm.Input?.Trim() ?? string.Empty;
+        if (input.Length == 0)
         {
             _browserAlert = AlertVariant.Warning;
             _browserMessage = "Paste a Workshop item id or a collection URL to preview it.";
+            return;
         }
 
-        // Re-resolve whenever the lookup box still carries a reference, so the preview cards survive an Install post.
-        if (input.Length > 0)
-        {
-            _preview = await WorkshopMetadata.ResolveAsync(user, serverId, input);
-        }
+        await ActAsync(async (user, serverId) =>
+            _preview = await Actions.RunAsync<IWorkshopMetadataService, WorkshopPreview>(
+                (metadata, ct) => metadata.ResolveAsync(user, serverId, input, ct)));
     }
 
-    // Key-gated search: run the query (or, on an Install button, add the chosen item then re-run so results persist).
+    // Key-gated search.
     private async Task SearchAsync()
     {
-        ServerId serverId = Server.Id;
-
-        UserId user = await CurrentUserAsync();
-        string command = _searchForm?.Command ?? string.Empty;
-        string query = _searchForm?.Query?.Trim() ?? string.Empty;
-
-        if (command.StartsWith("install|", StringComparison.Ordinal))
+        string query = _searchForm.Query?.Trim() ?? string.Empty;
+        if (query.Length == 0)
         {
-            await InstallFromBrowserAsync(user, serverId, command["install|".Length..]);
+            return;
         }
 
-        if (query.Length > 0)
+        await ActAsync(async (_, _) =>
+            _searchResults = await Actions.RunAsync<IWorkshopSearchService, WorkshopSearchResults>(
+                (search, ct) => search.SearchAsync(query, ct)));
+    }
+
+    private async Task ActAsync(Func<UserId, ServerId, Task> action)
+    {
+        _acting = true;
+        try
         {
-            _searchResults = await WorkshopSearch.SearchAsync(query);
+            await action(await CurrentUserAsync(), Server.Id);
+        }
+        finally
+        {
+            _acting = false;
         }
     }
 
-    private async Task InstallFromBrowserAsync(UserId user, ServerId serverId, string workshopId)
+    private Task InstallAsync(string workshopId) => ActAsync(async (user, serverId) =>
     {
-        ModManagementResult result = await ModManager.AddWorkshopItemAsync(user, serverId, workshopId.Trim());
+        string id = workshopId.Trim();
+        ModManagementResult result = await Actions.RunAsync<IServerModManager, ModManagementResult>(
+            (mods, ct) => mods.AddWorkshopItemAsync(user, serverId, id, ct));
         if (result.Succeeded)
         {
             _browserAlert = AlertVariant.Success;
@@ -233,10 +222,10 @@
 
         // Reflect the just-added item in the installed/configured sets that drive the card state.
         LoadInventory();
-    }
+    });
 
     // A preview item card: thumbnail, title, id/size/updated, description, compat chips, and Install.
-    private RenderFragment ItemCard(WorkshopItemMetadata item, string commandField) =>
+    private RenderFragment ItemCard(WorkshopItemMetadata item) =>
         @<div class="zw-mb-card" data-modbrowser-item data-workshop-id="@item.WorkshopId">
             @ThumbFragment(item.PreviewUrl)
             <div class="zw-mb-body">
@@ -261,12 +250,12 @@
                     <div class="zw-mb-desc">@Snippet(desc)</div>
                 }
                 @CompatBadges(item.WorkshopId)
-                @InstallControl(item.WorkshopId, commandField)
+                @InstallControl(item.WorkshopId)
             </div>
         </div>;
 
     // A search result card: same shape, driven by the search payload (subs instead of size/description).
-    private RenderFragment SearchCard(WorkshopSearchResult result, string commandField) =>
+    private RenderFragment SearchCard(WorkshopSearchResult result) =>
         @<div class="zw-mb-card" data-modbrowser-item data-workshop-id="@result.WorkshopId">
             @ThumbFragment(result.PreviewUrl)
             <div class="zw-mb-body">
@@ -283,7 +272,7 @@
                     }
                 </div>
                 @CompatBadges(result.WorkshopId)
-                @InstallControl(result.WorkshopId, commandField)
+                @InstallControl(result.WorkshopId)
             </div>
         </div>;
 
@@ -291,7 +280,7 @@
         ? @<img class="zw-mb-thumb" src="@url" alt="" loading="lazy" referrerpolicy="no-referrer" data-item-thumb />
         : @<div class="zw-mb-thumb zw-mb-thumb-empty" data-item-thumb-empty><ShellIcon Name="package" /></div>;
 
-    private RenderFragment InstallControl(string workshopId, string commandField) =>
+    private RenderFragment InstallControl(string workshopId) =>
         @<div class="zw-mb-actions">
             @if (IsConfigured(workshopId))
             {
@@ -299,8 +288,8 @@
             }
             else if (Perm.CanInstall)
             {
-                <BbButton Type="ButtonType.Submit" Size="ButtonSize.Small"
-                          name="@commandField" value="@($"install|{workshopId}")" data-action="modbrowser-install">Install</BbButton>
+                <BbButton Size="ButtonSize.Small" Disabled="_acting"
+                          OnClick="@(() => InstallAsync(workshopId))" data-action="modbrowser-install">Install</BbButton>
             }
         </div>;
 
@@ -374,20 +363,13 @@
 
     private sealed class ModBrowserPreviewModel
     {
-        // The pasted Workshop item id or collection URL to preview; re-posted with every button so the preview
-        // survives an Install post.
+        // The pasted Workshop item id or collection URL to preview.
         public string? Input { get; set; }
-
-        // The submit button's command: "resolve", or "install|{workshopId}" for a card's Install button.
-        public string? Command { get; set; }
     }
 
     private sealed class ModBrowserSearchModel
     {
         // The free-text Workshop search query (key-gated).
         public string? Query { get; set; }
-
-        // The submit button's command: "search", or "install|{workshopId}" for a result card's Install button.
-        public string? Command { get; set; }
     }
 }

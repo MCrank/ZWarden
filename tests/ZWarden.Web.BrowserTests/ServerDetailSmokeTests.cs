@@ -40,7 +40,7 @@ public sealed partial class ServerDetailSmokeTests(BrowserHost host)
     {
         await using BrowserSession session = await OpenSectionAsync("smoke-console", "console");
 
-        await session.Page.FillAsync("#console-input", "players");
+        await session.FillAsync("#console-input", "players");
         await session.Page.ClickAsync("[data-action=run-console]");
 
         await Expect(session.Page.Locator("[data-console-message]")).ToContainTextAsync("Command enqueued");
@@ -72,6 +72,49 @@ public sealed partial class ServerDetailSmokeTests(BrowserHost host)
     }
 
     [Test]
+    public async Task Config_keeps_an_unsaved_edit_across_a_circuit_pause_and_resume()
+    {
+        // #299 D1: the unsaved edits are a [PersistentState] draft. Pausing evicts the circuit after persisting its
+        // state, exactly as a dropped connection's eviction does; resuming builds a new circuit from that state.
+        await using BrowserSession session = await OpenSectionAsync("smoke-draft", "config", "&file=SandboxVars");
+        ILocator row = session.Page.Locator("[data-cfg-row]", new() { HasText = "Population" });
+        await row.Locator("select[data-cfg-value]").SelectOptionAsync("1");
+        await Expect(row).ToHaveClassAsync(ChangedRow());
+
+        string before = await session.Page.GetAttributeAsync("[data-circuit]", "data-circuit-instance") ?? string.Empty;
+        await Assert.That(await session.Page.EvaluateAsync<bool>("() => Blazor.pauseCircuit()")).IsTrue();
+        await Assert.That(await session.Page.EvaluateAsync<bool>("() => Blazor.resumeCircuit()")).IsTrue();
+        // The old markup stays on screen until the new circuit renders, so wait for a new page instance.
+        await session.Page.WaitForFunctionAsync(
+            "before => document.querySelector('[data-circuit]')?.getAttribute('data-circuit-instance') !== before", before);
+        await session.WaitForCircuitAsync();
+
+        await Expect(row).ToHaveClassAsync(ChangedRow());
+        await Expect(row.Locator("select[data-cfg-value]")).ToHaveValueAsync("1");
+        await session.AssertNoErrorsAsync();
+    }
+
+    [Test]
+    public async Task The_rail_and_the_config_file_tabs_switch_in_place_without_a_reload()
+    {
+        // #299: the rail and the file tabs are ordinary links, so they stay bookmarkable; on the interactive page the
+        // same circuit renders the new section (no full-page reload, no new page instance).
+        await using BrowserSession session = await OpenSectionAsync("smoke-rail", section: null);
+        string instance = await session.Page.GetAttributeAsync("[data-circuit]", "data-circuit-instance") ?? string.Empty;
+
+        await session.Page.ClickAsync("[data-rail-item=players]");
+        await Expect(session.Page.Locator("[data-players-card]")).ToBeVisibleAsync();
+        await session.Page.ClickAsync("[data-rail-item=config]");
+        await Expect(session.Page.Locator("[data-cfg-form]")).ToBeVisibleAsync();
+        await session.Page.ClickAsync("[data-config-tab=SandboxVars]");
+        await Expect(session.Page.Locator("[data-config-tab=SandboxVars]")).ToHaveClassAsync(ActiveTab());
+
+        await Expect(session.Page).ToHaveURLAsync(SandboxVarsUrl());
+        await Assert.That(await session.Page.GetAttributeAsync("[data-circuit]", "data-circuit-instance")).IsEqualTo(instance);
+        await session.AssertNoErrorsAsync();
+    }
+
+    [Test]
     public async Task Mods_starts_a_discovery()
     {
         await using BrowserSession session = await OpenSectionAsync("smoke-mods", "mods");
@@ -87,7 +130,7 @@ public sealed partial class ServerDetailSmokeTests(BrowserHost host)
     {
         await using BrowserSession session = await OpenSectionAsync("smoke-modbrowser", "modbrowser");
 
-        await session.Page.FillAsync("#modbrowser-input", "not a workshop item");
+        await session.FillAsync("#modbrowser-input", "not a workshop item");
         await session.Page.ClickAsync("[data-action=modbrowser-resolve]");
 
         await Expect(session.Page.Locator("[data-modbrowser-unresolvable]")).ToBeVisibleAsync();
@@ -126,4 +169,10 @@ public sealed partial class ServerDetailSmokeTests(BrowserHost host)
 
     [GeneratedRegex(@"\bzw-cfg-changed\b")]
     private static partial Regex ChangedRow();
+
+    [GeneratedRegex(@"\bactive\b")]
+    private static partial Regex ActiveTab();
+
+    [GeneratedRegex(@"\?section=config&file=SandboxVars$")]
+    private static partial Regex SandboxVarsUrl();
 }

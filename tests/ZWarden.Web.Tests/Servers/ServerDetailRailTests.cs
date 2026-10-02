@@ -116,50 +116,6 @@ public sealed class ServerDetailRailTests
     }
 
     [Test]
-    public async Task The_start_control_posts_and_enqueues_a_mutating_start_server_operation()
-    {
-        await using ZWardenWebAppFactory factory = new();
-        HttpClient client = await SignedInOperatorAsync(factory);
-        ServerId serverId = await SeedServerAsync(factory, "startable");
-
-        string page = await GetAsync(client, $"/servers/{serverId}");
-        Dictionary<string, string> form = new(StringComparer.Ordinal)
-        {
-            ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
-            ["_handler"] = "server-lifecycle",
-            ["_lifecycleForm.Command"] = "start",
-        };
-        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}", UriKind.Relative), new FormUrlEncodedContent(form));
-
-        await Assert.That((int)post.StatusCode).IsLessThan(400);
-        Operation? op = FirstOperation(factory, serverId, OperationKind.StartServer);
-        await Assert.That(op).IsNotNull();
-        await Assert.That(op!.IsMutating).IsTrue();
-        client.Dispose();
-    }
-
-    [Test]
-    public async Task The_restart_control_posts_and_enqueues_a_restart_server_operation()
-    {
-        await using ZWardenWebAppFactory factory = new();
-        HttpClient client = await SignedInOperatorAsync(factory);
-        ServerId serverId = await SeedServerAsync(factory, "restartable-header");
-
-        string page = await GetAsync(client, $"/servers/{serverId}");
-        Dictionary<string, string> form = new(StringComparer.Ordinal)
-        {
-            ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
-            ["_handler"] = "server-lifecycle",
-            ["_lifecycleForm.Command"] = "restart",
-        };
-        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}", UriKind.Relative), new FormUrlEncodedContent(form));
-
-        await Assert.That((int)post.StatusCode).IsLessThan(400);
-        await Assert.That(FirstOperation(factory, serverId, OperationKind.RestartServer)).IsNotNull();
-        client.Dispose();
-    }
-
-    [Test]
     public async Task The_update_game_control_renders_in_the_header_with_the_branch_it_follows()
     {
         // #273: the F17 game update is reachable from the page, not only the API, and says which branch it pulls.
@@ -189,31 +145,6 @@ public sealed class ServerDetailRailTests
         client.Dispose();
     }
 
-    [Test]
-    public async Task The_update_game_control_posts_and_enqueues_an_update_server_operation()
-    {
-        await using ZWardenWebAppFactory factory = new();
-        HttpClient client = await SignedInOperatorAsync(factory);
-        ServerId serverId = await SeedServerAsync(factory, "update-header");
-
-        string page = await GetAsync(client, $"/servers/{serverId}");
-        Dictionary<string, string> form = new(StringComparer.Ordinal)
-        {
-            ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
-            ["_handler"] = "server-lifecycle",
-            ["_lifecycleForm.Command"] = "update",
-        };
-        HttpResponseMessage post = await client.PostAsync(new Uri($"/servers/{serverId}", UriKind.Relative), new FormUrlEncodedContent(form));
-
-        await Assert.That((int)post.StatusCode).IsLessThan(400);
-        Operation? op = FirstOperation(factory, serverId, OperationKind.UpdateServer);
-        await Assert.That(op).IsNotNull();
-        await Assert.That(op!.IsMutating).IsTrue();
-        string html = await post.Content.ReadAsStringAsync();
-        await Assert.That(html).Contains("Game update enqueued");
-        await Assert.That(html).Contains("UPDATING");
-        client.Dispose();
-    }
 
     private static async Task<string> GetAsync(HttpClient client, string relativeUrl) =>
         await (await client.GetAsync(new Uri(relativeUrl, UriKind.Relative))).Content.ReadAsStringAsync();

@@ -37,15 +37,11 @@
     @* App-shell behaviour (menus, mobile drawer, theme toggle) — static-SSR progressive enhancement,
        delegated on document so it survives enhanced-navigation DOM merges (ADR 0040). *@
     <script src="@Assets["js/shell.js"]"></script>
-    @* Live config editor (#108 / F20c): filter-as-you-type search + dirty-row highlight, delegated on
-       document so it survives enhanced-navigation. Pure progressive enhancement — the editor works without it. *@
-    <script src="@Assets["js/config-editor.js"]"></script>
-    @* Live server logs (#212 / F27): stick-to-bottom tail helper for the log island's scroll viewport. *@
+    @* Live server logs (#212 / F27): stick-to-bottom tail helper for the log panel's scroll viewport. *@
     <script src="@Assets["js/live-logs.js"]"></script>
-    @* Live server header status (#249): polls the status endpoint to re-tone the badge and lifecycle buttons. *@
+    @* Live fleet status (#253): polls the batched status endpoint to re-tone the static Fleet board. The interactive
+       Server Detail page (#299) updates its header through its circuit instead. *@
     <script src="@Assets["js/live-status.js"]"></script>
-    @* Confirmation dialogs (#271): opens a native <dialog> and enables its submit once the typed name matches. *@
-    <script src="@Assets["js/dialog.js"]"></script>
 </body>
 
 </html>
