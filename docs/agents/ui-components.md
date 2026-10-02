@@ -109,6 +109,10 @@ Use them and don't write static workarounds. The rules:
 - **No new static-only JS.** Since #299 `dialog.js` and `config-editor.js` are gone and `live-status.js` serves
   only Fleet. Browser-only conveniences on an interactive page are small ES modules imported through
   `IJSRuntime` (`dismissed-failures.js`, `local-prefs.js`), guarded so the page works without storage.
+- **Only the routed page reads the query string.** A child that the page renders when the query changes (a rail
+  section) must take `?file=`-style values as `[Parameter]`s from the page, not `[SupplyParameterFromQuery]`: it
+  would subscribe during the location-changed dispatch, which throws "Collection was modified" in the circuit
+  (caught by the rail-navigation browser test).
 - **Interactive pages call services through `ActionScopeRunner`** (a scope and a `DbContext` per action, #297).
   Singleton caches (live inventories, rosters, capacity) may be injected directly.
 - **A `BbInput` that feeds an action uses `UpdateTiming="UpdateTiming.Immediate"`.** The default reports the value

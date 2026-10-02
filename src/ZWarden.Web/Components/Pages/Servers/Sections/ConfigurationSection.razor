@@ -433,13 +433,15 @@
     // The browser preference (#243) for collapse/expand-all, one choice for every editor.
     private const string SectionsPrefKey = "zw-cfg-sections";
 
-    // Which config file the live editor shows (F20c). Bookmarkable like ?section=; Ini by default.
-    [SupplyParameterFromQuery(Name = "file")]
+    // Which config file the live editor shows (F20c): the page's ?file=, bookmarkable like ?section=; Ini by default.
+    // The page reads the query and passes it down: a section created while the query changes must not subscribe to
+    // the query itself, or the circuit's location-changed dispatch throws (collection modified).
+    [Parameter]
     public string? FileParam { get; set; }
 
-    // A configuration write to track (#226) from a link (e.g. "Load history" for another file after a by-path edit).
-    // Only a config write for this Server, visible in the tenant, is honoured; anything else is ignored (fail-closed).
-    [SupplyParameterFromQuery(Name = "op")]
+    // A configuration write to track (#226): the page's ?op=, from a link (e.g. a by-path edit to another file). Only a
+    // config write for this Server, visible in the tenant, is honoured; anything else is ignored (fail-closed).
+    [Parameter]
     public string? OperationParam { get; set; }
 
     /// <summary>The unsaved editor state (D1): restored from the prerender, or after a reconnect.</summary>

@@ -95,6 +95,26 @@ public sealed partial class ServerDetailSmokeTests(BrowserHost host)
     }
 
     [Test]
+    public async Task The_rail_and_the_config_file_tabs_switch_in_place_without_a_reload()
+    {
+        // #299: the rail and the file tabs are ordinary links, so they stay bookmarkable; on the interactive page the
+        // same circuit renders the new section (no full-page reload, no new page instance).
+        await using BrowserSession session = await OpenSectionAsync("smoke-rail", section: null);
+        string instance = await session.Page.GetAttributeAsync("[data-circuit]", "data-circuit-instance") ?? string.Empty;
+
+        await session.Page.ClickAsync("[data-rail-item=players]");
+        await Expect(session.Page.Locator("[data-players-card]")).ToBeVisibleAsync();
+        await session.Page.ClickAsync("[data-rail-item=config]");
+        await Expect(session.Page.Locator("[data-cfg-form]")).ToBeVisibleAsync();
+        await session.Page.ClickAsync("[data-config-tab=SandboxVars]");
+        await Expect(session.Page.Locator("[data-config-tab=SandboxVars]")).ToHaveClassAsync(ActiveTab());
+
+        await Expect(session.Page).ToHaveURLAsync(SandboxVarsUrl());
+        await Assert.That(await session.Page.GetAttributeAsync("[data-circuit]", "data-circuit-instance")).IsEqualTo(instance);
+        await session.AssertNoErrorsAsync();
+    }
+
+    [Test]
     public async Task Mods_starts_a_discovery()
     {
         await using BrowserSession session = await OpenSectionAsync("smoke-mods", "mods");
@@ -149,4 +169,10 @@ public sealed partial class ServerDetailSmokeTests(BrowserHost host)
 
     [GeneratedRegex(@"\bzw-cfg-changed\b")]
     private static partial Regex ChangedRow();
+
+    [GeneratedRegex(@"\bactive\b")]
+    private static partial Regex ActiveTab();
+
+    [GeneratedRegex(@"\?section=config&file=SandboxVars$")]
+    private static partial Regex SandboxVarsUrl();
 }

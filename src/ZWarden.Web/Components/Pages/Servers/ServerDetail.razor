@@ -270,7 +270,7 @@ else
                         <ModBrowserSection Server="_server" Perm="_perm.Mods" />
                         break;
                     case "config":
-                        <ConfigurationSection Server="_server" />
+                        <ConfigurationSection Server="_server" FileParam="@File" OperationParam="@Op" />
                         break;
                     case "backups":
                         <BackupsSection Server="_server" Perm="_perm.Backups" />
@@ -301,6 +301,14 @@ else
     // Which rail section to render (#162). Absent, unknown, or unauthorized falls back to overview (fail-closed).
     [SupplyParameterFromQuery]
     public string? Section { get; set; }
+
+    // The Config section's ?file= and ?op= (F20c, #226). Only the page reads the query: a section the page creates
+    // while the query changes must not subscribe to it, or the circuit's location-changed dispatch throws.
+    [SupplyParameterFromQuery(Name = "file")]
+    public string? File { get; set; }
+
+    [SupplyParameterFromQuery(Name = "op")]
+    public string? Op { get; set; }
 
     /// <summary>The prerender's load, handed to the circuit (#299).</summary>
     [PersistentState]
