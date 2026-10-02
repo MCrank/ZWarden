@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.RegularExpressions;
+using Bunit;
 using Microsoft.Extensions.DependencyInjection;
 using ZWarden.Application.Mods;
 using ZWarden.Application.Workshop;
@@ -9,6 +10,7 @@ using ZWarden.Domain.Security;
 using ZWarden.Domain.Servers;
 using ZWarden.Infrastructure.Authorization;
 using ZWarden.Infrastructure.Persistence;
+using ZWarden.Web.Components.Pages.Servers;
 using ZWarden.Web.Tests.Account;
 using ZWarden.Infrastructure.Tenancy;
 
@@ -18,8 +20,9 @@ namespace ZWarden.Web.Tests.Servers;
 /// #110 PR-C: the adaptive Mod Browser section on the Server Detail rail. Keyless preview (paste an id or collection
 /// URL → cards → Install) is always available; the free-text search grid lights up only when the tenant has a Steam
 /// Web API key. Install hands off to F22's <c>AddWorkshopItemAsync</c>. All Workshop names/ids are untrusted and
-/// escaped at render (trust-boundaries §8). Exercised over the real host, with the Steam-facing seams faked so no
-/// test makes a live call (F12 rule).
+/// escaped at render (trust-boundaries §8). The rendered page is checked over the real host; the actions run as
+/// circuit handlers in bUnit on the same host (#299). The Steam-facing seams are faked so no test makes a live call
+/// (F12 rule).
 /// </summary>
 public sealed class ServerDetailModBrowserTests
 {
@@ -28,7 +31,7 @@ public sealed class ServerDetailModBrowserTests
     [Test]
     public async Task The_rail_shows_the_mod_browser_link_for_a_viewer()
     {
-        await using ZWardenWebAppFactory factory = NewFactory(out _, out _, out _);
+        await using ZWardenWebAppFactory factory = new() { ConfigureTestServicesHook = Fakes(out _, out _, out _) };
         HttpClient client = await SignedInOperatorAsync(factory);
         ServerId serverId = await SeedServerAsync(factory, "mb-rail");
 
@@ -42,7 +45,7 @@ public sealed class ServerDetailModBrowserTests
     [Test]
     public async Task The_section_renders_the_keyless_lookup_and_hides_search_without_a_key()
     {
-        await using ZWardenWebAppFactory factory = NewFactory(out _, out _, out FakeSettings settings);
+        await using ZWardenWebAppFactory factory = new() { ConfigureTestServicesHook = Fakes(out _, out _, out FakeSettings settings) };
         settings.Available = false;
         HttpClient client = await SignedInOperatorAsync(factory);
         ServerId serverId = await SeedServerAsync(factory, "mb-keyless");
@@ -61,7 +64,7 @@ public sealed class ServerDetailModBrowserTests
     [Test]
     public async Task The_search_box_renders_when_a_key_is_configured()
     {
-        await using ZWardenWebAppFactory factory = NewFactory(out _, out _, out FakeSettings settings);
+        await using ZWardenWebAppFactory factory = new() { ConfigureTestServicesHook = Fakes(out _, out _, out FakeSettings settings) };
         settings.Available = true;
         HttpClient client = await SignedInOperatorAsync(factory);
         ServerId serverId = await SeedServerAsync(factory, "mb-keyed");
@@ -77,137 +80,116 @@ public sealed class ServerDetailModBrowserTests
     [Test]
     public async Task Preview_resolves_a_pasted_reference_and_renders_a_card()
     {
-        await using ZWardenWebAppFactory factory = NewFactory(out FakePreview preview, out _, out _);
+        await using ServerDetailHarness harness = await ServerDetailHarness.StartAsync(Fakes(out FakePreview preview, out _, out _));
         preview.Result = WorkshopPreview.OfItem(
             new WorkshopItemMetadata("2392709985", Found: true, Title: "Brita Weapon Pack", SizeBytes: 123456));
-        HttpClient client = await SignedInOperatorAsync(factory);
-        ServerId serverId = await SeedServerAsync(factory, "mb-preview");
+        ServerId serverId = await harness.SeedServerAsync("mb-preview");
 
-        string html = await PostSectionAsync(client, serverId, "modbrowser-preview", new()
-        {
-            ["_browserForm.Input"] = "2392709985",
-            ["_browserForm.Command"] = "resolve",
-        });
+        IRenderedComponent<ServerDetail> cut = await PreviewAsync(harness, serverId, "2392709985");
 
-        await Assert.That(html).Contains("data-modbrowser-results");
-        await Assert.That(html).Contains("data-modbrowser-item");
-        await Assert.That(html).Contains("2392709985");
-        await Assert.That(html).Contains("Brita Weapon Pack");
-        client.Dispose();
+        await Assert.That(cut.Markup).Contains("data-modbrowser-item");
+        await Assert.That(cut.Markup).Contains("2392709985");
+        await Assert.That(cut.Markup).Contains("Brita Weapon Pack");
     }
 
     [Test]
     public async Task A_hostile_workshop_title_is_rendered_escaped()
     {
-        await using ZWardenWebAppFactory factory = NewFactory(out FakePreview preview, out _, out _);
-        preview.Result = WorkshopPreview.OfItem(
-            new WorkshopItemMetadata("111", Found: true, Title: "<script>alert(1)</script>"));
-        HttpClient client = await SignedInOperatorAsync(factory);
-        ServerId serverId = await SeedServerAsync(factory, "mb-xss");
+        await using ServerDetailHarness harness = await ServerDetailHarness.StartAsync(Fakes(out FakePreview preview, out _, out _));
+        preview.Result = WorkshopPreview.OfItem(new WorkshopItemMetadata("111", Found: true, Title: "<script>alert(1)</script>"));
+        ServerId serverId = await harness.SeedServerAsync("mb-xss");
 
-        string html = await PostSectionAsync(client, serverId, "modbrowser-preview", new()
-        {
-            ["_browserForm.Input"] = "111",
-            ["_browserForm.Command"] = "resolve",
-        });
+        IRenderedComponent<ServerDetail> cut = await PreviewAsync(harness, serverId, "111");
 
-        await Assert.That(html).Contains("&lt;script&gt;");
-        await Assert.That(html).DoesNotContain("<script>alert(1)");
-        client.Dispose();
+        await Assert.That(cut.Markup).Contains("&lt;script&gt;");
+        await Assert.That(cut.Markup).DoesNotContain("<script>alert(1)");
     }
 
     [Test]
     public async Task An_unresolvable_input_shows_a_message()
     {
-        await using ZWardenWebAppFactory factory = NewFactory(out FakePreview preview, out _, out _);
+        await using ServerDetailHarness harness = await ServerDetailHarness.StartAsync(Fakes(out FakePreview preview, out _, out _));
         preview.Result = WorkshopPreview.Unresolvable;
-        HttpClient client = await SignedInOperatorAsync(factory);
-        ServerId serverId = await SeedServerAsync(factory, "mb-unresolvable");
+        ServerId serverId = await harness.SeedServerAsync("mb-unresolvable");
+        IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "modbrowser");
 
-        string html = await PostSectionAsync(client, serverId, "modbrowser-preview", new()
-        {
-            ["_browserForm.Input"] = "not-a-workshop-link",
-            ["_browserForm.Command"] = "resolve",
-        });
+        await ServerDetailHarness.TypeAsync(cut, "modbrowser-input", "not-a-workshop-link");
+        await cut.Find("[data-modbrowser-lookup]").Closest("form")!.SubmitAsync();
 
-        await Assert.That(html).Contains("data-modbrowser-unresolvable");
-        client.Dispose();
+        cut.WaitForState(() => cut.FindAll("[data-modbrowser-unresolvable]").Count == 1);
     }
 
     [Test]
     public async Task Install_from_a_preview_card_enqueues_a_config_apply_touching_workshop_items()
     {
-        await using ZWardenWebAppFactory factory = NewFactory(out _, out _, out _);
-        HttpClient client = await SignedInOperatorAsync(factory);
-        (ServerId serverId, AgentId agent) = await SeedServerAndAgentAsync(factory, "mb-install");
+        await using ServerDetailHarness harness = await ServerDetailHarness.StartAsync(Fakes(out FakePreview preview, out _, out _));
+        preview.Result = WorkshopPreview.OfItem(new WorkshopItemMetadata("200", Found: true, Title: "New Pack"));
+        ServerId serverId = await harness.SeedServerAsync("mb-install");
         // AddWorkshopItem recomputes WorkshopItems= from the last observed inventory, so one must exist.
-        SeedInventory(factory, serverId, agent, installed: [], workshop: ["100"]);
+        harness.SeedInventory(serverId, installed: [], workshop: ["100"], enabled: []);
+        IRenderedComponent<ServerDetail> cut = await PreviewAsync(harness, serverId, "200");
 
-        string html = await PostSectionAsync(client, serverId, "modbrowser-preview", new()
-        {
-            ["_browserForm.Input"] = string.Empty,
-            ["_browserForm.Command"] = "install|200",
-        });
+        await cut.Find("[data-workshop-id='200'] [data-action=modbrowser-install]").ClickAsync(new());
 
-        Operation? op = FirstOperation(factory, serverId, OperationKind.ConfigApply);
-        await Assert.That(op).IsNotNull();
-        await Assert.That(op!.CommandPayload).Contains("WorkshopItems");
+        cut.WaitForState(() => harness.FirstOperation(serverId, OperationKind.ConfigApply) is not null);
+        Operation op = harness.FirstOperation(serverId, OperationKind.ConfigApply)!;
+        await Assert.That(op.CommandPayload).Contains("WorkshopItems");
         await Assert.That(op.CommandPayload).Contains("200");
-        await Assert.That(html).Contains("data-modbrowser-message");
-        client.Dispose();
+        await Assert.That(cut.Markup).Contains("data-modbrowser-message");
+        // The preview stays on screen across the install (no page reload).
+        await Assert.That(cut.Markup).Contains("New Pack");
     }
 
     [Test]
     public async Task Search_renders_result_cards_when_keyed()
     {
-        await using ZWardenWebAppFactory factory = NewFactory(out _, out FakeSearch search, out FakeSettings settings);
+        await using ServerDetailHarness harness = await ServerDetailHarness.StartAsync(Fakes(out _, out FakeSearch search, out FakeSettings settings));
         settings.Available = true;
-        search.Result = WorkshopSearchResults.From(
-            [new WorkshopSearchResult("500", Title: "Hydrocraft", Subscriptions: 9001)]);
-        HttpClient client = await SignedInOperatorAsync(factory);
-        ServerId serverId = await SeedServerAsync(factory, "mb-search");
+        search.Result = WorkshopSearchResults.From([new WorkshopSearchResult("500", Title: "Hydrocraft", Subscriptions: 9001)]);
+        ServerId serverId = await harness.SeedServerAsync("mb-search");
+        IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "modbrowser");
 
-        string html = await PostSectionAsync(client, serverId, "modbrowser-search", new()
-        {
-            ["_searchForm.Query"] = "hydro",
-            ["_searchForm.Command"] = "search",
-        });
+        await ServerDetailHarness.TypeAsync(cut, "modbrowser-query", "hydro");
+        await cut.Find("[data-modbrowser-search] form").SubmitAsync();
 
-        await Assert.That(html).Contains("data-modbrowser-search-results");
-        await Assert.That(html).Contains("Hydrocraft");
-        await Assert.That(html).Contains("500");
-        client.Dispose();
+        cut.WaitForState(() => cut.FindAll("[data-modbrowser-search-results]").Count == 1);
+        await Assert.That(cut.Markup).Contains("Hydrocraft");
+        await Assert.That(cut.Markup).Contains("500");
     }
 
     [Test]
     public async Task An_installed_item_preview_shows_compatibility_chips()
     {
-        await using ZWardenWebAppFactory factory = NewFactory(out FakePreview preview, out _, out _);
+        await using ServerDetailHarness harness = await ServerDetailHarness.StartAsync(Fakes(out FakePreview preview, out _, out _));
         preview.Result = WorkshopPreview.OfItem(new WorkshopItemMetadata("100", Found: true, Title: "Installed Pack"));
-        HttpClient client = await SignedInOperatorAsync(factory);
-        (ServerId serverId, AgentId agent) = await SeedServerAndAgentAsync(factory, "mb-compat");
+        ServerId serverId = await harness.SeedServerAsync("mb-compat");
         // The item is on disk with a declared PZ version — the card enriches from the observed inventory.
-        SeedInventory(
-            factory, serverId, agent,
+        harness.SeedInventory(
+            serverId,
             installed: [new InstalledWorkshopItem("100", [new InstalledMod("ModA", "Mod A", PzVersion: "41.78")])],
-            workshop: ["100"]);
+            workshop: ["100"],
+            enabled: []);
 
-        string html = await PostSectionAsync(client, serverId, "modbrowser-preview", new()
-        {
-            ["_browserForm.Input"] = "100",
-            ["_browserForm.Command"] = "resolve",
-        });
+        IRenderedComponent<ServerDetail> cut = await PreviewAsync(harness, serverId, "100");
 
-        await Assert.That(html).Contains("data-item-compat");
-        await Assert.That(html).Contains("data-compat-pz");
-        await Assert.That(html).Contains("41.78");
+        await Assert.That(cut.Markup).Contains("data-item-compat");
+        await Assert.That(cut.Markup).Contains("data-compat-pz");
+        await Assert.That(cut.Markup).Contains("41.78");
         // Already in WorkshopItems= — the card shows that state instead of an Install button.
-        await Assert.That(html).Contains("data-item-configured");
-        client.Dispose();
+        await Assert.That(cut.Markup).Contains("data-item-configured");
     }
 
-    private static ZWardenWebAppFactory NewFactory(
-        out FakePreview preview, out FakeSearch search, out FakeSettings settings)
+    // Opens the Mod Browser, pastes the reference and previews it; waits for the result cards.
+    private static async Task<IRenderedComponent<ServerDetail>> PreviewAsync(ServerDetailHarness harness, ServerId serverId, string input)
+    {
+        IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "modbrowser");
+        await ServerDetailHarness.TypeAsync(cut, "modbrowser-input", input);
+        await cut.Find("[data-modbrowser-lookup]").Closest("form")!.SubmitAsync();
+        cut.WaitForState(() => cut.FindAll("[data-modbrowser-results]").Count == 1);
+        return cut;
+    }
+
+    private static Action<IServiceCollection> Fakes(out FakePreview preview, out FakeSearch search, out FakeSettings settings)
     {
         FakePreview p = new();
         FakeSearch s = new();
@@ -215,14 +197,11 @@ public sealed class ServerDetailModBrowserTests
         preview = p;
         search = s;
         settings = st;
-        return new ZWardenWebAppFactory
+        return services =>
         {
-            ConfigureTestServicesHook = services =>
-            {
-                services.AddSingleton<IWorkshopMetadataService>(p);
-                services.AddSingleton<IWorkshopSearchService>(s);
-                services.AddSingleton<IWorkshopSettingsService>(st);
-            },
+            services.AddSingleton<IWorkshopMetadataService>(p);
+            services.AddSingleton<IWorkshopSearchService>(s);
+            services.AddSingleton<IWorkshopSettingsService>(st);
         };
     }
 
@@ -263,40 +242,6 @@ public sealed class ServerDetailModBrowserTests
     private static async Task<string> GetAsync(HttpClient client, string relativeUrl) =>
         await (await client.GetAsync(new Uri(relativeUrl, UriKind.Relative))).Content.ReadAsStringAsync();
 
-    private static async Task<string> PostSectionAsync(
-        HttpClient client, ServerId serverId, string handler, Dictionary<string, string> fields)
-    {
-        string page = await GetAsync(client, $"/servers/{serverId}?section=modbrowser");
-        Dictionary<string, string> form = new(StringComparer.Ordinal)
-        {
-            ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
-            ["_handler"] = handler,
-        };
-        foreach ((string key, string value) in fields)
-        {
-            form[key] = value;
-        }
-
-        HttpResponseMessage post = await client.PostAsync(
-            new Uri($"/servers/{serverId}?section=modbrowser", UriKind.Relative), new FormUrlEncodedContent(form));
-        return await post.Content.ReadAsStringAsync();
-    }
-
-    private static Operation? FirstOperation(ZWardenWebAppFactory factory, ServerId serverId, OperationKind kind)
-    {
-        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
-        ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
-        return db.Set<Operation>().FirstOrDefault(o => o.ServerId == serverId && o.Kind == kind);
-    }
-
-    private static void SeedInventory(
-        ZWardenWebAppFactory factory, ServerId server, AgentId agent,
-        IReadOnlyList<InstalledWorkshopItem> installed, IReadOnlyList<string> workshop)
-    {
-        IModInventoryCache cache = factory.Services.GetRequiredService<IModInventoryCache>();
-        cache.Record(new ModInventory(server, agent, installed, workshop, [], [], DateTimeOffset.UtcNow));
-    }
-
     private static async Task<HttpClient> SignedInOperatorAsync(ZWardenWebAppFactory factory)
     {
         await factory.CreateConfirmedUserAsync("op@zwarden.test", StrongPassword);
@@ -314,18 +259,6 @@ public sealed class ServerDetailModBrowserTests
         db.Set<Server>().Add(server);
         await db.SaveChangesAsync();
         return server.Id;
-    }
-
-    private static async Task<(ServerId Server, AgentId Agent)> SeedServerAndAgentAsync(
-        ZWardenWebAppFactory factory, string name)
-    {
-        AgentId agent = AgentId.New();
-        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
-        ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
-        Server server = Server.Import(agent, ServerId.New(), name, DateTimeOffset.UtcNow);
-        db.Set<Server>().Add(server);
-        await db.SaveChangesAsync();
-        return (server.Id, agent);
     }
 
     private static async Task LoginAsync(HttpClient client, string email, string password)
