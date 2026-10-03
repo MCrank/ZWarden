@@ -82,6 +82,10 @@
     public IReadOnlyDictionary<string, IReadOnlyList<string>> Warnings { get; set; } =
         new Dictionary<string, IReadOnlyList<string>>();
 
+    /// <summary>The parts mod.info declares incompatible, for the parts picker.</summary>
+    [Parameter]
+    public ModPartConflicts Conflicts { get; set; } = ModPartConflicts.From(null);
+
     /// <summary>The caller's per-server mod grants (fail-closed).</summary>
     [Parameter, EditorRequired]
     public ModManagePermissions Perm { get; set; }
@@ -116,9 +120,10 @@
         {
             HashSet<string> enabled = new(row.EnabledModIds, StringComparer.Ordinal);
             List<string> on = [.. row.Item!.ObservedModIds.Where(enabled.Contains)];
-            // A part check with nothing on suggests every part the download provides.
-            _picks[row.Key] = new HashSet<string>(
-                on.Count > 0 || !row.Item.NeedsParts ? on : row.Item.ObservedModIds, StringComparer.Ordinal);
+            // Start on what is on now. With nothing on, a one-part item suggests its part; a multi-part item starts
+            // empty, because packs often ship variants that must not load together (live pass: Equipment UI).
+            bool suggestOnlyPart = on.Count == 0 && row.Item.NeedsParts && row.Item.ObservedModIds.Count == 1;
+            _picks[row.Key] = new HashSet<string>(suggestOnlyPart ? row.Item.ObservedModIds : on, StringComparer.Ordinal);
         }
     }
 
@@ -201,17 +206,29 @@
                 @foreach (string part in item.ObservedModIds)
                 {
                     string id = $"parts-{item.WorkshopId}-{part}";
-                    <div class="flex items-center gap-2" data-mod-parts-option data-mod-id="@part">
-                        <BbCheckbox Id="@id" Checked="picks.Contains(part)" Disabled="!canSave"
+                    bool ticked = picks.Contains(part);
+                    // mod.info says this part can't load with a ticked one: name it, and don't let it be ticked as well.
+                    IReadOnlyList<string> clashes = Conflicts.With(part, picks);
+                    <div class="flex flex-wrap items-center gap-x-2" data-mod-parts-option data-mod-id="@part">
+                        <BbCheckbox Id="@id" Checked="ticked" Disabled="@(!canSave || (!ticked && clashes.Count > 0))"
                                     CheckedChanged="@((bool on) => { if (on) { picks.Add(part); } else { picks.Remove(part); } })" />
                         <BbLabel For="@id" Class="font-mono text-xs">@part</BbLabel>
+                        @if (clashes.Count > 0)
+                        {
+                            <span class="text-xs text-status-unhealthy" data-mod-part-conflict>conflicts with @string.Join(", ", clashes)</span>
+                        }
                     </div>
                 }
             </div>
             @if (canSave)
             {
-                <BbButton Class="mt-3" Size="ButtonSize.Small" Disabled="Busy"
+                bool conflicting = Conflicts.AnyAmong(picks);
+                <BbButton Class="mt-3" Size="ButtonSize.Small" Disabled="@(Busy || conflicting)"
                           OnClick="@(() => RaiseAsync(ModRowVerb.SaveParts, r, [.. picks]))" data-action="mod-parts-save">Save parts</BbButton>
+                @if (conflicting)
+                {
+                    <span class="ml-2 text-xs text-muted-foreground">Untick one of the conflicting parts to save.</span>
+                }
             }
         </div>;
     }

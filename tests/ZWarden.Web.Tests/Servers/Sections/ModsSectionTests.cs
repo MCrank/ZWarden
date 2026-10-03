@@ -212,6 +212,64 @@ public sealed class ModsSectionTests
     }
 
     [Test]
+    public async Task Picking_parts_starts_empty_and_blocks_a_part_that_conflicts_with_a_ticked_one()
+    {
+        // Live pass (Equipment UI): every part was pre-ticked, so one Save turned on both builds of the same mod.
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
+        ServerId serverId = await harness.SeedServerAsync("conflicting-parts");
+        await harness.SeedModStateAsync(
+            serverId, booted: (["100"], []), configured: (["100"], []), ("100", [], ["EQUIPMENT_UI", "EQUIPMENT_UI_B42"], true));
+        harness.SeedInventory(
+            serverId,
+            installed:
+            [
+                new InstalledWorkshopItem("100",
+                [
+                    new InstalledMod("EQUIPMENT_UI", null, Incompatible: ["EQUIPMENT_UI_B42"]),
+                    new InstalledMod("EQUIPMENT_UI_B42", null),
+                ]),
+            ],
+            workshop: ["100"], enabled: []);
+        IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "mods");
+
+        cut.WaitForState(() => cut.FindAll("[data-mod-pick-parts]").Count == 1);
+        await Assert.That(cut.FindAll("[data-mod-parts-option] [role=checkbox][aria-checked=true]")).IsEmpty();
+        await cut.Find("[data-mod-parts-option][data-mod-id='EQUIPMENT_UI_B42'] [role=checkbox]").ClickAsync(new());
+
+        cut.WaitForState(() => cut.FindAll("[data-mod-parts-option][data-mod-id='EQUIPMENT_UI'] [data-mod-part-conflict]").Count == 1);
+        await Assert.That(cut.Find("[data-mod-parts-option][data-mod-id='EQUIPMENT_UI'] [data-mod-part-conflict]").TextContent)
+            .Contains("conflicts with EQUIPMENT_UI_B42");
+        await Assert.That(cut.Find("[data-mod-parts-option][data-mod-id='EQUIPMENT_UI'] [role=checkbox]").HasAttribute("disabled")).IsTrue();
+        await cut.Find("[data-action=mod-parts-save]").ClickAsync(new());
+
+        cut.WaitForState(() => harness.FirstOperation(serverId, OperationKind.ConfigApply) is not null);
+        await Assert.That(Edits(harness, serverId)).IsEquivalentTo(["Mods=EQUIPMENT_UI_B42"]);
+    }
+
+    [Test]
+    public async Task Parts_already_on_together_despite_a_conflict_block_saving_until_one_is_unticked()
+    {
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
+        ServerId serverId = await harness.SeedServerAsync("conflict-on");
+        await harness.SeedModStateAsync(
+            serverId, booted: (["100"], ["A", "B"]), configured: (["100"], ["A", "B"]), ("100", [], ["A", "B"], true));
+        harness.SeedInventory(
+            serverId,
+            installed: [new InstalledWorkshopItem("100", [new InstalledMod("A", null, Incompatible: ["B"]), new InstalledMod("B", null)])],
+            workshop: ["100"], enabled: ["A", "B"]);
+        IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "mods");
+
+        cut.WaitForState(() => cut.FindAll("[data-action=mod-parts-toggle]").Count == 1);
+        await cut.Find("[data-action=mod-parts-toggle]").ClickAsync(new());
+        cut.WaitForState(() => cut.FindAll("[data-mod-pick-parts]").Count == 1);
+        await Assert.That(cut.Find("[data-action=mod-parts-save]").HasAttribute("disabled")).IsTrue();
+
+        await cut.Find("[data-mod-parts-option][data-mod-id='A'] [role=checkbox]").ClickAsync(new());
+
+        cut.WaitForState(() => !cut.Find("[data-action=mod-parts-save]").HasAttribute("disabled"));
+    }
+
+    [Test]
     public async Task A_missing_requirement_shows_as_a_warning_on_the_row()
     {
         await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();

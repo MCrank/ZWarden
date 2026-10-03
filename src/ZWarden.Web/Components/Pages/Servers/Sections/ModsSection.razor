@@ -64,7 +64,7 @@
         }
         else
         {
-            <ModsTable Rows="_rows" Warnings="_warnings" Perm="Perm" Busy="_acting" Zone="OperatorZone" OnCommand="RunAsync" />
+            <ModsTable Rows="_rows" Warnings="_warnings" Conflicts="_conflicts" Perm="Perm" Busy="_acting" Zone="OperatorZone" OnCommand="RunAsync" />
             <LeftoverDownloads Items="_table.Leftovers" CanReinstall="Perm.CanInstall" Busy="_acting" OnReinstall="ReinstallAsync" />
         }
     </div>
@@ -91,6 +91,7 @@
     private List<ModTableRow> _rows = [];
     private List<ModTableRow> _pending = [];
     private IReadOnlyDictionary<string, IReadOnlyList<string>> _warnings = new Dictionary<string, IReadOnlyList<string>>();
+    private ModPartConflicts _conflicts = ModPartConflicts.From(null);
 
     // A change (or Re-scan) is enqueued, not done: the Agent writes the config, then a discovery records the new lists.
     // Until ConfigObservedAt moves past what was shown, the section re-reads the overview every WatchInterval.
@@ -178,6 +179,7 @@
             _onServer.Add(configured);
         }
         _warnings = ModRowWarnings.For(_table, inventory);
+        _conflicts = ModPartConflicts.From(inventory);
     }
 
     private async Task DiscoverModsAsync()
