@@ -21,8 +21,8 @@ public interface IBackupArchiver
     /// <c>&lt;destinationDirectory&gt;/&lt;archiveName&gt;</c> as a <c>.tar.gz</c>, and returns the produced size and
     /// checksum. The write is atomic (a temp file in the destination dir, then a rename), so a crash never leaves a
     /// half-archive at the final name. <b>Symlinks are never followed</b> — the PZ <c>data/workshop</c> symlink
-    /// points into ephemeral runtime storage, not world data. The SteamCMD install is excluded by construction: it
-    /// is a host sibling of the source, not under it.</summary>
+    /// points at the re-downloadable Workshop cache on the install volume, not world data. The SteamCMD install is
+    /// excluded by construction: it is a host sibling of the source, not under it.</summary>
     BackupArchiveResult Create(
         string sourceDirectory, string destinationDirectory, string archiveName, CancellationToken cancellationToken);
 }
@@ -72,7 +72,7 @@ public sealed class TarGzBackupArchiver : IBackupArchiver
 
     // Depth-first walk that writes one tar entry per regular file, path-relative to the source root with forward
     // slashes. A symlink (file or directory) is never entered or recorded — following data/workshop would pull in
-    // ephemeral Workshop content that is not world data (ADR 0028). Directory structure is reconstructed on restore
+    // re-downloadable Workshop content that is not world data (ADR 0028). Directory structure is reconstructed on restore
     // from the file paths, so empty directories are not preserved (world saves never rely on them).
     private static void WriteTree(TarWriter tar, DirectoryInfo directory, string sourceRoot, CancellationToken cancellationToken)
     {
@@ -82,7 +82,7 @@ public sealed class TarGzBackupArchiver : IBackupArchiver
 
             if (entry.LinkTarget is not null)
             {
-                continue; // Never follow a symlink (e.g. data/workshop → ephemeral runtime storage).
+                continue; // Never follow a symlink (e.g. data/workshop → the Workshop cache on the install volume).
             }
 
             switch (entry)

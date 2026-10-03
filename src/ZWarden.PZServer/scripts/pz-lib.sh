@@ -272,14 +272,15 @@ pz_apply_update() {
 
 # pz_create_layout <root>
 # Builds the canonical PZ filesystem (PRD 23). /pz/data is the persistent user-data
-# volume; the Workshop cache lives under the Steam root and is symlinked in as
-# data/workshop so operators and later features see one logical tree.
+# volume. The server downloads WorkshopItems= under its OWN install dir - the persistent
+# /pz/server volume, "installed to /pz/server/steamapps/workshop/content/108600/<id>"
+# (spikes #291/#293) - not the runtime/ Steam root a standalone SteamCMD would use. That
+# folder is symlinked in as data/workshop so operators see one logical tree; the server
+# creates it on its first download, so the link may dangle until then.
 pz_create_layout() {
   local root="$1"
   mkdir -p "${root}/server" "${root}/runtime" "${root}/data"
-  local workshop_cache="${root}/runtime/steamapps/workshop/content/${PZ_STEAM_APPID_TXT}"
-  mkdir -p "${workshop_cache}"
-  ln -sfn "${workshop_cache}" "${root}/data/workshop"
+  ln -sfn "${root}/server/steamapps/workshop/content/${PZ_STEAM_APPID_TXT}" "${root}/data/workshop"
 }
 
 # pz_admin_password <data_dir>

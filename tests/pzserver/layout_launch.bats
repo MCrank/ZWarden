@@ -21,6 +21,15 @@ teardown() {
 @test "create_layout symlinks the Workshop cache into data/workshop" {
   pz_create_layout "$PZ_ROOT"
   [ -L "$PZ_ROOT/data/workshop" ]
+  # The server downloads Workshop items under its own install dir, the persistent /pz/server volume (spike #293).
+  [ "$(readlink "$PZ_ROOT/data/workshop")" = "$PZ_ROOT/server/steamapps/workshop/content/108600" ]
+}
+
+@test "create_layout leaves the Workshop folder for the server to create" {
+  pz_create_layout "$PZ_ROOT"
+  # Nothing downloads to the ephemeral runtime/ Steam root, and the install volume is not pre-populated (#293).
+  [ ! -e "$PZ_ROOT/runtime/steamapps" ]
+  [ ! -e "$PZ_ROOT/server/steamapps" ]
 }
 
 @test "launch command runs the shipped launcher with cachedir and servername" {

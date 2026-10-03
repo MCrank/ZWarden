@@ -66,7 +66,8 @@ that the files persist and updates are incremental.
 │   ├── jre64/                 PZ's OWN bundled Java 25 — no system Java needed
 │   ├── natives/  …
 │   ├── steam_appid.txt        must contain exactly "108600"
-│   └── steamapps/appmanifest_380870.acf   ← installed build id is read from here (F17)
+│   ├── steamapps/appmanifest_380870.acf   ← installed build id is read from here (F17)
+│   └── steamapps/workshop/content/108600/<id>/   Workshop items the server downloads (F21, #293)
 │
 ├── runtime/              SteamCMD working copy + Steam root + the control FIFO   [EPHEMERAL]
 │                         (a tmpfs — rebuilt from /opt/steamcmd every boot)

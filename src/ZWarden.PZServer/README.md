@@ -15,10 +15,10 @@ network (Debian packages + Valve's SteamCMD tarball) but never reaches Steam.
 
 | Logical (`/pz`) | Holds | PZ's own name under it |
 | --- | --- | --- |
-| `server/` | the SteamCMD install of app 380870 | — |
+| `server/` (volume) | the SteamCMD install of app 380870, and the Workshop items the server downloads | `steamapps/workshop/content/108600/<id>/` |
 | `runtime/` | SteamCMD, the Steam root, the `zomboid.control` FIFO | `steamapps/…` |
 | `data/` (volume) | config, saves, logs, player db | `Server/`, `Saves/`, `Logs/`, `db/` |
-| `data/workshop` | symlink → the Workshop cache under the Steam root | `steamapps/workshop/content/108600/` |
+| `data/workshop` | symlink → the server's Workshop folder under `server/` (#293; dangles until the first download) | `steamapps/workshop/content/108600/` |
 
 ## Environment
 
