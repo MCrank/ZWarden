@@ -1,6 +1,6 @@
 # Feature #290 Mini-Plan — Installed-item data, automatic discovery, pending-change tracking
 
-**Status:** planned. Two PRs (A, B). v1.0, epic [#289](https://github.com/MCrank/ZWarden/issues/289). Blocks #291,
+**Status:** done — PR-A #314 merged; PR-B closes #290. v1.0, epic [#289](https://github.com/MCrank/ZWarden/issues/289). Blocks #291,
 #292 and #275.
 
 **Written against:** issue #290; epic #289 (Variant B, "mod ids come from the Workshop description, then `mod.info`
@@ -207,3 +207,27 @@ The UI (#292), Install (#291), deleting files (#293), the "Update ready" cadence
 - **Architecture:** `UntrustedModTextGuardTests` covers `ModListEditor` and `ServerWorkshopItem` taking mod ids as
   `PzModId`, and `MarkupString` only in the authenticator QR seam.
 - **Floors:** Arch 80, Domain 389, Infrastructure 538. Web.Tests unchanged (536).
+
+**PR-B** (`feat/290b-mod-refresh-worker`, closes #290):
+- **The hub hooks into two existing places.**
+  - **Discovery result:** besides F21's cache, `IModStateRecorder` persists it (ownership-guarded, timed by the
+    control-plane clock).
+  - **After `CompleteSucceededAsync`:** `IModRefreshTrigger` reads the persisted Operation's kind. A boot (Start,
+    Restart, Update, Recreate) marks `ServerModState` booted and queues a discovery now, plus one after
+    `PostBootRediscoverDelay` (3 min). ConfigApply / ConfigApplyRaw queue a discovery. `OnConnectedAsync` queues a
+    discovery of the Agent's Servers.
+  - `OperationStore` didn't change. The trigger looks the Operation up itself, like `ServerRemoval`.
+- **`ModRefreshScheduler`** (renamed from "queue": CA1711) is a bounded channel with drop-oldest. A duplicate of a
+  waiting request is ignored. Delayed requests use `Task.Delay(TimeProvider)`. Dispose is idempotent: the container
+  disposes the singleton once per registration.
+- **`ModRefreshWorker`** runs each request in `TenantScopes.CreateTenantScope(request.Tenant)` through
+  `ModRefreshProcessor`:
+  - **Discovery:** a system `ModDiscovery` enqueue, non-mutating, with no actor.
+  - **Metadata:** one batched Steam call for missing or stale items (6 h); the guesses are re-parsed each time.
+  - **Failures:** logged and dropped. The recorder and the trigger never throw into the hub.
+- **`ModChangeSet`** and **`IServerModOverviewService`** (Mod.View) are ready for #292.
+- **Acceptance test:** `OperationDispatchIntegrationTests.A_removed_mod_shows_as_leftover_after_a_restart_with_no_manual_refresh`
+  runs end to end through the hub (5/5 locally).
+- **Floors:** Infrastructure 577, Web 537 (csproj + ci.yml). Arch 80 and Domain 389 unchanged.
+- **Known noise:** every automatic discovery is an Operation, so it is audited (`operation.enqueued`) and listed like
+  a manual Refresh. #292 may want to hide system-initiated discoveries from the operations list.

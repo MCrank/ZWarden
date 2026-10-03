@@ -49,6 +49,8 @@ public sealed partial class AgentHub : Hub
     private readonly IDiagnosticsResultCache _diagnostics;
     private readonly IConfigurationRevisionRecorder _configRevisions;
     private readonly IModInventoryCache _mods;
+    private readonly IModStateRecorder _modState;
+    private readonly IModRefreshTrigger _modRefresh;
     private readonly IBackupRecorder _backups;
     private readonly IServerRemoval _removal;
     private readonly ControlPlaneMetrics _telemetry;
@@ -70,6 +72,8 @@ public sealed partial class AgentHub : Hub
         IDiagnosticsResultCache diagnostics,
         IConfigurationRevisionRecorder configRevisions,
         IModInventoryCache mods,
+        IModStateRecorder modState,
+        IModRefreshTrigger modRefresh,
         IBackupRecorder backups,
         IServerRemoval removal,
         ControlPlaneMetrics telemetry,
@@ -90,6 +94,8 @@ public sealed partial class AgentHub : Hub
         ArgumentNullException.ThrowIfNull(diagnostics);
         ArgumentNullException.ThrowIfNull(configRevisions);
         ArgumentNullException.ThrowIfNull(mods);
+        ArgumentNullException.ThrowIfNull(modState);
+        ArgumentNullException.ThrowIfNull(modRefresh);
         ArgumentNullException.ThrowIfNull(backups);
         ArgumentNullException.ThrowIfNull(removal);
         ArgumentNullException.ThrowIfNull(telemetry);
@@ -109,6 +115,8 @@ public sealed partial class AgentHub : Hub
         _diagnostics = diagnostics;
         _configRevisions = configRevisions;
         _mods = mods;
+        _modState = modState;
+        _modRefresh = modRefresh;
         _backups = backups;
         _removal = removal;
         _telemetry = telemetry;
@@ -130,6 +138,10 @@ public sealed partial class AgentHub : Hub
         await _audit.WriteAsync(Entry(AgentConnectionAuditActions.Connected, agentId), CancellationToken.None)
             .ConfigureAwait(false);
         LogConnected(agentId);
+
+        // #290: re-discover this Agent's Servers' mods in the background, so persisted mod state is fresh after a
+        // web restart or a dropped connection without waiting for a boot.
+        _modRefresh.AgentConnected(agentId);
         await base.OnConnectedAsync().ConfigureAwait(false);
     }
 
@@ -530,12 +542,15 @@ public sealed partial class AgentHub : Hub
             }
 
             // A successful mod discovery carries the Workshop-and-mod inventory the Agent observed on disk (F21);
-            // cache the newest per Server for the live UI, keyed by the reporting Agent (the ownership guard, §8).
-            // Transient display data — never persisted. Ids/names are untrusted, carried verbatim (escaped at render).
+            // cache the newest per Server for the live UI, keyed by the reporting Agent (the ownership guard, §8), and
+            // persist it as the Server's mod state (#290, ADR 0047; the recorder re-checks ownership and validates
+            // every mod id). Ids/names are untrusted, carried verbatim (escaped at render).
             if (completed.Payload.Mods is { } mods && completed.ServerId is { } modsServerId
                 && AgentClaims.TryGetAgentId(Context.User, out AgentId modsAgent))
             {
-                _mods.Record(ToInventory(modsServerId, modsAgent, mods, completed.Timestamp));
+                ModInventory inventory = ToInventory(modsServerId, modsAgent, mods, completed.Timestamp);
+                _mods.Record(inventory);
+                await _modState.RecordAsync(inventory, Context.ConnectionAborted).ConfigureAwait(false);
             }
 
             // A successful backup carries the archive facts the Agent wrote host-side (F24); persist a tenant-owned
@@ -578,6 +593,14 @@ public sealed partial class AgentHub : Hub
             }
 
             await _operations.CompleteSucceededAsync(operationId, Context.ConnectionAborted).ConfigureAwait(false);
+
+            // #290: a boot or config apply refreshes the Server's mod state in the background. The kind is read from
+            // the persisted Operation and only the owning Agent's report counts; it never throws into the hub.
+            if (AgentClaims.TryGetAgentId(Context.User, out AgentId completingAgent))
+            {
+                await _modRefresh.OperationSucceededAsync(operationId, completingAgent, Context.ConnectionAborted)
+                    .ConfigureAwait(false);
+            }
         }
         else
         {

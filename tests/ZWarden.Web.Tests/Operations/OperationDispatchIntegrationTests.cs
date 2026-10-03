@@ -14,6 +14,7 @@ using ZWarden.Domain.Ids;
 using ZWarden.Domain.Operations;
 using ZWarden.Infrastructure.Agents;
 using ZWarden.Infrastructure.Configuration;
+using ZWarden.Infrastructure.Mods;
 using ZWarden.Infrastructure.Operations;
 using ZWarden.Infrastructure.Persistence;
 using ZWarden.Infrastructure.Servers;
@@ -342,6 +343,108 @@ public class OperationDispatchIntegrationTests
         await Assert.That(cache.GetLatest(serverId, AgentId.New())).IsNull();
 
         await connection.StopAsync();
+    }
+
+    [Test]
+    public async Task A_removed_mod_shows_as_leftover_after_a_restart_with_no_manual_refresh()
+    {
+        // #290 acceptance, end to end through the hub: each restart that completes marks the Server booted and queues
+        // a background discovery; the stand-in Agent answers it from a mutable "disk + servertest.ini"; the recorder
+        // persists it. Booted with A+B, B removed from config, restart: B's files show as leftover.
+        await using ZWardenWebAppFactory factory = new();
+        (AgentId agentId, string credential) = await SeedTrustedAgentAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, agentId);
+        await using HubConnection connection = BuildConnection(factory, credential);
+
+        string[] configuredItems = ["100", "200"];
+        string[] enabledMods = ["A", "B"];
+        DiscoveredWorkshopItem[] onDisk =
+        [
+            new DiscoveredWorkshopItem("100", [new DiscoveredMod("A", "Mod A")]),
+            new DiscoveredWorkshopItem("200", [new DiscoveredMod("B", "Mod B")]),
+        ];
+        connection.On<string>(AgentHubProtocol.ReceiveCommand, async json =>
+        {
+            Envelope<IProtocolMessage> command = ProtocolJson.Deserialize(json);
+            if (command.OperationId is not { } operationId)
+            {
+                return;
+            }
+
+            OperationCompleted? result = command.Payload switch
+            {
+                RestartServer => new OperationCompleted(OperationOutcome.Succeeded),
+                DiscoverMods => new OperationCompleted(
+                    OperationOutcome.Succeeded,
+                    Mods: new ModDiscoveryResult(onDisk, configuredItems, enabledMods, Findings: [])),
+                _ => null,
+            };
+            if (result is not null)
+            {
+                await connection.SendAsync(
+                    AgentHubProtocol.OperationCompleted,
+                    Envelope.Create(result, Now, serverId: command.ServerId, operationId: operationId));
+            }
+        });
+
+        await connection.StartAsync();
+        await connection.InvokeAsync<ProtocolNegotiationResult>(AgentHubProtocol.Hello, Hello(agentId));
+
+        await RestartAsync(factory, agentId, serverId, "e2e-mods-boot-1");
+        ServerModOverview first = await WaitForOverviewAsync(factory, serverId, o => o.HasBootSnapshot && o.Items.Count == 2);
+        await Assert.That(Statuses(first)).IsEqualTo("100=Active|200=Active");
+
+        configuredItems = ["100"];
+        enabledMods = ["A"];
+        await RestartAsync(factory, agentId, serverId, "e2e-mods-boot-2");
+        ServerModOverview second = await WaitForOverviewAsync(
+            factory, serverId, o => o.Items.Any(i => i is { WorkshopId: "200", Status: ModChangeStatus.Leftover }));
+
+        await Assert.That(Statuses(second)).IsEqualTo("100=Active|200=Leftover");
+        await Assert.That(string.Join("|", second.Mods.Select(m => $"{m.ModId}={m.Status}"))).IsEqualTo("A=Active");
+        await Assert.That(second.PendingChanges).IsEqualTo(0);
+
+        await connection.StopAsync();
+
+        static string Statuses(ServerModOverview overview) =>
+            string.Join("|", overview.Items.Select(i => $"{i.WorkshopId}={i.Status}"));
+    }
+
+    private static async Task RestartAsync(ZWardenWebAppFactory factory, AgentId agentId, ServerId serverId, string key)
+    {
+        OperationId operationId;
+        using (AsyncServiceScope scope = factory.Services.CreateSystemScope())
+        {
+            Operation op = await scope.ServiceProvider.GetRequiredService<IOperationCoordinator>().EnqueueAsync(
+                new EnqueueOperationRequest(agentId, OperationKind.RestartServer, IsMutating: true, key, ServerId: serverId));
+            operationId = op.Id;
+        }
+
+        await Assert.That(await WaitForStateAsync(factory, operationId, OperationState.Succeeded)).IsNotNull();
+    }
+
+    // Polls the persisted mod state (as the #292 page will read it) until the condition holds, or ~10 s pass.
+    private static async Task<ServerModOverview> WaitForOverviewAsync(
+        ZWardenWebAppFactory factory, ServerId serverId, Func<ServerModOverview, bool> condition)
+    {
+        ServerModOverview overview = ModChangeSet.Derive(serverId, null, []);
+        for (int i = 0; i < 200; i++)
+        {
+            using AsyncServiceScope scope = factory.Services.CreateSystemScope();
+            ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
+            overview = ModChangeSet.Derive(
+                serverId,
+                await new ServerModStateRepository(db).FindAsync(serverId),
+                await new ServerWorkshopItemRepository(db).ListForServerAsync(serverId));
+            if (condition(overview))
+            {
+                return overview;
+            }
+
+            await Task.Delay(50);
+        }
+
+        return overview;
     }
 
     [Test]
