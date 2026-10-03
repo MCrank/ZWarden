@@ -1,6 +1,7 @@
 # Feature #291 Mini-Plan — One-click Install (mod ids from the description, verified after boot)
 
-**Status:** planned — maintainer took every recommendation (2026-10-03); next slice 0 (spike). v1.0, epic [#289](https://github.com/MCrank/ZWarden/issues/289).
+**Status:** planned — maintainer took every recommendation (2026-10-03). Slice 0 spike done: a missing id is skipped,
+not fatal. Next: PR-A TDD. v1.0, epic [#289](https://github.com/MCrank/ZWarden/issues/289).
 Needs #290 (done: #314 + #316). Blocks #292.
 
 **Written against:** issue #291; epic #289 (Variant B; "ids come from the description, `mod.info` corrects them");
@@ -44,6 +45,30 @@ as **Pick parts**. It never leaves the server unbootable.
   - `ModBrowserSection.InstallAsync` calls `AddWorkshopItemAsync` and tells the operator to enable mods later.
   - `ModsSection` has the enable select, Remove, reorder, and "Restart to apply".
   - Both are interactive (`ServerDetail` is `InteractiveServer`, #299).
+
+## Slice 0 spike results (2026-10-03, local `zwarden-pzserver`, PZ **42.21.0**, Workshop item KillCount 2553809727)
+
+| Case | `Mods=` | Boot | Log |
+|---|---|---|---|
+| 1 | `KillCount` (bare), item **not yet downloaded** | started | `Workshop: … DownloadPending` → `installed to /pz/server/steamapps/workshop/content/108600/2553809727` → `Mod: loading KillCount`, all **in the same boot** |
+| 2 | `\KillCount` | started | `loading KillCount` |
+| 3 | `KillCount;ZwSpikeNoSuchMod` | started | `WARN : Mod … ZomboidFileSystem.loadModAndRequired> required mod "ZwSpikeNoSuchMod" not found`, then `loading KillCount` |
+| 4 | `ZwSpikeNoSuchMod` only | started | the same WARN; nothing loaded |
+
+PZ never rewrote `Mods=` / `WorkshopItems=` (the ini after boot equals what was written).
+
+**What this means for the plan:**
+- **The one-restart Install is safe.** PZ downloads `WorkshopItems=` during startup, before it loads mods, so the
+  guessed ids load in the same boot. A wrong or missing id is skipped with a WARN; it never blocks boot. D2 stands
+  as decided, and the issue's step 5 is answered.
+- **Bare ids are correct.** ZWarden keeps writing ids bare, and `PzModId` keeps rejecting `\`.
+- **New PR-A task: reading `\`-prefixed ids.** An operator or another tool may hand-write `\ModId`. Agent
+  discovery (`ModDiscovery.ReadList`) returns `Mods=` entries verbatim, so `\KillCount` would never match
+  `mod.info`'s `KillCount`: F21 reports a false `EnabledButMissing`, and the #290 recorder drops the id. Fix:
+  - discovery strips one leading `\` from each `Mods=` entry;
+  - the next ZWarden write then normalises the list to bare.
+- **A future signal (not in #291):** the WARN line ("required mod … not found") could feed Diagnostics or a log
+  probe later.
 
 ## Maintainer decisions (2026-10-03, all as recommended)
 
@@ -107,7 +132,8 @@ snapshot exists.
 
 ## Tests (TDD, per slice)
 
-- **Slice 0 (spike):** findings recorded here and in the research doc. No code.
+- **Slice 0 (spike):** done, see above.
+- **Agent `ModDiscovery`:** `Mods=\A;B` → enabled ids `A`, `B`.
 - **`ModListEditor.InstallWorkshopItem`:** add with 0/1/many ids; already configured; ids already enabled; append
   order; dependencies in one apply; one edit per key.
 - **`ServerModManager.InstallWorkshopItemAsync`:** permission denied; `;` id rejected (`InvalidInput`); snapshot
