@@ -240,6 +240,33 @@ public class ModListEditorTests
         await Assert.That(result.Status).IsEqualTo(ModListEditStatus.NoChange);
     }
 
+    // ---- SetItemParts (#291 Pick parts: exactly these of one item's mod ids are on) -------------------------
+
+    [Test]
+    public async Task Set_parts_swaps_a_wrong_guess_for_the_real_part_in_one_edit()
+    {
+        ModListEditResult result = ModListEditor.SetItemParts(
+            enabledModIds: ["A", "Guess", "Z"], itemModIds: Ids("Guess", "Real", "Other"), chosenModIds: Ids("Real"));
+
+        await Assert.That(result.Edits.Single()).IsEqualTo(new ConfigApplyEdit("Mods", ConfigEditKind.Text, "A;Z;Real"));
+    }
+
+    [Test]
+    public async Task Set_parts_keeps_the_load_position_of_a_part_that_stays_on()
+    {
+        ModListEditResult result = ModListEditor.SetItemParts(["P1", "A", "P2"], Ids("P1", "P2", "P3"), Ids("P1", "P3"));
+
+        await Assert.That(result.Edits.Single()).IsEqualTo(new ConfigApplyEdit("Mods", ConfigEditKind.Text, "P1;A;P3"));
+    }
+
+    [Test]
+    public async Task Set_parts_to_the_current_selection_is_no_change()
+    {
+        ModListEditResult result = ModListEditor.SetItemParts(["A", "P1"], Ids("P1", "P2"), Ids("P1"));
+
+        await Assert.That(result.Status).IsEqualTo(ModListEditStatus.NoChange);
+    }
+
     // ---- RemoveWorkshopItems (drop from WorkshopItems= and exclusively-provided Mods=) ------------------------
 
     [Test]

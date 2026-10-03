@@ -193,6 +193,24 @@ public static class ModListEditor
         return edits.Count == 0 ? ModListEditResult.NoChange : ModListEditResult.Changed(edits);
     }
 
+    /// <summary>#291 Pick parts: of one item's mod ids (<paramref name="itemModIds"/>, what it provides or was guessed
+    /// to), exactly <paramref name="chosenModIds"/> end up in <c>Mods=</c>. An unchosen one is dropped; a chosen one
+    /// already on keeps its load position, and a new one is appended. Other items' ids are untouched.</summary>
+    public static ModListEditResult SetItemParts(
+        IReadOnlyList<string> enabledModIds,
+        IReadOnlyList<PzModId> itemModIds,
+        IReadOnlyList<PzModId> chosenModIds)
+    {
+        ArgumentNullException.ThrowIfNull(enabledModIds);
+        ArgumentNullException.ThrowIfNull(itemModIds);
+        ArgumentNullException.ThrowIfNull(chosenModIds);
+
+        HashSet<string> item = new(itemModIds.Select(m => m.Value), StringComparer.Ordinal);
+        HashSet<string> chosen = new(chosenModIds.Select(m => m.Value), StringComparer.Ordinal);
+        List<string> kept = [.. enabledModIds.Where(id => !item.Contains(id) || chosen.Contains(id))];
+        return DiffMods(enabledModIds, Append(kept, [.. chosenModIds.Select(m => m.Value)]));
+    }
+
     // Each of `subjects` ends up in the list exactly when it is in `booted`: an extra is dropped, a missing one is
     // re-inserted right after its nearest booted predecessor still present (or first, when it has none).
     private static List<string> MatchBooted(
