@@ -18,7 +18,14 @@ STEAMCMD="${PZ_ROOT}/runtime/steamcmd.sh"
 
 log() { echo "[zwarden] $*"; }
 
+# Everything this container creates - the install, Workshop downloads, the world - is shared with
+# the Agent through the game-server group (#184), so keep the group-write bit: under the default
+# 0022 the Agent could read the Workshop folders but not delete an unused download (#293).
+umask 0002
+
 pz_create_layout "${PZ_ROOT}"
+# Repair Workshop folders downloaded before the umask above (#293).
+pz_share_workshop "${SERVER_DIR}" || log "could not make the Workshop folders group-writable; deleting unused downloads may fail."
 # /pz/runtime is an ephemeral tmpfs under an Agent-created container (F17), so stage the baked
 # SteamCMD into it before first use; SteamCMD self-updates into its own dir, hence writable storage.
 pz_bootstrap_steamcmd "${PZ_STEAMCMD_BAKED}" "${PZ_ROOT}/runtime"
