@@ -1292,6 +1292,9 @@ html:not(.dark) .zw-ico-moon {
       max-width: 96rem;
     }
   }
+  .-mx-2 {
+    margin-inline: calc(var(--spacing) * -2);
+  }
   .mt-0\.5 {
     margin-top: calc(var(--spacing) * 0.5);
   }
@@ -1605,6 +1608,12 @@ html:not(.dark) .zw-ico-moon {
   }
   :where(.divide-border > :not(:last-child)) {
     border-color: var(--border);
+  }
+  :where(.divide-border\/60 > :not(:last-child)) {
+    border-color: var(--border);
+    @supports (color: color-mix(in lab, red, red)) {
+      border-color: color-mix(in oklab, var(--border) 60%, transparent);
+    }
   }
   .truncate {
     overflow: hidden;
@@ -1994,6 +2003,14 @@ html:not(.dark) .zw-ico-moon {
   @media (hover: hover) {
     .hover\:bg-muted:hover {
       background-color: var(--muted);
+    }
+    .hover\:bg-muted\/60:hover {
+      background-color: var(--muted);
+    }
+    @supports (color: color-mix(in lab, red, red)) {
+      .hover\:bg-muted\/60:hover {
+        background-color: color-mix(in oklab, var(--muted) 60%, transparent);
+      }
     }
     .hover\:text-foreground:hover {
       color: var(--foreground);

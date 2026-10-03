@@ -13,10 +13,12 @@
         </BbButton>
         @if (_open)
         {
-            <ul class="mt-2 space-y-1.5">
+            @* Thin dividers plus a hover tint tie each Reinstall to its item across a long list. *@
+            <ul class="mt-2 divide-y divide-border/60">
                 @foreach (ModItemView item in Items)
                 {
-                    <li class="flex items-center justify-between gap-3 text-xs" data-mod-leftover data-workshop-id="@item.WorkshopId">
+                    <li class="-mx-2 flex items-center justify-between gap-3 rounded-sm px-2 py-1 text-xs hover:bg-muted/60"
+                        data-mod-leftover data-workshop-id="@item.WorkshopId">
                         <span class="min-w-0 break-words">
                             @(item.Title is { Length: > 0 } title ? title : $"Workshop item {item.WorkshopId}")
                             @if (item.SizeBytes is { } size)

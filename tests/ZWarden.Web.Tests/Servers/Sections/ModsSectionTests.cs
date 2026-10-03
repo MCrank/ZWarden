@@ -50,6 +50,31 @@ public sealed class ModsSectionTests
     }
 
     [Test]
+    public async Task After_a_change_the_table_updates_by_itself_once_the_new_lists_are_recorded()
+    {
+        // Live pass: the apply is enqueued, not done, so the table used to show the old lists until the page was left
+        // and reopened. Now it re-reads until the discovery after the apply records the new lists.
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
+        ServerId serverId = await harness.SeedServerAsync("self-refresh");
+        await harness.SeedModStateAsync(
+            serverId, booted: (["100", "200"], ["A", "B"]), configured: (["100", "200"], ["A", "B"]),
+            ("100", [], ["A"], true), ("200", [], ["B"], true));
+        SeedDisk(harness, serverId, ["100", "200"], ["A", "B"], ("100", "A"), ("200", "B"));
+        IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "mods");
+
+        cut.WaitForState(() => cut.FindAll("[data-mod-status=Active]").Count == 2);
+        await cut.Find("[data-mod-actions][data-row-key='item:200'] [data-action=mod-remove]").ClickAsync(new());
+        cut.WaitForState(() => cut.FindAll("[data-mod-refreshing]").Count == 1);
+        await Assert.That(cut.FindAll("[data-mod-status=RemovedOnRestart]")).IsEmpty();
+
+        await harness.ObserveModConfigAsync(serverId, ["100"], ["A"]);
+
+        cut.WaitForState(() => cut.FindAll("[data-mod-status=RemovedOnRestart]").Count == 1, TimeSpan.FromSeconds(10));
+        cut.WaitForState(() => cut.FindAll("[data-mod-refreshing]").Count == 0, TimeSpan.FromSeconds(5));
+        await Assert.That(cut.Find("[data-mod-pending-count]").TextContent).Contains("1 change waiting");
+    }
+
+    [Test]
     public async Task A_pending_install_shows_its_status_and_undo_takes_it_back_out()
     {
         await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();

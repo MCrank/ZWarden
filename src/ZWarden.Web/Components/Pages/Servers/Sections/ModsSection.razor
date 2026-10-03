@@ -1,6 +1,8 @@
 @inherits ServerSectionBase
 @using ZWarden.Application.Mods
+@implements IDisposable
 @inject IModInventoryCache ModInventories
+@inject ILogger<ModsSection> Logger
 
 @* The Mods rail section (#292 Variant B): the Server's mods as one table in load order (ModsTable), with a sticky
    pending-changes bar whose "Restart to apply" loads every change in one restart. Rows come from the persisted #290
@@ -20,6 +22,10 @@
                 else
                 {
                     <span>Workshop mods this server loads, top to bottom in load order.</span>
+                }
+                @if (_watching)
+                {
+                    <span class="ml-1 italic" data-mod-refreshing>Updating the list…</span>
                 }
             </p>
         </div>
@@ -46,7 +52,7 @@
     @if (Perm.CanInstall)
     {
         <AddModsSheet Server="Server" Perm="Perm" @bind-Open="_addOpen" OnServer="_onServer"
-                      PendingCount="_pending.Count" OnInstalled="ReloadAsync" />
+                      PendingCount="_pending.Count" OnInstalled="InstalledAsync" />
     }
 
     <div class="mt-4">
@@ -86,10 +92,66 @@
     private List<ModTableRow> _pending = [];
     private IReadOnlyDictionary<string, IReadOnlyList<string>> _warnings = new Dictionary<string, IReadOnlyList<string>>();
 
+    // A change (or Re-scan) is enqueued, not done: the Agent writes the config, then a discovery records the new lists.
+    // Until ConfigObservedAt moves past what was shown, the section re-reads the overview every WatchInterval.
+    private static readonly TimeSpan WatchInterval = TimeSpan.FromSeconds(1);
+    private const int WatchAttempts = 45;
+    private DateTimeOffset? _observedAt;
+    private CancellationTokenSource? _watch;
+    private bool _watching;
+
     protected override Task OnInitializedAsync()
     {
         _addOpen = OpenAdd && Perm.CanInstall;
         return ReloadAsync();
+    }
+
+    public void Dispose()
+    {
+        _watch?.Cancel();
+        _watch?.Dispose();
+    }
+
+    private async Task InstalledAsync()
+    {
+        await ReloadAsync();
+        WatchForRefresh();
+    }
+
+    private void WatchForRefresh()
+    {
+        _watch?.Cancel();
+        _watch?.Dispose();
+        _watch = new CancellationTokenSource();
+        _watching = true;
+        _ = WatchAsync(_observedAt, _watch.Token);
+    }
+
+    private async Task WatchAsync(DateTimeOffset? shown, CancellationToken ct)
+    {
+        try
+        {
+            for (int attempt = 0; attempt < WatchAttempts && _observedAt == shown; attempt++)
+            {
+                await Task.Delay(WatchInterval, ct);
+                await InvokeAsync(async () =>
+                {
+                    await ReloadAsync();
+                    StateHasChanged();
+                });
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            return; // A newer change took over the watch, or the section closed.
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Mods list refresh failed for {ServerId}; showing the last read.", Server.Id);
+        }
+
+        _watching = false;
+        await InvokeAsync(StateHasChanged);
     }
 
     private async Task ReloadAsync()
@@ -100,6 +162,8 @@
             (service, ct) => service.GetAsync(user, serverId, ct));
         // The last inventory the owning Agent reported (ownership-guarded); the manager re-reads it on every change.
         ModInventory? inventory = ModInventories.GetLatest(Server.Id, Server.AgentId);
+
+        _observedAt = overview?.ConfigObservedAt;
 
         // Nothing read yet: no persisted lists (before the first discovery) and no inventory.
         _loaded = overview is { ConfigObservedAt: not null } || overview is { Items.Count: > 0 } || inventory is not null;
@@ -135,6 +199,10 @@
                         _ => "The re-scan could not be started.",
                     },
                 ok: result.Succeeded);
+            if (result.Succeeded)
+            {
+                WatchForRefresh();
+            }
         }
         finally
         {
@@ -252,6 +320,7 @@
         if (result.Succeeded)
         {
             SetMessage("Saved. It takes effect when the server restarts.", ok: true);
+            WatchForRefresh();
             return;
         }
 
