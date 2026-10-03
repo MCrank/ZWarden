@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using ZWarden.Application.Servers;
 using ZWarden.Domain.Authorization;
 using ZWarden.Domain.Ids;
+using ZWarden.Domain.Mods;
 using ZWarden.Domain.Operations;
 using ZWarden.Domain.Servers;
 using ZWarden.Infrastructure.Operations;
@@ -48,6 +49,37 @@ public class ServerRemovalTests
             await Assert.That(left.Count).IsEqualTo(2);
             await Assert.That(left.Any(a => a.ServerId == serverId)).IsFalse();
             await Assert.That(discovery.GetDiscovered(agent).Select(d => d.ServerId)).IsEquivalentTo([sibling]);
+        });
+    }
+
+    [Test]
+    public async Task A_succeeded_delete_also_removes_the_servers_mod_records()
+    {
+        // #290: the installed-item records and mod lists are keyed by ServerId with no FK, so they'd dangle.
+        await WithSqlite(async options =>
+        {
+            AgentId agent = AgentId.New();
+            ServerId serverId = await SeedServerAsync(options, agent);
+            ServerId sibling = await SeedServerAsync(options, agent);
+            await using (ZWardenDbContext seed = new(options, new TestTenantContext(Tenant)))
+            {
+                seed.AddRange(
+                    ServerWorkshopItem.Track(serverId, "100"),
+                    ServerWorkshopItem.Track(sibling, "100"),
+                    ServerModState.For(serverId),
+                    ServerModState.For(sibling));
+                await seed.SaveChangesAsync();
+            }
+
+            OperationId operationId = await SeedOperationAsync(options, agent, OperationKind.DeleteServer, serverId);
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            await Removal(db, new ServerDiscoveryCache()).RecordDeletedAsync(operationId, agent);
+
+            List<ServerWorkshopItem> items = await db.Set<ServerWorkshopItem>().ToListAsync();
+            List<ServerModState> states = await db.Set<ServerModState>().ToListAsync();
+            await Assert.That(items.Select(i => i.ServerId)).IsEquivalentTo([sibling]);
+            await Assert.That(states.Select(s => s.ServerId)).IsEquivalentTo([sibling]);
         });
     }
 

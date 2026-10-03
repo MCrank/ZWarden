@@ -429,6 +429,108 @@ namespace ZWarden.Migrations.Sqlite.Migrations
                     b.ToTable("Enrollments", (string)null);
                 });
 
+            modelBuilder.Entity("ZWarden.Domain.Mods.ServerModState", b =>
+                {
+                    b.Property<Guid>("ServerId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("BootSnapshotAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("BootSnapshotPending")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("BootedAt")
+                        .HasColumnType("TEXT");
+
+                    b.PrimitiveCollection<string>("BootedModIds")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.PrimitiveCollection<string>("BootedWorkshopIds")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ConfigObservedAt")
+                        .HasColumnType("TEXT");
+
+                    b.PrimitiveCollection<string>("ConfiguredModIds")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.PrimitiveCollection<string>("ConfiguredWorkshopIds")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("ServerId");
+
+                    b.HasIndex("TenantId");
+
+                    b.ToTable("ServerModStates", (string)null);
+                });
+
+            modelBuilder.Entity("ZWarden.Domain.Mods.ServerWorkshopItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.PrimitiveCollection<string>("GuessedModIds")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("MetadataRefreshedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ObservedAt")
+                        .HasColumnType("TEXT");
+
+                    b.PrimitiveCollection<string>("ObservedModIds")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("OnDisk")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("PreviewUrl")
+                        .HasMaxLength(2048)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("ServerId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("SizeBytes")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("SteamUpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.PrimitiveCollection<string>("Tags")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Title")
+                        .HasMaxLength(512)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("WorkshopId")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "ServerId", "WorkshopId")
+                        .IsUnique();
+
+                    b.ToTable("ServerWorkshopItems", (string)null);
+                });
+
             modelBuilder.Entity("ZWarden.Domain.Operations.Operation", b =>
                 {
                     b.Property<Guid>("Id")

@@ -7,6 +7,7 @@ using ZWarden.Domain.Audit;
 using ZWarden.Domain.Authorization;
 using ZWarden.Domain.Configuration;
 using ZWarden.Domain.Ids;
+using ZWarden.Domain.Mods;
 using ZWarden.Domain.Operations;
 using ZWarden.Domain.Servers;
 using ZWarden.Infrastructure.Configuration;

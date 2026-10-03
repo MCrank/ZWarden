@@ -1,6 +1,6 @@
-using ZWarden.Application.Mods;
+using ZWarden.Domain.Mods;
 
-namespace ZWarden.Infrastructure.Tests.Mods;
+namespace ZWarden.Domain.Tests.Mods;
 
 /// <summary>
 /// #290 D3: the one gate every mod id passes before it can reach <c>Mods=</c> — a description guess, a

@@ -1,4 +1,4 @@
-namespace ZWarden.Application.Mods;
+namespace ZWarden.Domain.Mods;
 
 /// <summary>
 /// A Project Zomboid mod id that is safe to write into <c>Mods=</c> (#290 D3). Every id that enters config — a guess

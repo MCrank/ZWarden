@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using ZWarden.Application.Servers;
 using ZWarden.Domain.Authorization;
 using ZWarden.Domain.Ids;
+using ZWarden.Domain.Mods;
 using ZWarden.Domain.Operations;
 using ZWarden.Domain.Servers;
 using ZWarden.Infrastructure.Operations;
@@ -54,6 +55,14 @@ public sealed class ServerRemoval : IServerRemoval
             .Where(a => a.ServerId == serverId)
             .ToListAsync(cancellationToken).ConfigureAwait(false);
         _context.RemoveRange(grants);
+
+        // The installed-item records and mod lists (#290) are keyed by ServerId with no FK either.
+        _context.RemoveRange(await _context.Set<ServerWorkshopItem>()
+            .Where(i => i.ServerId == serverId)
+            .ToListAsync(cancellationToken).ConfigureAwait(false));
+        _context.RemoveRange(await _context.Set<ServerModState>()
+            .Where(s => s.ServerId == serverId)
+            .ToListAsync(cancellationToken).ConfigureAwait(false));
         _context.Remove(server);
         await _context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 

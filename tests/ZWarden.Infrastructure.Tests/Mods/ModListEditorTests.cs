@@ -1,4 +1,5 @@
 using ZWarden.Application.Configuration;
+using ZWarden.Domain.Mods;
 using ZWarden.Application.Mods;
 
 namespace ZWarden.Infrastructure.Tests.Mods;
