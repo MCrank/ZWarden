@@ -1,6 +1,6 @@
 # Feature #292 Mini-Plan — Mods: Variant B UI (one table, Add-mods sheet, pending-changes bar)
 
-**Status:** PR-A done (slices 1–5); PR-B in progress. D1–D4 decided 2026-10-03 (all recommendations taken). v1.0, epic [#289](https://github.com/MCrank/ZWarden/issues/289).
+**Status:** all slices done. PR-A is #320 (slices 1–5); PR-B (slices 6–9) is stacked on it and closes #292. D1–D4 decided 2026-10-03 (all recommendations taken). v1.0, epic [#289](https://github.com/MCrank/ZWarden/issues/289).
 Needs #290 + #291 (both done). #293 (delete files) and #275 (update ready) build on this.
 
 **Written against:** issue #292; epic #289 (Variant B, prototype `prototype/mods-ux` `VariantB.razor`, local only);
@@ -92,6 +92,27 @@ section.
 8. Leftover footer row (count, expand, Reinstall) — bUnit.
 9. Copy pass (no `WorkshopItems=`/`Mods=` outside a tooltip), app.css rebuild, floors bump, Playwright smoke +
    screenshot at 1280px, clean console; delete `prototype/mods-ux`.
+
+*PR-B as built:*
+- **Slice 6:** `WorkshopJson.ReadTags` is now shared by preview and search; search sends `return_tags=true`, and
+  `WorkshopBuildSupport.IsBuild41Only` applies the rule.
+- **Slice 7: `AddModsSheet`.**
+  - One box: a link or id is previewed keylessly; other text is searched when a key is configured.
+  - Cards install through `ModInstallControl`, which gained `Added`, so "Added ✓" keeps the Install confirmation.
+  - Routing: `?section=modbrowser` maps to Mods with the sheet open, and `?add=1` opens the sheet too.
+  - The Mod Browser rail entry, `ModBrowserSection` and PR-A's interim install field are gone.
+- **Slice 8: `LeftoverDownloads`**, a footer under the table.
+  - Reinstall turns a one-mod item back on.
+  - A multi-mod item comes back with nothing on, so its row asks to Pick parts right away instead of enabling every
+    variant.
+  - Delete waits for #293.
+- **Slice 9:** the retired `zw-mb-*` grid CSS and `ModInventoryView` are removed.
+- **Live check** (run-web + Playwright, 1280px): no page scroll, no clipped cells, clean console, and the sheet opens,
+  finds and closes.
+  - PR-A's first cut clipped the Actions column. The Updated column moved under the ids (da932a1).
+- **Side fix on PR-A:** `AppCssLayeringTests` checked the generated CSS for the `.dark` variant, but Tailwind emits it
+  only where `dark:` is used. Removing `LiveModInventoryPanel` removed the last use, so the guard now checks the
+  `@custom-variant` declaration (a911b6d).
 
 ## Acceptance
 
