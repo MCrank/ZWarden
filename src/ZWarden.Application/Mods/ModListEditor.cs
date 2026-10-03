@@ -124,6 +124,39 @@ public static class ModListEditor
         return ModListEditResult.Changed([Edit(WorkshopItemsKey, next)]);
     }
 
+    /// <summary>#291 one-click Install: appends each of <paramref name="workshopIdsToAdd"/> (the item plus any
+    /// dependencies) not already in <c>WorkshopItems=</c>, and each of <paramref name="modIdsToEnable"/> not already
+    /// in <c>Mods=</c>, in request order — at most one edit per key, so both land in one apply. PZ downloads
+    /// <c>WorkshopItems=</c> before it loads <c>Mods=</c> and skips an id it can't find (spike #291), so enabling the
+    /// guessed ids before the download is safe.</summary>
+    public static ModListEditResult InstallWorkshopItems(
+        IReadOnlyList<string> configuredWorkshopIds,
+        IReadOnlyList<string> enabledModIds,
+        IReadOnlyList<string> workshopIdsToAdd,
+        IReadOnlyList<PzModId> modIdsToEnable)
+    {
+        ArgumentNullException.ThrowIfNull(configuredWorkshopIds);
+        ArgumentNullException.ThrowIfNull(enabledModIds);
+        ArgumentNullException.ThrowIfNull(workshopIdsToAdd);
+        ArgumentNullException.ThrowIfNull(modIdsToEnable);
+
+        List<string> nextWorkshop = Append(configuredWorkshopIds, workshopIdsToAdd);
+        List<string> nextMods = Append(enabledModIds, [.. modIdsToEnable.Select(m => m.Value)]);
+
+        List<ConfigApplyEdit> edits = [];
+        if (!SequenceEqual(configuredWorkshopIds, nextWorkshop))
+        {
+            edits.Add(Edit(WorkshopItemsKey, nextWorkshop));
+        }
+
+        if (!SequenceEqual(enabledModIds, nextMods))
+        {
+            edits.Add(Edit(ModsKey, nextMods));
+        }
+
+        return edits.Count == 0 ? ModListEditResult.NoChange : ModListEditResult.Changed(edits);
+    }
+
     /// <summary>Removes <paramref name="workshopIdsToRemove"/> from <c>WorkshopItems=</c>, and from <c>Mods=</c> the
     /// Mod ids those items <b>exclusively</b> provide (a mod still provided by a remaining installed item stays
     /// enabled; a referenced-but-not-installed item's mods are unknown and left alone).</summary>
@@ -170,6 +203,14 @@ public static class ModListEditor
         }
 
         return edits.Count == 0 ? ModListEditResult.NoChange : ModListEditResult.Changed(edits);
+    }
+
+    private static List<string> Append(IReadOnlyList<string> current, IReadOnlyList<string> additions)
+    {
+        List<string> next = [.. current];
+        HashSet<string> present = new(next, StringComparer.Ordinal);
+        next.AddRange(additions.Where(present.Add));
+        return next;
     }
 
     private static ModListEditResult DiffMods(IReadOnlyList<string> current, IReadOnlyList<string> next) =>

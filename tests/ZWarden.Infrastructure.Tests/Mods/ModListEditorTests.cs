@@ -144,6 +144,55 @@ public class ModListEditorTests
         await Assert.That(result.Status).IsEqualTo(ModListEditStatus.NoChange);
     }
 
+    // ---- InstallWorkshopItems (#291: WorkshopItems= and Mods= in one apply) ----------------------------------
+
+    [Test]
+    public async Task Install_appends_the_item_and_its_mod_ids_as_one_edit_per_key()
+    {
+        ModListEditResult result = ModListEditor.InstallWorkshopItems(
+            configuredWorkshopIds: ["100"], enabledModIds: ["A"], workshopIdsToAdd: ["200"], modIdsToEnable: Ids("B", "C"));
+
+        await Assert.That(result.Status).IsEqualTo(ModListEditStatus.Changed);
+        await Assert.That(result.Edits.Count).IsEqualTo(2);
+        await Assert.That(result.Edits[0]).IsEqualTo(new ConfigApplyEdit("WorkshopItems", ConfigEditKind.Text, "100;200"));
+        await Assert.That(result.Edits[1]).IsEqualTo(new ConfigApplyEdit("Mods", ConfigEditKind.Text, "A;B;C"));
+    }
+
+    [Test]
+    public async Task Install_with_no_mod_ids_only_touches_workshop_items()
+    {
+        ModListEditResult result = ModListEditor.InstallWorkshopItems(["100"], ["A"], ["200"], []);
+
+        await Assert.That(result.Edits.Count).IsEqualTo(1);
+        await Assert.That(result.Edits[0]).IsEqualTo(new ConfigApplyEdit("WorkshopItems", ConfigEditKind.Text, "100;200"));
+    }
+
+    [Test]
+    public async Task Install_of_a_configured_item_only_enables_the_missing_mod_ids()
+    {
+        ModListEditResult result = ModListEditor.InstallWorkshopItems(["100"], ["A"], ["100"], Ids("A", "B"));
+
+        await Assert.That(result.Edits.Count).IsEqualTo(1);
+        await Assert.That(result.Edits[0]).IsEqualTo(new ConfigApplyEdit("Mods", ConfigEditKind.Text, "A;B"));
+    }
+
+    [Test]
+    public async Task Install_of_a_configured_item_with_its_ids_enabled_is_no_change()
+    {
+        ModListEditResult result = ModListEditor.InstallWorkshopItems(["100"], ["A"], ["100"], Ids("A"));
+
+        await Assert.That(result.Status).IsEqualTo(ModListEditStatus.NoChange);
+    }
+
+    [Test]
+    public async Task Install_adds_an_item_and_its_dependencies_in_request_order_without_duplicates()
+    {
+        ModListEditResult result = ModListEditor.InstallWorkshopItems([], [], ["300", "200", "300"], Ids("X", "Y", "X"));
+
+        await Assert.That(result.Edits[0]).IsEqualTo(new ConfigApplyEdit("WorkshopItems", ConfigEditKind.Text, "300;200"));
+        await Assert.That(result.Edits[1]).IsEqualTo(new ConfigApplyEdit("Mods", ConfigEditKind.Text, "X;Y"));
+    }
+
     // ---- RemoveWorkshopItems (drop from WorkshopItems= and exclusively-provided Mods=) ------------------------
 
     [Test]
