@@ -1,0 +1,167 @@
+@inherits ServerSectionBase
+@using ZWarden.Application.Mods
+@using ZWarden.Application.Workshop
+
+@* #291 one-click Install for one Workshop item, shared by the Mod Browser cards and the Mods section's add field.
+   Install reads the item's description (keyless preview, Mod.View) and plans it: no ids → add the item only (Pick
+   parts after the next boot); one id → install with it; several → an inline part picker, every part ticked, before
+   anything is written. The manager re-checks Mod.Install and validates every id. Workshop text is rendered as
+   data. Inline, not a dialog: the app has no portal host yet (#292 adds one). *@
+
+<div class="zw-mb-actions flex-col items-start gap-2" data-mod-install data-workshop-id="@WorkshopId">
+    @if (_plan is { Kind: ModInstallKind.Choose } plan)
+    {
+        <div class="w-full rounded-md border border-border p-3" data-mod-install-picker>
+            <p class="text-xs text-muted-foreground">
+                This item has @plan.CandidateModIds.Count parts. Choose which to turn on. The download is checked
+                after the next restart, and anything it doesn't provide shows as <span class="font-medium">Pick parts</span>.
+            </p>
+            <div class="mt-2 space-y-1.5">
+                @foreach (string part in plan.CandidateModIds.Select(p => p.Value))
+                {
+                    string id = $"part-{WorkshopId}-{part}";
+                    <div class="flex items-center gap-2" data-mod-install-part data-mod-id="@part">
+                        <BbCheckbox Id="@id" Checked="_picked.Contains(part)"
+                                    CheckedChanged="@((bool on) => Toggle(part, on))" />
+                        <BbLabel For="@id" Class="font-mono text-sm">@part</BbLabel>
+                    </div>
+                }
+            </div>
+            <div class="mt-3 flex gap-2">
+                <BbButton Size="ButtonSize.Small" Disabled="_acting"
+                          OnClick="@(() => InstallAsync(plan, [.. _picked]))" data-action="mod-install-confirm">
+                    Install @_picked.Count of @plan.CandidateModIds.Count
+                </BbButton>
+                <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" Disabled="_acting"
+                          OnClick="Cancel" data-action="mod-install-cancel">Cancel</BbButton>
+            </div>
+        </div>
+    }
+    else
+    {
+        <BbButton Size="ButtonSize.Small" Disabled="_acting || string.IsNullOrWhiteSpace(WorkshopId)"
+                  OnClick="StartAsync" data-action="mod-install">@Label</BbButton>
+    }
+
+    @if (_message is not null)
+    {
+        <p class="text-xs @(_ok ? "text-muted-foreground" : "text-destructive")" data-mod-install-message>@_message</p>
+    }
+</div>
+
+@code {
+    /// <summary>The Workshop item to install.</summary>
+    [Parameter, EditorRequired]
+    public string WorkshopId { get; set; } = string.Empty;
+
+    /// <summary>The button text.</summary>
+    [Parameter]
+    public string Label { get; set; } = "Install";
+
+    /// <summary>Raised after an Install was enqueued, so the host can reload what it shows.</summary>
+    [Parameter]
+    public EventCallback OnInstalled { get; set; }
+
+    private ModInstallPlan? _plan;
+    private HashSet<string> _picked = new(StringComparer.Ordinal);
+    private string? _message;
+    private bool _ok;
+    private bool _acting;
+
+    private async Task StartAsync()
+    {
+        string workshopId = WorkshopId.Trim();
+        _acting = true;
+        _message = null;
+        try
+        {
+            UserId user = await CurrentUserAsync();
+            ServerId serverId = Server.Id;
+            WorkshopPreview preview = await Actions.RunAsync<IWorkshopMetadataService, WorkshopPreview>(
+                (metadata, ct) => metadata.ResolveAsync(user, serverId, workshopId, ct));
+            WorkshopItemMetadata item = preview.Items.FirstOrDefault(i => i.WorkshopId == workshopId)
+                ?? WorkshopItemMetadata.NotFound(workshopId);
+            ModInstallPlan plan = ModInstallPlan.For(item);
+
+            if (plan.Kind == ModInstallKind.Choose)
+            {
+                _plan = plan;
+                _picked = new HashSet<string>(plan.CandidateModIds.Select(p => p.Value), StringComparer.Ordinal);
+                return;
+            }
+
+            await InstallCoreAsync(user, plan, [.. plan.CandidateModIds.Select(p => p.Value)]);
+        }
+        finally
+        {
+            _acting = false;
+        }
+    }
+
+    private async Task InstallAsync(ModInstallPlan plan, IReadOnlyList<string> modIds)
+    {
+        _acting = true;
+        try
+        {
+            await InstallCoreAsync(await CurrentUserAsync(), plan, modIds);
+        }
+        finally
+        {
+            _acting = false;
+        }
+    }
+
+    private async Task InstallCoreAsync(UserId user, ModInstallPlan plan, IReadOnlyList<string> modIds)
+    {
+        ServerId serverId = Server.Id;
+        string[] workshopIds = [plan.WorkshopId];
+        ModManagementResult result = await Actions.RunAsync<IServerModManager, ModManagementResult>(
+            (mods, ct) => mods.InstallWorkshopItemsAsync(user, serverId, workshopIds, modIds, ct));
+
+        _ok = result.Succeeded;
+        _message = result.Succeeded ? Installed(plan, modIds) : Refused(result);
+        if (result.Succeeded)
+        {
+            _plan = null;
+            await OnInstalled.InvokeAsync();
+        }
+    }
+
+    private void Toggle(string part, bool on)
+    {
+        if (on)
+        {
+            _picked.Add(part);
+        }
+        else
+        {
+            _picked.Remove(part);
+        }
+    }
+
+    private void Cancel()
+    {
+        _plan = null;
+        _message = null;
+    }
+
+    private static string Installed(ModInstallPlan plan, IReadOnlyList<string> modIds) => modIds.Count switch
+    {
+        0 when plan.Kind == ModInstallKind.NoIds =>
+            "Added. Its Workshop page lists no mod ids, so after the next restart choose its parts in Mods.",
+        0 => "Added with no parts turned on. After the next restart, choose its parts in Mods.",
+        1 => $"Installed — {modIds[0]} loads on the next restart.",
+        _ => $"Installed with {modIds.Count} parts — they load on the next restart.",
+    };
+
+    private static string Refused(ModManagementResult result) => result.Failure switch
+    {
+        ModManagementFailure.NotAuthorized => "You are not permitted to install mods on this server.",
+        ModManagementFailure.ServerNotFound => "That server is no longer available.",
+        ModManagementFailure.ServerBusy => "The server is busy with another operation; try again once it finishes.",
+        ModManagementFailure.SnapshotUnavailable => "This server's mods haven't been read yet; refresh discovery in Mods first.",
+        ModManagementFailure.NoChange => "That item and its parts are already installed.",
+        ModManagementFailure.InvalidInput => result.Message ?? "That Workshop item can't be installed.",
+        _ => "The item could not be installed.",
+    };
+}
