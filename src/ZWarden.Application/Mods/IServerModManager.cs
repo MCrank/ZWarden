@@ -81,8 +81,20 @@ public interface IServerModManager
     Task<ModManagementResult> AddWorkshopItemAsync(
         UserId user, ServerId server, string workshopId, CancellationToken cancellationToken = default);
 
+    /// <summary>#291 one-click Install (authorizes <c>Mod.Install</c>): adds <paramref name="workshopIds"/> (the item
+    /// plus any dependencies) to <c>WorkshopItems=</c> <b>and</b> <paramref name="modIds"/> to <c>Mods=</c> in one
+    /// config apply, so one restart downloads and loads them. <paramref name="modIds"/> may be empty (the description
+    /// listed none); each must pass <see cref="ZWarden.Domain.Mods.PzModId"/>.</summary>
+    Task<ModManagementResult> InstallWorkshopItemsAsync(
+        UserId user,
+        ServerId server,
+        IReadOnlyList<string> workshopIds,
+        IReadOnlyList<string> modIds,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Removes <paramref name="workshopIds"/> from <c>WorkshopItems=</c>, and from <c>Mods=</c> the mods
-    /// they exclusively provide (authorizes <c>Mod.Remove</c>).</summary>
+    /// they exclusively provide — per <c>mod.info</c> on disk, or the description's guesses for an item not yet
+    /// downloaded (#291) (authorizes <c>Mod.Remove</c>).</summary>
     Task<ModManagementResult> RemoveWorkshopItemsAsync(
         UserId user, ServerId server, IReadOnlyList<string> workshopIds, CancellationToken cancellationToken = default);
 

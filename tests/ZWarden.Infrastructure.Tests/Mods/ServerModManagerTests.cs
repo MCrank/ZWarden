@@ -5,6 +5,7 @@ using ZWarden.Application.Operations;
 using ZWarden.Domain.Authorization;
 using ZWarden.Domain.Configuration;
 using ZWarden.Domain.Ids;
+using ZWarden.Domain.Mods;
 using ZWarden.Domain.Operations;
 using ZWarden.Domain.Servers;
 using ZWarden.Infrastructure.Authorization;
@@ -475,6 +476,150 @@ public class ServerModManagerTests
         });
     }
 
+    // ---- #291 one-click Install -------------------------------------------------------------------------------
+
+    [Test]
+    public async Task Install_enqueues_one_config_apply_writing_workshop_items_and_mods()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            AgentId agent = AgentId.New();
+            ServerId serverId = await SeedServerAsync(options, agent);
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ModInstall);
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            RecordingCoordinator coordinator = new();
+            CapturingAuditWriter audit = new();
+            ModInventoryCache cache = new();
+            cache.Record(Inventory(serverId, agent, workshop: ["100"], enabled: ["A"]));
+            ServerModManager sut = Manager(db, coordinator, audit, cache);
+
+            ModManagementResult result = await sut.InstallWorkshopItemsAsync(user, serverId, ["200"], ["B", "C"]);
+
+            await Assert.That(result.Succeeded).IsTrue();
+            await Assert.That(coordinator.LastRequest!.Kind).IsEqualTo(OperationKind.ConfigApply);
+            ConfigApplyPayload payload = ConfigApplyPayload.FromJson(coordinator.LastRequest!.CommandPayload!);
+            await Assert.That(payload.Edits.Count).IsEqualTo(2);
+            await Assert.That(payload.Edits[0]).IsEqualTo(new ConfigApplyEdit("WorkshopItems", ConfigEditKind.Text, "100;200"));
+            await Assert.That(payload.Edits[1]).IsEqualTo(new ConfigApplyEdit("Mods", ConfigEditKind.Text, "A;B;C"));
+            await Assert.That(audit.Actions).Contains(ModAuditActions.Installed);
+        });
+    }
+
+    [Test]
+    public async Task Install_with_no_mod_ids_only_writes_workshop_items()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            AgentId agent = AgentId.New();
+            ServerId serverId = await SeedServerAsync(options, agent);
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ModInstall);
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            RecordingCoordinator coordinator = new();
+            ModInventoryCache cache = new();
+            cache.Record(Inventory(serverId, agent, workshop: [], enabled: ["A"]));
+            ServerModManager sut = Manager(db, coordinator, new CapturingAuditWriter(), cache);
+
+            ModManagementResult result = await sut.InstallWorkshopItemsAsync(user, serverId, ["200"], []);
+
+            await Assert.That(result.Succeeded).IsTrue();
+            ConfigApplyPayload payload = ConfigApplyPayload.FromJson(coordinator.LastRequest!.CommandPayload!);
+            await Assert.That(payload.Edits.Count).IsEqualTo(1);
+            await Assert.That(payload.Edits[0]).IsEqualTo(new ConfigApplyEdit("WorkshopItems", ConfigEditKind.Text, "200"));
+        });
+    }
+
+    [Test]
+    [Arguments("200", "Bad;Id")]
+    [Arguments("2O0", "Fine")]
+    public async Task Install_rejects_an_invalid_mod_id_or_workshop_id(string workshopId, string modId)
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            AgentId agent = AgentId.New();
+            ServerId serverId = await SeedServerAsync(options, agent);
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ModInstall);
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            RecordingCoordinator coordinator = new();
+            ModInventoryCache cache = new();
+            cache.Record(Inventory(serverId, agent, workshop: [], enabled: []));
+            ServerModManager sut = Manager(db, coordinator, new CapturingAuditWriter(), cache);
+
+            ModManagementResult result = await sut.InstallWorkshopItemsAsync(user, serverId, [workshopId], [modId]);
+
+            await Assert.That(result.Failure).IsEqualTo(ModManagementFailure.InvalidInput);
+            await Assert.That(coordinator.LastRequest).IsNull();
+        });
+    }
+
+    [Test]
+    public async Task Install_denies_without_the_server_scoped_mod_install_permission()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            AgentId agent = AgentId.New();
+            ServerId serverId = await SeedServerAsync(options, agent);
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ModView);
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            RecordingCoordinator coordinator = new();
+            ModInventoryCache cache = new();
+            cache.Record(Inventory(serverId, agent, workshop: [], enabled: []));
+            ServerModManager sut = Manager(db, coordinator, new CapturingAuditWriter(), cache);
+
+            ModManagementResult result = await sut.InstallWorkshopItemsAsync(user, serverId, ["200"], ["B"]);
+
+            await Assert.That(result.Failure).IsEqualTo(ModManagementFailure.NotAuthorized);
+            await Assert.That(coordinator.LastRequest).IsNull();
+        });
+    }
+
+    [Test]
+    public async Task Remove_of_a_not_yet_downloaded_item_also_drops_its_guessed_mod_ids()
+    {
+        // #291: Install enabled the description's guesses before the download, so Remove must drop them too —
+        // except an id another configured item also provides.
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            AgentId agent = AgentId.New();
+            ServerId serverId = await SeedServerAsync(options, agent);
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ModRemove);
+            await SeedGuessesAsync(options, serverId, "200", "B", "Shared");
+            await SeedGuessesAsync(options, serverId, "300", "Shared");
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            RecordingCoordinator coordinator = new();
+            ModInventoryCache cache = new();
+            cache.Record(Inventory(serverId, agent, workshop: ["100", "200", "300"], enabled: ["A", "B", "Shared"]));
+            ServerModManager sut = Manager(db, coordinator, new CapturingAuditWriter(), cache);
+
+            ModManagementResult result = await sut.RemoveWorkshopItemsAsync(user, serverId, ["200"]);
+
+            await Assert.That(result.Succeeded).IsTrue();
+            ConfigApplyPayload payload = ConfigApplyPayload.FromJson(coordinator.LastRequest!.CommandPayload!);
+            await Assert.That(payload.Edits[0]).IsEqualTo(new ConfigApplyEdit("WorkshopItems", ConfigEditKind.Text, "100;300"));
+            await Assert.That(payload.Edits[1]).IsEqualTo(new ConfigApplyEdit("Mods", ConfigEditKind.Text, "A;Shared"));
+        });
+    }
+
+    private static async Task SeedGuessesAsync(DbContextOptions options, ServerId server, string workshopId, params string[] guesses)
+    {
+        await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+        ServerWorkshopItem item = ServerWorkshopItem.Track(server, workshopId);
+        item.ApplyMetadata(
+            "title", null, null, null, [],
+            [.. guesses.Select(g => PzModId.TryCreate(g, out PzModId id) ? id : throw new ArgumentException(g))], Now);
+        db.Set<ServerWorkshopItem>().Add(item);
+        await db.SaveChangesAsync();
+    }
+
     private static ModInventory Inventory(
         ServerId server, AgentId agent, IReadOnlyList<string> workshop, IReadOnlyList<string> enabled) =>
         new(server, agent, InstalledItems: [], ConfiguredWorkshopIds: workshop, EnabledModIds: enabled, Issues: [], ObservedAt: Now);
@@ -487,7 +632,8 @@ public class ServerModManagerTests
             cache,
             coordinator,
             new ConfigurationRevisionRepository(db),
-            audit);
+            audit,
+            new ServerWorkshopItemRepository(db));
 
     private sealed class RecordingCoordinator : IOperationCoordinator
     {

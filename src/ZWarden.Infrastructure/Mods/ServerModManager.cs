@@ -33,6 +33,7 @@ public sealed class ServerModManager : IServerModManager
     private readonly IOperationCoordinator _operations;
     private readonly IAuditWriter _audit;
     private readonly ConfigApplyEnqueuer _enqueuer;
+    private readonly ServerWorkshopItemRepository _items;
 
     public ServerModManager(
         ServerRepository servers,
@@ -40,7 +41,8 @@ public sealed class ServerModManager : IServerModManager
         IModInventoryCache inventory,
         IOperationCoordinator operations,
         ConfigurationRevisionRepository revisions,
-        IAuditWriter audit)
+        IAuditWriter audit,
+        ServerWorkshopItemRepository items)
     {
         ArgumentNullException.ThrowIfNull(servers);
         ArgumentNullException.ThrowIfNull(permissions);
@@ -48,12 +50,14 @@ public sealed class ServerModManager : IServerModManager
         ArgumentNullException.ThrowIfNull(operations);
         ArgumentNullException.ThrowIfNull(revisions);
         ArgumentNullException.ThrowIfNull(audit);
+        ArgumentNullException.ThrowIfNull(items);
         _servers = servers;
         _permissions = permissions;
         _inventory = inventory;
         _operations = operations;
         _audit = audit;
         _enqueuer = new ConfigApplyEnqueuer(operations, revisions, audit);
+        _items = items;
     }
 
     /// <inheritdoc />
@@ -100,15 +104,73 @@ public sealed class ServerModManager : IServerModManager
     }
 
     /// <inheritdoc />
-    public Task<ModManagementResult> RemoveWorkshopItemsAsync(
+    public Task<ModManagementResult> InstallWorkshopItemsAsync(
+        UserId user,
+        ServerId server,
+        IReadOnlyList<string> workshopIds,
+        IReadOnlyList<string> modIds,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(workshopIds);
+        ArgumentNullException.ThrowIfNull(modIds);
+        string subject = workshopIds.Count == 0
+            ? "install workshop item"
+            : $"install workshop item {workshopIds[0]}"
+              + (workshopIds.Count > 1 ? $" (+{workshopIds.Count - 1} required)" : string.Empty)
+              + $" with {modIds.Count} mod(s)";
+        return ApplyListEditAsync(
+            user, server, Permissions.ModInstall, ModAuditActions.Installed, subject,
+            inventory =>
+            {
+                if (ValidateWorkshopIds(workshopIds) is { } badWorkshopId)
+                {
+                    return badWorkshopId;
+                }
+
+                // No ids is valid: the description listed none, so only WorkshopItems= is written (Pick parts later).
+                PzModId[] ids = [];
+                if (modIds.Count > 0 && ValidateModIds(modIds, out ids) is { } badModId)
+                {
+                    return badModId;
+                }
+
+                return Ok(ModListEditor.InstallWorkshopItems(
+                    inventory.ConfiguredWorkshopIds, inventory.EnabledModIds, workshopIds, ids));
+            },
+            cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async Task<ModManagementResult> RemoveWorkshopItemsAsync(
         UserId user, ServerId server, IReadOnlyList<string> workshopIds, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(workshopIds);
-        return ApplyListEditAsync(
+        // Guessed ids (#291) stand in for mod.info of an item not yet on disk — Install enabled them before the
+        // download, so Remove must be able to take them back out. Read only after authorization (inside the pipeline).
+        return await ApplyListEditAsync(
             user, server, Permissions.ModRemove, ModAuditActions.Removed, $"remove {workshopIds.Count} workshop item(s)",
-            inventory => ValidateWorkshopIds(workshopIds) ?? Ok(ModListEditor.RemoveWorkshopItems(
-                inventory.ConfiguredWorkshopIds, inventory.EnabledModIds, inventory.InstalledItems, workshopIds)),
-            cancellationToken);
+            async inventory => ValidateWorkshopIds(workshopIds) ?? Ok(ModListEditor.RemoveWorkshopItems(
+                inventory.ConfiguredWorkshopIds,
+                inventory.EnabledModIds,
+                await KnownProvidersAsync(server, inventory, cancellationToken).ConfigureAwait(false),
+                workshopIds)),
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    // What each Workshop item is known to provide: mod.info on disk (the truth), else the description's guesses.
+    private async Task<IReadOnlyList<InstalledWorkshopItem>> KnownProvidersAsync(
+        ServerId server, ModInventory inventory, CancellationToken cancellationToken)
+    {
+        IReadOnlyList<ServerWorkshopItem> tracked = await _items.ListForServerAsync(server, cancellationToken).ConfigureAwait(false);
+        HashSet<string> onDisk = new(inventory.InstalledItems.Select(i => i.WorkshopId), StringComparer.Ordinal);
+        return
+        [
+            .. inventory.InstalledItems,
+            .. tracked
+                .Where(item => !onDisk.Contains(item.WorkshopId) && item.GuessedModIds.Count > 0)
+                .Select(item => new InstalledWorkshopItem(
+                    item.WorkshopId, [.. item.GuessedModIds.Select(id => new InstalledMod(id, null))])),
+        ];
     }
 
     /// <inheritdoc />
@@ -153,13 +215,25 @@ public sealed class ServerModManager : IServerModManager
 
     // The shared fail-closed pipeline for the list-editing verbs: resolve + authorize, load the ownership-guarded
     // inventory, compute the edits, map a no-op / invalid reorder / validation failure, else enqueue a config-apply.
-    private async Task<ModManagementResult> ApplyListEditAsync(
+    private Task<ModManagementResult> ApplyListEditAsync(
         UserId user,
         ServerId server,
         PermissionDefinition permission,
         string auditAction,
         string auditSubject,
         Func<ModInventory, ListEditOutcome> compute,
+        CancellationToken cancellationToken) =>
+        ApplyListEditAsync(
+            user, server, permission, auditAction, auditSubject,
+            inventory => Task.FromResult(compute(inventory)), cancellationToken);
+
+    private async Task<ModManagementResult> ApplyListEditAsync(
+        UserId user,
+        ServerId server,
+        PermissionDefinition permission,
+        string auditAction,
+        string auditSubject,
+        Func<ModInventory, Task<ListEditOutcome>> compute,
         CancellationToken cancellationToken)
     {
         Server? resolved = await ResolveAndAuthorizeAsync(user, server, permission, cancellationToken).ConfigureAwait(false);
@@ -177,7 +251,7 @@ public sealed class ServerModManager : IServerModManager
                 ModManagementFailure.SnapshotUnavailable, "Refresh mod discovery for this server before making changes.");
         }
 
-        ListEditOutcome outcome = compute(inventory);
+        ListEditOutcome outcome = await compute(inventory).ConfigureAwait(false);
         if (outcome.Failure is { } failure)
         {
             return ModManagementResult.Denied(failure, outcome.Message);
