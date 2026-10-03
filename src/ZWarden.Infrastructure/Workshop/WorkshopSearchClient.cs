@@ -27,6 +27,8 @@ public sealed partial class WorkshopSearchClient : IWorkshopSearchService
     private const int MaxQueryLength = 256;
     private const int MaxTitleLength = 512;
     private const int MaxUrlLength = 2048;
+    private const int MaxTags = 32;
+    private const int MaxTagLength = 64;
 
     private readonly HttpClient _http;
     private readonly IWorkshopSettingsService _settings;
@@ -100,6 +102,7 @@ public sealed partial class WorkshopSearchClient : IWorkshopSearchService
         sb.Append("&numperpage=").Append(MaxResults.ToString(CultureInfo.InvariantCulture));
         sb.Append("&return_metadata=true");
         sb.Append("&return_previews=true");
+        sb.Append("&return_tags=true");
         sb.Append("&search_text=").Append(Uri.EscapeDataString(text));
         return sb.ToString();
     }
@@ -140,7 +143,8 @@ public sealed partial class WorkshopSearchClient : IWorkshopSearchService
                 PreviewUrl: WorkshopJson.ReadHttpUrl(item, "preview_url", MaxUrlLength),
                 Subscriptions: WorkshopJson.ReadLong(item, "lifetime_subscriptions")
                     ?? WorkshopJson.ReadLong(item, "subscriptions"),
-                UpdatedAt: WorkshopJson.ReadUnixSeconds(item, "time_updated")));
+                UpdatedAt: WorkshopJson.ReadUnixSeconds(item, "time_updated"),
+                Tags: WorkshopJson.ReadTags(item, MaxTags, MaxTagLength)));
         }
 
         return results.Count == 0 ? WorkshopSearchResults.None : WorkshopSearchResults.From(results);
