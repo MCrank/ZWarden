@@ -1816,9 +1816,6 @@ html:not(.dark) .zw-ico-moon {
   .pr-4 {
     padding-right: calc(var(--spacing) * 4);
   }
-  .pb-4 {
-    padding-bottom: calc(var(--spacing) * 4);
-  }
   .pb-6 {
     padding-bottom: calc(var(--spacing) * 6);
   }
@@ -1916,6 +1913,9 @@ html:not(.dark) .zw-ico-moon {
   }
   .break-words {
     overflow-wrap: break-word;
+  }
+  .wrap-anywhere {
+    overflow-wrap: anywhere;
   }
   .wrap-break-word {
     overflow-wrap: break-word;

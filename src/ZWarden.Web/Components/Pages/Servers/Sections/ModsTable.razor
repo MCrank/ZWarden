@@ -139,10 +139,17 @@
             }
             <div class="min-w-0 flex-1">
                 <div class="font-medium break-words @(removed ? "text-muted-foreground line-through" : "")" data-mod-title>@Title(r)</div>
-                <div class="break-all font-mono text-xs text-muted-foreground" data-mod-ids>@IdLine(r)</div>
+                @if (item is null)
+                {
+                    <div class="text-xs text-muted-foreground" data-mod-ids>Not from a tracked Workshop item</div>
+                }
+                else
+                {
+                    <div class="wrap-anywhere font-mono text-xs text-muted-foreground" data-mod-ids>@IdLine(r)</div>
+                }
                 @if (Updated(r) is { } updated)
                 {
-                    <div class="text-xs text-muted-foreground" data-mod-updated>Updated on the Workshop @updated</div>
+                    <div class="text-xs text-muted-foreground" data-mod-updated>Workshop update <span class="whitespace-nowrap">@updated</span></div>
                 }
                 @if (multiPart)
                 {
@@ -232,11 +239,7 @@
 
     private static string IdLine(ModTableRow r)
     {
-        if (r.Item is not { } item)
-        {
-            return "Not from a tracked Workshop item";
-        }
-
+        ModItemView item = r.Item!;
         List<string> ids = [.. r.Mods.Select(m => m.ModId)];
         return item.ObservedModIds.Count > 1 || ids.Count == 0 ? item.WorkshopId : $"{item.WorkshopId} · {string.Join(", ", ids)}";
     }

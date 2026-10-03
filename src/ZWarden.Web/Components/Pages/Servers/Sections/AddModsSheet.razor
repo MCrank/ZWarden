@@ -25,7 +25,7 @@
             </BbSheetDescription>
         </BbSheetHeader>
 
-        <div class="space-y-4 px-4 pb-6">
+        <div class="space-y-4 pb-6">
             <EditForm Model="_form" OnValidSubmit="FindAsync">
                 <div class="flex items-end gap-2" data-add-mods-find>
                     <div class="flex flex-1 flex-col text-sm">
@@ -71,7 +71,7 @@
             }
         </div>
 
-        <BbSheetFooter Class="flex-row items-center px-4 pb-4">
+        <BbSheetFooter Class="flex-row items-center">
             <span class="mr-auto text-xs text-muted-foreground" data-add-mods-pending>
                 @PendingCount change@(PendingCount == 1 ? "" : "s") waiting for a restart
             </span>
