@@ -95,6 +95,12 @@ namespace ZWarden.Contracts.Protocol.Messages;
 /// §8), bounded and carried verbatim for escaping at render. Recorded against the Server the envelope's
 /// <c>ServerId</c> names.
 /// </param>
+/// <param name="WorkshopContentDeletion">
+/// For a successful Workshop-content deletion (<see cref="DeleteWorkshopContent"/>, #293), what the Agent did with
+/// each requested id — deleted, already absent, or refused. <c>null</c> for every other Operation, and for a failed
+/// deletion. Additive and optional (ADR 0020); carries no host path. Recorded against the Server the envelope's
+/// <c>ServerId</c> names.
+/// </param>
 [ProtocolMessage("operation.completed")]
 public sealed record OperationCompleted(
     OperationOutcome Outcome,
@@ -111,7 +117,35 @@ public sealed record OperationCompleted(
     RestoreResult? Restore = null,
     ConsoleCommandResult? ConsoleCommand = null,
     HostDiagnosticsResult? HostDiagnostics = null,
-    ServerDiagnosticsResult? ServerDiagnostics = null) : AgentEvent;
+    ServerDiagnosticsResult? ServerDiagnostics = null,
+    WorkshopContentDeletionResult? WorkshopContentDeletion = null) : AgentEvent;
+
+/// <summary>What a successful <see cref="DeleteWorkshopContent"/> Operation did (#293): one entry per requested id, in
+/// request order. The Server it belongs to is the completion envelope's <c>ServerId</c>.</summary>
+/// <param name="Items">Each requested Workshop id and its outcome.</param>
+public sealed record WorkshopContentDeletionResult(IReadOnlyList<WorkshopContentDeletion> Items);
+
+/// <summary>One requested Workshop id and what the Agent did with its folder (#293).</summary>
+/// <param name="WorkshopId">The Workshop id, as requested.</param>
+/// <param name="Outcome">What the Agent did.</param>
+public sealed record WorkshopContentDeletion(string WorkshopId, WorkshopContentDeletionOutcome Outcome);
+
+/// <summary>What the Agent did with one Workshop item's folder (#293).</summary>
+public enum WorkshopContentDeletionOutcome
+{
+    /// <summary>The folder was deleted.</summary>
+    Deleted,
+
+    /// <summary>There was no folder to delete (already gone — a redelivery, or deleted by hand).</summary>
+    AlreadyAbsent,
+
+    /// <summary>Refused: the id is still listed in <c>WorkshopItems=</c>, so the server uses or will download it.</summary>
+    RefusedReferenced,
+
+    /// <summary>Refused: the folder is a link (or otherwise resolves outside the Workshop content root), so a
+    /// recursive delete could reach files the item doesn't own.</summary>
+    RefusedUnsafe,
+}
 
 /// <summary>The archive a successful <see cref="BackupServer"/> Operation wrote (F24): the compressed
 /// <c>.tar.gz</c> of the Server's world tree the Agent produced host-side under its <c>BackupRoot</c>. Carries the
