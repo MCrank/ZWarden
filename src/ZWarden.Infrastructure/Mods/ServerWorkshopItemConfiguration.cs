@@ -29,6 +29,7 @@ public sealed class ServerWorkshopItemConfiguration : IEntityTypeConfiguration<S
         builder.Property(i => i.SteamUpdatedAt).HasConversion(UtcConverters.Nullable);
         builder.Property(i => i.MetadataRefreshedAt).HasConversion(UtcConverters.Nullable);
         builder.Property(i => i.ObservedAt).HasConversion(UtcConverters.Nullable);
+        builder.Property(i => i.InstalledUpdatedAt).HasConversion(UtcConverters.Nullable);
         builder.Ignore(i => i.HasMetadata);
 
         builder.HasIndex(nameof(ServerWorkshopItem.TenantId), nameof(ServerWorkshopItem.ServerId), nameof(ServerWorkshopItem.WorkshopId))

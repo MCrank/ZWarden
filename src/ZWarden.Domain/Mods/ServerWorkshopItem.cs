@@ -76,6 +76,11 @@ public sealed class ServerWorkshopItem : ITenantOwned
     /// <summary>Whether the item's files were on disk at the last observation.</summary>
     public bool OnDisk { get; private set; }
 
+    /// <summary>The Steam <c>timeupdated</c> of the copy on disk at the last observation (from Steam's Workshop
+    /// manifest, #275), or <c>null</c> when unknown or not on disk. A <see cref="SteamUpdatedAt"/> later than this
+    /// means a restart would pull a newer version.</summary>
+    public DateTimeOffset? InstalledUpdatedAt { get; private set; }
+
     /// <summary>When disk was last observed for this item, or <c>null</c> if never.</summary>
     public DateTimeOffset? ObservedAt { get; private set; }
 
@@ -94,13 +99,15 @@ public sealed class ServerWorkshopItem : ITenantOwned
         return new ServerWorkshopItem { Id = WorkshopItemId.New(), ServerId = serverId, WorkshopId = workshopId };
     }
 
-    /// <summary>Records whether the item is on disk and, when it is, the mod ids its <c>mod.info</c> files declare.
-    /// An item gone from disk has no observed ids.</summary>
-    public void ObserveDisk(bool onDisk, IReadOnlyList<PzModId> modIds, DateTimeOffset observedAt)
+    /// <summary>Records whether the item is on disk and, when it is, the mod ids its <c>mod.info</c> files declare and
+    /// the Steam <c>timeupdated</c> of that copy (#275). An item gone from disk has neither.</summary>
+    public void ObserveDisk(
+        bool onDisk, IReadOnlyList<PzModId> modIds, DateTimeOffset observedAt, DateTimeOffset? installedUpdatedAt = null)
     {
         ArgumentNullException.ThrowIfNull(modIds);
         OnDisk = onDisk;
         ObservedModIds = onDisk ? Bound(modIds) : [];
+        InstalledUpdatedAt = onDisk ? installedUpdatedAt : null;
         ObservedAt = observedAt;
     }
 

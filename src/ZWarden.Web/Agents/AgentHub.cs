@@ -633,8 +633,11 @@ public sealed partial class AgentHub : Hub
             server,
             agent,
             [.. result.InstalledItems.Select(i =>
-                new InstalledWorkshopItem(i.WorkshopId, [.. i.Mods.Select(m => new InstalledMod(
-                    m.ModId, m.Name, m.Version, m.PzVersion, m.VersionMin, m.Requires, m.Incompatible, m.Tags))]))],
+                new InstalledWorkshopItem(
+                    i.WorkshopId,
+                    [.. i.Mods.Select(m => new InstalledMod(
+                        m.ModId, m.Name, m.Version, m.PzVersion, m.VersionMin, m.Requires, m.Incompatible, m.Tags))],
+                    i.InstalledUpdatedAt))],
             result.ConfiguredWorkshopIds,
             result.EnabledModIds,
             [.. result.Findings.Select(f => new ModCompatIssue(ToIssueKind(f.Kind), f.Subject, f.Detail))],

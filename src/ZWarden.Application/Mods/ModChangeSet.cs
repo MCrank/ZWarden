@@ -23,7 +23,9 @@ public enum ModChangeStatus
 /// display data, escaped at render. <see cref="NeedsParts"/> (#291) is the after-boot check of the description's guess
 /// against <c>mod.info</c>: a configured, downloaded item either enables an id its files don't provide
 /// (<see cref="MissingModIds"/> — "the Workshop page listed X, the download provides Y") or enables none of its
-/// mods (installed without ids). Surfaced only; config is never rewritten for it.</summary>
+/// mods (installed without ids). Surfaced only; config is never rewritten for it. <see cref="UpdateReady"/> (#275) marks
+/// an <see cref="ModChangeStatus.Active"/> item whose Steam version is newer than the copy on disk, so a restart would
+/// pull it; it is a separate axis from <see cref="Status"/>, which is the boot diff.</summary>
 public sealed record ModItemView(
     string WorkshopId,
     ModChangeStatus Status,
@@ -36,7 +38,8 @@ public sealed record ModItemView(
     IReadOnlyList<string> ObservedModIds,
     bool OnDisk,
     bool NeedsParts = false,
-    IReadOnlyList<string>? MissingModIds = null)
+    IReadOnlyList<string>? MissingModIds = null,
+    bool UpdateReady = false)
 {
     /// <summary>Enabled ids guessed for this item that its downloaded files don't provide; empty when none.</summary>
     public IReadOnlyList<string> MissingModIds { get; init; } = MissingModIds ?? [];
@@ -58,6 +61,10 @@ public sealed record ServerModOverview(
     public int PendingChanges =>
         Items.Count(i => i.Status is ModChangeStatus.InstallsOnRestart or ModChangeStatus.RemovedOnRestart)
         + Mods.Count(m => m.Status is ModChangeStatus.InstallsOnRestart or ModChangeStatus.RemovedOnRestart);
+
+    /// <summary>How many items a restart would update from the Workshop (#275); counted apart from
+    /// <see cref="PendingChanges"/>, which are the operator's own edits.</summary>
+    public int UpdatesReady => Items.Count(i => i.UpdateReady);
 }
 
 /// <summary>
@@ -159,10 +166,14 @@ public static class ModChangeSet
         return view with { NeedsParts = missing.Count > 0 || noneEnabled, MissingModIds = missing };
     }
 
+    // #275 D3/D8: only an Active item can be "update ready" — one installing on restart is pulled anyway, and a removed
+    // or leftover one isn't in WorkshopItems=, so a boot doesn't update it. Both times are Steam's, so there's no skew.
     private static ModItemView View(string workshopId, ModChangeStatus status, Dictionary<string, ServerWorkshopItem> byId) =>
         byId.TryGetValue(workshopId, out ServerWorkshopItem? item)
             ? new ModItemView(
                 workshopId, status, item.Title, item.PreviewUrl, item.SizeBytes, item.SteamUpdatedAt, item.Tags,
-                item.GuessedModIds, item.ObservedModIds, item.OnDisk)
+                item.GuessedModIds, item.ObservedModIds, item.OnDisk,
+                UpdateReady: status == ModChangeStatus.Active && item.OnDisk
+                    && item.SteamUpdatedAt is { } steam && item.InstalledUpdatedAt is { } installed && steam > installed)
             : new ModItemView(workshopId, status, null, null, null, null, [], [], [], OnDisk: false);
 }
