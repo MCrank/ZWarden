@@ -157,6 +157,76 @@ public static class ModListEditor
         return edits.Count == 0 ? ModListEditResult.NoChange : ModListEditResult.Changed(edits);
     }
 
+    /// <summary>#291 Undo: puts one Workshop item back the way the server booted — <paramref name="workshopId"/> is in
+    /// <c>WorkshopItems=</c>, and each of <paramref name="itemModIds"/> (what the item provides or was guessed to)
+    /// is in <c>Mods=</c>, exactly when it was at the last boot. That one rule undoes an Install, a Remove, or a
+    /// parts change; a restored entry goes back to its booted position. Other items' entries are untouched.</summary>
+    public static ModListEditResult UndoItem(
+        IReadOnlyList<string> configuredWorkshopIds,
+        IReadOnlyList<string> enabledModIds,
+        IReadOnlyList<string> bootedWorkshopIds,
+        IReadOnlyList<string> bootedModIds,
+        string workshopId,
+        IReadOnlyList<string> itemModIds)
+    {
+        ArgumentNullException.ThrowIfNull(configuredWorkshopIds);
+        ArgumentNullException.ThrowIfNull(enabledModIds);
+        ArgumentNullException.ThrowIfNull(bootedWorkshopIds);
+        ArgumentNullException.ThrowIfNull(bootedModIds);
+        ArgumentException.ThrowIfNullOrWhiteSpace(workshopId);
+        ArgumentNullException.ThrowIfNull(itemModIds);
+
+        List<string> nextWorkshop = MatchBooted(configuredWorkshopIds, bootedWorkshopIds, [workshopId]);
+        List<string> nextMods = MatchBooted(enabledModIds, bootedModIds, itemModIds);
+
+        List<ConfigApplyEdit> edits = [];
+        if (!SequenceEqual(configuredWorkshopIds, nextWorkshop))
+        {
+            edits.Add(Edit(WorkshopItemsKey, nextWorkshop));
+        }
+
+        if (!SequenceEqual(enabledModIds, nextMods))
+        {
+            edits.Add(Edit(ModsKey, nextMods));
+        }
+
+        return edits.Count == 0 ? ModListEditResult.NoChange : ModListEditResult.Changed(edits);
+    }
+
+    // Each of `subjects` ends up in the list exactly when it is in `booted`: an extra is dropped, a missing one is
+    // re-inserted right after its nearest booted predecessor still present (or first, when it has none).
+    private static List<string> MatchBooted(
+        IReadOnlyList<string> current, IReadOnlyList<string> booted, IReadOnlyList<string> subjects)
+    {
+        HashSet<string> subjectSet = new(subjects, StringComparer.Ordinal);
+        HashSet<string> bootedSet = new(booted, StringComparer.Ordinal);
+        List<string> next = [.. current.Where(id => !subjectSet.Contains(id) || bootedSet.Contains(id))];
+
+        for (int i = 0; i < booted.Count; i++)
+        {
+            string id = booted[i];
+            if (!subjectSet.Contains(id) || next.Contains(id, StringComparer.Ordinal))
+            {
+                continue;
+            }
+
+            int at = 0;
+            for (int p = i - 1; p >= 0; p--)
+            {
+                int found = next.FindIndex(x => string.Equals(x, booted[p], StringComparison.Ordinal));
+                if (found >= 0)
+                {
+                    at = found + 1;
+                    break;
+                }
+            }
+
+            next.Insert(at, id);
+        }
+
+        return next;
+    }
+
     /// <summary>Removes <paramref name="workshopIdsToRemove"/> from <c>WorkshopItems=</c>, and from <c>Mods=</c> the
     /// Mod ids those items <b>exclusively</b> provide (a mod still provided by a remaining installed item stays
     /// enabled; a referenced-but-not-installed item's mods are unknown and left alone).</summary>

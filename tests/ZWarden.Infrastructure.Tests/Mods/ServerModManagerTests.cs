@@ -609,6 +609,94 @@ public class ServerModManagerTests
         });
     }
 
+    [Test]
+    public async Task Undo_of_a_pending_install_takes_out_the_item_and_its_guessed_ids()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            AgentId agent = AgentId.New();
+            ServerId serverId = await SeedServerAsync(options, agent);
+            // Undoing an install takes entries out, so it is a Mod.Remove action.
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ModRemove);
+            await SeedBootAsync(options, serverId, workshop: ["100"], mods: ["A"]);
+            await SeedGuessesAsync(options, serverId, "200", "B");
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            RecordingCoordinator coordinator = new();
+            CapturingAuditWriter audit = new();
+            ModInventoryCache cache = new();
+            cache.Record(Inventory(serverId, agent, workshop: ["100", "200"], enabled: ["A", "B"]));
+            ServerModManager sut = Manager(db, coordinator, audit, cache);
+
+            ModManagementResult result = await sut.UndoPendingAsync(user, serverId, "200");
+
+            await Assert.That(result.Succeeded).IsTrue();
+            ConfigApplyPayload payload = ConfigApplyPayload.FromJson(coordinator.LastRequest!.CommandPayload!);
+            await Assert.That(payload.Edits[0]).IsEqualTo(new ConfigApplyEdit("WorkshopItems", ConfigEditKind.Text, "100"));
+            await Assert.That(payload.Edits[1]).IsEqualTo(new ConfigApplyEdit("Mods", ConfigEditKind.Text, "A"));
+            await Assert.That(audit.Actions).Contains(ModAuditActions.Undone);
+        });
+    }
+
+    [Test]
+    public async Task Undo_of_a_pending_remove_needs_mod_install()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            AgentId agent = AgentId.New();
+            ServerId serverId = await SeedServerAsync(options, agent);
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ModRemove);
+            await SeedBootAsync(options, serverId, workshop: ["100", "200"], mods: ["A", "B"]);
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            RecordingCoordinator coordinator = new();
+            ModInventoryCache cache = new();
+            cache.Record(Inventory(serverId, agent, workshop: ["100"], enabled: ["A"]));
+            ServerModManager sut = Manager(db, coordinator, new CapturingAuditWriter(), cache);
+
+            ModManagementResult result = await sut.UndoPendingAsync(user, serverId, "200");
+
+            // Re-adding entries is an install; a Mod.Remove-only grant can't do it.
+            await Assert.That(result.Failure).IsEqualTo(ModManagementFailure.NotAuthorized);
+            await Assert.That(coordinator.LastRequest).IsNull();
+        });
+    }
+
+    [Test]
+    public async Task Undo_before_the_first_recorded_boot_is_invalid()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            AgentId agent = AgentId.New();
+            ServerId serverId = await SeedServerAsync(options, agent);
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ModInstall);
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            RecordingCoordinator coordinator = new();
+            ModInventoryCache cache = new();
+            cache.Record(Inventory(serverId, agent, workshop: [], enabled: []));
+            ServerModManager sut = Manager(db, coordinator, new CapturingAuditWriter(), cache);
+
+            ModManagementResult result = await sut.UndoPendingAsync(user, serverId, "200");
+
+            await Assert.That(result.Failure).IsEqualTo(ModManagementFailure.InvalidInput);
+            await Assert.That(coordinator.LastRequest).IsNull();
+        });
+    }
+
+    private static async Task SeedBootAsync(DbContextOptions options, ServerId server, string[] workshop, string[] mods)
+    {
+        await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+        ServerModState state = ServerModState.For(server);
+        state.MarkBooted(Now);
+        state.ObserveConfig(workshop, mods, Now.AddSeconds(5));
+        db.Set<ServerModState>().Add(state);
+        await db.SaveChangesAsync();
+    }
+
     private static async Task SeedGuessesAsync(DbContextOptions options, ServerId server, string workshopId, params string[] guesses)
     {
         await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
@@ -633,7 +721,8 @@ public class ServerModManagerTests
             coordinator,
             new ConfigurationRevisionRepository(db),
             audit,
-            new ServerWorkshopItemRepository(db));
+            new ServerWorkshopItemRepository(db),
+            new ServerModStateRepository(db));
 
     private sealed class RecordingCoordinator : IOperationCoordinator
     {

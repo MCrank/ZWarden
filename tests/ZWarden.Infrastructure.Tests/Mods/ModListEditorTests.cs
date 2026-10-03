@@ -193,6 +193,53 @@ public class ModListEditorTests
         await Assert.That(result.Edits[1]).IsEqualTo(new ConfigApplyEdit("Mods", ConfigEditKind.Text, "X;Y"));
     }
 
+    // ---- UndoItem (#291: put one item back the way it booted) -----------------------------------------------
+
+    [Test]
+    public async Task Undo_of_an_install_removes_the_item_and_the_ids_it_added()
+    {
+        ModListEditResult result = ModListEditor.UndoItem(
+            configuredWorkshopIds: ["100", "200"], enabledModIds: ["A", "B"],
+            bootedWorkshopIds: ["100"], bootedModIds: ["A"],
+            workshopId: "200", itemModIds: ["B"]);
+
+        await Assert.That(result.Edits[0]).IsEqualTo(new ConfigApplyEdit("WorkshopItems", ConfigEditKind.Text, "100"));
+        await Assert.That(result.Edits[1]).IsEqualTo(new ConfigApplyEdit("Mods", ConfigEditKind.Text, "A"));
+    }
+
+    [Test]
+    public async Task Undo_of_a_remove_restores_the_item_and_its_ids_in_their_booted_load_order()
+    {
+        ModListEditResult result = ModListEditor.UndoItem(
+            configuredWorkshopIds: ["100"], enabledModIds: ["A", "C"],
+            bootedWorkshopIds: ["200", "100"], bootedModIds: ["B1", "A", "B2", "C"],
+            workshopId: "200", itemModIds: ["B1", "B2"]);
+
+        await Assert.That(result.Edits[0]).IsEqualTo(new ConfigApplyEdit("WorkshopItems", ConfigEditKind.Text, "200;100"));
+        await Assert.That(result.Edits[1]).IsEqualTo(new ConfigApplyEdit("Mods", ConfigEditKind.Text, "B1;A;B2;C"));
+    }
+
+    [Test]
+    public async Task Undo_of_a_parts_change_restores_only_that_items_ids()
+    {
+        // Since boot the operator swapped part X1 for X2 on item 100 and, separately, enabled Z (another item's id).
+        ModListEditResult result = ModListEditor.UndoItem(
+            configuredWorkshopIds: ["100"], enabledModIds: ["X2", "Z"],
+            bootedWorkshopIds: ["100"], bootedModIds: ["X1"],
+            workshopId: "100", itemModIds: ["X1", "X2"]);
+
+        await Assert.That(result.Edits.Count).IsEqualTo(1);
+        await Assert.That(result.Edits[0]).IsEqualTo(new ConfigApplyEdit("Mods", ConfigEditKind.Text, "X1;Z"));
+    }
+
+    [Test]
+    public async Task Undo_of_an_item_with_nothing_pending_is_no_change()
+    {
+        ModListEditResult result = ModListEditor.UndoItem(["100"], ["A"], ["100"], ["A"], "100", ["A"]);
+
+        await Assert.That(result.Status).IsEqualTo(ModListEditStatus.NoChange);
+    }
+
     // ---- RemoveWorkshopItems (drop from WorkshopItems= and exclusively-provided Mods=) ------------------------
 
     [Test]

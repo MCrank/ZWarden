@@ -92,6 +92,15 @@ public interface IServerModManager
         IReadOnlyList<string> modIds,
         CancellationToken cancellationToken = default);
 
+    /// <summary>#291 Undo, before a restart: puts <paramref name="workshopId"/>'s <c>WorkshopItems=</c> entry and its
+    /// mod ids back the way the server last booted, in one config apply. An undo that re-adds anything (undoing a
+    /// Remove) authorizes <c>Mod.Install</c>; one that only takes entries out (undoing an Install) authorizes
+    /// <c>Mod.Remove</c>. <see cref="ModManagementFailure.InvalidInput"/> (behind <c>Mod.Install</c>) before the first
+    /// recorded boot;
+    /// <see cref="ModManagementFailure.NoChange"/> when nothing is pending for the item.</summary>
+    Task<ModManagementResult> UndoPendingAsync(
+        UserId user, ServerId server, string workshopId, CancellationToken cancellationToken = default);
+
     /// <summary>Removes <paramref name="workshopIds"/> from <c>WorkshopItems=</c>, and from <c>Mods=</c> the mods
     /// they exclusively provide — per <c>mod.info</c> on disk, or the description's guesses for an item not yet
     /// downloaded (#291) (authorizes <c>Mod.Remove</c>).</summary>

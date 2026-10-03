@@ -34,6 +34,7 @@ public sealed class ServerModManager : IServerModManager
     private readonly IAuditWriter _audit;
     private readonly ConfigApplyEnqueuer _enqueuer;
     private readonly ServerWorkshopItemRepository _items;
+    private readonly ServerModStateRepository _states;
 
     public ServerModManager(
         ServerRepository servers,
@@ -42,7 +43,8 @@ public sealed class ServerModManager : IServerModManager
         IOperationCoordinator operations,
         ConfigurationRevisionRepository revisions,
         IAuditWriter audit,
-        ServerWorkshopItemRepository items)
+        ServerWorkshopItemRepository items,
+        ServerModStateRepository states)
     {
         ArgumentNullException.ThrowIfNull(servers);
         ArgumentNullException.ThrowIfNull(permissions);
@@ -51,6 +53,7 @@ public sealed class ServerModManager : IServerModManager
         ArgumentNullException.ThrowIfNull(revisions);
         ArgumentNullException.ThrowIfNull(audit);
         ArgumentNullException.ThrowIfNull(items);
+        ArgumentNullException.ThrowIfNull(states);
         _servers = servers;
         _permissions = permissions;
         _inventory = inventory;
@@ -58,6 +61,7 @@ public sealed class ServerModManager : IServerModManager
         _audit = audit;
         _enqueuer = new ConfigApplyEnqueuer(operations, revisions, audit);
         _items = items;
+        _states = states;
     }
 
     /// <inheritdoc />
@@ -156,6 +160,49 @@ public sealed class ServerModManager : IServerModManager
                 workshopIds)),
             cancellationToken).ConfigureAwait(false);
     }
+
+    /// <inheritdoc />
+    public async Task<ModManagementResult> UndoPendingAsync(
+        UserId user, ServerId server, string workshopId, CancellationToken cancellationToken = default)
+    {
+        if (ValidateWorkshopId(workshopId) is { } invalid)
+        {
+            return ModManagementResult.Denied(invalid.Failure!.Value, invalid.Message);
+        }
+
+        // These tenant-filtered reads only pick which permission to check; nothing is returned or written before the
+        // pipeline authorizes it. The item's ids are what it provides on disk plus what its description guessed.
+        // Before the first recorded boot there's nothing to undo; that answer is gated on Mod.Install.
+        ServerModState? state = await _states.FindAsync(server, cancellationToken).ConfigureAwait(false);
+        ServerWorkshopItem? item = (await _items.ListForServerAsync(server, cancellationToken).ConfigureAwait(false))
+            .FirstOrDefault(i => string.Equals(i.WorkshopId, workshopId, StringComparison.Ordinal));
+        string[] itemModIds = item is null ? [] : [.. item.ObservedModIds.Union(item.GuessedModIds, StringComparer.Ordinal)];
+        Server? owner = await _servers.FindByIdAsync(server, cancellationToken).ConfigureAwait(false);
+        ModInventory? current = owner is null ? null : _inventory.GetLatest(server, owner.AgentId);
+        PermissionDefinition permission =
+            state is not { HasBootSnapshot: true } || current is null || ReAddsEntries(state, current, workshopId, itemModIds)
+                ? Permissions.ModInstall
+                : Permissions.ModRemove;
+
+        return await ApplyListEditAsync(
+            user, server, permission, ModAuditActions.Undone, $"undo pending change to workshop item {workshopId}",
+            inventory => state is { HasBootSnapshot: true }
+                ? Ok(ModListEditor.UndoItem(
+                    inventory.ConfiguredWorkshopIds, inventory.EnabledModIds,
+                    state.BootedWorkshopIds, state.BootedModIds, workshopId, itemModIds))
+                : new ListEditOutcome(
+                    null, ModManagementFailure.InvalidInput,
+                    "There is nothing to undo until the server has booted once with ZWarden watching."),
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    // Undo re-adds an entry when the item or one of its ids loaded at the last boot but is no longer configured.
+    private static bool ReAddsEntries(
+        ServerModState state, ModInventory current, string workshopId, IReadOnlyList<string> itemModIds) =>
+        (state.BootedWorkshopIds.Contains(workshopId, StringComparer.Ordinal)
+            && !current.ConfiguredWorkshopIds.Contains(workshopId, StringComparer.Ordinal))
+        || itemModIds.Any(id => state.BootedModIds.Contains(id, StringComparer.Ordinal)
+            && !current.EnabledModIds.Contains(id, StringComparer.Ordinal));
 
     // What each Workshop item is known to provide: mod.info on disk (the truth), else the description's guesses.
     private async Task<IReadOnlyList<InstalledWorkshopItem>> KnownProvidersAsync(
