@@ -64,13 +64,14 @@
         }
         else
         {
-            <ModsTable Rows="_rows" Warnings="_warnings" Conflicts="_conflicts" Perm="Perm" Busy="_acting" Zone="OperatorZone" OnCommand="RunAsync" />
+            <ModsTable Rows="_rows" Warnings="_warnings" Conflicts="_conflicts" Perm="Perm" Busy="_acting" Zone="OperatorZone"
+                       ServerRunning="ServerRunning" OnCommand="RunAsync" />
             <LeftoverDownloads Items="_table.Leftovers" CanReinstall="Perm.CanInstall" CanDelete="Perm.CanRemove" Busy="_acting"
                                OnReinstall="ReinstallAsync" OnDelete="DeleteDownloadsAsync" />
         }
     </div>
 
-    <PendingChangesBar Pending="_pending" CanRestart="@(Perm.CanUpdate || Perm.CanRestart)" Busy="_acting" OnRestart="RestartAsync" />
+    <PendingChangesBar Pending="_pending" Updates="_updates" ServerRunning="ServerRunning" CanRestart="@(Perm.CanUpdate || Perm.CanRestart)" Busy="_acting" OnRestart="RestartAsync" />
 </BbCard>
 
 @code {
@@ -91,6 +92,7 @@
     private ModTableView _table = new([], []);
     private List<ModTableRow> _rows = [];
     private List<ModTableRow> _pending = [];
+    private List<ModTableRow> _updates = [];
     private IReadOnlyDictionary<string, IReadOnlyList<string>> _warnings = new Dictionary<string, IReadOnlyList<string>>();
     private ModPartConflicts _conflicts = ModPartConflicts.From(null);
 
@@ -123,6 +125,27 @@
         {
             _polling = new CancellationTokenSource();
             _ = PollAsync(_polling.Token);
+            _ = RequestUpdateCheckAsync(_polling.Token);
+        }
+    }
+
+    // Updates pull only on a boot, so a stopped server's are "on start", not something to restart for (#275 D7).
+    private bool ServerRunning => Server.LastRunState == ServerRunState.Running;
+
+    // #275 D4: opening the page asks for a Steam refresh when the details are older than 30 minutes; the poll then
+    // shows any new "Update ready" once the background refresh lands. Best-effort: a failure only costs freshness.
+    private async Task RequestUpdateCheckAsync(CancellationToken ct)
+    {
+        try
+        {
+            UserId user = await CurrentUserAsync();
+            ServerId serverId = Server.Id;
+            await Actions.RunAsync<IServerModOverviewService>(
+                (service, token) => service.RequestUpdateCheckAsync(user, serverId, token), ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Logger.LogWarning(ex, "Mod-update check request failed for {ServerId}.", Server.Id);
         }
     }
 
@@ -205,6 +228,7 @@
         _table = table;
         _rows = _table.Rows.ToList();
         _pending = _table.PendingRows.ToList();
+        _updates = _table.UpdateRows.ToList();
         _onServer = new HashSet<string>(
             overview?.Items.Where(i => i.Status is ModChangeStatus.Active or ModChangeStatus.InstallsOnRestart).Select(i => i.WorkshopId) ?? [],
             StringComparer.Ordinal);
@@ -225,7 +249,7 @@
         {
             ModItemView? item = row.Item;
             sb.Append(row.Key).Append('|').Append(row.Status).Append('|').Append(item?.Title).Append('|').Append(item?.PreviewUrl)
-                .Append('|').Append(item?.SteamUpdatedAt).Append('|').Append(item?.NeedsParts).Append('|')
+                .Append('|').Append(item?.SteamUpdatedAt).Append('|').Append(item?.UpdateReady).Append('|').Append(item?.NeedsParts).Append('|')
                 .AppendJoin(',', item?.ObservedModIds ?? []).Append('|').AppendJoin(',', item?.MissingModIds ?? []).Append('|')
                 .AppendJoin(',', row.Mods.Select(m => $"{m.ModId}:{m.Status}")).Append('\n');
         }

@@ -48,6 +48,10 @@ public sealed record ModTableView(IReadOnlyList<ModTableRow> Rows, IReadOnlyList
     /// <summary>The rows with a change waiting for a restart — what the pending-changes bar counts and lists.</summary>
     public IEnumerable<ModTableRow> PendingRows => Rows.Where(r => r.HasPendingChange);
 
+    /// <summary>The rows a restart would update from the Workshop (#275), listed apart from <see cref="PendingRows"/>;
+    /// a row that already has a pending change restarts anyway, so it's only counted there.</summary>
+    public IEnumerable<ModTableRow> UpdateRows => Rows.Where(r => !r.HasPendingChange && r.Item is { UpdateReady: true });
+
     /// <summary>The whole new <c>Mods=</c> order that moves row <paramref name="key"/> one place
     /// <paramref name="direction"/>: its id block swaps with the neighbouring movable row's block, and every block
     /// closes up (a scattered item's parts end up adjacent). <c>null</c> when the row is unknown, has no enabled id, or

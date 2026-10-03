@@ -4,6 +4,7 @@ using ZWarden.Application.Mods;
 using ZWarden.Application.Servers;
 using ZWarden.Domain.Ids;
 using ZWarden.Domain.Operations;
+using ZWarden.Domain.Servers;
 using ZWarden.Web.Components.Pages.Servers;
 
 namespace ZWarden.Web.Tests.Servers.Sections;
@@ -366,6 +367,50 @@ public sealed class ModsSectionTests
         GracefulRestartPayload plan = GracefulRestartPayload.FromJson(harness.Payload(serverId, OperationKind.RestartServer)!);
         await Assert.That(plan.WarningLeadSeconds).IsEquivalentTo([60, 30, 10]);
         await Assert.That(cut.Find("[data-mod-message]").TextContent).Contains("Workshop updates download as the server boots");
+    }
+
+    [Test]
+    public async Task A_running_servers_workshop_update_shows_update_ready_and_its_own_bar_line()
+    {
+        // #275 D6: Steam's changes are listed apart from the operator's, and the one Restart to apply pulls them.
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
+        ServerId serverId = await harness.SeedServerAsync("mod-updated");
+        await harness.SetRunStateAsync(serverId, ServerRunState.Running);
+        await harness.SeedModStateAsync(
+            serverId, booted: (["100", "200"], ["A", "B"]), configured: (["100", "200"], ["A", "B"]),
+            ("100", [], ["A"], true), ("200", [], ["B"], true));
+        await harness.SeedWorkshopUpdateAsync(serverId, "200");
+        SeedDisk(harness, serverId, ["100", "200"], ["A", "B"], ("100", "A"), ("200", "B"));
+        IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "mods");
+
+        cut.WaitForState(() => cut.FindAll("[data-mod-status=UpdateReady]").Count == 1);
+        await Assert.That(cut.Find("[data-mod-status=UpdateReady]").TextContent.Trim()).IsEqualTo("Update ready");
+        await Assert.That(cut.FindAll("[data-mod-pending-count]")).IsEmpty();
+        await Assert.That(cut.Find("[data-mod-updates-count]").TextContent).Contains("1 mod update ready");
+        await Assert.That(cut.Find("[data-mod-updates-summary]").TextContent).IsEqualTo("↑ Item 200");
+
+        await cut.Find("[data-action=mod-restart]").ClickAsync(new());
+
+        cut.WaitForState(() => harness.FirstOperation(serverId, OperationKind.RestartServer) is not null);
+        await Assert.That(harness.FirstOperation(serverId, OperationKind.UpdateServer)).IsNull();
+    }
+
+    [Test]
+    public async Task A_stopped_servers_workshop_update_says_it_updates_on_start_without_a_bar()
+    {
+        // #275 D7: a start pulls the update anyway, so there's nothing to restart for.
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
+        ServerId serverId = await harness.SeedServerAsync("stopped-mod-updated");
+        await harness.SetRunStateAsync(serverId, ServerRunState.Stopped);
+        await harness.SeedModStateAsync(
+            serverId, booted: (["100"], ["A"]), configured: (["100"], ["A"]), ("100", [], ["A"], true));
+        await harness.SeedWorkshopUpdateAsync(serverId, "100");
+        SeedDisk(harness, serverId, ["100"], ["A"], ("100", "A"));
+        IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "mods");
+
+        cut.WaitForState(() => cut.FindAll("[data-mod-status=UpdateReady]").Count == 1);
+        await Assert.That(cut.Find("[data-mod-status=UpdateReady]").TextContent.Trim()).IsEqualTo("Updates on start");
+        await Assert.That(cut.FindAll("[data-mod-pending-bar]")).IsEmpty();
     }
 
     [Test]

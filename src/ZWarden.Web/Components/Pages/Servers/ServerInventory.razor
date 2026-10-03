@@ -3,6 +3,7 @@
 @using System.Security.Claims
 @using ZWarden.Application.Agents
 @using ZWarden.Application.Authorization
+@using ZWarden.Application.Mods
 @using ZWarden.Application.Operations
 @using ZWarden.Domain.Authorization
 @using ZWarden.Domain.Ids
@@ -16,6 +17,7 @@
 @inject IHostCapacityCache Capacity
 @inject IAgentInventory AgentInventory
 @inject IPermissionChecker PermissionChecker
+@inject IServerModOverviewService ModOverview
 @inject UserManager<ApplicationUser> Users
 @inject NavigationManager Nav
 @inject TimeProvider Clock
@@ -347,6 +349,10 @@
         // #257: the fleet facts (players, uptime, version, meters) come from the one FleetFacts projection the
         // status poll also uses, so the first render and the live updates agree.
         DateTimeOffset now = Clock.GetUtcNow();
+        // #275 D5/D7: the "N mod updates" hint, for running servers only (a start pulls updates anyway), counted once
+        // at load from the persisted mod state; Mod.View is re-checked per Server by the service.
+        IReadOnlyDictionary<ServerId, int> modUpdates = await ModOverview.CountUpdatesReadyAsync(
+            user, [.. _servers.Where(s => s.LastRunState == ServerRunState.Running).Select(s => s.Id)]);
         List<FleetRow> rows = new(_servers.Count);
         List<(ServerSummary, FleetServerFacts)> fleet = new(_servers.Count);
         foreach (ServerSummary server in _servers)
@@ -372,7 +378,8 @@
                 facts.PlayersSampledAt is { } counted ? FleetFacts.FormatSampleAge(counted, now) : null,
                 FleetFacts.FormatUptime(facts.StartedAt, now),
                 FleetFacts.FormatVersionTitle(facts),
-                server.Branch));
+                server.Branch,
+                modUpdates.GetValueOrDefault(server.Id)));
         }
 
         _rows = rows;
