@@ -23,7 +23,10 @@ public sealed partial class WorkshopMetadataClient : IWorkshopMetadataClient
     private const int MaxChildren = 500;
     private const int MaxTitleLength = 512;
     private const int MaxUrlLength = 2048;
-    private const int MaxDescriptionLength = 4000;
+    // Steam caps a Workshop description at 8,000 characters; authors often list "Mod ID:" lines at the very end (#290).
+    private const int MaxDescriptionLength = 8000;
+    private const int MaxTags = 32;
+    private const int MaxTagLength = 64;
     private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(30);
     private static readonly TimeSpan NotFoundCacheTtl = TimeSpan.FromMinutes(5);
 
@@ -50,12 +53,12 @@ public sealed partial class WorkshopMetadataClient : IWorkshopMetadataClient
     {
         ArgumentNullException.ThrowIfNull(workshopIds);
 
-        // Keep only well-formed numeric ids, de-duplicated in first-seen order, and bound the batch size.
+        // Keep only well-formed numeric ids, de-duplicated in first-seen order.
         List<string> ids = [];
         HashSet<string> seen = new(StringComparer.Ordinal);
         foreach (string id in workshopIds)
         {
-            if (IsNumericId(id) && seen.Add(id) && ids.Count < MaxIdsPerRequest)
+            if (IsNumericId(id) && seen.Add(id))
             {
                 ids.Add(id);
             }
@@ -81,9 +84,10 @@ public sealed partial class WorkshopMetadataClient : IWorkshopMetadataClient
             }
         }
 
-        if (toFetch.Count > 0)
+        // Steam takes at most MaxIdsPerRequest ids per call, so a long list goes out in sequential batches (#290).
+        foreach (string[] batch in toFetch.Chunk(MaxIdsPerRequest))
         {
-            foreach (WorkshopItemMetadata fetched in await FetchItemsAsync(toFetch, cancellationToken).ConfigureAwait(false))
+            foreach (WorkshopItemMetadata fetched in await FetchItemsAsync(batch, cancellationToken).ConfigureAwait(false))
             {
                 _cache.Set(CacheKey(fetched.WorkshopId), fetched, fetched.Found ? CacheTtl : NotFoundCacheTtl);
                 results.Add(fetched);
@@ -146,13 +150,13 @@ public sealed partial class WorkshopMetadataClient : IWorkshopMetadataClient
     }
 
     private async Task<IReadOnlyList<WorkshopItemMetadata>> FetchItemsAsync(
-        List<string> ids, CancellationToken cancellationToken)
+        string[] ids, CancellationToken cancellationToken)
     {
         Dictionary<string, string> form = new(StringComparer.Ordinal)
         {
-            ["itemcount"] = ids.Count.ToString(CultureInfo.InvariantCulture),
+            ["itemcount"] = ids.Length.ToString(CultureInfo.InvariantCulture),
         };
-        for (int i = 0; i < ids.Count; i++)
+        for (int i = 0; i < ids.Length; i++)
         {
             form[$"publishedfileids[{i}]"] = ids[i];
         }
@@ -209,7 +213,33 @@ public sealed partial class WorkshopMetadataClient : IWorkshopMetadataClient
             SizeBytes: ReadLong(item, "file_size"),
             UpdatedAt: ReadUnixSeconds(item, "time_updated"),
             Description: ReadString(item, "file_description", MaxDescriptionLength)
-                ?? ReadString(item, "description", MaxDescriptionLength));
+                ?? ReadString(item, "description", MaxDescriptionLength),
+            Tags: ReadTags(item));
+    }
+
+    // tags arrive as [{"tag":"Build 42"}, …]; anything not of that shape is skipped, and count/length are bounded.
+    private static string[] ReadTags(JsonElement item)
+    {
+        if (!item.TryGetProperty("tags", out JsonElement tags) || tags.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        List<string> result = [];
+        foreach (JsonElement tag in tags.EnumerateArray())
+        {
+            if (result.Count >= MaxTags)
+            {
+                break;
+            }
+
+            if (tag.ValueKind == JsonValueKind.Object && ReadString(tag, "tag", MaxTagLength) is { } text)
+            {
+                result.Add(text);
+            }
+        }
+
+        return [.. result];
     }
 
     private async Task<JsonDocument?> PostAsync(

@@ -1,4 +1,5 @@
 using ZWarden.Application.Configuration;
+using ZWarden.Domain.Mods;
 
 namespace ZWarden.Application.Mods;
 
@@ -40,7 +41,8 @@ public sealed record ModListEditResult(ModListEditStatus Status, IReadOnlyList<C
 /// plus an operator intent, emitted as F20b <see cref="ConfigApplyEdit"/>s. F22's realisation of config-as-truth: a
 /// mod change is a list-value config edit the F20b Agent writer applies byte-preservingly, drift-checked, and records
 /// as a Configuration Revision. Ordinal (case-sensitive) comparison, order-preserving, de-duped — a pure function of
-/// (current list, intent), so it never touches disk or parses config.
+/// (current list, intent), so it never touches disk or parses config. Mod ids an intent adds or names are
+/// <see cref="PzModId"/>s (#290), so unvalidated text can't reach <c>Mods=</c>; the current lists are config as read.
 /// </summary>
 public static class ModListEditor
 {
@@ -52,14 +54,14 @@ public static class ModListEditor
     /// end of <c>Mods=</c>, in request order.</summary>
     public static ModListEditResult EnableMods(
         IReadOnlyList<string> enabledModIds,
-        IReadOnlyList<string> modIdsToEnable)
+        IReadOnlyList<PzModId> modIdsToEnable)
     {
         ArgumentNullException.ThrowIfNull(enabledModIds);
         ArgumentNullException.ThrowIfNull(modIdsToEnable);
 
         List<string> next = [.. enabledModIds];
         HashSet<string> present = new(next, StringComparer.Ordinal);
-        foreach (string id in modIdsToEnable)
+        foreach (string id in modIdsToEnable.Select(m => m.Value))
         {
             if (present.Add(id))
             {
@@ -74,12 +76,12 @@ public static class ModListEditor
     /// rest.</summary>
     public static ModListEditResult DisableMods(
         IReadOnlyList<string> enabledModIds,
-        IReadOnlyList<string> modIdsToDisable)
+        IReadOnlyList<PzModId> modIdsToDisable)
     {
         ArgumentNullException.ThrowIfNull(enabledModIds);
         ArgumentNullException.ThrowIfNull(modIdsToDisable);
 
-        HashSet<string> remove = new(modIdsToDisable, StringComparer.Ordinal);
+        HashSet<string> remove = new(modIdsToDisable.Select(m => m.Value), StringComparer.Ordinal);
         List<string> next = [.. enabledModIds.Where(id => !remove.Contains(id))];
 
         return DiffMods(enabledModIds, next);
@@ -89,17 +91,18 @@ public static class ModListEditor
     /// <paramref name="enabledModIds"/> (order-only); otherwise <see cref="ModListEditResult.InvalidReorder"/>.</summary>
     public static ModListEditResult ReorderMods(
         IReadOnlyList<string> enabledModIds,
-        IReadOnlyList<string> desiredOrder)
+        IReadOnlyList<PzModId> desiredOrder)
     {
         ArgumentNullException.ThrowIfNull(enabledModIds);
         ArgumentNullException.ThrowIfNull(desiredOrder);
 
-        if (!IsPermutation(enabledModIds, desiredOrder))
+        List<string> next = [.. desiredOrder.Select(m => m.Value)];
+        if (!IsPermutation(enabledModIds, next))
         {
             return ModListEditResult.InvalidReorder;
         }
 
-        return DiffMods(enabledModIds, desiredOrder);
+        return DiffMods(enabledModIds, next);
     }
 
     /// <summary>Appends <paramref name="workshopIdToAdd"/> to <c>WorkshopItems=</c> if not already referenced.
@@ -180,7 +183,7 @@ public static class ModListEditor
     private static bool SequenceEqual(IReadOnlyList<string> a, IReadOnlyList<string> b) =>
         a.SequenceEqual(b, StringComparer.Ordinal);
 
-    private static bool IsPermutation(IReadOnlyList<string> a, IReadOnlyList<string> b)
+    private static bool IsPermutation(IReadOnlyList<string> a, List<string> b)
     {
         if (a.Count != b.Count)
         {

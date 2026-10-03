@@ -6,7 +6,7 @@
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
     <LangVersion>14.0</LangVersion>
-    <TestingPlatformCommandLineArguments>--minimum-expected-tests 509</TestingPlatformCommandLineArguments>
+    <TestingPlatformCommandLineArguments>--minimum-expected-tests 538</TestingPlatformCommandLineArguments>
   </PropertyGroup>
 
   <ItemGroup>
@@ -26,6 +26,9 @@
   <ItemGroup>
     <!-- #227: the full-key B42 fixtures (ZWarden-authored, ADR 0009) drive the Configuration View reader end to end. -->
     <None Include="..\ZWarden.PzConfig.Tests\Fixtures\**" LinkBase="Fixtures" CopyToOutputDirectory="PreserveNewest" />
+    <!-- #290: real Steam Workshop descriptions (captured 2026-10-02 from the keyless GetPublishedFileDetails) drive
+         the description mod-id parser. -->
+    <None Update="Fixtures\workshop-descriptions\**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

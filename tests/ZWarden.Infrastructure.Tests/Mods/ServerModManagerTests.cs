@@ -278,6 +278,33 @@ public class ServerModManagerTests
     }
 
     [Test]
+    [Arguments("B;C")]
+    [Arguments("B,C")]
+    [Arguments("B\nC")]
+    public async Task Enable_rejects_a_mod_id_that_would_corrupt_the_mods_list(string modId)
+    {
+        // #290 D3: a separator inside an id would split Mods= into ids nobody asked for.
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            AgentId agent = AgentId.New();
+            ServerId serverId = await SeedServerAsync(options, agent);
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ModInstall);
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            RecordingCoordinator coordinator = new();
+            ModInventoryCache cache = new();
+            cache.Record(Inventory(serverId, agent, workshop: ["100"], enabled: ["A"]));
+            ServerModManager sut = Manager(db, coordinator, new CapturingAuditWriter(), cache);
+
+            ModManagementResult result = await sut.EnableModsAsync(user, serverId, [modId]);
+
+            await Assert.That(result.Failure).IsEqualTo(ModManagementFailure.InvalidInput);
+            await Assert.That(coordinator.LastRequest).IsNull();
+        });
+    }
+
+    [Test]
     public async Task Remove_workshop_item_drops_the_item_and_its_exclusive_mods()
     {
         await WithSqlite(async options =>

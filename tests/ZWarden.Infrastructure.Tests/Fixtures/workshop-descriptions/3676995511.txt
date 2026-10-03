@@ -1,0 +1,59 @@
+[h1]Share Map Notes [B42][MP][/h1]
+Build 42 multiplayer-safe. Auto-share map symbols and freehand drawings to all players in real-time. Updated for 42.20.
+
+Vanilla PZ has a Share button on the map, but it's manual — you have to click it, select a symbol, configure sharing, and apply, one symbol at a time. This mod automates all of that. Symbols and notes are shared instantly when you place them, and freehand drawings sync to all players in real-time.
+
+[h1]Features[/h1]
+[list]
+[*] [b]Auto-Share Symbols[/b] — Map symbols and text notes are automatically shared the moment you place them. No need to use the vanilla Share button — it just works. Uses PZ's native sharing system so symbols look and behave exactly like normal ones.
+[*] [b]Freehand Drawing[/b] — Draw directly on the map to mark routes, danger zones, or anything you want. Drawings sync to other players in real-time.
+[*] [b]Pen Colors[/b] — Drawing color matches your selected pen (black, gray, red, blue, green), just like native map symbols. Requires a pen in inventory by default.
+[*] [b]Erase[/b] — Click on any of your own drawings to erase them. Requires an eraser in inventory by default.
+[*] [b]Undo[/b] — Remove your most recent drawing with one click.
+[*] [b]Toggle Visibility[/b] — Show or hide shared drawings with a button on the map.
+[/list]
+
+[h1]Sandbox Options[/h1]
+[list]
+[*] [b]Auto-Share Map Symbols[/b] — Control who sees your symbols: Everyone (default), Faction only, Safehouse only, or Disabled (vanilla manual sharing).
+[*] [b]Max drawings[/b] per player and total on the server.
+[*] [b]Remove Drawing Limits[/b] (default: off) — lets players draw without limit. Not recommended: large numbers of drawings cause map lag for everyone.
+[*] [b]Require pen to draw[/b] (default: on) — disable to let anyone draw without a pen.
+[*] [b]Require eraser to erase[/b] (default: on) — disable to let anyone erase without an eraser.
+[/list]
+
+[h1]Sharing Modes[/h1]
+The Auto-Share setting applies to both symbols and drawings:
+[list]
+[*] [b]Everyone[/b] — All players on the server see your symbols and drawings.
+[*] [b]Faction[/b] — Only members of your faction see your symbols and drawings.
+[*] [b]Safehouse[/b] — Only members of your safehouse see your symbols and drawings.
+[*] [b]Disabled[/b] — Symbols use vanilla manual sharing (Share button). Drawings are private (only visible to you).
+[/list]
+
+[h1]Compatibility[/h1]
+Build 42 multiplayer (updated for 42.20). Server-authoritative with rate limiting, per-player limits, and persistent storage across restarts.
+
+[h1]Changelog — 42.20[/h1]
+[list]
+[*] Updated for Project Zomboid 42.20. Nothing this mod relies on changed, so existing servers need no action.
+[*] [b]Fixed:[/b] "Safehouse" sharing mode never worked — the server called a method that does not exist in Build 42, so no drawings ever synced in that mode. Only reproducible with two or more players connected, which is why it went unnoticed.
+[*] [b]Fixed:[/b] "Faction" mode shared almost nothing. The game stores a group's owner separately from its member list, and only the member list was ever checked — so the faction leader's drawings reached nobody, and the leader received nothing from their members. In a two-person faction that meant no sharing at all in either direction. Safehouse owners were affected the same way.
+[*] [b]Fixed:[/b] The upload cooldown described in the docs was never actually applied. Drawing uploads and sync requests are now rate limited; erasing is left unthrottled on purpose.
+[*] [b]Fixed:[/b] Oversized drawing payloads are now rejected before being parsed.
+[*] [b]Fixed:[/b] A failed request could stop the server mid-update, leaving the saved drawing list out of step with the live one.
+[*] Map UI labels now go through the translation system instead of being hardcoded, so translations can be contributed. English only for now.
+[/list]
+
+[h1]Mid-Save Compatible[/h1]
+Can be added to an existing save at any time.
+
+[h1]Support[/h1]
+If your squad's map game improved, help me chart the next update:
+[url=https://ko-fi.com/faitas][img]https://i.imgur.com/Utx6OIH.png[/img][/url]
+
+[h1]My Mod Collection[/h1]
+This is the list of mods I use on the server I play with my friends: [url=https://steamcommunity.com/sharedfiles/filedetails/?id=3676815412]Faitas' PZ MP Mod Collection[/url]
+
+Workshop ID: 3676995511
+Mod ID: PZShareMapNotes

@@ -1,0 +1,38 @@
+-------------------------------
+
+Updates broface's OG Mod [url=https://steamcommunity.com/sharedfiles/filedetails/?id=2758443202] XP Drops - Oldschool Runescape [/url] for compatibility with B42 stable MP and SP (42.20).
+
+-------------------------------
+
+Frequently Asked Question:
+
+Q: Why can't I see that Exp bar?
+A: Make sure you only have one OSRS Exp mod enabled, not seeing the bar usually results from those mods colliding. Alternatively, you might have just hidden it, in this case you should see a round XP icon, that you can right click.
+
+-------------------------------
+
+Adds an Oldschool Runescape styled experience bar, including experience drops whenever you earn experience to give you those sweet, supple dopamine hits as you grind your carpentry skill up.
+
+-------------------------------
+
+The bar can be moved anywhere on screen, and has an option to be hidden if wanted.
+
+You can choose freely which skills should show experience drops. (Right-click and choose "Configurate")
+
+By default it will track every skill except Strength, Fitness, Lightfooted, Sneaking and Maintenance, since these skills can be a bit "spammy" with experience gains. But you are free to change this if desired.
+
+Shows Runescape icons for most skills, although certain icons had to be improvised. Weapon skills show PZ icons.
+
+Technically works with any modded skill, but the skill might not have an icon.
+
+-------------------------------
+
+08.08.2026: Added support for  [url=https://steamcommunity.com/sharedfiles/filedetails/?id=3765241705] Beyond Ten - Level 15 Skills [B41/B42] [/url]. Base functionality is not changed, Beyond 10 is optional.
+
+
+-------------------------------
+
+Build 42 update: supports all 35 Build 42 skills, including Carving, Masonry, Pottery, Glassmaking, Knapping, Blacksmithing, Animal Care, Butchering and Tracking.
+
+Workshop ID: 3776534799
+Mod ID: RUNE-EXP

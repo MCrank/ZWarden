@@ -1,0 +1,28 @@
+Details kills by weapon category and by weapon in a new dedicated tab of character window.
+[Solo]Adds to the genuine character panel the number of Z that died of other things than player weapon.
+
+[h1]B42.12 Limitations[/h1]
+[list]
+[*]Car kills are now partially counted by vanilla. This can create counters discrepencies.
+[*]Ask your questions on [url=https://discord.gg/theindiestone]Discord mod_support channel[/url].
+[/list]
+
+[h1]Technical details[/h1]
+[list]
+[*]Total number of kills can be exported (if selected in sandbox options) to %username%/Zomboid/lua/killcount.txt (windows path)
+[*][Solo only] Counts fire kills in addition to vanilla weapon kills on the genuine character sheet.
+[*][Solo & Multiplayer] Details kills by weapon category and by weapon in a new dedicated tab of character window.
+[*][Multiplayer] You can visualise the kills of other players, with a delay (configurable in sandbox options).
+[*][Multiplayer] You can visualise the total number of kills on the server (same delay).
+[*][Multiplayer] You can deactivate the sharing of dead characters from sandbox options (to reduce GlobalModData size on never-wiping servers).
+[*][Multiplayer] You can deactivate the sharing of kill count from sandbox options (to remove GlobalModData use).
+[*]Visible at death time in the PostDeathUI text (can be removed in sandbox options).
+[*]Handles character specific counters (saved with mod data, so server must be stopped properly for the values to be saved).
+[*]Works only for one local player. i.e. not for multiscreen.
+[*]Ask your questions on [url=https://discord.gg/theindiestone]Discord mod_support channel[/url].
+[/list]
+
+Credits where it is due: this is inspired from [url=https://steamcommunity.com/sharedfiles/filedetails/?id=2451245497]Additional Kill Counter[/url]
+
+Workshop ID: 2553809727
+Mod ID: KillCount
