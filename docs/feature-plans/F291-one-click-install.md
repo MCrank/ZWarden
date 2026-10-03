@@ -1,6 +1,6 @@
 # Feature #291 Mini-Plan — One-click Install (mod ids from the description, verified after boot)
 
-**Status:** PR-A ready (2026-10-03); PR-B (UI + dependencies) next. Slice 0 spike done: a missing id is skipped,
+**Status:** done — PR-A #318 merged; PR-B closes #291 (2026-10-03). Slice 0 spike done: a missing id is skipped,
 not fatal. v1.0, epic [#289](https://github.com/MCrank/ZWarden/issues/289).
 Needs #290 (done: #314 + #316). Blocks #292.
 
@@ -190,8 +190,33 @@ snapshot exists.
   unchanged.
 - **Docs:** CONTEXT.md gains *Install / Pick parts / Undo*.
 
-**PR-B** (next): the minimal UI in the existing sections (Install → part picker; Pick parts notice; Undo), plus
-dependencies (key-only).
+**PR-B** (`feat/291b-install-ui`, closes #291):
+- **`ModInstallControl`** is one component, used by both the Mod Browser cards and the Mods section's add field
+  (renamed "Install a Workshop item"). It:
+  - resolves the item through the keyless preview (`Mod.View`);
+  - plans it with `ModInstallPlan.For`;
+  - installs straight away (no ids, or one id), or opens an **inline panel**: the part picker, every part ticked,
+    plus any required items.
+
+  The panel is inline, not a dialog: the app has no portal host until #292.
+- **Mods section:**
+  - Each Workshop row shows its Steam title and a status chip: *Installs on restart*, *Removed on restart* or
+    *Pick parts*.
+  - A pending install gets **Undo**. Pending removals are listed under "Removed — unloads on the next restart",
+    each with **Undo**.
+  - **Pick parts** names what the Workshop page listed and what the download provides. It offers a picker over the
+    real parts: the ones already on, or all of them if none are.
+- **New verb `SetItemPartsAsync`** (audited `Mod.PartsSet`). It sets exactly the chosen parts of one item on, in one
+  apply, using `ModListEditor.SetItemParts`. A part that stays on keeps its load position. Without it, swapping a
+  wrong guess for the real part would be an Enable plus a Disable, and the second hits `ServerBusy`. It needs
+  `Mod.Install` when it turns anything on, otherwise `Mod.Remove`. An id the item doesn't provide is
+  `InvalidInput`.
+- **D5, required items:** `IWorkshopDependencyService` (key-gated `IPublishedFileService/GetDetails?includechildren=true`,
+  authorized on `Mod.View`, its own typed client). The ids are validated as numeric, de-duplicated, never the item
+  itself, and capped at 50. Their details come from the keyless client. The required items are offered ticked and
+  installed in the same apply, each with every id its own description lists. With no key, or on any failure,
+  nothing is offered.
+- **Floors:** Infrastructure 617, Web 544 (csproj and `ci.yml`). `app.css` was rebuilt.
 
 ## Out of scope
 
