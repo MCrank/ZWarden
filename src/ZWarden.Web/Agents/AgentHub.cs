@@ -592,6 +592,14 @@ public sealed partial class AgentHub : Hub
                 await _removal.RecordDeletedAsync(operationId, deletingAgent, Context.ConnectionAborted).ConfigureAwait(false);
             }
 
+            // #291: a config apply's WorkshopItems=/Mods= edits go into the cached mod inventory before the operation
+            // is marked done, so a mod change made right after it (a second Install) is computed from these lists.
+            if (AgentClaims.TryGetAgentId(Context.User, out AgentId applyingAgent))
+            {
+                await _modRefresh.RecordAppliedModListsAsync(operationId, applyingAgent, Context.ConnectionAborted)
+                    .ConfigureAwait(false);
+            }
+
             await _operations.CompleteSucceededAsync(operationId, Context.ConnectionAborted).ConfigureAwait(false);
 
             // #290: a boot or config apply refreshes the Server's mod state in the background. The kind is read from

@@ -124,6 +124,109 @@ public static class ModListEditor
         return ModListEditResult.Changed([Edit(WorkshopItemsKey, next)]);
     }
 
+    /// <summary>#291 one-click Install: appends each of <paramref name="workshopIdsToAdd"/> (the item plus any
+    /// dependencies) not already in <c>WorkshopItems=</c>, and each of <paramref name="modIdsToEnable"/> not already
+    /// in <c>Mods=</c>, in request order — at most one edit per key, so both land in one apply. PZ downloads
+    /// <c>WorkshopItems=</c> before it loads <c>Mods=</c> and skips an id it can't find (spike #291), so enabling the
+    /// guessed ids before the download is safe.</summary>
+    public static ModListEditResult InstallWorkshopItems(
+        IReadOnlyList<string> configuredWorkshopIds,
+        IReadOnlyList<string> enabledModIds,
+        IReadOnlyList<string> workshopIdsToAdd,
+        IReadOnlyList<PzModId> modIdsToEnable)
+    {
+        ArgumentNullException.ThrowIfNull(configuredWorkshopIds);
+        ArgumentNullException.ThrowIfNull(enabledModIds);
+        ArgumentNullException.ThrowIfNull(workshopIdsToAdd);
+        ArgumentNullException.ThrowIfNull(modIdsToEnable);
+
+        List<string> nextWorkshop = Append(configuredWorkshopIds, workshopIdsToAdd);
+        List<string> nextMods = Append(enabledModIds, [.. modIdsToEnable.Select(m => m.Value)]);
+
+        List<ConfigApplyEdit> edits = [];
+        if (!SequenceEqual(configuredWorkshopIds, nextWorkshop))
+        {
+            edits.Add(Edit(WorkshopItemsKey, nextWorkshop));
+        }
+
+        if (!SequenceEqual(enabledModIds, nextMods))
+        {
+            edits.Add(Edit(ModsKey, nextMods));
+        }
+
+        return edits.Count == 0 ? ModListEditResult.NoChange : ModListEditResult.Changed(edits);
+    }
+
+    /// <summary>#291 Undo: puts one Workshop item back the way the server booted — <paramref name="workshopId"/> is in
+    /// <c>WorkshopItems=</c>, and each of <paramref name="itemModIds"/> (what the item provides or was guessed to)
+    /// is in <c>Mods=</c>, exactly when it was at the last boot. That one rule undoes an Install, a Remove, or a
+    /// parts change; a restored entry goes back to its booted position. Other items' entries are untouched.</summary>
+    public static ModListEditResult UndoItem(
+        IReadOnlyList<string> configuredWorkshopIds,
+        IReadOnlyList<string> enabledModIds,
+        IReadOnlyList<string> bootedWorkshopIds,
+        IReadOnlyList<string> bootedModIds,
+        string workshopId,
+        IReadOnlyList<PzModId> itemModIds)
+    {
+        ArgumentNullException.ThrowIfNull(configuredWorkshopIds);
+        ArgumentNullException.ThrowIfNull(enabledModIds);
+        ArgumentNullException.ThrowIfNull(bootedWorkshopIds);
+        ArgumentNullException.ThrowIfNull(bootedModIds);
+        ArgumentException.ThrowIfNullOrWhiteSpace(workshopId);
+        ArgumentNullException.ThrowIfNull(itemModIds);
+
+        List<string> nextWorkshop = MatchBooted(configuredWorkshopIds, bootedWorkshopIds, [workshopId]);
+        List<string> nextMods = MatchBooted(enabledModIds, bootedModIds, [.. itemModIds.Select(m => m.Value)]);
+
+        List<ConfigApplyEdit> edits = [];
+        if (!SequenceEqual(configuredWorkshopIds, nextWorkshop))
+        {
+            edits.Add(Edit(WorkshopItemsKey, nextWorkshop));
+        }
+
+        if (!SequenceEqual(enabledModIds, nextMods))
+        {
+            edits.Add(Edit(ModsKey, nextMods));
+        }
+
+        return edits.Count == 0 ? ModListEditResult.NoChange : ModListEditResult.Changed(edits);
+    }
+
+    // Each of `subjects` ends up in the list exactly when it is in `booted`: an extra is dropped, a missing one is
+    // re-inserted right after its nearest booted predecessor still present (or first, when it has none).
+    private static List<string> MatchBooted(
+        IReadOnlyList<string> current, IReadOnlyList<string> booted, IReadOnlyList<string> subjects)
+    {
+        HashSet<string> subjectSet = new(subjects, StringComparer.Ordinal);
+        HashSet<string> bootedSet = new(booted, StringComparer.Ordinal);
+        List<string> next = [.. current.Where(id => !subjectSet.Contains(id) || bootedSet.Contains(id))];
+
+        for (int i = 0; i < booted.Count; i++)
+        {
+            string id = booted[i];
+            if (!subjectSet.Contains(id) || next.Contains(id, StringComparer.Ordinal))
+            {
+                continue;
+            }
+
+            int at = 0;
+            for (int p = i - 1; p >= 0; p--)
+            {
+                int found = next.FindIndex(x => string.Equals(x, booted[p], StringComparison.Ordinal));
+                if (found >= 0)
+                {
+                    at = found + 1;
+                    break;
+                }
+            }
+
+            next.Insert(at, id);
+        }
+
+        return next;
+    }
+
     /// <summary>Removes <paramref name="workshopIdsToRemove"/> from <c>WorkshopItems=</c>, and from <c>Mods=</c> the
     /// Mod ids those items <b>exclusively</b> provide (a mod still provided by a remaining installed item stays
     /// enabled; a referenced-but-not-installed item's mods are unknown and left alone).</summary>
@@ -170,6 +273,14 @@ public static class ModListEditor
         }
 
         return edits.Count == 0 ? ModListEditResult.NoChange : ModListEditResult.Changed(edits);
+    }
+
+    private static List<string> Append(IReadOnlyList<string> current, IReadOnlyList<string> additions)
+    {
+        List<string> next = [.. current];
+        HashSet<string> present = new(next, StringComparer.Ordinal);
+        next.AddRange(additions.Where(present.Add));
+        return next;
     }
 
     private static ModListEditResult DiffMods(IReadOnlyList<string> current, IReadOnlyList<string> next) =>

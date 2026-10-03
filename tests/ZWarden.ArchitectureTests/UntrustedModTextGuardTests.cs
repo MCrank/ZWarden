@@ -16,10 +16,13 @@ namespace ZWarden.ArchitectureTests;
 /// </summary>
 public partial class UntrustedModTextGuardTests
 {
-    // ModListEditor's string-list parameters that are allowed: the current config lists as read, and Workshop ids
-    // (numeric, validated by the caller). A new mod-id intent parameter must be IReadOnlyList<PzModId>.
+    // ModListEditor's string-list parameters that are allowed: the current and last-booted config lists as read, and
+    // Workshop ids (numeric, validated by the caller). A new mod-id intent parameter must be IReadOnlyList<PzModId>.
     private static readonly string[] AllowedEditorStringLists =
-        ["enabledModIds", "configuredWorkshopIds", "workshopIdsToRemove"];
+    [
+        "enabledModIds", "configuredWorkshopIds", "workshopIdsToRemove", "workshopIdsToAdd",
+        "bootedWorkshopIds", "bootedModIds",
+    ];
 
     // The only files allowed to build raw HTML: the authenticator QR code (an SVG we generate from our own data).
     private static readonly string[] MarkupStringSeams =

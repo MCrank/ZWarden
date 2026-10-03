@@ -103,6 +103,61 @@ public class ModChangeSetTests
         await Assert.That(overview.Items.Single(i => i.WorkshopId == "900").Title).IsNull();
     }
 
+    // ---- #291 Pick parts: the description's guess checked against mod.info ------------------------------------
+
+    [Test]
+    public async Task A_wrong_guess_asks_to_pick_parts_and_names_the_missing_id()
+    {
+        // Enabled "Guess" from the description, but the download provides "Real".
+        ServerModState state = Booted(workshop: ["100"], mods: ["Guess"]);
+        ServerWorkshopItem item = Guessed(OnDisk("100", "Real"), "Guess");
+
+        ModItemView view = ModChangeSet.Derive(Server, state, [item]).Items.Single();
+
+        await Assert.That(view.NeedsParts).IsTrue();
+        await Assert.That(string.Join(";", view.MissingModIds)).IsEqualTo("Guess");
+    }
+
+    [Test]
+    public async Task An_item_installed_without_ids_asks_to_pick_parts_once_its_files_are_on_disk()
+    {
+        ServerModState state = Booted(workshop: ["100"], mods: []);
+
+        ModItemView view = ModChangeSet.Derive(Server, state, [OnDisk("100", "Real")]).Items.Single();
+
+        await Assert.That(view.NeedsParts).IsTrue();
+        await Assert.That(view.MissingModIds).IsEmpty();
+    }
+
+    [Test]
+    public async Task A_correct_guess_needs_nothing()
+    {
+        ServerModState state = Booted(workshop: ["100"], mods: ["A"]);
+        ServerWorkshopItem item = Guessed(OnDisk("100", "A", "Extra"), "A");
+
+        ModItemView view = ModChangeSet.Derive(Server, state, [item]).Items.Single();
+
+        await Assert.That(view.NeedsParts).IsFalse();
+    }
+
+    [Test]
+    public async Task An_item_not_downloaded_yet_or_no_longer_configured_needs_nothing()
+    {
+        ServerModState state = Booted(workshop: ["100", "300"], mods: ["Guess"]);
+        state.ObserveConfig(["100"], ["Guess"], Boot.AddMinutes(1));
+        ServerWorkshopItem pending = Guessed(ServerWorkshopItem.Track(Server, "100"), "Guess");
+
+        ServerModOverview overview = ModChangeSet.Derive(Server, state, [pending, OnDisk("300", "C")]);
+
+        await Assert.That(overview.Items.Any(i => i.NeedsParts)).IsFalse();
+    }
+
+    private static ServerWorkshopItem Guessed(ServerWorkshopItem item, params string[] guesses)
+    {
+        item.ApplyMetadata("t", null, null, null, [], [.. guesses.Select(Id)], Boot);
+        return item;
+    }
+
     private static ServerModState Booted(string[] workshop, string[] mods)
     {
         ServerModState state = ServerModState.For(Server);

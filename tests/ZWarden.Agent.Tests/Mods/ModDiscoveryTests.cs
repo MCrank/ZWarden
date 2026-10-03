@@ -103,6 +103,28 @@ public class ModDiscoveryTests
     }
 
     [Test]
+    public async Task A_backslash_prefixed_mods_entry_is_read_as_the_bare_mod_id()
+    {
+        (ModDiscovery discovery, string root, ServerId serverId) = NewDiscovery();
+        try
+        {
+            // B42 also accepts "\ModId" (spike #291: PZ 42.21 loads both forms). It must match mod.info's bare id.
+            WriteMod(root, serverId, "2553809727", "KillCount", "id=KillCount\n");
+            WriteIni(root, serverId, "WorkshopItems=2553809727\nMods=\\KillCount;Other\n");
+
+            ModDiscoveryResult result = await discovery.DiscoverAsync(serverId, CancellationToken.None);
+
+            string[] enabled = ["KillCount", "Other"];
+            await Assert.That(result.EnabledModIds).IsEquivalentTo(enabled);
+            await Assert.That(result.Findings.Any(f => f.Kind == ModCompatKind.EnabledButMissing && f.Subject == "KillCount")).IsFalse();
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task An_absent_workshop_tree_yields_no_installed_items()
     {
         (ModDiscovery discovery, string root, ServerId serverId) = NewDiscovery();

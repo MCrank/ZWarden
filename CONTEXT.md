@@ -227,6 +227,13 @@ the config file stays the only desired state. An item's **guessed** mod ids come
 and its **observed** ones from `mod.info`, which is the truth.
 _Avoid_: "installed" meaning only "downloaded", mod database (it is not a catalogue)
 
+**Install** / **Pick parts** / **Undo**:
+One-click mod changes (#291). **Install** writes an item to `WorkshopItems=` and its guessed mod ids to `Mods=`
+in one config apply, so one restart downloads and loads it. PZ downloads before it loads mods and skips an id
+it can't find. **Pick parts** flags a configured, downloaded item that enables a guessed id its files don't
+provide, or none of its mods. **Undo** puts one item's entries back the way the Server last booted.
+_Avoid_: "enable" for Install (enabling is only the `Mods=` half)
+
 **Workshop search key**:
 An optional, per-tenant Steam Web API key that unlocks free-text Workshop **search** (`QueryFiles`);
 keyless name/preview enrichment and paste-an-id browse need none, so the key's presence is a

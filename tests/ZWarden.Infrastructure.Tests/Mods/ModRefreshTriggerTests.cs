@@ -1,7 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using ZWarden.Application.Configuration;
 using ZWarden.Application.Mods;
+using ZWarden.Domain.Configuration;
 using ZWarden.Domain.Ids;
 using ZWarden.Domain.Mods;
 using ZWarden.Domain.Operations;
@@ -150,12 +152,80 @@ public class ModRefreshTriggerTests
         });
     }
 
-    private static ModRefreshTrigger Trigger(ZWardenDbContext db, IModRefreshScheduler scheduler) =>
+    // ---- #291: a mod-list apply patches the cached lists before the operation is marked done --------------------
+
+    [Test]
+    public async Task A_succeeding_config_apply_writes_its_workshop_items_and_mods_into_the_cached_inventory()
+    {
+        // Back-to-back Installs: the second recomputes from the cache, so it must already see the first one's lists
+        // (the follow-up discovery only lands later).
+        await WithSqlite(async options =>
+        {
+            AgentId agent = AgentId.New();
+            ServerId server = await SeedServerAsync(options, agent);
+            OperationId operation = await SeedConfigApplyAsync(
+                options, agent, server, PzConfigFile.Ini,
+                new ConfigApplyEdit("WorkshopItems", ConfigEditKind.Text, "100;200"),
+                new ConfigApplyEdit("Mods", ConfigEditKind.Text, "A;B"),
+                new ConfigApplyEdit("PublicName", ConfigEditKind.Text, "x"));
+            ModInventoryCache cache = new();
+            cache.Record(Inventory(server, agent, ["100"], ["A"]));
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            await Trigger(db, new ModStateRecorderTests.RecordingQueue(), cache).RecordAppliedModListsAsync(operation, agent);
+
+            ModInventory patched = cache.GetLatest(server, agent)!;
+            await Assert.That(string.Join(";", patched.ConfiguredWorkshopIds)).IsEqualTo("100;200");
+            await Assert.That(string.Join(";", patched.EnabledModIds)).IsEqualTo("A;B");
+        });
+    }
+
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task Another_file_or_a_foreign_agents_report_leaves_the_cache_alone(bool foreignAgent)
+    {
+        await WithSqlite(async options =>
+        {
+            AgentId agent = AgentId.New();
+            ServerId server = await SeedServerAsync(options, agent);
+            OperationId operation = await SeedConfigApplyAsync(
+                options, agent, server, foreignAgent ? PzConfigFile.Ini : PzConfigFile.SandboxVars,
+                new ConfigApplyEdit("Mods", ConfigEditKind.Text, "Z"));
+            ModInventoryCache cache = new();
+            cache.Record(Inventory(server, agent, ["100"], ["A"]));
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            await Trigger(db, new ModStateRecorderTests.RecordingQueue(), cache)
+                .RecordAppliedModListsAsync(operation, foreignAgent ? AgentId.New() : agent);
+
+            await Assert.That(string.Join(";", cache.GetLatest(server, agent)!.EnabledModIds)).IsEqualTo("A");
+        });
+    }
+
+    private static ModInventory Inventory(ServerId server, AgentId agent, string[] workshop, string[] mods) =>
+        new(server, agent, InstalledItems: [], ConfiguredWorkshopIds: workshop, EnabledModIds: mods, Issues: [], ObservedAt: Now);
+
+    private static async Task<OperationId> SeedConfigApplyAsync(
+        DbContextOptions options, AgentId agent, ServerId serverId, PzConfigFile file, params ConfigApplyEdit[] edits)
+    {
+        await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+        Operation operation = Operation.Enqueue(
+            agent, OperationKind.ConfigApply, isMutating: true, Guid.NewGuid().ToString("N"), Now, serverId,
+            new ConfigApplyPayload(file, null, edits).ToJson());
+        new OperationRepository(db).Add(operation);
+        await db.SaveChangesAsync();
+        return operation.Id;
+    }
+
+    private static ModRefreshTrigger Trigger(
+        ZWardenDbContext db, IModRefreshScheduler scheduler, IModInventoryCache? cache = null) =>
         new(
             new OperationRepository(db),
             new ServerModStateRepository(db),
             db,
             scheduler,
+            cache ?? new ModInventoryCache(),
             new TestTenantContext(Tenant),
             new FixedClock(Now),
             Options.Create(new ModRefreshOptions { PostBootRediscoverDelay = Delay }),
