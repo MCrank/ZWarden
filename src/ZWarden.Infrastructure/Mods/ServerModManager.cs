@@ -3,6 +3,7 @@ using ZWarden.Application.Authorization;
 using ZWarden.Application.Configuration;
 using ZWarden.Application.Mods;
 using ZWarden.Application.Operations;
+using ZWarden.Application.Servers;
 using ZWarden.Domain.Audit;
 using ZWarden.Domain.Authorization;
 using ZWarden.Domain.Configuration;
@@ -297,7 +298,7 @@ public sealed class ServerModManager : IServerModManager
 
     /// <inheritdoc />
     public async Task<ModManagementResult> UpdateModsAsync(
-        UserId user, ServerId server, CancellationToken cancellationToken = default)
+        UserId user, ServerId server, GracefulRestartPayload? plan = null, CancellationToken cancellationToken = default)
     {
         // Mod.Update, or Server.Restart: the one Mods-section button is the restart that applies mod changes too.
         Server? resolved = await ResolveAndAuthorizeAsync(user, server, Permissions.ModUpdate, cancellationToken).ConfigureAwait(false)
@@ -308,6 +309,14 @@ public sealed class ServerModManager : IServerModManager
             return await DenyResolveAsync(user, server, Permissions.ModUpdate, cancellationToken).ConfigureAwait(false);
         }
 
+        // #292: the bar's countdown is checked here as well as on the Agent, so a bad schedule is never enqueued.
+        if (plan is not null
+            && (GracefulRestartRules.ValidateSchedule(plan.WarningLeadSeconds)
+                ?? GracefulRestartRules.ValidateReason(plan.Reason)) is { } invalid)
+        {
+            return ModManagementResult.Denied(ModManagementFailure.InvalidInput, invalid);
+        }
+
         try
         {
             // A safe restart (#273): PZ re-fetches WorkshopItems= at boot, so a restart is what pulls a newer Workshop
@@ -316,7 +325,7 @@ public sealed class ServerModManager : IServerModManager
             Operation operation = await _operations.EnqueueAsync(
                 new EnqueueOperationRequest(
                     resolved.AgentId, OperationKind.RestartServer, IsMutating: true, Guid.NewGuid().ToString("N"),
-                    ServerId: resolved.Id),
+                    ServerId: resolved.Id, CommandPayload: plan?.ToJson()),
                 user,
                 cancellationToken).ConfigureAwait(false);
 

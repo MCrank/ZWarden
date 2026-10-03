@@ -1,3 +1,4 @@
+using ZWarden.Application.Servers;
 using ZWarden.Domain.Ids;
 
 namespace ZWarden.Application.Mods;
@@ -118,9 +119,11 @@ public interface IServerModManager
     Task<ModManagementResult> RemoveWorkshopItemsAsync(
         UserId user, ServerId server, IReadOnlyList<string> workshopIds, CancellationToken cancellationToken = default);
 
-    /// <summary>Restarts the Server safely (default player warning, #114) so it loads the mod changes and pulls newer
-    /// Workshop versions (#273) — not the F17 game update, so the game build never changes. Authorizes <c>Mod.Update</c>
-    /// or <c>Server.Restart</c>.</summary>
+    /// <summary>Restarts the Server safely (player warning, #114) so it loads the mod changes and pulls newer Workshop
+    /// versions (#273) — not the F17 game update, so the game build never changes. Authorizes <c>Mod.Update</c> or
+    /// <c>Server.Restart</c>. <paramref name="plan"/> (#292) is the countdown chosen in the pending-changes bar, or
+    /// <c>null</c> for the Agent's default warning; one <c>GracefulRestartRules</c> rejects is
+    /// <see cref="ModManagementFailure.InvalidInput"/>.</summary>
     Task<ModManagementResult> UpdateModsAsync(
-        UserId user, ServerId server, CancellationToken cancellationToken = default);
+        UserId user, ServerId server, GracefulRestartPayload? plan = null, CancellationToken cancellationToken = default);
 }

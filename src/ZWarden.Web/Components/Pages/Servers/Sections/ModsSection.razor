@@ -418,7 +418,7 @@
                     await ReorderAsync(user, serverId, verb, arg);
                     break;
                 case "restart":
-                    SetModRestartResult(await Manage((mods, ct) => mods.UpdateModsAsync(user, serverId, ct)));
+                    SetModRestartResult(await Manage((mods, ct) => mods.UpdateModsAsync(user, serverId, cancellationToken: ct)));
                     break;
                 default:
                     SetModMessage("Choose an action.", ok: false);
