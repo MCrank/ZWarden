@@ -283,6 +283,19 @@ pz_create_layout() {
   ln -sfn "${root}/server/steamapps/workshop/content/${PZ_STEAM_APPID_TXT}" "${root}/data/workshop"
 }
 
+# pz_share_workshop <server_dir>
+# Gives the PZ game-server group (gid 10000, which the Agent runs in - #184) write on every
+# folder of the Workshop tree, so the Agent can delete an unused download (#293). Removing an
+# entry needs write on the folder holding it, so folders are enough; files are left as they
+# are. The entrypoint's umask covers new downloads; this repairs folders PZ's Steam client
+# made under the old 0022 umask. Runs as their owner (pzserver), so chmod is allowed; only
+# folders still missing the bit are touched. A no-op before the first download.
+pz_share_workshop() {
+  local workshop="$1/steamapps/workshop"
+  [ -d "${workshop}" ] || return 0
+  find "${workshop}" -type d ! -perm -g=w -exec chmod g+w {} +
+}
+
 # pz_admin_password <data_dir>
 # The in-game administrator password supplied non-interactively at launch (#188). Build 42
 # PROMPTS for it on first boot when none is given ("Enter new administrator password:") and,
