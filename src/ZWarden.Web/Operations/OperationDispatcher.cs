@@ -5,6 +5,7 @@ using ZWarden.Application.Audit;
 using ZWarden.Application.Backups;
 using ZWarden.Application.Configuration;
 using ZWarden.Application.Console;
+using ZWarden.Application.Mods;
 using ZWarden.Application.Operations;
 using ZWarden.Application.Players;
 using ZWarden.Application.Servers;
@@ -122,6 +123,9 @@ public sealed class OperationDispatcher : IOperationDispatcher
         OperationKind.GatherServerDiagnostics => new GatherServerDiagnostics(),
         OperationKind.ListPlayers => new ListPlayers(),
         OperationKind.ModDiscovery => new DiscoverMods(),
+        OperationKind.DeleteWorkshopContent => new DeleteWorkshopContent(WorkshopContentCommandPayload.FromJson(
+            commandPayload ?? throw new InvalidOperationException("A Workshop delete was dispatched with no command payload."))
+            .WorkshopIds),
         OperationKind.KickPlayer => new KickPlayer(Payload(commandPayload).Username!, Payload(commandPayload).Reason),
         OperationKind.BanPlayer => new BanPlayer(Payload(commandPayload).Username!, Payload(commandPayload).Reason),
         OperationKind.UnbanPlayer => new UnbanPlayer(Payload(commandPayload).Username!),

@@ -1,41 +1,94 @@
 @using ZWarden.Application.Mods
 
 @* The unused-downloads footer under the Mods table (#292): Workshop items still on disk that the server neither loads
-   nor will load. Collapsed to one line with a count; expanded, each item offers Reinstall. Deleting the files is the
-   delete-files sub-issue (#293), so it isn't offered yet. Steam titles are untrusted, rendered as data. *@
+   nor will load. Collapsed to one line with a count; expanded, each item offers Reinstall and Delete, and the footer
+   offers Delete all (#293). Delete asks first in an alert dialog — no typed name, since Reinstall downloads the files
+   again — and the service and the Agent re-check that every item is unused. Steam titles are untrusted, rendered as
+   data. *@
 
 @if (Items.Count > 0)
 {
     <div class="mt-3 rounded-md border border-border bg-muted/30 px-3 py-2" data-mod-leftovers>
-        <BbButton Variant="ButtonVariant.Link" Size="ButtonSize.Small" Class="h-auto p-0 text-xs text-muted-foreground"
-                  OnClick="@(() => _open = !_open)" data-action="mod-leftovers-toggle">
-            @Items.Count unused download@(Items.Count == 1 ? "" : "s") still on disk @(_open ? "▴" : "▾")
-        </BbButton>
+        <div class="flex items-center justify-between gap-3">
+            <BbButton Variant="ButtonVariant.Link" Size="ButtonSize.Small" Class="h-auto p-0 text-xs text-muted-foreground"
+                      OnClick="@(() => _open = !_open)" data-action="mod-leftovers-toggle">
+                @Items.Count unused download@(Items.Count == 1 ? "" : "s") still on disk @(_open ? "▴" : "▾")
+            </BbButton>
+            @if (_open && CanDelete && Items.Count > 1)
+            {
+                <BbButton Variant="ButtonVariant.Ghost" Size="ButtonSize.Small" Class="text-destructive" Disabled="Busy"
+                          OnClick="@(() => AskDelete(Items))" data-action="mod-leftovers-delete-all">Delete all</BbButton>
+            }
+        </div>
         @if (_open)
         {
-            @* Thin dividers plus a hover tint tie each Reinstall to its item across a long list. *@
+            @* Thin dividers plus a hover tint tie each row's actions to its item across a long list. *@
             <ul class="mt-2 divide-y divide-border/60">
                 @foreach (ModItemView item in Items)
                 {
                     <li class="-mx-2 flex items-center justify-between gap-3 rounded-sm px-2 py-1 text-xs hover:bg-muted/60"
                         data-mod-leftover data-workshop-id="@item.WorkshopId">
                         <span class="min-w-0 break-words">
-                            @(item.Title is { Length: > 0 } title ? title : $"Workshop item {item.WorkshopId}")
+                            @Name(item)
                             @if (item.SizeBytes is { } size)
                             {
                                 <span class="text-muted-foreground"> · @ServerDetailFormat.FormatSize(size)</span>
                             }
                         </span>
-                        @if (CanReinstall)
-                        {
-                            <BbButton Variant="ButtonVariant.Ghost" Size="ButtonSize.Small" Disabled="Busy"
-                                      OnClick="@(() => OnReinstall.InvokeAsync(item))" data-action="mod-reinstall">Reinstall</BbButton>
-                        }
+                        <span class="flex shrink-0 gap-1">
+                            @if (CanReinstall)
+                            {
+                                <BbButton Variant="ButtonVariant.Ghost" Size="ButtonSize.Small" Disabled="Busy"
+                                          OnClick="@(() => OnReinstall.InvokeAsync(item))" data-action="mod-reinstall">Reinstall</BbButton>
+                            }
+                            @if (CanDelete)
+                            {
+                                <BbButton Variant="ButtonVariant.Ghost" Size="ButtonSize.Small" Class="text-destructive" Disabled="Busy"
+                                          OnClick="@(() => AskDelete([item]))" data-action="mod-leftover-delete">Delete</BbButton>
+                            }
+                        </span>
                     </li>
                 }
             </ul>
         }
     </div>
+
+    @if (CanDelete)
+    {
+        <BbAlertDialog @bind-Open="_confirmOpen">
+            <BbAlertDialogContent data-leftover-delete-dialog>
+                <BbAlertDialogHeader>
+                    <BbAlertDialogTitle>
+                        @(_pending.Count == 1 ? $"Delete the files for {Name(_pending[0])}?" : $"Delete {_pending.Count} unused downloads?")
+                    </BbAlertDialogTitle>
+                </BbAlertDialogHeader>
+                @if (_pending.Count > 1)
+                {
+                    <ul class="mt-3 max-h-48 list-disc space-y-1 overflow-y-auto pl-5 text-sm">
+                        @foreach (ModItemView item in _pending)
+                        {
+                            <li class="break-words">@Name(item)</li>
+                        }
+                    </ul>
+                }
+                <p class="mt-3 text-sm text-muted-foreground">
+                    @if (TotalSize(_pending) is { } total)
+                    {
+                        @($"{ServerDetailFormat.FormatSize(total)} on the server's disk. ")
+                    }
+                    The server isn't using @(_pending.Count == 1 ? "them" : "these") and keeps running.
+                    Reinstall downloads them again if you need them later.
+                </p>
+                <BbAlertDialogFooter Class="mt-4">
+                    <BbAlertDialogCancel>
+                        <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" data-action="leftover-delete-cancel">Cancel</BbButton>
+                    </BbAlertDialogCancel>
+                    <BbButton Variant="ButtonVariant.Destructive" Size="ButtonSize.Small" Disabled="Busy"
+                              OnClick="ConfirmAsync" data-action="leftover-delete-confirm">Delete files</BbButton>
+                </BbAlertDialogFooter>
+            </BbAlertDialogContent>
+        </BbAlertDialog>
+    }
 }
 
 @code {
@@ -47,6 +100,10 @@
     [Parameter]
     public bool CanReinstall { get; set; }
 
+    /// <summary>The caller may delete downloaded files (Mod.Remove).</summary>
+    [Parameter]
+    public bool CanDelete { get; set; }
+
     /// <summary>An action is in flight.</summary>
     [Parameter]
     public bool Busy { get; set; }
@@ -55,5 +112,31 @@
     [Parameter]
     public EventCallback<ModItemView> OnReinstall { get; set; }
 
+    /// <summary>Raised, after the operator confirms, with the Workshop ids whose files to delete.</summary>
+    [Parameter]
+    public EventCallback<IReadOnlyList<string>> OnDelete { get; set; }
+
     private bool _open;
+    private bool _confirmOpen;
+
+    // The items the open dialog asks about, fixed when it opens so a re-read underneath can't change what is deleted.
+    private List<ModItemView> _pending = [];
+
+    private static string Name(ModItemView item) =>
+        item.Title is { Length: > 0 } title ? title : $"Workshop item {item.WorkshopId}";
+
+    private static long? TotalSize(IReadOnlyList<ModItemView> items) =>
+        items.Any(i => i.SizeBytes is not null) ? items.Sum(i => i.SizeBytes ?? 0) : null;
+
+    private void AskDelete(IEnumerable<ModItemView> items)
+    {
+        _pending = [.. items];
+        _confirmOpen = true;
+    }
+
+    private async Task ConfirmAsync()
+    {
+        _confirmOpen = false;
+        await OnDelete.InvokeAsync([.. _pending.Select(i => i.WorkshopId)]);
+    }
 }

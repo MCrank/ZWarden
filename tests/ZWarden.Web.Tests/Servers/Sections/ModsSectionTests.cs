@@ -403,12 +403,89 @@ public sealed class ModsSectionTests
         await Assert.That(cut.FindAll("[data-mod-leftover]")).IsEmpty();
         await cut.Find("[data-action=mod-leftovers-toggle]").ClickAsync(new());
         cut.WaitForState(() => cut.FindAll("[data-mod-leftover]").Count == 2);
-        // Deleting the files is #293; nothing offers it yet.
-        await Assert.That(cut.FindAll("[data-action=mod-leftover-delete]")).IsEmpty();
         await cut.Find("[data-mod-leftover][data-workshop-id='300'] [data-action=mod-reinstall]").ClickAsync(new());
 
         cut.WaitForState(() => harness.FirstOperation(serverId, OperationKind.ConfigApply) is not null);
         await Assert.That(Edits(harness, serverId)).IsEquivalentTo(["WorkshopItems=100;300", "Mods=A;L"]);
+    }
+
+    [Test]
+    public async Task Deleting_one_unused_download_asks_first_then_enqueues_the_delete()
+    {
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
+        ServerId serverId = await SeedLeftoversAsync(harness, "delete-one");
+        IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "mods");
+
+        await OpenLeftoversAsync(cut);
+        await cut.Find("[data-mod-leftover][data-workshop-id='300'] [data-action=mod-leftover-delete]").ClickAsync(new());
+
+        cut.WaitForState(() => cut.FindAll("[data-leftover-delete-dialog]").Count == 1);
+        string dialog = cut.Find("[data-leftover-delete-dialog]").TextContent;
+        await Assert.That(dialog).Contains("Delete the files for Item 300?");
+        await Assert.That(dialog).Contains("Reinstall downloads them again");
+        await Assert.That(harness.FirstOperation(serverId, OperationKind.DeleteWorkshopContent)).IsNull();
+
+        await cut.Find("[data-action=leftover-delete-confirm]").ClickAsync(new());
+
+        cut.WaitForState(() => harness.Payload(serverId, OperationKind.DeleteWorkshopContent) is not null);
+        await Assert.That(WorkshopContentCommandPayload.FromJson(harness.Payload(serverId, OperationKind.DeleteWorkshopContent)!).WorkshopIds)
+            .IsEquivalentTo(["300"]);
+    }
+
+    [Test]
+    public async Task Delete_all_names_every_unused_download_and_deletes_them_in_one_operation()
+    {
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
+        ServerId serverId = await SeedLeftoversAsync(harness, "delete-all");
+        IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "mods");
+
+        await OpenLeftoversAsync(cut);
+        await cut.Find("[data-action=mod-leftovers-delete-all]").ClickAsync(new());
+
+        cut.WaitForState(() => cut.FindAll("[data-leftover-delete-dialog]").Count == 1);
+        string dialog = cut.Find("[data-leftover-delete-dialog]").TextContent;
+        await Assert.That(dialog).Contains("Delete 2 unused downloads?");
+        await Assert.That(dialog).Contains("Item 300");
+        await Assert.That(dialog).Contains("Item 400");
+
+        await cut.Find("[data-action=leftover-delete-confirm]").ClickAsync(new());
+
+        cut.WaitForState(() => harness.Payload(serverId, OperationKind.DeleteWorkshopContent) is not null);
+        await Assert.That(WorkshopContentCommandPayload.FromJson(harness.Payload(serverId, OperationKind.DeleteWorkshopContent)!).WorkshopIds)
+            .IsEquivalentTo(["300", "400"]);
+    }
+
+    [Test]
+    public async Task Cancelling_the_delete_dialog_deletes_nothing()
+    {
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
+        ServerId serverId = await SeedLeftoversAsync(harness, "delete-cancel");
+        IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "mods");
+
+        await OpenLeftoversAsync(cut);
+        await cut.Find("[data-mod-leftover][data-workshop-id='300'] [data-action=mod-leftover-delete]").ClickAsync(new());
+        cut.WaitForState(() => cut.FindAll("[data-leftover-delete-dialog]").Count == 1);
+        await cut.Find("[data-action=leftover-delete-cancel]").ClickAsync(new());
+
+        cut.WaitForState(() => cut.FindAll("[data-leftover-delete-dialog]").Count == 0);
+        await Assert.That(harness.FirstOperation(serverId, OperationKind.DeleteWorkshopContent)).IsNull();
+    }
+
+    private static async Task<ServerId> SeedLeftoversAsync(InteractivePageHarness harness, string name)
+    {
+        ServerId serverId = await harness.SeedServerAsync(name);
+        await harness.SeedModStateAsync(
+            serverId, booted: (["100"], ["A"]), configured: (["100"], ["A"]),
+            ("100", [], ["A"], true), ("300", [], ["L"], true), ("400", [], ["P1"], true));
+        SeedDisk(harness, serverId, ["100"], ["A"], ("100", "A"), ("300", "L"), ("400", "P1"));
+        return serverId;
+    }
+
+    private static async Task OpenLeftoversAsync(IRenderedComponent<ServerDetail> cut)
+    {
+        cut.WaitForState(() => cut.FindAll("[data-mod-leftovers]").Count == 1);
+        await cut.Find("[data-action=mod-leftovers-toggle]").ClickAsync(new());
+        cut.WaitForState(() => cut.FindAll("[data-mod-leftover]").Count == 2);
     }
 
     [Test]

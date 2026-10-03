@@ -65,7 +65,8 @@
         else
         {
             <ModsTable Rows="_rows" Warnings="_warnings" Conflicts="_conflicts" Perm="Perm" Busy="_acting" Zone="OperatorZone" OnCommand="RunAsync" />
-            <LeftoverDownloads Items="_table.Leftovers" CanReinstall="Perm.CanInstall" Busy="_acting" OnReinstall="ReinstallAsync" />
+            <LeftoverDownloads Items="_table.Leftovers" CanReinstall="Perm.CanInstall" CanDelete="Perm.CanRemove" Busy="_acting"
+                               OnReinstall="ReinstallAsync" OnDelete="DeleteDownloadsAsync" />
         }
     </div>
 
@@ -339,6 +340,38 @@
             string[] modIds = item.ObservedModIds.Count == 1 ? [item.ObservedModIds[0]] : [];
             SetResult(await Actions.RunAsync<IServerModManager, ModManagementResult>(
                 (mods, ct) => mods.InstallWorkshopItemsAsync(user, serverId, [item.WorkshopId], modIds, ct)));
+            await ReloadAsync();
+        }
+        finally
+        {
+            _acting = false;
+        }
+    }
+
+    // #293: deletes the files of unused downloads, confirmed in the footer's dialog. No restart; the success queues a
+    // re-scan of the disk, and the fast poll drops the rows once it lands.
+    private async Task DeleteDownloadsAsync(IReadOnlyList<string> workshopIds)
+    {
+        _acting = true;
+        try
+        {
+            ServerId serverId = Server.Id;
+            UserId user = await CurrentUserAsync();
+            ModManagementResult result = await Actions.RunAsync<IServerModManager, ModManagementResult>(
+                (mods, ct) => mods.DeleteDownloadsAsync(user, serverId, workshopIds, ct));
+            if (result.Succeeded)
+            {
+                SetMessage(
+                    workshopIds.Count == 1 ? "Deleting the files. The download disappears once the disk is re-scanned."
+                        : "Deleting the files. The downloads disappear once the disk is re-scanned.",
+                    ok: true);
+                WatchForRefresh();
+            }
+            else
+            {
+                SetResult(result);
+            }
+
             await ReloadAsync();
         }
         finally

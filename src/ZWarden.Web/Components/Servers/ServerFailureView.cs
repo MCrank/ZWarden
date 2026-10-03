@@ -46,6 +46,7 @@ public sealed record ServerFailureView(string OperationId, string Action, string
         OperationKind.ConfigApply or OperationKind.ConfigApplyRaw => "Configuration change",
         OperationKind.Backup => "Backup",
         OperationKind.DeleteBackup => "Backup deletion",
+        OperationKind.DeleteWorkshopContent => "Deleting unused downloads",
         OperationKind.Restore => "Restore",
         OperationKind.KickPlayer => "Kick",
         OperationKind.BanPlayer => "Ban",

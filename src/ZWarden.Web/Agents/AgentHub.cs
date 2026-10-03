@@ -572,6 +572,15 @@ public sealed partial class AgentHub : Hub
                 await _backups.RecordDeletedAsync(operationId, Context.ConnectionAborted).ConfigureAwait(false);
             }
 
+            // A successful Workshop delete (#293) reports each id's outcome; the Operation's result line says what went
+            // and what the Agent kept. The success itself queues a mod re-discovery (below), which drops the rows.
+            if (completed.Payload.WorkshopContentDeletion is { } workshopDeletion)
+            {
+                await _operations.ApplyProgressAsync(
+                    operationId, 100, WorkshopDeletionText.Describe(workshopDeletion), Context.ConnectionAborted)
+                    .ConfigureAwait(false);
+            }
+
             // A successful restore carries the protective backup the Agent took of the pre-restore world (F25); persist
             // it as a tenant-owned PreOperation Backup, scoped to the reporting Agent's own Server (ownership guard, §3),
             // so a mistaken restore can itself be rolled back. The world swap itself happened inside the Operation.
