@@ -167,6 +167,11 @@ public static class HostingExtensions
         // compatibility findings. No exec, no writes, no external network call.
         services.AddSingleton<IModDiscovery, ModDiscovery>();
 
+        // Unused Workshop download deletion (#293): the one mod verb that writes the install volume. Fail-closed on
+        // ownership (owned-container listing), ids, the live WorkshopItems= list and links.
+        services.AddSingleton<ServerModConfigReader>();
+        services.AddSingleton<IWorkshopContentRemover, WorkshopContentRemover>();
+
         // Diagnostics gatherers (F29): read-only, fail-soft-per-domain host and per-server infrastructure gathers
         // composed over the F13/F16/F17/F18 seams. No exec, no writes.
         services.AddSingleton<IHostDiagnosticsGatherer, HostDiagnosticsGatherer>();

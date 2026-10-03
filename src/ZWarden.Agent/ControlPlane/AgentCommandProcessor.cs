@@ -46,6 +46,7 @@ public sealed partial class AgentCommandProcessor
     private readonly IModDiscovery _modDiscovery;
     private readonly IHostDiagnosticsGatherer _hostDiagnostics;
     private readonly IServerDiagnosticsGatherer _serverDiagnostics;
+    private readonly IWorkshopContentRemover _workshopRemover;
     private readonly AgentOptions _options;
     private readonly ILogger<AgentCommandProcessor> _logger;
     private readonly ConcurrentDictionary<OperationId, byte> _handled = new();
@@ -67,6 +68,7 @@ public sealed partial class AgentCommandProcessor
         IModDiscovery modDiscovery,
         IHostDiagnosticsGatherer hostDiagnostics,
         IServerDiagnosticsGatherer serverDiagnostics,
+        IWorkshopContentRemover workshopRemover,
         IOptions<AgentOptions> options,
         ILogger<AgentCommandProcessor> logger)
     {
@@ -86,6 +88,7 @@ public sealed partial class AgentCommandProcessor
         ArgumentNullException.ThrowIfNull(modDiscovery);
         ArgumentNullException.ThrowIfNull(hostDiagnostics);
         ArgumentNullException.ThrowIfNull(serverDiagnostics);
+        ArgumentNullException.ThrowIfNull(workshopRemover);
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(logger);
         _timeProvider = timeProvider;
@@ -104,6 +107,7 @@ public sealed partial class AgentCommandProcessor
         _modDiscovery = modDiscovery;
         _hostDiagnostics = hostDiagnostics;
         _serverDiagnostics = serverDiagnostics;
+        _workshopRemover = workshopRemover;
         _options = options.Value;
         _logger = logger;
     }
@@ -427,6 +431,27 @@ public sealed partial class AgentCommandProcessor
                 ModDiscoveryResult modResult = await _modDiscovery.DiscoverAsync(modsServerId, cancellationToken).ConfigureAwait(false);
                 return Completed(OperationOutcome.Succeeded, failureReason: null, operationId, modsServerId, mods: modResult);
 
+            case DeleteWorkshopContent deleteContent:
+                if (envelope.ServerId is not { } contentServerId)
+                {
+                    return Completed(OperationOutcome.Failed, "No target Server on the Workshop delete.", operationId);
+                }
+
+                if (!_handled.TryAdd(operationId, 0))
+                {
+                    return null; // Already handling this delete — a redelivered command (PRD 20).
+                }
+
+                // #293: the remover guards ownership, ids, WorkshopItems= and links itself; it never stops the server.
+                WorkshopContentRemoval removal = await _workshopRemover
+                    .DeleteAsync(contentServerId, deleteContent.WorkshopIds, cancellationToken)
+                    .ConfigureAwait(false);
+                return removal.Succeeded
+                    ? Completed(
+                        OperationOutcome.Succeeded, failureReason: null, operationId, contentServerId,
+                        workshopContentDeletion: removal.Result)
+                    : Completed(OperationOutcome.Failed, removal.FailureReason, operationId, contentServerId);
+
             case KickPlayer kick:
                 return await PlayerActionAsync(
                     envelope, operationId, "kick",
@@ -736,11 +761,12 @@ public sealed partial class AgentCommandProcessor
         RestoreResult? restore = null,
         ConsoleCommandResult? console = null,
         HostDiagnosticsResult? hostDiagnostics = null,
-        ServerDiagnosticsResult? serverDiagnostics = null) =>
+        ServerDiagnosticsResult? serverDiagnostics = null,
+        WorkshopContentDeletionResult? workshopContentDeletion = null) =>
         Envelope.Create(
             new OperationCompleted(
                 outcome, failureReason, provision, update, rcon, roster, playerAction, config, mods, backup, backupDeletion, restore, console,
-                hostDiagnostics, serverDiagnostics),
+                hostDiagnostics, serverDiagnostics, workshopContentDeletion),
             _timeProvider.GetUtcNow(),
             serverId: serverId,
             operationId: operationId);
