@@ -190,4 +190,20 @@ The UI (#292), Install (#291), deleting files (#293), the "Update ready" cadence
 
 ## Result
 
-_(filled in per PR)_
+**PR-A** (`feat/290-mod-installed-data`):
+- **`PzModId`** lives in **Domain** (`ZWarden.Domain.Mods`), not Application, so the entities can take it.
+  `ModListEditor`'s Enable/Disable/Reorder intents and `ServerModManager` validate through it. An operator-typed id
+  with `;` is now `InvalidInput`.
+- **`WorkshopDescriptionModIds.Parse`** handles all ten real fixtures. Equipment UI yields
+  `EQUIPMENT_UI_B42|EQUIPMENT_UI|equipmentuipatch`.
+- **Found while writing the fixtures:** the metadata client cut descriptions off at 4,000 characters, and three of the
+  ten items list their `Mod ID:` lines after that (More Traits at ~5,360). The cap is now Steam's own 8,000. Tags are
+  parsed, and more than 100 ids go out in sequential batches.
+- **`ServerWorkshopItem` / `ServerModState`:** EF primitive collections map to JSON on SQLite and `text[]` on
+  Postgres. Migration `AddServerWorkshopItems` for both providers. A metadata lookup that finds nothing is not
+  applied, so a Steam outage never wipes known details.
+- **`ServerRemoval`** also deletes both tables' rows for a deleted Server. There are no FKs, as #271 D1.
+- **Docs:** ADR 0047; CONTEXT.md gains *Installed item / Booted with / Pending / Leftover*.
+- **Architecture:** `UntrustedModTextGuardTests` covers `ModListEditor` and `ServerWorkshopItem` taking mod ids as
+  `PzModId`, and `MarkupString` only in the authenticator QR seam.
+- **Floors:** Arch 80, Domain 389, Infrastructure 538. Web.Tests unchanged (536).

@@ -215,7 +215,17 @@ _Avoid_: registration (which means adding a Server), pairing, onboarding
 
 **Mod ID** / **Workshop Item ID**:
 Two distinct identifiers that must never be conflated: a Steam Workshop item may contain several
-Project Zomboid mods.
+Project Zomboid mods. A mod id that enters `Mods=` must pass the **PzModId** rule: printable text with no
+config separators, slashes, quotes or control characters (#290).
+
+**Installed item** / **Booted with** / **Pending** / **Leftover**:
+The control plane's view of a Server's mods (#290, ADR 0047). An **installed item** is a Workshop item the
+Server tracks: configured, on disk, or loaded. **Booted with** is the `WorkshopItems=`/`Mods=` lists as of the
+last boot. **Pending** is the difference between config and booted-with (installs or removals on restart).
+**Leftover** is files on disk that are neither configured nor loaded. These records are a rebuildable cache;
+the config file stays the only desired state. An item's **guessed** mod ids come from its Workshop description
+and its **observed** ones from `mod.info`, which is the truth.
+_Avoid_: "installed" meaning only "downloaded", mod database (it is not a catalogue)
 
 **Workshop search key**:
 An optional, per-tenant Steam Web API key that unlocks free-text Workshop **search** (`QueryFiles`);
