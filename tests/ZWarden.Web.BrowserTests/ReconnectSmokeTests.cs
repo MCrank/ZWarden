@@ -20,19 +20,24 @@ public sealed class ReconnectSmokeTests(BrowserHost host)
         await Expect(dialog).Not.ToBeVisibleAsync();
         string before = await session.Page.GetAttributeAsync("[data-circuit]", "data-circuit-instance") ?? string.Empty;
 
-        await session.Page.EvaluateAsync("() => Blazor.pauseCircuit()");
+        // The pause can catch a message already on its way out (#315); only that error is tolerated, and only here.
+        using (session.ExpectDisconnect())
+        {
+            await session.Page.EvaluateAsync("() => Blazor.pauseCircuit()");
 
-        await Expect(dialog).ToBeVisibleAsync();
-        await Expect(dialog).ToContainTextAsync("Session paused");
-        await Expect(dialog.Locator("#components-resume-button")).ToBeVisibleAsync();
-        await Expect(dialog.Locator("#components-reconnect-button")).Not.ToBeVisibleAsync();
+            await Expect(dialog).ToBeVisibleAsync();
+            await Expect(dialog).ToContainTextAsync("Session paused");
+            await Expect(dialog.Locator("#components-resume-button")).ToBeVisibleAsync();
+            await Expect(dialog.Locator("#components-reconnect-button")).Not.ToBeVisibleAsync();
 
-        await dialog.Locator("#components-resume-button").ClickAsync();
+            await dialog.Locator("#components-resume-button").ClickAsync();
 
-        await Expect(dialog).Not.ToBeVisibleAsync();
-        await session.Page.WaitForFunctionAsync(
-            "before => document.querySelector('[data-circuit]')?.getAttribute('data-circuit-instance') !== before", before);
-        await session.WaitForCircuitAsync();
+            await Expect(dialog).Not.ToBeVisibleAsync();
+            await session.Page.WaitForFunctionAsync(
+                "before => document.querySelector('[data-circuit]')?.getAttribute('data-circuit-instance') !== before", before);
+            await session.WaitForCircuitAsync();
+        }
+
         await session.Page.ClickAsync("[data-action=server-start]");
         await Expect(session.Page.Locator("[data-lifecycle-message]")).ToContainTextAsync("Start enqueued");
         await session.AssertNoErrorsAsync();

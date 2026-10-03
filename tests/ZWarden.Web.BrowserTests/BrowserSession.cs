@@ -11,6 +11,11 @@ public sealed class BrowserSession : IAsyncDisposable
 {
     private readonly IBrowserContext _context;
     private readonly List<string> _errors = [];
+    private int _expectedDisconnects;
+
+    /// <summary>What the SignalR client throws when something (an in-flight render acknowledgement, an interop reply)
+    /// tries to send while the connection is closing. A deliberate <c>Blazor.pauseCircuit()</c> can race one (#315).</summary>
+    public const string SendOnClosedConnectionError = "Cannot send data if the connection is not in the 'Connected' State.";
 
     internal BrowserSession(IBrowserContext context, IPage page)
     {
@@ -20,19 +25,10 @@ public sealed class BrowserSession : IAsyncDisposable
         {
             if (message.Type == "error")
             {
-                lock (_errors)
-                {
-                    _errors.Add($"console: {message.Text}");
-                }
+                Record($"console: {message.Text}");
             }
         };
-        page.PageError += (_, error) =>
-        {
-            lock (_errors)
-            {
-                _errors.Add($"page error: {error}");
-            }
-        };
+        page.PageError += (_, error) => Record($"page error: {error}");
     }
 
     public IPage Page { get; }
@@ -82,6 +78,17 @@ public sealed class BrowserSession : IAsyncDisposable
         await Page.EvaluateAsync("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))");
     }
 
+    /// <summary>
+    /// Marks a deliberate disconnect (a test pausing the circuit) until the returned scope is disposed. Inside it, only
+    /// <see cref="SendOnClosedConnectionError"/> is tolerated: the pause can catch a message already on its way out,
+    /// which is expected, not a circuit failure. Every other error is still recorded (#315).
+    /// </summary>
+    public IDisposable ExpectDisconnect()
+    {
+        Interlocked.Increment(ref _expectedDisconnects);
+        return new DisconnectScope(this);
+    }
+
     /// <summary>Fails the test if the browser reported any error.</summary>
     public async Task AssertNoErrorsAsync()
     {
@@ -91,4 +98,30 @@ public sealed class BrowserSession : IAsyncDisposable
     }
 
     public async ValueTask DisposeAsync() => await _context.DisposeAsync();
+
+    private void Record(string error)
+    {
+        if (Volatile.Read(ref _expectedDisconnects) > 0 && error.Contains(SendOnClosedConnectionError, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        lock (_errors)
+        {
+            _errors.Add(error);
+        }
+    }
+
+    private sealed class DisconnectScope(BrowserSession session) : IDisposable
+    {
+        private int _disposed;
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) == 0)
+            {
+                Interlocked.Decrement(ref session._expectedDisconnects);
+            }
+        }
+    }
 }
