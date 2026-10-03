@@ -18,6 +18,7 @@ public sealed class ModRefreshScheduler : IModRefreshScheduler, IDisposable
     private readonly Lock _gate = new();
     private readonly TimeProvider _clock;
     private readonly CancellationTokenSource _shutdown = new();
+    private int _disposed;
 
     /// <summary>A scheduler with the default capacity.</summary>
     public ModRefreshScheduler(TimeProvider clock)
@@ -78,6 +79,12 @@ public sealed class ModRefreshScheduler : IModRefreshScheduler, IDisposable
     /// <inheritdoc />
     public void Dispose()
     {
+        // Idempotent: the container disposes this once per registration (it is also resolved as the interface).
+        if (Interlocked.Exchange(ref _disposed, 1) == 1)
+        {
+            return;
+        }
+
         _shutdown.Cancel();
         _shutdown.Dispose();
         _channel.Writer.TryComplete();

@@ -62,6 +62,24 @@ public sealed partial class ModStateRecorder : IModStateRecorder
     public async Task RecordAsync(ModInventory inventory, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(inventory);
+        try
+        {
+            await RecordCoreAsync(inventory, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+#pragma warning disable CA1031 // A cache write must never fail the discovery's completion; the next discovery rebuilds it.
+        catch (Exception ex)
+        {
+            LogRecordFailed(inventory.ServerId, ex);
+        }
+#pragma warning restore CA1031
+    }
+
+    private async Task RecordCoreAsync(ModInventory inventory, CancellationToken cancellationToken)
+    {
         Server? server = await _servers.FindByIdAsync(inventory.ServerId, cancellationToken).ConfigureAwait(false);
         if (server is null || server.AgentId != inventory.AgentId)
         {
@@ -173,6 +191,9 @@ public sealed partial class ModStateRecorder : IModStateRecorder
 
     private static bool IsWorkshopId(string id) =>
         id.Length is > 0 and <= ServerWorkshopItem.MaxWorkshopIdLength && id.All(char.IsAsciiDigit);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Recording the mod state of server {Server} failed; the next discovery rebuilds it.")]
+    private partial void LogRecordFailed(ServerId server, Exception ex);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Mod discovery for server {Server} reported mod lists over the stored bounds; ignored.")]
     private partial void LogOversizedLists(ServerId server);

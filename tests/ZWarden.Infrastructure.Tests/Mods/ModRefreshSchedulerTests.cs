@@ -74,6 +74,17 @@ public class ModRefreshSchedulerTests
         await Assert.That(await ReadAsync(scheduler)).IsEqualTo(a);
     }
 
+    [Test]
+    public async Task Disposing_twice_is_harmless()
+    {
+        // The container disposes the singleton once per registration (concrete type and interface).
+        ModRefreshScheduler scheduler = new(TimeProvider.System);
+        scheduler.EnqueueAfter(Discover(ServerId.New()), TimeSpan.FromMinutes(5));
+
+        scheduler.Dispose();
+        await Assert.That(scheduler.Dispose).ThrowsNothing();
+    }
+
     private static ModRefreshRequest Discover(ServerId server) => new(Tenant, ModRefreshKind.DiscoverServer, Server: server);
 
     private static async Task<ModRefreshRequest> ReadAsync(ModRefreshScheduler scheduler)
