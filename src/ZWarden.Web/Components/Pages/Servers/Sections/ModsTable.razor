@@ -45,20 +45,14 @@
                 <ChildContent Context="r">@ModCell(r)</ChildContent>
             </BbDataGridTemplateColumn>
 
-            <BbDataGridTemplateColumn TData="ModTableRow" Title="Updated" Resizable="false" Reorderable="false"
-                                      HeaderClass="hidden md:table-cell" CellClass="hidden md:table-cell">
-                <ChildContent Context="r">
-                    <span class="whitespace-nowrap text-xs text-muted-foreground">@Updated(r)</span>
-                </ChildContent>
-            </BbDataGridTemplateColumn>
-
             <BbDataGridTemplateColumn TData="ModTableRow" Title="Status" Resizable="false" Reorderable="false">
                 <ChildContent Context="r">
                     <ModStatusChip Status="r.Status" NeedsParts="@(r.Item?.NeedsParts ?? false)" />
                 </ChildContent>
             </BbDataGridTemplateColumn>
 
-            <BbDataGridTemplateColumn TData="ModTableRow" Title="Actions" Resizable="false" Reorderable="false" HeaderClass="sr-only">
+            <BbDataGridTemplateColumn TData="ModTableRow" Title="Actions" Resizable="false" Reorderable="false">
+                <HeaderTemplate><span class="sr-only">Actions</span></HeaderTemplate>
                 <ChildContent Context="r">
                     <div class="flex justify-end gap-1" data-mod-actions data-row-key="@r.Key">
                         @if (r.HasPendingChange && (Perm.CanInstall || Perm.CanRemove))
@@ -145,7 +139,11 @@
             }
             <div class="min-w-0 flex-1">
                 <div class="font-medium break-words @(removed ? "text-muted-foreground line-through" : "")" data-mod-title>@Title(r)</div>
-                <div class="truncate font-mono text-xs text-muted-foreground" data-mod-ids>@IdLine(r)</div>
+                <div class="break-all font-mono text-xs text-muted-foreground" data-mod-ids>@IdLine(r)</div>
+                @if (Updated(r) is { } updated)
+                {
+                    <div class="text-xs text-muted-foreground" data-mod-updated>Updated on the Workshop @updated</div>
+                }
                 @if (multiPart)
                 {
                     <BbButton Variant="ButtonVariant.Link" Size="ButtonSize.Small" Class="h-auto p-0 text-xs"
@@ -250,7 +248,7 @@
         return $"{on} of {r.Item.ObservedModIds.Count} parts on";
     }
 
-    private string Updated(ModTableRow r) => r.Item?.SteamUpdatedAt is { } at
+    private string? Updated(ModTableRow r) => r.Item?.SteamUpdatedAt is { } at
         ? TimeZoneInfo.ConvertTime(at, Zone).ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)
-        : "—";
+        : null;
 }
