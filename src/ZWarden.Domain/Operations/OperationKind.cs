@@ -173,4 +173,11 @@ public enum OperationKind
     /// server-scoped</b> Operation, so it claims the per-server lock (ADR 0022). Its command payload is the optional
     /// graceful-warning plan (<c>GracefulRestartPayload</c>), as <see cref="RestartServer"/>.</summary>
     DeleteServer = 24,
+
+    /// <summary>Delete unused Workshop downloads from a Server's install volume (#293). The Agent refuses an id still in
+    /// <c>WorkshopItems=</c>, a malformed id and a server it doesn't own, and reports each id's outcome. A
+    /// <b>mutating, server-scoped</b> Operation, so it claims the per-server lock (ADR 0022): it writes the volume that
+    /// updates and a booting server write. It never stops the server. Its command payload is the ids
+    /// (<c>WorkshopContentCommandPayload</c>); success queues a mod re-discovery.</summary>
+    DeleteWorkshopContent = 25,
 }

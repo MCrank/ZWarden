@@ -61,7 +61,8 @@ public class ModRefreshTriggerTests
     [Test]
     [Arguments(OperationKind.ConfigApply)]
     [Arguments(OperationKind.ConfigApplyRaw)]
-    public async Task A_config_apply_queues_one_discovery_and_no_boot(OperationKind kind)
+    [Arguments(OperationKind.DeleteWorkshopContent)]
+    public async Task A_config_apply_or_workshop_delete_queues_one_discovery_and_no_boot(OperationKind kind)
     {
         await WithSqlite(async options =>
         {

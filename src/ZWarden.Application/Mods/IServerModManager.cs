@@ -119,6 +119,14 @@ public interface IServerModManager
     Task<ModManagementResult> RemoveWorkshopItemsAsync(
         UserId user, ServerId server, IReadOnlyList<string> workshopIds, CancellationToken cancellationToken = default);
 
+    /// <summary>#293: deletes the downloaded files of <paramref name="workshopIds"/> from the server's install volume,
+    /// one mutating Operation for all of them. Every id must be an unused download (<see cref="ModChangeStatus.Leftover"/>:
+    /// on disk, neither configured nor loaded at the last boot), otherwise
+    /// <see cref="ModManagementFailure.InvalidInput"/>; the Agent re-checks <c>WorkshopItems=</c> itself. Authorizes
+    /// <c>Mod.Remove</c>. No restart: PZ holds no Workshop file open.</summary>
+    Task<ModManagementResult> DeleteDownloadsAsync(
+        UserId user, ServerId server, IReadOnlyList<string> workshopIds, CancellationToken cancellationToken = default);
+
     /// <summary>Restarts the Server safely (player warning, #114) so it loads the mod changes and pulls newer Workshop
     /// versions (#273) — not the F17 game update, so the game build never changes. Authorizes <c>Mod.Update</c> or
     /// <c>Server.Restart</c>. <paramref name="plan"/> (#292) is the countdown chosen in the pending-changes bar, or

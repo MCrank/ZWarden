@@ -34,4 +34,8 @@ public static class ModAuditActions
     /// <summary>A Workshop-content refresh was triggered: a safe restart, since PZ re-fetches <c>WorkshopItems=</c> at boot
     /// (#273; F22 originally ran the F17 game update).</summary>
     public const string Updated = "Mod.Updated";
+
+    /// <summary>Unused Workshop downloads were deleted from the install volume (#293). Not a config edit, so there is
+    /// no Configuration Revision; the Operation's result says what the Agent did with each id.</summary>
+    public const string DownloadsDeleted = "Mod.DownloadsDeleted";
 }
