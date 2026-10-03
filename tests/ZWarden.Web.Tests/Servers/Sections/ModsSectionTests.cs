@@ -1,9 +1,7 @@
 using Bunit;
-using Microsoft.Extensions.DependencyInjection;
 using ZWarden.Application.Configuration;
 using ZWarden.Application.Mods;
 using ZWarden.Application.Servers;
-using ZWarden.Application.Workshop;
 using ZWarden.Domain.Ids;
 using ZWarden.Domain.Operations;
 using ZWarden.Web.Components.Pages.Servers;
@@ -32,25 +30,6 @@ public sealed class ModsSectionTests
     }
 
     [Test]
-    public async Task Add_installs_the_typed_item_with_its_description_mod_id()
-    {
-        // #291: the add field is one-click Install too — WorkshopItems= and the description's Mod ID in one apply.
-        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(services =>
-            services.AddSingleton<IWorkshopMetadataService>(new OneItemPreview("200", "Mod ID: NewMod")));
-        ServerId serverId = await harness.SeedServerAsync("addable");
-        harness.SeedInventory(serverId, installed: [], workshop: ["100"], enabled: []);
-        IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "mods");
-
-        await InteractivePageHarness.TypeAsync(cut, "mod-workshop-id", "200");
-        await cut.Find("[data-mod-add] [data-action=mod-install]").ClickAsync(new());
-
-        cut.WaitForState(() => harness.FirstOperation(serverId, OperationKind.ConfigApply) is not null);
-        Operation op = harness.FirstOperation(serverId, OperationKind.ConfigApply)!;
-        await Assert.That(op.IsMutating).IsTrue();
-        await Assert.That(Edits(harness, serverId)).IsEquivalentTo(["WorkshopItems=100;200", "Mods=NewMod"]);
-    }
-
-    [Test]
     public async Task Each_item_is_listed_once_in_load_order_with_its_title_and_status()
     {
         // The "badly broken" page listed every item twice; the table lists it once, where it loads.
@@ -68,6 +47,31 @@ public sealed class ModsSectionTests
         await Assert.That(cut.Find("[data-mod-row][data-workshop-id='200'] [data-mod-title]").TextContent).IsEqualTo("Item 200");
         await Assert.That(cut.FindAll("[data-mod-status=Active]").Count).IsEqualTo(2);
         await Assert.That(cut.FindAll("[data-mod-pending-bar]")).IsEmpty();
+    }
+
+    [Test]
+    public async Task After_a_change_the_table_updates_by_itself_once_the_new_lists_are_recorded()
+    {
+        // Live pass: the apply is enqueued, not done, so the table used to show the old lists until the page was left
+        // and reopened. Now it re-reads until the discovery after the apply records the new lists.
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
+        ServerId serverId = await harness.SeedServerAsync("self-refresh");
+        await harness.SeedModStateAsync(
+            serverId, booted: (["100", "200"], ["A", "B"]), configured: (["100", "200"], ["A", "B"]),
+            ("100", [], ["A"], true), ("200", [], ["B"], true));
+        SeedDisk(harness, serverId, ["100", "200"], ["A", "B"], ("100", "A"), ("200", "B"));
+        IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "mods");
+
+        cut.WaitForState(() => cut.FindAll("[data-mod-status=Active]").Count == 2);
+        await cut.Find("[data-mod-actions][data-row-key='item:200'] [data-action=mod-remove]").ClickAsync(new());
+        cut.WaitForState(() => cut.FindAll("[data-mod-refreshing]").Count == 1);
+        await Assert.That(cut.FindAll("[data-mod-status=RemovedOnRestart]")).IsEmpty();
+
+        await harness.ObserveModConfigAsync(serverId, ["100"], ["A"]);
+
+        cut.WaitForState(() => cut.FindAll("[data-mod-status=RemovedOnRestart]").Count == 1, TimeSpan.FromSeconds(10));
+        cut.WaitForState(() => cut.FindAll("[data-mod-refreshing]").Count == 0, TimeSpan.FromSeconds(5));
+        await Assert.That(cut.Find("[data-mod-pending-count]").TextContent).Contains("1 change waiting");
     }
 
     [Test]
@@ -208,6 +212,82 @@ public sealed class ModsSectionTests
     }
 
     [Test]
+    public async Task Picking_parts_starts_empty_and_blocks_a_part_that_conflicts_with_a_ticked_one()
+    {
+        // Live pass (Equipment UI): every part was pre-ticked, so one Save turned on both builds of the same mod.
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
+        ServerId serverId = await harness.SeedServerAsync("conflicting-parts");
+        await harness.SeedModStateAsync(
+            serverId, booted: (["100"], []), configured: (["100"], []), ("100", [], ["EQUIPMENT_UI", "EQUIPMENT_UI_B42"], true));
+        harness.SeedInventory(
+            serverId,
+            installed:
+            [
+                new InstalledWorkshopItem("100",
+                [
+                    new InstalledMod("EQUIPMENT_UI", null, Incompatible: ["EQUIPMENT_UI_B42"]),
+                    new InstalledMod("EQUIPMENT_UI_B42", null),
+                ]),
+            ],
+            workshop: ["100"], enabled: []);
+        IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "mods");
+
+        cut.WaitForState(() => cut.FindAll("[data-mod-pick-parts]").Count == 1);
+        await Assert.That(cut.FindAll("[data-mod-parts-option] [role=checkbox][aria-checked=true]")).IsEmpty();
+        await cut.Find("[data-mod-parts-option][data-mod-id='EQUIPMENT_UI_B42'] [role=checkbox]").ClickAsync(new());
+
+        cut.WaitForState(() => cut.FindAll("[data-mod-parts-option][data-mod-id='EQUIPMENT_UI'] [data-mod-part-conflict]").Count == 1);
+        await Assert.That(cut.Find("[data-mod-parts-option][data-mod-id='EQUIPMENT_UI'] [data-mod-part-conflict]").TextContent)
+            .Contains("conflicts with EQUIPMENT_UI_B42");
+        await Assert.That(cut.Find("[data-mod-parts-option][data-mod-id='EQUIPMENT_UI'] [role=checkbox]").HasAttribute("disabled")).IsTrue();
+        await cut.Find("[data-action=mod-parts-save]").ClickAsync(new());
+
+        cut.WaitForState(() => harness.FirstOperation(serverId, OperationKind.ConfigApply) is not null);
+        await Assert.That(Edits(harness, serverId)).IsEquivalentTo(["Mods=EQUIPMENT_UI_B42"]);
+    }
+
+    [Test]
+    public async Task Parts_already_on_together_despite_a_conflict_block_saving_until_one_is_unticked()
+    {
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
+        ServerId serverId = await harness.SeedServerAsync("conflict-on");
+        await harness.SeedModStateAsync(
+            serverId, booted: (["100"], ["A", "B"]), configured: (["100"], ["A", "B"]), ("100", [], ["A", "B"], true));
+        harness.SeedInventory(
+            serverId,
+            installed: [new InstalledWorkshopItem("100", [new InstalledMod("A", null, Incompatible: ["B"]), new InstalledMod("B", null)])],
+            workshop: ["100"], enabled: ["A", "B"]);
+        IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "mods");
+
+        cut.WaitForState(() => cut.FindAll("[data-action=mod-parts-toggle]").Count == 1);
+        await cut.Find("[data-action=mod-parts-toggle]").ClickAsync(new());
+        cut.WaitForState(() => cut.FindAll("[data-mod-pick-parts]").Count == 1);
+        await Assert.That(cut.Find("[data-action=mod-parts-save]").HasAttribute("disabled")).IsTrue();
+
+        await cut.Find("[data-mod-parts-option][data-mod-id='A'] [role=checkbox]").ClickAsync(new());
+
+        cut.WaitForState(() => !cut.Find("[data-action=mod-parts-save]").HasAttribute("disabled"));
+    }
+
+    [Test]
+    public async Task A_loaded_item_whose_parts_changed_says_it_changes_on_restart_not_active()
+    {
+        // Live pass: after Save parts the row still read Active until the restart, though the change was pending.
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
+        ServerId serverId = await harness.SeedServerAsync("parts-pending");
+        await harness.SeedModStateAsync(
+            serverId, booted: (["100", "200"], ["P1", "X"]), configured: (["100", "200"], ["P1", "P2", "X"]),
+            ("100", [], ["P1", "P2"], true), ("200", [], ["X"], true));
+        SeedDisk(harness, serverId, ["100", "200"], ["P1", "P2", "X"], ("100", "P1"), ("100", "P2"), ("200", "X"));
+        IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "mods");
+
+        cut.WaitForState(() => cut.FindAll("[data-mod-status=PartsOnRestart]").Count == 1);
+        await Assert.That(cut.Find("[data-mod-status=PartsOnRestart]").TextContent).Contains("Changes on restart");
+        // The untouched item is still plainly Active.
+        await Assert.That(cut.FindAll("[data-mod-status=Active]").Count).IsEqualTo(1);
+    }
+
+    [Test]
     public async Task A_missing_requirement_shows_as_a_warning_on_the_row()
     {
         await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
@@ -265,6 +345,52 @@ public sealed class ModsSectionTests
         await Assert.That(plan.WarningLeadSeconds).IsEquivalentTo([300, 60, 30, 10]);
     }
 
+    [Test]
+    public async Task Unused_downloads_collapse_into_a_footer_and_reinstall_turns_a_one_mod_item_back_on()
+    {
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
+        ServerId serverId = await harness.SeedServerAsync("leftovers");
+        await harness.SeedModStateAsync(
+            serverId, booted: (["100"], ["A"]), configured: (["100"], ["A"]),
+            ("100", [], ["A"], true), ("300", [], ["L"], true), ("400", [], ["P1", "P2"], true));
+        SeedDisk(harness, serverId, ["100"], ["A"], ("100", "A"), ("300", "L"), ("400", "P1"), ("400", "P2"));
+        IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "mods");
+
+        cut.WaitForState(() => cut.FindAll("[data-mod-leftovers]").Count == 1);
+        // Leftovers are not table rows; the footer counts them and lists them on demand.
+        await Assert.That(cut.FindAll("[data-mod-row]").Count).IsEqualTo(1);
+        await Assert.That(cut.Find("[data-action=mod-leftovers-toggle]").TextContent).Contains("2 unused downloads");
+        await Assert.That(cut.FindAll("[data-mod-leftover]")).IsEmpty();
+        await cut.Find("[data-action=mod-leftovers-toggle]").ClickAsync(new());
+        cut.WaitForState(() => cut.FindAll("[data-mod-leftover]").Count == 2);
+        // Deleting the files is #293; nothing offers it yet.
+        await Assert.That(cut.FindAll("[data-action=mod-leftover-delete]")).IsEmpty();
+        await cut.Find("[data-mod-leftover][data-workshop-id='300'] [data-action=mod-reinstall]").ClickAsync(new());
+
+        cut.WaitForState(() => harness.FirstOperation(serverId, OperationKind.ConfigApply) is not null);
+        await Assert.That(Edits(harness, serverId)).IsEquivalentTo(["WorkshopItems=100;300", "Mods=A;L"]);
+    }
+
+    [Test]
+    public async Task Reinstalling_a_multi_mod_download_adds_the_item_only_so_its_parts_are_picked()
+    {
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
+        ServerId serverId = await harness.SeedServerAsync("leftover-multi");
+        await harness.SeedModStateAsync(
+            serverId, booted: (["100"], ["A"]), configured: (["100"], ["A"]),
+            ("100", [], ["A"], true), ("400", [], ["P1", "P2"], true));
+        SeedDisk(harness, serverId, ["100"], ["A"], ("100", "A"), ("400", "P1"), ("400", "P2"));
+        IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "mods");
+
+        cut.WaitForState(() => cut.FindAll("[data-mod-leftovers]").Count == 1);
+        await cut.Find("[data-action=mod-leftovers-toggle]").ClickAsync(new());
+        cut.WaitForState(() => cut.FindAll("[data-mod-leftover]").Count == 1);
+        await cut.Find("[data-mod-leftover][data-workshop-id='400'] [data-action=mod-reinstall]").ClickAsync(new());
+
+        cut.WaitForState(() => harness.FirstOperation(serverId, OperationKind.ConfigApply) is not null);
+        await Assert.That(Edits(harness, serverId)).IsEquivalentTo(["WorkshopItems=100;400"]);
+    }
+
     private static void SeedDisk(
         InteractivePageHarness harness,
         ServerId serverId,
@@ -283,11 +409,4 @@ public sealed class ModsSectionTests
 
     private static IEnumerable<string> Edits(InteractivePageHarness harness, ServerId serverId) =>
         ConfigApplyPayload.FromJson(harness.Payload(serverId, OperationKind.ConfigApply)!).Edits.Select(e => $"{e.Path}={e.Value}");
-
-    private sealed class OneItemPreview(string workshopId, string description) : IWorkshopMetadataService
-    {
-        public Task<WorkshopPreview> ResolveAsync(
-            UserId actor, ServerId server, string input, CancellationToken cancellationToken = default) =>
-            Task.FromResult(WorkshopPreview.OfItem(new WorkshopItemMetadata(workshopId, Found: true, Title: "t", Description: description)));
-    }
 }

@@ -41,14 +41,12 @@ public sealed class ServerDetailRailTests
             await Assert.That(html).Contains($"?section={section}");
         }
 
-        // The rail's grouped structure (issue #162): Operate / Configure / Maintain. The Mod Browser (#110 PR-C)
-        // is now a real Configure-group section for a Mod.View holder, linking to ?section=modbrowser (it replaced
-        // the reserved "soon" placeholder).
+        // The rail's grouped structure (issue #162): Operate / Configure / Maintain. The Mod Browser (#110 PR-C) merged
+        // into Mods' Add-mods sheet (#292), so Configure has one Mods entry.
         await Assert.That(html).Contains("Operate");
         await Assert.That(html).Contains("Configure");
         await Assert.That(html).Contains("Maintain");
-        await Assert.That(html).Contains("data-rail-item=\"modbrowser\"");
-        await Assert.That(html).Contains("?section=modbrowser");
+        await Assert.That(html).DoesNotContain("data-rail-item=\"modbrowser\"");
         await Assert.That(html).DoesNotContain("data-rail-soon");
         client.Dispose();
     }

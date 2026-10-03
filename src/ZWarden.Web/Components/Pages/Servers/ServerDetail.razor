@@ -217,14 +217,6 @@ else
                         <ShellIcon Name="package" /><span>Mods</span>
                     </a>
                 }
-                @* Mod Browser (#110): preview/search Workshop content before installing. Gated on Mod.View, the same
-                   read permission the service re-checks fail-closed on resolve. *@
-                @if (_perm.CanViewMods)
-                {
-                    <a class="zw-railitem @Active("modbrowser")" href="@SectionHref("modbrowser")" data-rail-item="modbrowser">
-                        <ShellIcon Name="search" /><span>Mod Browser</span>
-                    </a>
-                }
             }
 
             @if (_perm.Backups.CanView || _perm.CanViewDiagnostics)
@@ -264,10 +256,8 @@ else
                         <PlayersSection Server="_server" Perm="_perm.Players" />
                         break;
                     case "mods":
-                        <ModsSection Server="_server" Perm="_perm.Mods" />
-                        break;
-                    case "modbrowser":
-                        <ModBrowserSection Server="_server" Perm="_perm.Mods" />
+                        <ModsSection Server="_server" Perm="_perm.Mods"
+                                     OpenAdd="@(Add == "1" || string.Equals(Section, "modbrowser", StringComparison.Ordinal))" />
                         break;
                     case "config":
                         <ConfigurationSection Server="_server" FileParam="@File" OperationParam="@Op" />
@@ -309,6 +299,10 @@ else
 
     [SupplyParameterFromQuery(Name = "op")]
     public string? Op { get; set; }
+
+    // #292: ?section=mods&add=1 opens the Mods section's Add-mods sheet (the old ?section=modbrowser lands there too).
+    [SupplyParameterFromQuery(Name = "add")]
+    public string? Add { get; set; }
 
     /// <summary>The prerender's load, handed to the circuit (#299).</summary>
     [PersistentState]
@@ -404,8 +398,7 @@ else
         "console" when p.CanExecuteConsole => "console",
         "logs" when p.CanViewLogs => "logs",
         "config" when p.Players.CanConfigEdit => "config",
-        "mods" when p.CanViewMods => "mods",
-        "modbrowser" when p.CanViewMods => "modbrowser",
+        "mods" or "modbrowser" when p.CanViewMods => "mods", // #292: the Mod Browser merged into Mods' Add sheet.
         "backups" when p.Backups.CanView => "backups",
         "diagnostics" when p.CanViewDiagnostics => "diagnostics",
         _ => "overview",

@@ -217,30 +217,7 @@ public sealed partial class WorkshopMetadataClient : IWorkshopMetadataClient
             Tags: ReadTags(item));
     }
 
-    // tags arrive as [{"tag":"Build 42"}, …]; anything not of that shape is skipped, and count/length are bounded.
-    private static string[] ReadTags(JsonElement item)
-    {
-        if (!item.TryGetProperty("tags", out JsonElement tags) || tags.ValueKind != JsonValueKind.Array)
-        {
-            return [];
-        }
-
-        List<string> result = [];
-        foreach (JsonElement tag in tags.EnumerateArray())
-        {
-            if (result.Count >= MaxTags)
-            {
-                break;
-            }
-
-            if (tag.ValueKind == JsonValueKind.Object && ReadString(tag, "tag", MaxTagLength) is { } text)
-            {
-                result.Add(text);
-            }
-        }
-
-        return [.. result];
-    }
+    private static string[] ReadTags(JsonElement item) => WorkshopJson.ReadTags(item, MaxTags, MaxTagLength);
 
     private async Task<JsonDocument?> PostAsync(
         string path, Dictionary<string, string> form, CancellationToken cancellationToken)

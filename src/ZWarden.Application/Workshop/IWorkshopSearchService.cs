@@ -17,13 +17,19 @@ public interface IWorkshopSearchService
 }
 
 /// <summary>One Workshop item in a search result. All fields but the id are optional (Steam may omit any) and
-/// carried verbatim from untrusted JSON — escaped only at render (trust-boundaries §8).</summary>
+/// carried verbatim from untrusted JSON — escaped only at render (trust-boundaries §8). <see cref="Tags"/> (#292) are
+/// the item's Workshop tags, e.g. <c>Build 42</c>; bounded.</summary>
 public sealed record WorkshopSearchResult(
     string WorkshopId,
     string? Title = null,
     string? PreviewUrl = null,
     long? Subscriptions = null,
-    DateTimeOffset? UpdatedAt = null);
+    DateTimeOffset? UpdatedAt = null,
+    IReadOnlyList<string>? Tags = null)
+{
+    /// <summary>The item's Workshop tags; empty when Steam sent none.</summary>
+    public IReadOnlyList<string> Tags { get; init; } = Tags ?? [];
+}
 
 /// <summary>
 /// The outcome of a search. <see cref="SearchAvailable"/> is <c>false</c> only when search is not usable at all

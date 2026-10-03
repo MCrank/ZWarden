@@ -1,6 +1,8 @@
 @inherits ServerSectionBase
 @using ZWarden.Application.Mods
+@implements IDisposable
 @inject IModInventoryCache ModInventories
+@inject ILogger<ModsSection> Logger
 
 @* The Mods rail section (#292 Variant B): the Server's mods as one table in load order (ModsTable), with a sticky
    pending-changes bar whose "Restart to apply" loads every change in one restart. Rows come from the persisted #290
@@ -21,11 +23,21 @@
                 {
                     <span>Workshop mods this server loads, top to bottom in load order.</span>
                 }
+                @if (_watching)
+                {
+                    <span class="ml-1 italic" data-mod-refreshing>Updating the list…</span>
+                }
             </p>
         </div>
-        <BbButton Variant="ButtonVariant.Ghost" Size="ButtonSize.Small" Disabled="_acting"
-                  title="Read this server's mod files and settings again"
-                  OnClick="DiscoverModsAsync" data-action="mod-refresh">Re-scan</BbButton>
+        <div class="flex items-center gap-2">
+            <BbButton Variant="ButtonVariant.Ghost" Size="ButtonSize.Small" Disabled="_acting"
+                      title="Read this server's mod files and settings again"
+                      OnClick="DiscoverModsAsync" data-action="mod-refresh">Re-scan</BbButton>
+            @if (Perm.CanInstall)
+            {
+                <BbButton Size="ButtonSize.Small" OnClick="@(() => _addOpen = true)" data-action="add-mods-open">+ Add mods</BbButton>
+            }
+        </div>
     </div>
 
     @if (_message is not null)
@@ -39,14 +51,8 @@
 
     @if (Perm.CanInstall)
     {
-        <div class="mt-4 flex flex-wrap items-end gap-2" data-mod-add>
-            <div class="flex flex-col text-sm">
-                <BbLabel For="mod-workshop-id" Class="mb-1 text-muted-foreground">Install a Workshop item</BbLabel>
-                <BbInput Id="mod-workshop-id" UpdateTiming="UpdateTiming.Immediate" @bind-Value="_workshopId" autocomplete="off"
-                         inputmode="numeric" Placeholder="Workshop id, e.g. 2392709985" />
-            </div>
-            <ModInstallControl Server="Server" WorkshopId="@(_workshopId ?? string.Empty)" OnInstalled="ReloadAsync" />
-        </div>
+        <AddModsSheet Server="Server" Perm="Perm" @bind-Open="_addOpen" OnServer="_onServer"
+                      PendingCount="_pending.Count" OnInstalled="InstalledAsync" />
     }
 
     <div class="mt-4">
@@ -58,7 +64,8 @@
         }
         else
         {
-            <ModsTable Rows="_rows" Warnings="_warnings" Perm="Perm" Busy="_acting" Zone="OperatorZone" OnCommand="RunAsync" />
+            <ModsTable Rows="_rows" Warnings="_warnings" Conflicts="_conflicts" Perm="Perm" Busy="_acting" Zone="OperatorZone" OnCommand="RunAsync" />
+            <LeftoverDownloads Items="_table.Leftovers" CanReinstall="Perm.CanInstall" Busy="_acting" OnReinstall="ReinstallAsync" />
         }
     </div>
 
@@ -70,7 +77,12 @@
     [Parameter, EditorRequired]
     public ModManagePermissions Perm { get; set; }
 
-    private string? _workshopId;
+    /// <summary>Open the Add-mods sheet on arrival (<c>?add=1</c>, or the old Mod Browser link).</summary>
+    [Parameter]
+    public bool OpenAdd { get; set; }
+
+    private bool _addOpen;
+    private HashSet<string> _onServer = new(StringComparer.Ordinal);
     private string? _message;
     private AlertVariant _alert = AlertVariant.Warning;
     private bool _acting;
@@ -79,8 +91,69 @@
     private List<ModTableRow> _rows = [];
     private List<ModTableRow> _pending = [];
     private IReadOnlyDictionary<string, IReadOnlyList<string>> _warnings = new Dictionary<string, IReadOnlyList<string>>();
+    private ModPartConflicts _conflicts = ModPartConflicts.From(null);
 
-    protected override Task OnInitializedAsync() => ReloadAsync();
+    // A change (or Re-scan) is enqueued, not done: the Agent writes the config, then a discovery records the new lists.
+    // Until ConfigObservedAt moves past what was shown, the section re-reads the overview every WatchInterval.
+    private static readonly TimeSpan WatchInterval = TimeSpan.FromSeconds(1);
+    private const int WatchAttempts = 45;
+    private DateTimeOffset? _observedAt;
+    private CancellationTokenSource? _watch;
+    private bool _watching;
+
+    protected override Task OnInitializedAsync()
+    {
+        _addOpen = OpenAdd && Perm.CanInstall;
+        return ReloadAsync();
+    }
+
+    public void Dispose()
+    {
+        _watch?.Cancel();
+        _watch?.Dispose();
+    }
+
+    private async Task InstalledAsync()
+    {
+        await ReloadAsync();
+        WatchForRefresh();
+    }
+
+    private void WatchForRefresh()
+    {
+        _watch?.Cancel();
+        _watch?.Dispose();
+        _watch = new CancellationTokenSource();
+        _watching = true;
+        _ = WatchAsync(_observedAt, _watch.Token);
+    }
+
+    private async Task WatchAsync(DateTimeOffset? shown, CancellationToken ct)
+    {
+        try
+        {
+            for (int attempt = 0; attempt < WatchAttempts && _observedAt == shown; attempt++)
+            {
+                await Task.Delay(WatchInterval, ct);
+                await InvokeAsync(async () =>
+                {
+                    await ReloadAsync();
+                    StateHasChanged();
+                });
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            return; // A newer change took over the watch, or the section closed.
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Mods list refresh failed for {ServerId}; showing the last read.", Server.Id);
+        }
+
+        _watching = false;
+        await InvokeAsync(StateHasChanged);
+    }
 
     private async Task ReloadAsync()
     {
@@ -88,14 +161,25 @@
         ServerId serverId = Server.Id;
         ServerModOverview? overview = await Actions.RunAsync<IServerModOverviewService, ServerModOverview?>(
             (service, ct) => service.GetAsync(user, serverId, ct));
-        ModInventory? inventory = ModInventoryView.Load(ModInventories, Server).Inventory;
+        // The last inventory the owning Agent reported (ownership-guarded); the manager re-reads it on every change.
+        ModInventory? inventory = ModInventories.GetLatest(Server.Id, Server.AgentId);
+
+        _observedAt = overview?.ConfigObservedAt;
 
         // Nothing read yet: no persisted lists (before the first discovery) and no inventory.
         _loaded = overview is { ConfigObservedAt: not null } || overview is { Items.Count: > 0 } || inventory is not null;
         _table = overview is null ? new ModTableView([], []) : ModTable.Build(overview);
         _rows = _table.Rows.ToList();
         _pending = _table.PendingRows.ToList();
+        _onServer = new HashSet<string>(
+            overview?.Items.Where(i => i.Status is ModChangeStatus.Active or ModChangeStatus.InstallsOnRestart).Select(i => i.WorkshopId) ?? [],
+            StringComparer.Ordinal);
+        foreach (string configured in inventory?.ConfiguredWorkshopIds ?? [])
+        {
+            _onServer.Add(configured);
+        }
         _warnings = ModRowWarnings.For(_table, inventory);
+        _conflicts = ModPartConflicts.From(inventory);
     }
 
     private async Task DiscoverModsAsync()
@@ -117,6 +201,10 @@
                         _ => "The re-scan could not be started.",
                     },
                 ok: result.Succeeded);
+            if (result.Succeeded)
+            {
+                WatchForRefresh();
+            }
         }
         finally
         {
@@ -184,6 +272,26 @@
 
     // #292 D3: the bar's restart loads every pending change (and pulls newer Workshop versions, #273) after warning
     // players on the chosen countdown.
+    // Puts an unused download back: a one-mod item comes back on; a multi-mod item comes back with nothing on, so its
+    // row asks to Pick parts straight away (its files are already on disk) rather than enabling every variant.
+    private async Task ReinstallAsync(ModItemView item)
+    {
+        _acting = true;
+        try
+        {
+            ServerId serverId = Server.Id;
+            UserId user = await CurrentUserAsync();
+            string[] modIds = item.ObservedModIds.Count == 1 ? [item.ObservedModIds[0]] : [];
+            SetResult(await Actions.RunAsync<IServerModManager, ModManagementResult>(
+                (mods, ct) => mods.InstallWorkshopItemsAsync(user, serverId, [item.WorkshopId], modIds, ct)));
+            await ReloadAsync();
+        }
+        finally
+        {
+            _acting = false;
+        }
+    }
+
     private async Task RestartAsync(string preset)
     {
         _acting = true;
@@ -214,6 +322,7 @@
         if (result.Succeeded)
         {
             SetMessage("Saved. It takes effect when the server restarts.", ok: true);
+            WatchForRefresh();
             return;
         }
 

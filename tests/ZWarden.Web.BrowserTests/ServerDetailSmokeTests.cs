@@ -129,14 +129,16 @@ public sealed partial class ServerDetailSmokeTests(BrowserHost host)
     }
 
     [Test]
-    public async Task Mod_browser_explains_an_unresolvable_reference()
+    public async Task Add_mods_sheet_explains_input_that_is_not_a_workshop_link()
     {
-        await using BrowserSession session = await OpenSectionAsync("smoke-modbrowser", "modbrowser");
+        // #292: the Mod Browser merged into the Mods section's Add-mods sheet; its old link opens the sheet.
+        await using BrowserSession session = await OpenSectionAsync("smoke-addmods", "modbrowser");
 
-        await session.FillAsync("#modbrowser-input", "not a workshop item");
-        await session.Page.ClickAsync("[data-action=modbrowser-resolve]");
+        await Expect(session.Page.Locator("[data-add-mods-sheet]")).ToBeVisibleAsync();
+        await session.FillAsync("#add-mods-input", "not a workshop item");
+        await session.Page.ClickAsync("[data-action=add-mods-find]");
 
-        await Expect(session.Page.Locator("[data-modbrowser-unresolvable]")).ToBeVisibleAsync();
+        await Expect(session.Page.Locator("[data-add-mods-note]")).ToBeVisibleAsync();
         await session.AssertNoErrorsAsync();
     }
 
