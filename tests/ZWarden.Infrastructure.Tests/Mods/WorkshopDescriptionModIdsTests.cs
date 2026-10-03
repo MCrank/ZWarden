@@ -12,11 +12,13 @@ namespace ZWarden.Infrastructure.Tests.Mods;
 public class WorkshopDescriptionModIdsTests
 {
     [Test]
-    public async Task More_traits_yields_its_four_b42_ids_without_the_workshop_prefix()
+    public async Task More_traits_yields_its_four_b42_ids_with_the_workshop_prefix_pz_loads()
     {
         IReadOnlyList<PzModId> ids = WorkshopDescriptionModIds.Parse(Fixture("1299328280"));
 
-        await Assert.That(Values(ids)).IsEqualTo("ToadTraits|ToadTraitsDisablePrepared|ToadTraitsDisableSpec|ToadTraitsDynamic");
+        // The B42 mod.info ids are Workshop-qualified, and PZ 42.21 finds only that form (spike #291).
+        await Assert.That(Values(ids)).IsEqualTo(
+            "1299328280/ToadTraits|1299328280/ToadTraitsDisablePrepared|1299328280/ToadTraitsDisableSpec|1299328280/ToadTraitsDynamic");
     }
 
     [Test]
@@ -79,10 +81,10 @@ public class WorkshopDescriptionModIdsTests
     [Test]
     public async Task Candidates_the_mod_id_rule_rejects_are_dropped()
     {
-        // Untrusted text: a quote or a path never becomes a candidate; a B42 prefix is stripped first.
-        IReadOnlyList<PzModId> ids = WorkshopDescriptionModIds.Parse("Mod ID: \"Quoted\"\nMod ID: 42/Good\nMod ID: a=b");
+        // Untrusted text: a quote or a path never becomes a candidate; a B42 Workshop-qualified id is kept whole.
+        IReadOnlyList<PzModId> ids = WorkshopDescriptionModIds.Parse("Mod ID: \"Quoted\"\nMod ID: 42/Good\nMod ID: ../etc/x\nMod ID: a=b");
 
-        await Assert.That(Values(ids)).IsEqualTo("Good");
+        await Assert.That(Values(ids)).IsEqualTo("42/Good");
     }
 
     [Test]

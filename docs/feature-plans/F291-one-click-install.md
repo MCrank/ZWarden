@@ -218,6 +218,26 @@ snapshot exists.
   nothing is offered.
 - **Floors:** Infrastructure 617, Web 544 (csproj and `ci.yml`). `app.css` was rebuilt.
 
+**DMZ live-pass fix (2026-10-03).** The DMZ screenshots showed two problems: More Traits' ids appeared as
+`1299328280/ToadTraits`, and UCWF, Equipment UI and Common Sense showed "No readable mod.info". A second local spike
+(PZ 42.21) with those four items found:
+- **Layouts:**
+  - mods keep `mod.info` in **B42 version folders** (`42/`, `42.13/` … `42.20/`) and **`common/`**, beside a legacy
+    B41 root file;
+  - UCWF has only `42.19/`; Common Sense only `common/`; Equipment UI only `42.15/` and `42.20/`.
+- **Ids differ by folder:** More Traits' root says `ToadTraits`, while every B42 folder says
+  `1299328280/ToadTraits`.
+- **What loads:** `Mods=1299328280/ToadTraits` → `loading 1299328280/ToadTraits`. Bare `ToadTraits` → `required mod
+  "ToadTraits" not found`. The maintainer's earlier hand-written config already used the prefixed form.
+
+Fixes:
+- **`PzModId` amends #290 D3.** One `/` is allowed, but only as `<1–20 digits>/<id>`. Paths (`../x`, `A/B`,
+  `12/34/x`) and `\` stay rejected.
+- **The description parser** keeps the Workshop-qualified token whole; it used to strip the prefix.
+- **Agent discovery** tries the highest `42.x` version folder, then `common/`, then the root `mod.info`. It used to try
+  only `42/` and the root.
+- **Floors:** Agent 649, Domain 395.
+
 ## Out of scope
 
 The Variant B UI, sheet and pending bar (#292); deleting files (#293); Update ready (#275); SteamCMD pre-download of

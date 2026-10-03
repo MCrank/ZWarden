@@ -16,6 +16,7 @@ public class PzModIdTests
     [Arguments("UCWF-core.v2")]
     [Arguments("mod_42")]
     [Arguments("ÆtherMod")]
+    [Arguments("1299328280/ToadTraits")]
     public async Task Accepts_printable_mod_ids(string candidate)
     {
         bool ok = PzModId.TryCreate(candidate, out PzModId id);
@@ -31,6 +32,11 @@ public class PzModIdTests
     [Arguments("A=B")]
     [Arguments("A\\B")]
     [Arguments("A/B")]
+    [Arguments("../ToadTraits")]
+    [Arguments("1299328280/")]
+    [Arguments("/ToadTraits")]
+    [Arguments("12/34/ToadTraits")]
+    [Arguments("123456789012345678901/ToadTraits")]
     [Arguments("A\"B")]
     [Arguments("A\nB")]
     [Arguments("A\tB")]

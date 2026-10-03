@@ -25,7 +25,8 @@ public class ModInstallPlanTests
         ModInstallPlan plan = ModInstallPlan.For(Item("1299328280"));
 
         await Assert.That(plan.Kind).IsEqualTo(ModInstallKind.Choose);
-        await Assert.That(Values(plan)).IsEqualTo("ToadTraits|ToadTraitsDisablePrepared|ToadTraitsDisableSpec|ToadTraitsDynamic");
+        await Assert.That(Values(plan)).IsEqualTo(
+            "1299328280/ToadTraits|1299328280/ToadTraitsDisablePrepared|1299328280/ToadTraitsDisableSpec|1299328280/ToadTraitsDynamic");
     }
 
     [Test]
