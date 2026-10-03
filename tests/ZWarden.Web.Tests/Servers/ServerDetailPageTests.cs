@@ -129,28 +129,14 @@ public sealed class ServerDetailPageTests
 
         await Assert.That(html).Contains("data-mods-card");
         await Assert.That(html).Contains("data-action=\"mod-refresh\"");
-        // The live inventory island prerendered with its awaiting state (no inventory cached yet).
-        await Assert.That(html).Contains("data-mods-awaiting");
-        client.Dispose();
-    }
-
-    [Test]
-    public async Task The_mod_management_section_shows_awaiting_without_a_cached_inventory()
-    {
-        await using ZWardenWebAppFactory factory = new();
-        HttpClient client = await SignedInOperatorAsync(factory);
-        ServerId serverId = await SeedServerAsync(factory, "manageable");
-
-        string html = await (await client.GetAsync(new Uri($"/servers/{serverId}?section=mods", UriKind.Relative))).Content.ReadAsStringAsync();
-
-        await Assert.That(html).Contains("data-mod-manage");
-        // No inventory observed yet, so the actionable controls are withheld until discovery runs.
+        // Nothing read yet (no discovery), so the table is withheld and Re-scan is suggested.
         await Assert.That(html).Contains("data-mod-manage-awaiting");
+        await Assert.That(html).DoesNotContain("data-mods-table");
         client.Dispose();
     }
 
     [Test]
-    public async Task The_mod_management_controls_render_from_a_cached_inventory()
+    public async Task The_mods_table_renders_from_a_cached_inventory()
     {
         await using ZWardenWebAppFactory factory = new();
         HttpClient client = await SignedInOperatorAsync(factory);
@@ -170,16 +156,14 @@ public sealed class ServerDetailPageTests
         await Assert.That(html).DoesNotContain("data-mod-manage-awaiting");
         await Assert.That(html).Contains("data-action=\"mod-install\"");
         await Assert.That(html).Contains("id=\"mod-workshop-id\"");
-        await Assert.That(html).Contains("data-mod-enabled-row");
-        await Assert.That(html).Contains("data-action=\"mod-disable\"");
-        // ModB is installed but not enabled, so it is offered as an enable candidate.
-        await Assert.That(html).Contains("data-mod-enable");
-        await Assert.That(html).Contains("data-mod-workshop-row");
-        await Assert.That(html).Contains("data-action=\"mod-remove\"");
-        // #273: one restart button applies mod changes and pulls Workshop updates; there is no separate "update".
-        await Assert.That(html).DoesNotContain("data-action=\"mod-update\"");
-        await Assert.That(html).Contains("data-action=\"mod-restart\"");
-        await Assert.That(html).Contains("Restart to apply &amp; update mods");
+        await Assert.That(html).Contains("data-mods-table");
+        // #292 D2: the F21 inventory panel and the F22 lists are gone — each item is listed once, in the table.
+        await Assert.That(html).DoesNotContain("data-live-mods");
+        await Assert.That(html).DoesNotContain("data-mod-enabled-row");
+        await Assert.That(html).DoesNotContain("data-mod-workshop-row");
+        // Nothing waits for a restart, so the pending bar is hidden; #273's restart-to-update stays as a hint.
+        await Assert.That(html).DoesNotContain("data-mod-pending-bar");
+        await Assert.That(html).Contains("data-action=\"mod-update-restart\"");
         await Assert.That(html).Contains("checksum");
         client.Dispose();
     }
