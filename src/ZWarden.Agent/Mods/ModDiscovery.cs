@@ -200,10 +200,14 @@ public sealed partial class ModDiscovery : IModDiscovery
             return ([], []);
         }
 
-        return (ReadList(document, WorkshopItemsKey), ReadList(document, ModsKey));
+        IReadOnlyList<string> enabled = [.. ReadList(document, ModsKey)
+            .Select(id => id.StartsWith('\\') ? id[1..].Trim() : id)
+            .Where(id => id.Length > 0)];
+        return (ReadList(document, WorkshopItemsKey), enabled);
     }
 
     // PZ writes both lists as a single semicolon-separated INI value (research §4). Empty entries are dropped.
+    // B42 also accepts a "\ModId" entry in Mods= (spike #291, PZ 42.21); the caller strips it to the bare mod.info id.
     private static IReadOnlyList<string> ReadList(IPzConfigDocument document, string key) =>
         document.TryGetValue(key, out PzValue value) && value is PzString text
             ? [.. text.Value.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)]
