@@ -193,6 +193,10 @@ public class WorkshopMetadataServiceTests
             return Task.FromResult(result);
         }
 
+        public Task<IReadOnlyList<WorkshopItemMetadata>> RefreshItemsAsync(
+            IReadOnlyList<string> workshopIds, CancellationToken cancellationToken = default) =>
+            GetItemsAsync(workshopIds, cancellationToken);
+
         public Task<IReadOnlyList<string>> GetCollectionItemIdsAsync(
             string collectionId, CancellationToken cancellationToken = default)
         {

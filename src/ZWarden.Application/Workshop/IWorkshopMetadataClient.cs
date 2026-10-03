@@ -21,6 +21,11 @@ public interface IWorkshopMetadataClient
     Task<IReadOnlyList<WorkshopItemMetadata>> GetItemsAsync(
         IReadOnlyList<string> workshopIds, CancellationToken cancellationToken = default);
 
+    /// <summary>As <see cref="GetItemsAsync"/>, but always asks Steam rather than serving cached details, and caches
+    /// what comes back (#275): the background refresh must see an item's current <c>time_updated</c>.</summary>
+    Task<IReadOnlyList<WorkshopItemMetadata>> RefreshItemsAsync(
+        IReadOnlyList<string> workshopIds, CancellationToken cancellationToken = default);
+
     /// <summary>Expands a Workshop <paramref name="collectionId"/> into its member item ids via keyless
     /// <c>GetCollectionDetails</c>, in the collection's sort order. Returns an empty list when the id is not a
     /// resolvable collection or the call fails.</summary>

@@ -41,6 +41,10 @@ public static class ModsServiceCollectionExtensions
         services.AddSingleton<IModRefreshScheduler>(sp => sp.GetRequiredService<ModRefreshScheduler>());
         services.AddHostedService<ModRefreshWorker>();
 
+        // #275: the hourly mod-update check, so a running server that is never rediscovered still learns of updates.
+        services.AddScoped<ModUpdateCheck>();
+        services.AddHostedService<ModUpdateCheckService>();
+
         return services;
     }
 }

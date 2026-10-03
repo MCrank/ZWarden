@@ -21,7 +21,10 @@ public enum ModRefreshKind
 /// <param name="Server">The Server, for <see cref="ModRefreshKind.DiscoverServer"/> and
 /// <see cref="ModRefreshKind.RefreshMetadata"/>.</param>
 /// <param name="Agent">The Agent, for <see cref="ModRefreshKind.DiscoverAgentServers"/>.</param>
-public sealed record ModRefreshRequest(TenantId Tenant, ModRefreshKind Kind, ServerId? Server = null, AgentId? Agent = null);
+/// <param name="MaxAge">For <see cref="ModRefreshKind.RefreshMetadata"/>: refresh items whose Steam details are older
+/// than this instead of the configured default (#275: the hourly update check and the Mods-page open).</param>
+public sealed record ModRefreshRequest(
+    TenantId Tenant, ModRefreshKind Kind, ServerId? Server = null, AgentId? Agent = null, TimeSpan? MaxAge = null);
 
 /// <summary>
 /// The in-process scheduler that keeps mod data fresh without anyone clicking Refresh (#290 D1). Callers (the Agent hub)

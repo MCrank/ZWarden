@@ -25,6 +25,15 @@ public sealed class ServerWorkshopItemRepository : TenantScopedRepository<Server
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
+    /// <summary>The Servers that have at least one tracked item on disk (#275: the ones a restart could update).</summary>
+    public async Task<IReadOnlyList<ServerId>> ListServersWithFilesOnDiskAsync(CancellationToken cancellationToken = default)
+        => await Entities
+            .Where(i => i.OnDisk)
+            .Select(i => i.ServerId)
+            .Distinct()
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
     /// <summary>Stops tracking <paramref name="item"/>.</summary>
     public void Remove(ServerWorkshopItem item)
     {
