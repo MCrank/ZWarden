@@ -72,4 +72,30 @@ internal static class WorkshopJson
 
         return null;
     }
+
+    // Tags arrive as [{"tag":"Build 42"}, …] from both GetPublishedFileDetails and QueryFiles; anything not of that
+    // shape is skipped, and count/length are bounded.
+    public static string[] ReadTags(JsonElement item, int maxTags, int maxTagLength)
+    {
+        if (!item.TryGetProperty("tags", out JsonElement tags) || tags.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        List<string> result = [];
+        foreach (JsonElement tag in tags.EnumerateArray())
+        {
+            if (result.Count >= maxTags)
+            {
+                break;
+            }
+
+            if (tag.ValueKind == JsonValueKind.Object && ReadString(tag, "tag", maxTagLength) is { } text)
+            {
+                result.Add(text);
+            }
+        }
+
+        return [.. result];
+    }
 }

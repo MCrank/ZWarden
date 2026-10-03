@@ -492,99 +492,12 @@ html:not(.dark) .zw-ico-moon {
     width: 100%;
   }
 }
-.zw-mb-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 12px;
-  margin-top: 12px;
-}
-.zw-mb-card {
-  display: flex;
-  gap: 12px;
-  padding: 12px;
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-}
-.zw-mb-thumb {
-  width: 84px;
-  height: 84px;
-  flex: none;
-  border-radius: calc(var(--radius) - 2px);
-  object-fit: cover;
-  background: var(--muted);
-}
-.zw-mb-thumb-empty {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--muted-foreground);
-}
-.zw-mb-body {
-  min-width: 0;
-  flex: 1 1 auto;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-}
-.zw-mb-title {
-  font-size: 13.5px;
-  font-weight: 600;
-  line-height: 1.25;
-  word-break: break-word;
-}
-.zw-mb-meta {
-  font-size: 11px;
-  color: var(--muted-foreground);
-}
-.zw-mb-desc {
-  font-size: 12px;
-  color: var(--muted-foreground);
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-}
-.zw-mb-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-.zw-mb-chip, .zw-mb-chip-bad {
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: .01em;
-  padding: 1px 7px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  color: var(--muted-foreground);
-  white-space: nowrap;
-}
-.zw-mb-chip-bad {
-  border-color: var(--destructive);
-  @supports (color: color-mix(in lab, red, red)) {
-    border-color: color-mix(in oklab, var(--destructive) 55%, var(--border));
-  }
-  color: var(--destructive);
-  background: var(--destructive);
-  @supports (color: color-mix(in lab, red, red)) {
-    background: color-mix(in oklab, var(--destructive) 8%, var(--card));
-  }
-}
 .zw-mb-actions {
   margin-top: auto;
   padding-top: 2px;
   display: flex;
   align-items: center;
   gap: 8px;
-}
-.zw-mb-thumb-sm {
-  width: 26px;
-  height: 26px;
-  flex: none;
-  border-radius: 4px;
-  object-fit: cover;
-  background: var(--muted);
 }
 .zw-cfg-toolbar {
   display: flex;
@@ -1379,6 +1292,9 @@ html:not(.dark) .zw-ico-moon {
       max-width: 96rem;
     }
   }
+  .-mx-2 {
+    margin-inline: calc(var(--spacing) * -2);
+  }
   .mt-0\.5 {
     margin-top: calc(var(--spacing) * 0.5);
   }
@@ -1406,6 +1322,9 @@ html:not(.dark) .zw-ico-moon {
   .mt-10 {
     margin-top: calc(var(--spacing) * 10);
   }
+  .mr-auto {
+    margin-right: auto;
+  }
   .mb-1 {
     margin-bottom: var(--spacing);
   }
@@ -1420,6 +1339,12 @@ html:not(.dark) .zw-ico-moon {
   }
   .ml-2 {
     margin-left: calc(var(--spacing) * 2);
+  }
+  .line-clamp-2 {
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
   }
   .block {
     display: block;
@@ -1463,6 +1388,9 @@ html:not(.dark) .zw-ico-moon {
   .h-10 {
     height: calc(var(--spacing) * 10);
   }
+  .h-16 {
+    height: calc(var(--spacing) * 16);
+  }
   .h-auto {
     height: auto;
   }
@@ -1486,6 +1414,9 @@ html:not(.dark) .zw-ico-moon {
   }
   .w-10 {
     width: calc(var(--spacing) * 10);
+  }
+  .w-16 {
+    width: calc(var(--spacing) * 16);
   }
   .w-32 {
     width: calc(var(--spacing) * 32);
@@ -1558,6 +1489,9 @@ html:not(.dark) .zw-ico-moon {
   }
   .flex-col {
     flex-direction: column;
+  }
+  .flex-row {
+    flex-direction: row;
   }
   .flex-wrap {
     flex-wrap: wrap;
@@ -1665,6 +1599,22 @@ html:not(.dark) .zw-ico-moon {
   .gap-y-4 {
     row-gap: calc(var(--spacing) * 4);
   }
+  :where(.divide-y > :not(:last-child)) {
+    --tw-divide-y-reverse: 0;
+    border-bottom-style: var(--tw-border-style);
+    border-top-style: var(--tw-border-style);
+    border-top-width: calc(1px * var(--tw-divide-y-reverse));
+    border-bottom-width: calc(1px * calc(1 - var(--tw-divide-y-reverse)));
+  }
+  :where(.divide-border > :not(:last-child)) {
+    border-color: var(--border);
+  }
+  :where(.divide-border\/60 > :not(:last-child)) {
+    border-color: var(--border);
+    @supports (color: color-mix(in lab, red, red)) {
+      border-color: color-mix(in oklab, var(--border) 60%, transparent);
+    }
+  }
   .truncate {
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1675,6 +1625,9 @@ html:not(.dark) .zw-ico-moon {
   }
   .overflow-x-auto {
     overflow-x: auto;
+  }
+  .overflow-y-auto {
+    overflow-y: auto;
   }
   .rounded {
     border-radius: var(--radius);
@@ -1854,6 +1807,9 @@ html:not(.dark) .zw-ico-moon {
   .py-2 {
     padding-block: calc(var(--spacing) * 2);
   }
+  .py-3 {
+    padding-block: calc(var(--spacing) * 3);
+  }
   .py-8 {
     padding-block: calc(var(--spacing) * 8);
   }
@@ -1868,6 +1824,9 @@ html:not(.dark) .zw-ico-moon {
   }
   .pr-4 {
     padding-right: calc(var(--spacing) * 4);
+  }
+  .pb-6 {
+    padding-bottom: calc(var(--spacing) * 6);
   }
   .pl-5 {
     padding-left: calc(var(--spacing) * 5);
@@ -1964,6 +1923,9 @@ html:not(.dark) .zw-ico-moon {
   .break-words {
     overflow-wrap: break-word;
   }
+  .wrap-anywhere {
+    overflow-wrap: anywhere;
+  }
   .wrap-break-word {
     overflow-wrap: break-word;
   }
@@ -2042,6 +2004,14 @@ html:not(.dark) .zw-ico-moon {
     .hover\:bg-muted:hover {
       background-color: var(--muted);
     }
+    .hover\:bg-muted\/60:hover {
+      background-color: var(--muted);
+    }
+    @supports (color: color-mix(in lab, red, red)) {
+      .hover\:bg-muted\/60:hover {
+        background-color: color-mix(in oklab, var(--muted) 60%, transparent);
+      }
+    }
     .hover\:text-foreground:hover {
       color: var(--foreground);
     }
@@ -2058,6 +2028,9 @@ html:not(.dark) .zw-ico-moon {
   @media (width >= 40rem) {
     .sm\:col-span-2 {
       grid-column: span 2 / span 2;
+    }
+    .sm\:max-w-xl {
+      max-width: var(--container-xl);
     }
     .sm\:grid-cols-2 {
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2181,6 +2154,11 @@ html:not(.dark) .zw-ico-moon {
   }
 }
 @property --tw-space-y-reverse {
+  syntax: "*";
+  inherits: false;
+  initial-value: 0;
+}
+@property --tw-divide-y-reverse {
   syntax: "*";
   inherits: false;
   initial-value: 0;
@@ -2349,6 +2327,7 @@ html:not(.dark) .zw-ico-moon {
   @supports ((-webkit-hyphens: none) and (not (margin-trim: inline))) or ((-moz-orient: inline) and (not (color:rgb(from red r g b)))) {
     *, ::before, ::after, ::backdrop {
       --tw-space-y-reverse: 0;
+      --tw-divide-y-reverse: 0;
       --tw-border-style: solid;
       --tw-leading: initial;
       --tw-font-weight: initial;

@@ -3,6 +3,7 @@ using BlazorBlueprint.Components;
 using Bunit;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using ZWarden.Application.Mods;
 using ZWarden.Application.Servers;
@@ -125,6 +126,30 @@ internal sealed class InteractivePageHarness : IAsyncDisposable
         await db.SaveChangesAsync();
 
         static PzModId ModId(string id) => PzModId.TryCreate(id, out PzModId valid) ? valid : throw new ArgumentException(id);
+    }
+
+    /// <summary>Records newly observed configured lists for <paramref name="serverId"/>, as the discovery that follows
+    /// a finished config apply does (#292).</summary>
+    public async Task ObserveModConfigAsync(ServerId serverId, string[] workshop, string[] mods)
+    {
+        await using AsyncServiceScope scope = Factory.Services.CreateSystemScope();
+        ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
+        ServerModState state = await db.Set<ServerModState>().SingleAsync(s => s.ServerId == serverId);
+        state.ObserveConfig(workshop, mods, DateTimeOffset.UtcNow);
+        await db.SaveChangesAsync();
+    }
+
+    /// <summary>Records a boot of <paramref name="serverId"/> and the discovery after it, so what is configured now
+    /// becomes what it booted with (#292: rows turn Active after Restart to apply).</summary>
+    public async Task RecordBootAsync(ServerId serverId)
+    {
+        await using AsyncServiceScope scope = Factory.Services.CreateSystemScope();
+        ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
+        ServerModState state = await db.Set<ServerModState>().SingleAsync(s => s.ServerId == serverId);
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        state.MarkBooted(now);
+        state.ObserveConfig([.. state.ConfiguredWorkshopIds], [.. state.ConfiguredModIds], now.AddSeconds(1));
+        await db.SaveChangesAsync();
     }
 
     /// <summary>Records the host capacity <paramref name="serverId"/>'s Agent last reported.</summary>

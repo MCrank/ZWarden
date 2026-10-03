@@ -19,7 +19,7 @@ public class WorkshopSearchClientTests
 
     private const string TwoHits = """
         {"response":{"total":2,"publishedfiledetails":[
-          {"result":1,"publishedfileid":"2857548524","title":"Authentic Z","preview_url":"https://img.example/a.jpg","lifetime_subscriptions":12345,"time_updated":1699999999},
+          {"result":1,"publishedfileid":"2857548524","title":"Authentic Z","preview_url":"https://img.example/a.jpg","lifetime_subscriptions":12345,"time_updated":1699999999,"tags":[{"tag":"Build 41","display_name":"Build 41"},{"tag":"Build 42"},"junk"]},
           {"result":1,"publishedfileid":"2196102849","title":"Raven Creek","preview_url":"ftp://bad/x","subscriptions":"7","time_updated":1700000000}
         ]}}
         """;
@@ -61,6 +61,8 @@ public class WorkshopSearchClientTests
         // Uri.ToString() renders the query decoded; the escaping is applied on the wire.
         await Assert.That(handler.LastUri!).Contains("search_text=raven creek");
         await Assert.That(handler.LastUri!).Contains("query_type=11");
+        // #292: tags carry the Build 41 / Build 42 support the Add sheet blocks on.
+        await Assert.That(handler.LastUri!).Contains("return_tags=true");
         await Assert.That(results.SearchAvailable).IsTrue();
         await Assert.That(results.Items.Count).IsEqualTo(2);
 
@@ -70,11 +72,13 @@ public class WorkshopSearchClientTests
         await Assert.That(first.PreviewUrl).IsEqualTo("https://img.example/a.jpg");
         await Assert.That(first.Subscriptions).IsEqualTo(12345L);
         await Assert.That(first.UpdatedAt).IsEqualTo(DateTimeOffset.FromUnixTimeSeconds(1699999999));
+        await Assert.That(first.Tags).IsEquivalentTo(["Build 41", "Build 42"]);
 
         // Second hit: non-https preview is dropped; a numeric-string subscription count is read.
         WorkshopSearchResult second = results.Items[1];
         await Assert.That(second.PreviewUrl).IsNull();
         await Assert.That(second.Subscriptions).IsEqualTo(7L);
+        await Assert.That(second.Tags).IsEmpty();
     }
 
     [Test]

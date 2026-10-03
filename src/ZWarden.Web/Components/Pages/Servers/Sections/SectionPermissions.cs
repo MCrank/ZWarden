@@ -9,7 +9,7 @@ public readonly record struct PlayerPermissions(bool CanView, bool CanKick, bool
     public bool CanAny => CanView || CanKick || CanBan || CanUnban || CanConfigEdit;
 }
 
-/// <summary>The Mods / Mod Browser sections' Mod.* grants, plus Server.Restart for "restart to load".</summary>
+/// <summary>The Mods section's Mod.* grants, plus Server.Restart for "restart to apply".</summary>
 public readonly record struct ModManagePermissions(bool CanInstall, bool CanRemove, bool CanUpdate, bool CanRestart)
 {
     public bool CanAny => CanInstall || CanRemove || CanUpdate || CanRestart;
