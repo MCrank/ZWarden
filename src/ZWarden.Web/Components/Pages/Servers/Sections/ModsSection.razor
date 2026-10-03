@@ -98,7 +98,8 @@
         ServerId serverId = Server.Id;
         ServerModOverview? overview = await Actions.RunAsync<IServerModOverviewService, ServerModOverview?>(
             (service, ct) => service.GetAsync(user, serverId, ct));
-        ModInventory? inventory = ModInventoryView.Load(ModInventories, Server).Inventory;
+        // The last inventory the owning Agent reported (ownership-guarded); the manager re-reads it on every change.
+        ModInventory? inventory = ModInventories.GetLatest(Server.Id, Server.AgentId);
 
         // Nothing read yet: no persisted lists (before the first discovery) and no inventory.
         _loaded = overview is { ConfigObservedAt: not null } || overview is { Items.Count: > 0 } || inventory is not null;
