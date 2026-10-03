@@ -244,6 +244,52 @@ public sealed class ModsSectionTests
         await Assert.That(plan.WarningLeadSeconds).IsEquivalentTo([300, 60, 30, 10]);
     }
 
+    [Test]
+    public async Task Unused_downloads_collapse_into_a_footer_and_reinstall_turns_a_one_mod_item_back_on()
+    {
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
+        ServerId serverId = await harness.SeedServerAsync("leftovers");
+        await harness.SeedModStateAsync(
+            serverId, booted: (["100"], ["A"]), configured: (["100"], ["A"]),
+            ("100", [], ["A"], true), ("300", [], ["L"], true), ("400", [], ["P1", "P2"], true));
+        SeedDisk(harness, serverId, ["100"], ["A"], ("100", "A"), ("300", "L"), ("400", "P1"), ("400", "P2"));
+        IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "mods");
+
+        cut.WaitForState(() => cut.FindAll("[data-mod-leftovers]").Count == 1);
+        // Leftovers are not table rows; the footer counts them and lists them on demand.
+        await Assert.That(cut.FindAll("[data-mod-row]").Count).IsEqualTo(1);
+        await Assert.That(cut.Find("[data-action=mod-leftovers-toggle]").TextContent).Contains("2 unused downloads");
+        await Assert.That(cut.FindAll("[data-mod-leftover]")).IsEmpty();
+        await cut.Find("[data-action=mod-leftovers-toggle]").ClickAsync(new());
+        cut.WaitForState(() => cut.FindAll("[data-mod-leftover]").Count == 2);
+        // Deleting the files is #293; nothing offers it yet.
+        await Assert.That(cut.FindAll("[data-action=mod-leftover-delete]")).IsEmpty();
+        await cut.Find("[data-mod-leftover][data-workshop-id='300'] [data-action=mod-reinstall]").ClickAsync(new());
+
+        cut.WaitForState(() => harness.FirstOperation(serverId, OperationKind.ConfigApply) is not null);
+        await Assert.That(Edits(harness, serverId)).IsEquivalentTo(["WorkshopItems=100;300", "Mods=A;L"]);
+    }
+
+    [Test]
+    public async Task Reinstalling_a_multi_mod_download_adds_the_item_only_so_its_parts_are_picked()
+    {
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
+        ServerId serverId = await harness.SeedServerAsync("leftover-multi");
+        await harness.SeedModStateAsync(
+            serverId, booted: (["100"], ["A"]), configured: (["100"], ["A"]),
+            ("100", [], ["A"], true), ("400", [], ["P1", "P2"], true));
+        SeedDisk(harness, serverId, ["100"], ["A"], ("100", "A"), ("400", "P1"), ("400", "P2"));
+        IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "mods");
+
+        cut.WaitForState(() => cut.FindAll("[data-mod-leftovers]").Count == 1);
+        await cut.Find("[data-action=mod-leftovers-toggle]").ClickAsync(new());
+        cut.WaitForState(() => cut.FindAll("[data-mod-leftover]").Count == 1);
+        await cut.Find("[data-mod-leftover][data-workshop-id='400'] [data-action=mod-reinstall]").ClickAsync(new());
+
+        cut.WaitForState(() => harness.FirstOperation(serverId, OperationKind.ConfigApply) is not null);
+        await Assert.That(Edits(harness, serverId)).IsEquivalentTo(["WorkshopItems=100;400"]);
+    }
+
     private static void SeedDisk(
         InteractivePageHarness harness,
         ServerId serverId,

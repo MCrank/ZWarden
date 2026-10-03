@@ -59,6 +59,7 @@
         else
         {
             <ModsTable Rows="_rows" Warnings="_warnings" Perm="Perm" Busy="_acting" Zone="OperatorZone" OnCommand="RunAsync" />
+            <LeftoverDownloads Items="_table.Leftovers" CanReinstall="Perm.CanInstall" Busy="_acting" OnReinstall="ReinstallAsync" />
         }
     </div>
 
@@ -200,6 +201,26 @@
 
     // #292 D3: the bar's restart loads every pending change (and pulls newer Workshop versions, #273) after warning
     // players on the chosen countdown.
+    // Puts an unused download back: a one-mod item comes back on; a multi-mod item comes back with nothing on, so its
+    // row asks to Pick parts straight away (its files are already on disk) rather than enabling every variant.
+    private async Task ReinstallAsync(ModItemView item)
+    {
+        _acting = true;
+        try
+        {
+            ServerId serverId = Server.Id;
+            UserId user = await CurrentUserAsync();
+            string[] modIds = item.ObservedModIds.Count == 1 ? [item.ObservedModIds[0]] : [];
+            SetResult(await Actions.RunAsync<IServerModManager, ModManagementResult>(
+                (mods, ct) => mods.InstallWorkshopItemsAsync(user, serverId, [item.WorkshopId], modIds, ct)));
+            await ReloadAsync();
+        }
+        finally
+        {
+            _acting = false;
+        }
+    }
+
     private async Task RestartAsync(string preset)
     {
         _acting = true;
