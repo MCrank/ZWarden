@@ -1,0 +1,169 @@
+[h2]Build Support: B42.0.2 to B42.20.x SP/MP — Build 42 only[/h2]
+[b]NeatUI Framework[/b] is a lightweight shared UI framework for [b]Project Zomboid Build 42[/b].
+
+You normally do [b]not[/b] use this mod by itself. Install and enable it when another mod lists [b]NeatUI Framework[/b] as a requirement.
+
+[b]Important:[/b] NeatUI Framework must load [b]before[/b] any mod that depends on it.
+
+[hr]
+[h2]What This Mod Does[/h2]
+NeatUI provides reusable interface components and compatibility helpers shared by multiple mods.
+[list]
+[*]UI widgets, layouts and rendering helpers
+[*]Shared styling and text utilities
+[*]Scrolling/list/panel helpers
+[*]Compatibility helpers for Build 42 UI/API changes
+[*]Less duplicated UI code between related mods
+[/list]
+
+[b]NeatUI does not add gameplay features, recipes, items or world objects by itself.[/b]
+
+Its visible effects come from the mods that use it.
+
+[h2]Mods Using NeatUI Framework[/h2]
+Mods originally created by [b]Rocco[/b] and maintained / updated for newer B42 versions by [b]Afyrmo[/b]:
+[list]
+[*][url=https://steamcommunity.com/sharedfiles/filedetails/?id=3437629766][b]CleanUI[/b][/url]
+[*][url=https://steamcommunity.com/sharedfiles/filedetails/?id=3451167732][b]Modern Status[/b][/url]
+[*][url=https://steamcommunity.com/sharedfiles/filedetails/?id=3470659758][b]The Shortcut[/b][/url]
+[*][url=https://steamcommunity.com/sharedfiles/filedetails/?id=3502080466][b]Neat Crafting[/b][/url]
+[*][url=https://steamcommunity.com/sharedfiles/filedetails/?id=3536052310][b]Neat Building[/b][/url]
+[*][url=https://steamcommunity.com/sharedfiles/filedetails/?id=3490188370][b]Project Cook[/b][/url]
+[/list]
+
+[h3]Other Mods Using NeatUI[/h3]
+[list]
+[*][url=https://steamcommunity.com/sharedfiles/filedetails/?id=3540503606][b]Neat Crafting & Neat Building – XP & Mod Display[/b][/url] — Afyrmo
+[*][url=https://steamcommunity.com/sharedfiles/filedetails/?id=3723726293][b]Neat Rocco's UI[/b][/url] — ArtNod
+[*][url=https://steamcommunity.com/sharedfiles/filedetails/?id=3760534563][b]NeatUI Hairstyler[/b][/url] — Gimmi
+[*][url=https://steamcommunity.com/sharedfiles/filedetails/?id=3760545452][b]NeatUI XP Drop[/b][/url] — Gimmi
+[*][url=https://steamcommunity.com/sharedfiles/filedetails/?id=3790656296][b]NeatUI Equipment[/b][/url] — Gimmi
+[*][url=https://steamcommunity.com/sharedfiles/filedetails/?id=3797492691][b]Try Before You Wear[/b][/url] — Diakøe
+[/list]
+
+If your mod uses NeatUI Framework and you would like it listed here, feel free to contact me.
+
+[hr]
+[h2]Installation & Load Order[/h2]
+[h3]Single Player[/h3]
+Enable [b]NeatUI Framework[/b] and load it before dependent mods.
+
+Example:
+[code]NeatUI Framework
+Neat Crafting
+Neat Crafting addons[/code]
+
+If NeatUI does not appear in the Mods list, make sure you are running [b]Build 42[/b].
+
+[h3]Multiplayer / Host / Dedicated Server[/h3]
+NeatUI must be included in [b]both[/b] server lists:
+
+[list]
+[*][b]Mod ID:[/b] NeatUI_Framework
+[*][b]Workshop ID:[/b] 3508537032
+[/list]
+
+Check:
+[b]Zomboid\Server<YourServer>.ini[/b]
+
+Example:
+[code]Mods=NeatUI_Framework;DependentMod1;DependentMod2;...
+WorkshopItems=3508537032;WorkshopID1;WorkshopID2;...[/code]
+
+[b]Important:[/b] adding `NeatUI_Framework` only to `Mods=` is not enough. Workshop ID [b]3508537032[/b] must also be present in `WorkshopItems=`.
+
+NeatUI should appear [b]before dependent mods[/b] in `Mods=`.
+
+Server and clients should use the same current Workshop files.
+
+[h2]Compatibility[/h2]
+[list]
+[*][b]Build 42 only[/b]
+[*]Supports B42.0.2 to B42.20.x
+[*]SP / MP Host / Dedicated Server
+[*]Maintained for UI/API changes across newer B42 builds
+[*]Includes path/case cleanup for Linux servers
+[*]Includes expected `AnimSets` and `actiongroups` media directories for newer B42 server scanning
+[/list]
+
+[h2]Linux Dedicated Servers / Lua Checksum[/h2]
+Recent versions include path and line-ending cleanup intended to improve compatibility with case-sensitive Linux servers using:
+
+[code]DoLuaChecksum=true[/code]
+
+If you previously used `DoLuaChecksum=false` as a workaround, update NeatUI and dependent mods before testing again with checksum validation enabled.
+
+For checksum testing or errors, please use:
+[url=https://steamcommunity.com/workshop/filedetails/discussion/3508537032/844005195821120294/][b]Linux Server Checksum Feedback[/b][/url]
+
+Useful reports include:
+[list]
+[*]Server OS / distro and PZ version
+[*]Enabled NeatUI-dependent mods
+[*]Exact checksum / missing-file error
+[*]Relevant `Mods=` and `WorkshopItems=` lines
+[/list]
+
+[hr]
+[h2]Troubleshooting[/h2]
+If NeatUI or a dependent mod does not work:
+[list]
+[*]Close Project Zomboid completely
+[*]Make sure NeatUI is enabled and loads first
+[*]In MP, check both `Mods=` and `WorkshopItems=`
+[*]Make sure server and clients have updated Workshop files
+[*]Verify Project Zomboid files in Steam if needed
+[*]Test with only NeatUI + the affected dependent mod
+[/list]
+
+If the minimum setup works, add other mods back in small groups.
+
+[h3]Clean Workshop Redownload[/h3]
+If files appear outdated or mismatched:
+[list]
+[*]Close Project Zomboid
+[*]Unsubscribe from NeatUI Framework
+[*]Wait for Steam to remove it
+[*]If necessary, remove the remaining folder:
+[b]...\Steam\steamapps\workshop\content\108600\3508537032[/b]
+[*]Subscribe again and let Steam finish downloading before launching the game.
+[/list]
+
+For dedicated servers, also make sure Workshop ID [b]3508537032[/b] was actually downloaded by the server/SteamCMD.
+
+[h2]Removing NeatUI Framework[/h2]
+NeatUI itself does not add world objects or gameplay content.
+
+However, [b]do not disable or remove it while mods that require it are still enabled.[/b]
+
+Check each dependent mod's own uninstall instructions separately. Some may register recipes, entities, XUI/WorldDictionary data or placed world content.
+
+[h2]For Mod Authors[/h2]
+Other mods are welcome to use NeatUI Framework.
+
+Please use NeatUI as a Workshop dependency rather than repacking its files into your own mod. This avoids outdated duplicate copies and helps keep server/client versions consistent.
+
+[h2]Bug Reports[/h2]
+Please use:
+[url=https://steamcommunity.com/workshop/filedetails/discussion/3508537032/844005195821116835/][b]Bug Reports[/b][/url]
+
+Include:
+[list]
+[*]Project Zomboid version
+[*]SP / MP Host / Dedicated Server
+[*]Affected NeatUI-dependent mod
+[*]Mod list and load order
+[*]Relevant `console.txt`, `coop-console.txt` or server log
+[*]First relevant ERROR / stack trace
+[*]Screenshot/video if useful
+[/list]
+
+[h2]Credits[/h2]
+[list]
+[*]Original framework by [b]Rocco[/b]: [url=https://steamcommunity.com/profiles/76561199485575276/myworkshopfiles/?appid=108600]PZ Workshop Items[/url]
+[*]Maintenance, compatibility updates and newer Build 42 support by [b]Afyrmo[/b]: [url=https://steamcommunity.com/profiles/76561199133259679/myworkshopfiles/?appid=108600]PZ Workshop Items[/url]
+[*]Thanks to the mod authors using NeatUI Framework in their own projects
+[/list]
+
+Workshop ID: 3508537032
+Mod ID: NeatUI_Framework

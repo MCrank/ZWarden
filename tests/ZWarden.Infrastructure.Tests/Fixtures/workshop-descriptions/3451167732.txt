@@ -1,0 +1,174 @@
+[h2]Compatible with Project Zomboid B42.12.3–B42.20.x (SP/MP)[/h2]
+[b]Modern Status[/b] is a flexible, highly customizable status HUD for [b]Project Zomboid Build 42[/b].
+
+It turns your character’s condition into circular indicators, bars, and compact matrix layouts, with tooltips, presets, alarms, auto-hide, quick actions, performance modes, and support for several modded status systems.
+
+[b]Safe to enable or disable in new or existing saves.[/b] Modern Status is a UI/HUD mod. It reads your character status and displays indicators. It does not add items, traits, recipes, world data, or permanent save changes.
+
+[hr]
+[h2]Required Mod / Load Order[/h2]
+[list]
+[*][b]NeatUI Framework[/b] is required.
+[*]Load [b]NeatUI Framework[/b] before [b]Modern Status[/b].
+[/list]
+
+For MP servers, make sure both Workshop IDs and mod IDs are enabled.
+
+Workshop IDs:
+[b]NeatUI Framework: 3508537032
+Modern Status: 3451167732[/b]
+
+[hr]
+[h2]Quick Guide / FAQ[/h2]
+For controls, presets, matrix setup, multiplayer setup, troubleshooting, performance tips, and detailed help:
+[url=https://steamcommunity.com/workshop/filedetails/discussion/3451167732/837251071121396398/]Modern Status — Quick Guide / FAQ[/url]
+
+For bug reports:
+[url=https://steamcommunity.com/workshop/filedetails/discussion/3451167732/595144405227149846/]Bug Report[/url]
+
+[hr]
+[h2]Main Features[/h2]
+[list]
+[*]Circular indicators, horizontal bars, vertical bars, and compact matrix layouts.
+[*]Individual indicators or shared matrix layouts.
+[*]Color and monochrome icon modes.
+[*]Values, thresholds, alarms, auto-hide, direction inversion, icons, names, and gradient colors.
+[*]Drag-and-drop positioning, multi-drag, locking, and grid snapping.
+[*]Dynamic matrix layout with optional [b]Fill Hidden Gaps[/b].
+[*]Bundled presets and custom saved presets.
+[*][b]Modern Status Global Settings[/b] panel.
+[*]Quick [b]Modern Status[/b] submenu by right-clicking the Health / heart button.
+[*]Configurable tooltips with contextual Detailed Info.
+[*]Optional vanilla moodle hiding.
+[*]Performance modes and per-indicator update intervals.
+[/list]
+
+[img]https://i.imgur.com/G0PiBCB.png[/img]
+
+[hr]
+[h2]Quick Access[/h2]
+Right-click the [b]Health / heart button[/b] on the left sidebar to open:
+
+[b]Modern Status > Global Settings / Presets / Multi Drag / Performance / Hide Vanilla Moodles[/b]
+
+The old blue cog button can still be enabled from Mod Options, but it is disabled by default.
+
+Basic setup:
+[list]
+[*]Open [b]Modern Status > Presets[/b] and load a bundled preset.
+[*]Open [b]Global Settings[/b] or [b]All Indicators[/b].
+[*]Hide or lock indicators you do not want.
+[*]Move indicators manually, with Multi Drag, or through the matrix.
+[*]Save your layout as a custom preset.
+[/list]
+
+[hr]
+[h2]Panels and Matrix Layouts[/h2]
+[list]
+[*][b]Global Settings[/b]: presets, visibility, lock, grid, multi-drag, performance, tooltip options, and vanilla moodle hiding.
+[*][b]All Indicators[/b]: manage every indicator from one place.
+[*][b]Matrix Indicators[/b]: configure indicators linked to the shared matrix.
+[*][b]Independent Indicators[/b]: configure indicators outside the matrix.
+[*][b]Individual panels[/b]: fine-tune one indicator at a time.
+[*][b]Presets panel[/b]: filter, load, overwrite, delete, and save presets.
+[/list]
+
+Matrix mode lets several indicators share one compact layout. [b]Fill Hidden Gaps[/b] lets visible matrix indicators reflow when another indicator is hidden or auto-hidden, keeping order without leaving empty spaces.
+
+[hr]
+[h2]Tooltips and Performance[/h2]
+[img]https://i.imgur.com/dJm1Wax.png[/img]
+
+Tooltips can show indicator name, value, thresholds, associated moodle, moodle title/description, and detailed contextual information.
+
+Performance modes:
+[list]
+[*][b]Responsive[/b]: faster updates.
+[*][b]Balanced[/b]: default balance between responsiveness and performance.
+[*][b]Lightweight[/b]: slower updates for lower-end systems or heavy modlists.
+[*][b]Custom[/b]: used when individual update intervals are edited manually.
+[/list]
+
+For extra UI performance, enabling [b]UI Offscreen Rendering[/b] and lowering [b]UI Rendering FPS[/b] in Project Zomboid options may also help.
+
+[hr]
+[h2]Supported Main Indicators[/h2]
+[img]https://i.imgur.com/cSX0t4J.png[/img]
+
+[list]
+[*]Health, Bleeding, Bloodiness, Hunger, Thirst, Food Healing, Fatigue, Endurance
+[*]Stress, Panic, Boredom, Discomfort, Unhappiness, Anger
+[*]Drunkenness, Muscle Strain, Pain, Poison, Sickness
+[*]Wetness, Windchill, Temperature, Catch a Cold
+[*]Weight, Calories, Carbohydrates, Protein, Fat
+[*]Dirtiness, Carry Weight / Encumbrance
+[*]Medication duration: Antibiotics, Painkillers, Sleeping Pills, and Beta Blockers
+[*]Noxious Smell / Noxious Exposure
+[/list]
+
+[b]Food Healing[/b] follows the vanilla [b]FoodEaten[/b] moodle levels and uses the vanilla food-based healing timer separately from Hunger.
+
+[hr]
+[h2]Supported Mod Integrations[/h2]
+[list]
+[*][b]Wash or Rot / Wash or Rot SP/MP[/b]: Grime
+[*][b]LifeStyle: Hobbies[/b]: Hygiene Need, Bladder Need
+[*][b]Take A Bath And Shower[/b]: Body Grime
+[*][b]Excrementum[/b]: Stomach, Colon, Urine, Smell, Shame
+[*][b]Nature’s Call[/b]: Bladder, Bowel, Gut Health, Soilage, Digestive Effects
+[/list]
+
+Modded indicators only appear when the corresponding mod is active and the required data is available.
+
+[hr]
+[h2]Troubleshooting[/h2]
+If Modern Status does not appear, settings/presets do not save, moodles behave strangely, or the UI looks broken after an update, try this with Project Zomboid closed:
+[list]
+[*]Unsubscribe from [b]Modern Status[/b].
+[*]Wait until Steam fully removes the old Workshop download.
+[*]Subscribe again.
+[*]Verify game files:
+[b]Steam Library > right-click Project Zomboid > Properties > Installed Files > Verify integrity of game files[/b]
+[/list]
+
+Then test in a new save with only NeatUI Framework + Modern Status
+
+If it works, add your other mods back in small groups to find the interaction.
+
+If it still fails, close the game and reset Modern Status files in:
+[b]C:\Users\YOUR_USER\Zomboid\Lua[/b]
+
+Current files:
+[b]ModernStatusConfig.txt
+ModernStatusPresets.txt[/b]
+
+Older fallback files:
+[b]ModernStatusConfig.lua
+ModernStatusPresets.lua[/b]
+
+Only delete the presets file if saved presets are broken or you want to remove custom presets.
+
+[h3]MP servers[/h3]
+Check Zomboid\Server\YOURSERVER.ini
+[b]Mods=...;NeatUI_Framework;ModernStatus...
+WorkshopItems=...;3508537032;3451167732...[/b]
+
+[hr]
+[h2]Reporting Issues[/h2]
+Please use the [url=https://steamcommunity.com/workshop/filedetails/discussion/3451167732/595144405227149846/]Bug Report[/url] thread and include your Project Zomboid build, Modern Status version, SP/MP mode, OS, console errors, mod list/load order, and reproduction steps.
+
+[hr]
+[h2]Credits[/h2]
+[list]
+[*][b]Original mod by Rocco[/b]: [url=https://steamcommunity.com/profiles/76561199485575276/myworkshopfiles/?appid=108600]PZ Workshop Items[/url]
+[*][b]Build 42 maintenance, compatibility updates, translation integration, and continued development by Afyrmo[/b]: [url=https://steamcommunity.com/profiles/76561199133259679/myworkshopfiles/?appid=108600]PZ Workshop Items[/url]
+[/list]
+
+[hr]
+If you enjoy the mod and want to support it, buying me a coffee would be appreciated — but above all, enjoy your game!
+
+[url=https://afdian.com/a/23754956rocco][img]https://i.imgur.com/WLIHcQs.jpeg[/img][/url]
+
+
+Workshop ID: 3451167732
+Mod ID: ModernStatus

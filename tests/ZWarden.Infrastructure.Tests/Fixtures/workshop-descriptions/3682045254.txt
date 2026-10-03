@@ -1,0 +1,48 @@
+[h1]If you're a user[/h1]
+This doesn't do anything on it's own, the modders are supposed to use this to adjust players carry weight without conflicting with each other.
+
+[h1]Mods using this framework[/h1]
+And therefore, their weight-related functionalities should not clash.
+[list]
+[*][url=https://steamcommunity.com/sharedfiles/filedetails?id=2914075159]Evolving Traits World (ETW)[/url]
+[*][url=https://steamcommunity.com/sharedfiles/filedetails?id=1299328280]More Traits[/url]
+[/list]
+If you have a mod that adjusts carry weight in any way and it conflicts with this framework (it will), just convince them into using the framework, it's the only way to have weight changes from different mods play well with each other. If you know a mod that uses this framework you can mention it so I can add it to the list.
+
+[h1]If you're a modder[/h1]
+You are probably aware that majority of mods that modify carry weight conflict with each other and usually it's just "whichever mod applied their override last" sets the weight.
+
+So I made this little thing.
+
+- This allows multiple mods to modify carry weight without overwriting each other changes.
+- Supports flat bonuses and multiplications for both base weight (before str applied) and total max weight (after str bonuses are applied)
+
+So something like this is possible and very easy to do now: 
+
+- Mod A has sandbox setting that sets base carry weight to 10 (from 8)
+- Mod B has a trait that gives player 0.25 bonus to base carry weight per point of strength
+- Mod C has a exoskeleton that when worn increases total carry weight by 50%.
+
+There's a client and a server file with example on how to use the framework, in their respective folders. If you need additional help, ping me in my discord.
+
+[h1]GitHub and Discord[/h1]
+If you want to submit translation files, make suggestions or report bugs, the easiest way to do it would be on Discord.
+[url=https://discord.gg/8pBN5Ccm7z][img]https://cdn.iconscout.com/icon/free/png-256/discord-3691244-3073764.png[/img][/url][url=https://github.com/MusicManiac/UnifiedCarryWeightFramework][img]https://cdn.iconscout.com/icon/free/png-256/github-163-761603.png[/img][/url]
+
+[h1]Credits and Translations[/h1]
+Huge thanks to [url=https://steamcommunity.com/profiles/76561198042464272]Albion[/url] for assist.
+Currently mod supports following languages:
+[list]
+[*]English
+[/list]
+
+[h1]Afterword and Permission[/h1]
+If you like this mod, check out collection on top of page for other mods I made or collaborated on! Rate ups are appreciated, and if you wanna send me a coffee, that's a real homie move, and you can do it here:
+[url=https://ko-fi.com/musicmaniac][img]https://uploads-ssl.webflow.com/5c14e387dab576fe667689cf/61e11d5cf697cee7ca5b65d9_Button-p-500.png[/img][/url]
+
+[quote]⛔ Permissions
+Redistribution of this mod without explicit permission from the creator is prohibited under any circumstances. This includes, but not limited to, uploading this mod to the Steam Workshop or any other site, distribution as part of another mod or modpack, distribution of modified versions.
+© 2026 [url=https://steamcommunity.com/profiles/76561198152820942]MusicManiac[/url] (SteamID64: 76561198152820942)[/quote]
+
+Workshop ID: 3682045254
+Mod ID: UnifiedCarryWeightFramework

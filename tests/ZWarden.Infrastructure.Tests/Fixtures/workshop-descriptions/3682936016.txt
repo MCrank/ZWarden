@@ -1,0 +1,197 @@
+[h1]Equipment UI – Build 42.20[/h1]
+
+This Workshop item provides a maintained Build 42.20 continuation of [b]Equipment UI[/b], originally created by [b]Notloc[/b].
+
+It contains three variants:
+
+[list]
+[*][b]Equipment UI – Standalone[/b] – recommended and actively maintained.
+[*][b]Equipment UI – Standalone for TETRIS[/b] – special override using the original [b]EQUIPMENT_UI[/b] Mod ID for mods that require it.
+[*][b]Equipment UI Patch[/b] – discontinued legacy patch for Notloc's original mod.
+[/list]
+
+[quote][b]IMPORTANT – CHOOSE ONLY ONE SETUP[/b]
+[quote]
+[b]Recommended:[/b]
+Equipment UI – Standalone
+Mod ID: [b]EQUIPMENT_UI_B42[/b]
+[/quote]
+[quote]
+[b]For TETRIS / legacy dependencies:[/b]
+Equipment UI – Standalone for TETRIS
+Mod ID: [b]EQUIPMENT_UI[/b]
+[/quote]
+[quote]
+[b]Legacy setup:[/b]
+Notloc's original Equipment UI
++
+Equipment UI Patch
+Mod ID: [b]equipmentuipatch[/b]
+[/quote]
+[/quote]
+
+
+[h1]— STANDALONE VERSION —[/h1]
+
+The Standalone version combines the original Equipment UI functionality with continued Build 42.20 maintenance, fixes, performance improvements and additional customization.
+
+[b]The original Equipment UI Workshop mod is not required.[/b]
+
+Features include:
+
+[list]
+[*]Paper-doll-style equipment interface.
+[*]Drag & Drop equipment management.
+[*]Support for vanilla and modded BodyLocations.
+[*]Build 42.20 compatibility.
+[*]Performance and stability improvements.
+[*]Optimized clothing, equipment and Hotbar updates.
+[*]Correctly scaled equipment icons.
+[*]Support for larger icon textures without slot overflow.
+[*]UI scaling from 0.5x to 4.0x with additional intermediate steps.
+[*]Option to hide equipped items from the normal inventory.
+[*]Option to hide the complete Equipment UI Hotbar.
+[*]Option to lock detached window resizing.
+[*]Keyboard and controller support.
+[*]Updated localization support including Japanese and Korean.
+[*]Optional TwisTonFire Clothing BodyLocation integration.
+[/list]
+
+
+[h1]— TETRIS OVERRIDE —[/h1]
+
+The TETRIS Override contains the maintained Standalone code but uses the original:
+
+[b]Mod ID: EQUIPMENT_UI[/b]
+
+This version exists because TETRIS and some other mods still require Notloc's original Equipment UI Mod ID as a dependency.
+
+[b]Only use this version if another mod specifically requires EQUIPMENT_UI.[/b]
+
+[quote][b]IMPORTANT[/b]
+
+[b]Remove Notloc's original Equipment UI Workshop item before using the Override version.[/b]
+
+Do not keep both Workshop items installed.
+
+Both provide Equipment UI under the same Mod ID and overlapping Lua files. Having both installed can cause files from different Workshop sources to be mixed and can lead to:
+
+[list]
+[*]Lua checksum errors in Multiplayer.
+[*]Different Lua files between server and client.
+[*]Unexpected load-order or dependency behavior.
+[/list]
+
+Server and clients must use the same Equipment UI version and Workshop setup.
+[/quote]
+
+
+[h1]— LEGACY PATCH —[/h1]
+
+The old compatibility patch remains available for users who intentionally continue using Notloc's original Equipment UI.
+
+[b]The original Equipment UI is required when using the Patch.[/b]
+
+The Patch provides the older Build 42 compatibility changes, icon scaling fixes and translation compatibility adjustments.
+
+[b]The Patch is discontinued.[/b]
+
+It will remain available, but new features, performance improvements, localization updates and future compatibility work are developed for the Standalone versions.
+
+
+[h1]— WHAT IS EQUIPMENT UI? —[/h1]
+
+Equipment UI adds a dedicated paper-doll-style equipment interface inspired by games such as STALKER and Tarkov.
+
+The window can be attached to the inventory or detached and positioned separately. Its position and layout are saved between sessions.
+
+Equipment slots visually react to conflicts and support Drag & Drop for quick equipment management.
+
+
+[h2]Mod Options[/h2]
+
+[list]
+[*]Equipment UI scale.
+[*]Hide equipped inventory items.
+[*]Hide Equipment UI Hotbar.
+[*]Lock detached window resizing.
+[*]Configure controller binding.
+[/list]
+
+
+[h2]Localization[/h2]
+
+Available localization files:
+
+Traditional Chinese, Simplified Chinese, Czech, German, English, Spanish, French, Japanese, Korean, Polish, Brazilian Portuguese, Russian, Thai, Turkish and Ukrainian.
+
+
+[h1]— MULTIPLAYER & COMPATIBILITY —[/h1]
+
+Compatible with:
+
+[list]
+[*]Singleplayer
+[*]Multiplayer
+[*]Project Zomboid Build 42.20
+[/list]
+
+Equipment UI interacts heavily with wearable items and BodyLocations.
+
+Broken or outdated wearable items, invalid icons or incorrect BodyLocation definitions from other mods may cause Equipment UI errors even when Equipment UI itself is not the source of the problem.
+
+Please disable other Equipment UI modifications before reporting an issue.
+
+
+[h1]— ORIGINAL MOD & LICENSE —[/h1]
+
+Original mod:
+[b]Equipment UI – Paper Doll Equipment Interface[/b]
+by [b]Notloc[/b]
+
+https://steamcommunity.com/sharedfiles/filedetails/?id=2950902979
+
+Notloc discontinued support for the original mod and released Equipment UI under the [b]MIT License[/b].
+
+The Standalone and Override versions continue Equipment UI under the terms of that license. The original copyright and MIT License notice are included.
+
+[b]Original creator:[/b] Notloc
+[b]Build 42.20 maintenance / improvements:[/b] TwisTonFire
+
+[h2]Special Thanks from the Original Equipment UI[/h2]
+
+[list]
+[*][b]dhert[/b] – BodyLocation information and equipped-item hiding.
+[*][b]Burryaga[/b] – controller feedback and testing.
+[/list]
+
+
+[h1]— WHICH VERSION SHOULD I USE? —[/h1]
+
+[b]Most users:[/b]
+Use [b]EQUIPMENT_UI_B42[/b].
+
+[b]TETRIS or another mod requires EQUIPMENT_UI:[/b]
+Use the Override [b]EQUIPMENT_UI[/b] and remove Notloc's original Workshop item first.
+
+[b]Want to keep using Notloc's original mod:[/b]
+Use the legacy [b]equipmentuipatch[/b] together with the original mod.
+
+
+[quote][b]MAINTENANCE STATUS[/b]
+
+EQUIPMENT_UI_B42 – Actively maintained.
+EQUIPMENT_UI – Actively maintained for legacy dependency compatibility.
+equipmentuipatch – Discontinued except for critical compatibility issues.
+[/quote]
+[img]https://imgur.com/RQYClYI.png[/img]
+
+[url=https://streamlabs.com/twistonfire/tip][img]https://imgur.com/Vqt9lif.png[/img][/url]
+Your support helps me keep going—thank you very much in advance!
+
+[img]https://imgur.com/RQYClYI.png[/img]
+Workshop ID: 3682936016
+
+Mod ID: EQUIPMENT_UI_B42
+Mod ID: EQUIPMENT_UI
+Mod ID: equipmentuipatch

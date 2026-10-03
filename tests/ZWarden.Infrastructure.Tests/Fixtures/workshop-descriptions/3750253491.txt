@@ -1,0 +1,70 @@
+[code]
+This mod is a standalone.
+[/code]
+
+The update for [url=https://steamcommunity.com/sharedfiles/filedetails/?id=2875848298]Common Sense by BitBraven[/url] is finally here!
+
+There are so many half-baked patches and updates that either cut out a bunch of features or straight out don't work... Is it that hard to fully update a mod like this? [b]I don't think so.[/b] So here's my attempt to fully revive our beloved mod.
+
+[img]https://i.imgur.com/RMNv3Ur.png[/img]
+[list]
+[*] 1. Pry open Doors, Windows and Vehicles with Crowbars (reinforced doors cannot be opened by default, look at config opts).
+[*] 2. Collect Garbage, Materials, etc. off the ground.
+[*] 3. (new) Reload all selected magazines at once.
+[*] 4. Attach hand Flashlights to the toolbelt.
+[*] 5. Gun Ammo Counter on the Top Left of the screen.
+[*] 6. Use any scissors or screwdrivers to open canned food (can get injured).
+[*] 7. (new) Replace dirty bandages.
+[*] 8. Equip items right from the ground.
+[*] 9. Wash only equipped or unequipped items.
+[*] 10. Make Sheets with improvised materials.
+[*] 11. Use Alcohol to sanitize Dirty Bandages.
+[*] 12. Easier fuel transfer in campfires, bbqs, fireplaces...
+[/list]
+[b]Features already in vanilla:[/b]
+[list]
+[*] Collect forest goods from the ground.
+[*] Repair various weapons and tools with glue.
+[*] Highlight vehicle's engine, battery and fuel condition in the dashboard.
+[*] Pour the contents of containers into the ground.
+[*] Wash only weapons.
+[/list]
+
+[quote]
+[h1]F.A.Q.[/h1]
+[h3]Works in the latest version?[/h3]
+[b]FOR SINGLE PLAYER IT WORKS FLAWLESSLY IN B42.20 STABLE.[/b]
+[h3]What about multiplayer?[/h3]
+🛑 It mostly works but fuck multiplayer...
+[h3]Works in existing saves/servers?[/h3]
+Yes.
+[h3]Is this update compatible with [...]?[/h3]
+If your mod is not in this tiny list, please test it out and tell me in the discussions!
+
+List of known incompatibilities:
+[list]
+[*] [url=https://steamcommunity.com/sharedfiles/filedetails/?id=3713662067]Inventory tetris and its forks[/url] cause issues with the washing menu (can be disabled in the sandbox settings).
+[/list]
+[/quote]
+
+[h1][b]Credits[/b][/h1]
+Developed by [url=https://steamcommunity.com/sharedfiles/filedetails/?id=2875848298]BitBraven[/url].
+Updated and polished by 1Vita.
+
+
+[h1]Vita's mods[/h1]
+[url=https://steamcommunity.com/sharedfiles/filedetails/?id=3733659974][img]https://i.imgur.com/l0W8sjf.png[/img][/url][url=https://steamcommunity.com/sharedfiles/filedetails/?id=3739612285][img]https://i.imgur.com/AHK33gd.png[/img][/url][url=https://steamcommunity.com/sharedfiles/filedetails/?id=3746021655][img]https://i.imgur.com/yf7O9cF.png[/img][/url]
+
+
+[url=https://steamcommunity.com/sharedfiles/filedetails/?id=3751194777][img]https://i.imgur.com/sWKnPQE.png[/img][/url]
+
+[quote]
+[h1]BEFORE REPORTING A BUG:
+- MAKE SURE YOU GOT THE LATEST VERSION 3.5.2
+- TRY PUTTING THIS MOD AT THE END OF THE LOAD ORDER.
+- ARE YOU HOSTING A SERVER? TELL ME[/h1]
+[/quote]
+
+Workshop ID: 3750253491
+Mod ID: VB_CommonSense
+[b]Version: 3.5.3[/b]
