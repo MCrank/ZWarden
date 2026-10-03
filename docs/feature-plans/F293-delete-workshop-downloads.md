@@ -41,10 +41,25 @@ that isn't a plain Workshop id, and any server it doesn't own. Every delete is a
   - the control plane accepts only ids whose status is `Leftover`;
   - the Agent refuses any id in `WorkshopItems=`. It can't know the booted set, but this is the issue's hard guard.
 - So delete is allowed whether the server is running or stopped. No restart is involved.
-- **One thing to verify** (slice 0, or else the DMZ pass): after deleting an item's folder, does Reinstall + restart
-  download it again? Steam keeps `steamapps/workshop/appworkshop_108600.acf` listing installed items. If a stale entry
-  makes Steam skip the download, the Agent must also drop that entry. The plan assumes Steam notices the missing
-  folder; the spike decides.
+- **Re-download after a delete works** (slice 0, below). Steam's `appworkshop_108600.acf` still lists a deleted
+  item, but Steam notices the folder is missing and downloads it again. The Agent deletes only the folder and
+  leaves the `.acf` file alone.
+
+## Slice 0 spike results (2026-10-03, local `zwarden-pzserver` built from `development`, server build 24909836)
+
+Items: KillCount 2553809727 (configured, `Mods=KillCount`) and 2392709985 (~10 MB), on the cached #291 install volume.
+
+| Step | Result |
+|---|---|
+| First boot with `WorkshopItems=2553809727;2392709985` | `Workshop: 2392709985 installed to /pz/server/steamapps/workshop/content/108600/2392709985`. This confirms question 1 a second time. |
+| Removed 2392709985 from `WorkshopItems=`, booted (now a leftover) | `SERVER STARTED`; `loading KillCount`. |
+| `/proc/<java>/fd` and `/proc/<java>/maps` while running | **0** workshop handles and **0** mapped workshop files, **even for the loaded KillCount**. PZ reads mod files and closes them. |
+| `rm -rf …/108600/2392709985` while running | No errors in the log; the container stayed `healthy`. |
+| Re-added 2392709985, restarted (the `.acf` still lists it) | `GetItemState()=Installed` → `CheckItemState -> DownloadPending` → re-downloaded (11 MB) and `SERVER STARTED` in the same boot. |
+
+**What this means:** delete while the server runs, as planned. No `.acf` edit is needed, and Reinstall after a delete
+works with one restart. The image cached locally as `zwarden-pzserver:test` predates #188 and hangs at the admin
+password prompt; rebuild before reusing it.
 
 ### 3. Confirm-dialog pattern → `BbAlertDialog`, without typed confirmation.
 
@@ -82,7 +97,7 @@ that isn't a plain Workshop id, and any server it doesn't own. Every delete is a
 
 ## Slices (TDD)
 
-0. **Spike (optional, local `zwarden-pzserver`):** with the server running, run `ls -l /proc/<java>/fd` and check
+0. **Spike — done, see above.** Was: with the server running, run `ls -l /proc/<java>/fd` and check
    that no `workshop/content` handles are open for a non-configured item. Then delete an item's folder → re-add → restart →
    check whether it downloads again (question 2). If the image isn't cached locally, this moves to the DMZ pass.
 1. **Contracts:** `DeleteWorkshopContent` message, `WorkshopContentDeletionResult` on `OperationCompleted`, protocol
