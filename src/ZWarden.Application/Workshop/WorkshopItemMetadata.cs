@@ -16,6 +16,7 @@ namespace ZWarden.Application.Workshop;
 /// <param name="SizeBytes">The item's content size in bytes, or <c>null</c>.</param>
 /// <param name="UpdatedAt">When the item was last updated (UTC), or <c>null</c>.</param>
 /// <param name="Description">The item's description, or <c>null</c> (bounded).</param>
+/// <param name="Tags">The item's Workshop tags (e.g. <c>Build 42</c>, <c>Multiplayer</c>); bounded (#290).</param>
 public sealed record WorkshopItemMetadata(
     string WorkshopId,
     bool Found,
@@ -23,8 +24,12 @@ public sealed record WorkshopItemMetadata(
     string? PreviewUrl = null,
     long? SizeBytes = null,
     DateTimeOffset? UpdatedAt = null,
-    string? Description = null)
+    string? Description = null,
+    IReadOnlyList<string>? Tags = null)
 {
+    /// <summary>The item's Workshop tags; empty when Steam listed none.</summary>
+    public IReadOnlyList<string> Tags { get; init; } = Tags ?? [];
+
     /// <summary>A not-found placeholder for an id Steam did not resolve, so the caller renders the bare id.</summary>
     public static WorkshopItemMetadata NotFound(string workshopId) => new(workshopId, Found: false);
 }

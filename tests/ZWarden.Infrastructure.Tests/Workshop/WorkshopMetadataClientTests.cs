@@ -16,7 +16,7 @@ namespace ZWarden.Infrastructure.Tests.Workshop;
 /// </summary>
 public class WorkshopMetadataClientTests
 {
-    private static WorkshopMetadataClient NewClient(StubHandler handler) =>
+    private static WorkshopMetadataClient NewClient(HttpMessageHandler handler) =>
         new(
             new HttpClient(handler) { BaseAddress = new Uri("https://api.steampowered.com/") },
             new MemoryCache(new MemoryCacheOptions()),
@@ -167,6 +167,80 @@ public class WorkshopMetadataClientTests
         IReadOnlyList<string> ids = await NewClient(new StubHandler(HttpStatusCode.OK, json)).GetCollectionItemIdsAsync("777");
 
         await Assert.That(ids).IsEmpty();
+    }
+
+    [Test]
+    public async Task Tags_are_parsed_and_malformed_entries_dropped()
+    {
+        // #290: the installed-item record shows tags (e.g. Build 41 / Build 42). Untrusted shapes are skipped.
+        const string json = """
+        {"response":{"publishedfiledetails":[{"publishedfileid":"111","result":1,
+          "tags":[{"tag":"Build 42"},{"tag":"Multiplayer"},{"tag":7},{"nope":"x"},"bare",{"tag":""}]}]}}
+        """;
+
+        WorkshopItemMetadata item = (await NewClient(new StubHandler(HttpStatusCode.OK, json)).GetItemsAsync(["111"])).Single();
+
+        string[] expected = ["Build 42", "Multiplayer"];
+        await Assert.That(item.Tags).IsEquivalentTo(expected);
+    }
+
+    [Test]
+    public async Task An_item_without_tags_has_an_empty_tag_list()
+    {
+        const string json = """{"response":{"publishedfiledetails":[{"publishedfileid":"111","result":1}]}}""";
+
+        WorkshopItemMetadata item = (await NewClient(new StubHandler(HttpStatusCode.OK, json)).GetItemsAsync(["111"])).Single();
+
+        await Assert.That(item.Tags).IsEmpty();
+    }
+
+    [Test]
+    public async Task More_than_one_hundred_ids_are_split_into_batches_not_dropped()
+    {
+        // #290: a server's whole mod list is refreshed in one call; Steam takes at most 100 ids per request.
+        EchoHandler handler = new();
+        string[] ids = [.. Enumerable.Range(1, 150).Select(i => (1000 + i).ToString(System.Globalization.CultureInfo.InvariantCulture))];
+
+        IReadOnlyList<WorkshopItemMetadata> items = await NewClient(handler).GetItemsAsync(ids);
+
+        await Assert.That(items.Count).IsEqualTo(150);
+        await Assert.That(items.All(i => i.Found)).IsTrue();
+        int[] expectedBatches = [100, 50];
+        await Assert.That(handler.BatchSizes).IsEquivalentTo(expectedBatches);
+    }
+
+    [Test]
+    public async Task A_description_up_to_steams_8000_character_limit_is_kept_whole()
+    {
+        // #290: authors often list "Mod ID:" lines at the very end (More Traits' sit past character 5,000).
+        string description = new string('x', 7_900) + "\nMod ID: Tail";
+        string escaped = description.Replace("\n", "\\n", StringComparison.Ordinal);
+        string json = $$$"""{"response":{"publishedfiledetails":[{"publishedfileid":"111","result":1,"file_description":"{{{escaped}}}"}]}}""";
+
+        WorkshopItemMetadata item = (await NewClient(new StubHandler(HttpStatusCode.OK, json)).GetItemsAsync(["111"])).Single();
+
+        await Assert.That(item.Description).IsEqualTo(description);
+    }
+
+    // Answers GetPublishedFileDetails with a found record for every id in the posted form, recording batch sizes.
+    private sealed class EchoHandler : HttpMessageHandler
+    {
+        public List<int> BatchSizes { get; } = [];
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            string body = await request.Content!.ReadAsStringAsync(cancellationToken);
+            string[] ids = [.. body.Split('&')
+                .Select(Uri.UnescapeDataString)
+                .Where(pair => pair.StartsWith("publishedfileids[", StringComparison.Ordinal))
+                .Select(pair => pair[(pair.IndexOf('=', StringComparison.Ordinal) + 1)..])];
+            BatchSizes.Add(ids.Length);
+            string items = string.Join(",", ids.Select(id => $$"""{"publishedfileid":"{{id}}","result":1}"""));
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent($$$"""{"response":{"publishedfiledetails":[{{{items}}}]}}""", Encoding.UTF8, "application/json"),
+            };
+        }
     }
 
     private sealed class StubHandler(HttpStatusCode status, string? json) : HttpMessageHandler
