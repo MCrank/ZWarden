@@ -5,32 +5,57 @@
 @* #291 one-click Install for one Workshop item, shared by the Mod Browser cards and the Mods section's add field.
    Install reads the item's description (keyless preview, Mod.View) and plans it: no ids → add the item only (Pick
    parts after the next boot); one id → install with it; several → an inline part picker, every part ticked, before
-   anything is written. The manager re-checks Mod.Install and validates every id. Workshop text is rendered as
-   data. Inline, not a dialog: the app has no portal host yet (#292 adds one). *@
+   anything is written. With a Steam Web API key, the item's required items are offered too, ticked, and installed in
+   the same apply with their own description ids (D5). The manager re-checks Mod.Install and validates every id.
+   Workshop text is rendered as data. Inline, not a dialog: the app has no portal host yet (#292 adds one). *@
 
 <div class="zw-mb-actions flex-col items-start gap-2" data-mod-install data-workshop-id="@WorkshopId">
-    @if (_plan is { Kind: ModInstallKind.Choose } plan)
+    @if (_plan is { } plan)
     {
         <div class="w-full rounded-md border border-border p-3" data-mod-install-picker>
-            <p class="text-xs text-muted-foreground">
-                This item has @plan.CandidateModIds.Count parts. Choose which to turn on. The download is checked
-                after the next restart, and anything it doesn't provide shows as <span class="font-medium">Pick parts</span>.
-            </p>
-            <div class="mt-2 space-y-1.5">
-                @foreach (string part in plan.CandidateModIds.Select(p => p.Value))
-                {
-                    string id = $"part-{WorkshopId}-{part}";
-                    <div class="flex items-center gap-2" data-mod-install-part data-mod-id="@part">
-                        <BbCheckbox Id="@id" Checked="_picked.Contains(part)"
-                                    CheckedChanged="@((bool on) => Toggle(part, on))" />
-                        <BbLabel For="@id" Class="font-mono text-sm">@part</BbLabel>
-                    </div>
-                }
-            </div>
+            @if (plan.Kind == ModInstallKind.Choose)
+            {
+                <p class="text-xs text-muted-foreground">
+                    This item has @plan.CandidateModIds.Count parts. Choose which to turn on. The download is checked
+                    after the next restart, and anything it doesn't provide shows as <span class="font-medium">Pick parts</span>.
+                </p>
+                <div class="mt-2 space-y-1.5">
+                    @foreach (string part in plan.CandidateModIds.Select(p => p.Value))
+                    {
+                        string id = $"part-{WorkshopId}-{part}";
+                        <div class="flex items-center gap-2" data-mod-install-part data-mod-id="@part">
+                            <BbCheckbox Id="@id" Checked="_picked.Contains(part)"
+                                        CheckedChanged="@((bool on) => Toggle(_picked, part, on))" />
+                            <BbLabel For="@id" Class="font-mono text-sm">@part</BbLabel>
+                        </div>
+                    }
+                </div>
+            }
+
+            @if (_required.Count > 0)
+            {
+                <p class="@(plan.Kind == ModInstallKind.Choose ? "mt-3 " : "")text-xs text-muted-foreground">
+                    It requires @_required.Count other item@(_required.Count == 1 ? "" : "s") on the Workshop. Install them too:
+                </p>
+                <div class="mt-2 space-y-1.5">
+                    @foreach (WorkshopItemMetadata dependency in _required)
+                    {
+                        string id = $"dep-{WorkshopId}-{dependency.WorkshopId}";
+                        <div class="flex items-center gap-2" data-mod-install-dependency data-workshop-id="@dependency.WorkshopId">
+                            <BbCheckbox Id="@id" Checked="_pickedRequired.Contains(dependency.WorkshopId)"
+                                        CheckedChanged="@((bool on) => Toggle(_pickedRequired, dependency.WorkshopId, on))" />
+                            <BbLabel For="@id" Class="text-sm">
+                                @(dependency.Found && !string.IsNullOrWhiteSpace(dependency.Title) ? dependency.Title : "Untitled item")
+                                <span class="font-mono text-xs text-muted-foreground">@dependency.WorkshopId</span>
+                            </BbLabel>
+                        </div>
+                    }
+                </div>
+            }
+
             <div class="mt-3 flex gap-2">
-                <BbButton Size="ButtonSize.Small" Disabled="_acting"
-                          OnClick="@(() => InstallAsync(plan, [.. _picked]))" data-action="mod-install-confirm">
-                    Install @_picked.Count of @plan.CandidateModIds.Count
+                <BbButton Size="ButtonSize.Small" Disabled="_acting" OnClick="ConfirmAsync" data-action="mod-install-confirm">
+                    @ConfirmLabel(plan)
                 </BbButton>
                 <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" Disabled="_acting"
                           OnClick="Cancel" data-action="mod-install-cancel">Cancel</BbButton>
@@ -62,8 +87,11 @@
     [Parameter]
     public EventCallback OnInstalled { get; set; }
 
+    // Set while the inline panel is open (several parts, or required items to offer).
     private ModInstallPlan? _plan;
     private HashSet<string> _picked = new(StringComparer.Ordinal);
+    private IReadOnlyList<WorkshopItemMetadata> _required = [];
+    private HashSet<string> _pickedRequired = new(StringComparer.Ordinal);
     private string? _message;
     private bool _ok;
     private bool _acting;
@@ -82,15 +110,19 @@
             WorkshopItemMetadata item = preview.Items.FirstOrDefault(i => i.WorkshopId == workshopId)
                 ?? WorkshopItemMetadata.NotFound(workshopId);
             ModInstallPlan plan = ModInstallPlan.For(item);
+            IReadOnlyList<WorkshopItemMetadata> required = await Actions.RunAsync<IWorkshopDependencyService, IReadOnlyList<WorkshopItemMetadata>>(
+                (dependencies, ct) => dependencies.GetRequiredItemsAsync(user, serverId, workshopId, ct));
 
-            if (plan.Kind == ModInstallKind.Choose)
+            if (plan.Kind == ModInstallKind.Choose || required.Count > 0)
             {
                 _plan = plan;
                 _picked = new HashSet<string>(plan.CandidateModIds.Select(p => p.Value), StringComparer.Ordinal);
+                _required = required;
+                _pickedRequired = new HashSet<string>(required.Select(r => r.WorkshopId), StringComparer.Ordinal);
                 return;
             }
 
-            await InstallCoreAsync(user, plan, [.. plan.CandidateModIds.Select(p => p.Value)]);
+            await InstallCoreAsync(user, plan, [plan.WorkshopId], [.. plan.CandidateModIds.Select(p => p.Value)], requiredCount: 0);
         }
         finally
         {
@@ -98,12 +130,29 @@
         }
     }
 
-    private async Task InstallAsync(ModInstallPlan plan, IReadOnlyList<string> modIds)
+    private async Task ConfirmAsync()
     {
+        if (_plan is not { } plan)
+        {
+            return;
+        }
+
         _acting = true;
         try
         {
-            await InstallCoreAsync(await CurrentUserAsync(), plan, modIds);
+            // The item's parts (all of them, or the ticked ones when it has several), then each ticked required
+            // item with every id its own description lists.
+            List<string> modIds = plan.Kind == ModInstallKind.Choose
+                ? [.. plan.CandidateModIds.Select(p => p.Value).Where(_picked.Contains)]
+                : [.. plan.CandidateModIds.Select(p => p.Value)];
+            List<WorkshopItemMetadata> required = [.. _required.Where(r => _pickedRequired.Contains(r.WorkshopId))];
+            foreach (WorkshopItemMetadata dependency in required)
+            {
+                modIds.AddRange(ModInstallPlan.For(dependency).CandidateModIds.Select(p => p.Value));
+            }
+
+            List<string> workshopIds = [plan.WorkshopId, .. required.Select(r => r.WorkshopId)];
+            await InstallCoreAsync(await CurrentUserAsync(), plan, workshopIds, [.. modIds.Distinct(StringComparer.Ordinal)], required.Count);
         }
         finally
         {
@@ -111,15 +160,15 @@
         }
     }
 
-    private async Task InstallCoreAsync(UserId user, ModInstallPlan plan, IReadOnlyList<string> modIds)
+    private async Task InstallCoreAsync(
+        UserId user, ModInstallPlan plan, IReadOnlyList<string> workshopIds, IReadOnlyList<string> modIds, int requiredCount)
     {
         ServerId serverId = Server.Id;
-        string[] workshopIds = [plan.WorkshopId];
         ModManagementResult result = await Actions.RunAsync<IServerModManager, ModManagementResult>(
             (mods, ct) => mods.InstallWorkshopItemsAsync(user, serverId, workshopIds, modIds, ct));
 
         _ok = result.Succeeded;
-        _message = result.Succeeded ? Installed(plan, modIds) : Refused(result);
+        _message = result.Succeeded ? Installed(plan, modIds, requiredCount) : Refused(result);
         if (result.Succeeded)
         {
             _plan = null;
@@ -127,15 +176,15 @@
         }
     }
 
-    private void Toggle(string part, bool on)
+    private static void Toggle(HashSet<string> set, string value, bool on)
     {
         if (on)
         {
-            _picked.Add(part);
+            set.Add(value);
         }
         else
         {
-            _picked.Remove(part);
+            set.Remove(value);
         }
     }
 
@@ -145,14 +194,25 @@
         _message = null;
     }
 
-    private static string Installed(ModInstallPlan plan, IReadOnlyList<string> modIds) => modIds.Count switch
+    private string ConfirmLabel(ModInstallPlan plan)
     {
-        0 when plan.Kind == ModInstallKind.NoIds =>
-            "Added. Its Workshop page lists no mod ids, so after the next restart choose its parts in Mods.",
-        0 => "Added with no parts turned on. After the next restart, choose its parts in Mods.",
-        1 => $"Installed — {modIds[0]} loads on the next restart.",
-        _ => $"Installed with {modIds.Count} parts — they load on the next restart.",
-    };
+        string parts = plan.Kind == ModInstallKind.Choose ? $" {_picked.Count} of {plan.CandidateModIds.Count}" : string.Empty;
+        string plus = _pickedRequired.Count > 0 ? $" + {_pickedRequired.Count} required" : string.Empty;
+        return $"Install{parts}{plus}";
+    }
+
+    private static string Installed(ModInstallPlan plan, IReadOnlyList<string> modIds, int requiredCount)
+    {
+        string with = requiredCount > 0 ? $" with {requiredCount} required item{(requiredCount == 1 ? "" : "s")}" : string.Empty;
+        return modIds.Count switch
+        {
+            0 when plan.Kind == ModInstallKind.NoIds =>
+                $"Added{with}. Its Workshop page lists no mod ids, so after the next restart choose its parts in Mods.",
+            0 => $"Added{with} with no parts turned on. After the next restart, choose its parts in Mods.",
+            1 => $"Installed{with} — {modIds[0]} loads on the next restart.",
+            _ => $"Installed{with} — {modIds.Count} mods load on the next restart.",
+        };
+    }
 
     private static string Refused(ModManagementResult result) => result.Failure switch
     {

@@ -167,6 +167,34 @@ public sealed class ServerDetailModBrowserTests
     }
 
     [Test]
+    public async Task Required_items_are_offered_ticked_and_installed_in_the_same_apply()
+    {
+        // #291 D5 (search key configured): the item requires a library; both land in one apply, each with the
+        // mod id its own description lists.
+        Action<IServiceCollection> fakes = Fakes(out FakePreview preview, out _, out _);
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(services =>
+        {
+            fakes(services);
+            services.AddSingleton<IWorkshopDependencyService>(new FakeDependencies(
+                new WorkshopItemMetadata("900", Found: true, Title: "Core Library", Description: "Mod ID: CoreLib")));
+        });
+        preview.Result = WorkshopPreview.OfItem(
+            new WorkshopItemMetadata("200", Found: true, Title: "New Pack", Description: "Mod ID: NewPack"));
+        ServerId serverId = await harness.SeedServerAsync("mb-deps");
+        harness.SeedInventory(serverId, installed: [], workshop: [], enabled: []);
+        IRenderedComponent<ServerDetail> cut = await PreviewAsync(harness, serverId, "200");
+
+        await cut.Find("[data-workshop-id='200'] [data-action=mod-install]").ClickAsync(new());
+        cut.WaitForState(() => cut.FindAll("[data-mod-install-dependency][data-workshop-id='900']").Count == 1);
+        await Assert.That(cut.Find("[data-mod-install-dependency]").TextContent).Contains("Core Library");
+        await cut.Find("[data-action=mod-install-confirm]").ClickAsync(new());
+
+        cut.WaitForState(() => harness.FirstOperation(serverId, OperationKind.ConfigApply) is not null);
+        ConfigApplyPayload payload = ConfigApplyPayload.FromJson(harness.FirstOperation(serverId, OperationKind.ConfigApply)!.CommandPayload!);
+        await Assert.That(payload.Edits.Select(e => $"{e.Path}={e.Value}")).IsEquivalentTo(["WorkshopItems=200;900", "Mods=NewPack;CoreLib"]);
+    }
+
+    [Test]
     public async Task An_item_whose_page_lists_no_mod_ids_is_added_and_asks_for_parts_after_the_restart()
     {
         await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(Fakes(out FakePreview preview, out _, out _));
@@ -256,6 +284,13 @@ public sealed class ServerDetailModBrowserTests
         public Task<WorkshopPreview> ResolveAsync(
             UserId actor, ServerId server, string input, CancellationToken cancellationToken = default) =>
             Task.FromResult(Result);
+    }
+
+    private sealed class FakeDependencies(params WorkshopItemMetadata[] required) : IWorkshopDependencyService
+    {
+        public Task<IReadOnlyList<WorkshopItemMetadata>> GetRequiredItemsAsync(
+            UserId actor, ServerId server, string workshopId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<WorkshopItemMetadata>>(required);
     }
 
     private sealed class FakeSearch : IWorkshopSearchService
