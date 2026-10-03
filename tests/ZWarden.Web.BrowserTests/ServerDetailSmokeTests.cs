@@ -82,12 +82,15 @@ public sealed partial class ServerDetailSmokeTests(BrowserHost host)
         await Expect(row).ToHaveClassAsync(ChangedRow());
 
         string before = await session.Page.GetAttributeAsync("[data-circuit]", "data-circuit-instance") ?? string.Empty;
-        await Assert.That(await session.Page.EvaluateAsync<bool>("() => Blazor.pauseCircuit()")).IsTrue();
-        await Assert.That(await session.Page.EvaluateAsync<bool>("() => Blazor.resumeCircuit()")).IsTrue();
-        // The old markup stays on screen until the new circuit renders, so wait for a new page instance.
-        await session.Page.WaitForFunctionAsync(
-            "before => document.querySelector('[data-circuit]')?.getAttribute('data-circuit-instance') !== before", before);
-        await session.WaitForCircuitAsync();
+        using (session.ExpectDisconnect())
+        {
+            await Assert.That(await session.Page.EvaluateAsync<bool>("() => Blazor.pauseCircuit()")).IsTrue();
+            await Assert.That(await session.Page.EvaluateAsync<bool>("() => Blazor.resumeCircuit()")).IsTrue();
+            // The old markup stays on screen until the new circuit renders, so wait for a new page instance.
+            await session.Page.WaitForFunctionAsync(
+                "before => document.querySelector('[data-circuit]')?.getAttribute('data-circuit-instance') !== before", before);
+            await session.WaitForCircuitAsync();
+        }
 
         await Expect(row).ToHaveClassAsync(ChangedRow());
         await Expect(row.Locator("select[data-cfg-value]")).ToHaveValueAsync("1");

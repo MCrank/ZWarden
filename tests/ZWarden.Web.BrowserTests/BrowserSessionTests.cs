@@ -17,4 +17,38 @@ public sealed class BrowserSessionTests(BrowserHost host)
         await Assert.That(session.Errors).Contains(e => e.Contains("smoke-probe", StringComparison.Ordinal));
         await Assert.That(session.Errors).Contains(e => e.Contains("smoke-throw", StringComparison.Ordinal));
     }
+
+    [Test]
+    public async Task A_deliberate_disconnect_tolerates_only_the_send_on_a_closed_connection_error()
+    {
+        // #315: pausing the circuit can catch an in-flight render ack or interop reply, which the SignalR client
+        // reports as an uncaught "Cannot send data…" error. Inside a deliberate-disconnect scope that one message
+        // is expected; every other error is still recorded.
+        await using BrowserSession session = await host.OpenAsync("/servers");
+
+        using (session.ExpectDisconnect())
+        {
+            await Throw(session, BrowserSession.SendOnClosedConnectionError);
+            await Throw(session, "smoke-other-error");
+        }
+
+        await Assert.That(session.Errors).DoesNotContain(e => e.Contains("Cannot send data", StringComparison.Ordinal));
+        await Assert.That(session.Errors).Contains(e => e.Contains("smoke-other-error", StringComparison.Ordinal));
+    }
+
+    [Test]
+    public async Task Outside_a_deliberate_disconnect_the_send_on_a_closed_connection_error_is_recorded()
+    {
+        await using BrowserSession session = await host.OpenAsync("/servers");
+
+        await Throw(session, BrowserSession.SendOnClosedConnectionError);
+
+        await Assert.That(session.Errors).Contains(e => e.Contains("Cannot send data", StringComparison.Ordinal));
+    }
+
+    private static async Task Throw(BrowserSession session, string message)
+    {
+        await session.Page.EvaluateAsync("m => setTimeout(() => { throw new Error(m); }, 0)", message);
+        await session.Page.WaitForTimeoutAsync(200);
+    }
 }
