@@ -139,6 +139,19 @@ internal sealed class InteractivePageHarness : IAsyncDisposable
         await db.SaveChangesAsync();
     }
 
+    /// <summary>Records a boot of <paramref name="serverId"/> and the discovery after it, so what is configured now
+    /// becomes what it booted with (#292: rows turn Active after Restart to apply).</summary>
+    public async Task RecordBootAsync(ServerId serverId)
+    {
+        await using AsyncServiceScope scope = Factory.Services.CreateSystemScope();
+        ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
+        ServerModState state = await db.Set<ServerModState>().SingleAsync(s => s.ServerId == serverId);
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        state.MarkBooted(now);
+        state.ObserveConfig([.. state.ConfiguredWorkshopIds], [.. state.ConfiguredModIds], now.AddSeconds(1));
+        await db.SaveChangesAsync();
+    }
+
     /// <summary>Records the host capacity <paramref name="serverId"/>'s Agent last reported.</summary>
     public void SeedHostCapacity(ServerId serverId, long total, long committed, long ownLimit, long ownHeap, long reserved)
     {

@@ -23,7 +23,7 @@
                 {
                     <span>Workshop mods this server loads, top to bottom in load order.</span>
                 }
-                @if (_watching)
+                @if (Watching)
                 {
                     <span class="ml-1 italic" data-mod-refreshing>Updating the list…</span>
                 }
@@ -93,13 +93,21 @@
     private IReadOnlyDictionary<string, IReadOnlyList<string>> _warnings = new Dictionary<string, IReadOnlyList<string>>();
     private ModPartConflicts _conflicts = ModPartConflicts.From(null);
 
-    // A change (or Re-scan) is enqueued, not done: the Agent writes the config, then a discovery records the new lists.
-    // Until ConfigObservedAt moves past what was shown, the section re-reads the overview every WatchInterval.
-    private static readonly TimeSpan WatchInterval = TimeSpan.FromSeconds(1);
-    private const int WatchAttempts = 45;
+    // Changes land later than the click: a change (or Re-scan) is only enqueued — the Agent writes the config, then a
+    // discovery records the new lists — and a restart flips rows to Active only after the boot's discovery, minutes
+    // on. So while the section is open it re-reads the overview: every FastInterval for a while after a change, else
+    // every IdleInterval. Rows are replaced only when something shown changed, so a half-ticked parts picker survives.
+    private static readonly TimeSpan FastInterval = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan IdleInterval = TimeSpan.FromSeconds(5);
+    private const int FastAttempts = 45;
     private DateTimeOffset? _observedAt;
-    private CancellationTokenSource? _watch;
-    private bool _watching;
+    private DateTimeOffset? _watchFrom;
+    private int _fastLeft;
+    private string? _shown;
+    private CancellationTokenSource? _polling;
+
+    // "Updating the list…": a change was made and its new lists aren't recorded yet.
+    private bool Watching => _fastLeft > 0 && _observedAt == _watchFrom;
 
     protected override Task OnInitializedAsync()
     {
@@ -107,10 +115,20 @@
         return ReloadAsync();
     }
 
+    protected override void OnAfterRender(bool firstRender)
+    {
+        // Poll only from the live circuit, never while prerendering.
+        if (firstRender)
+        {
+            _polling = new CancellationTokenSource();
+            _ = PollAsync(_polling.Token);
+        }
+    }
+
     public void Dispose()
     {
-        _watch?.Cancel();
-        _watch?.Dispose();
+        _polling?.Cancel();
+        _polling?.Dispose();
     }
 
     private async Task InstalledAsync()
@@ -121,41 +139,48 @@
 
     private void WatchForRefresh()
     {
-        _watch?.Cancel();
-        _watch?.Dispose();
-        _watch = new CancellationTokenSource();
-        _watching = true;
-        _ = WatchAsync(_observedAt, _watch.Token);
+        _watchFrom = _observedAt;
+        _fastLeft = FastAttempts;
     }
 
-    private async Task WatchAsync(DateTimeOffset? shown, CancellationToken ct)
+    private async Task PollAsync(CancellationToken ct)
     {
         try
         {
-            for (int attempt = 0; attempt < WatchAttempts && _observedAt == shown; attempt++)
+            while (!ct.IsCancellationRequested)
             {
-                await Task.Delay(WatchInterval, ct);
-                await InvokeAsync(async () =>
+                bool fast = Watching;
+                await Task.Delay(fast ? FastInterval : IdleInterval, ct);
+                if (fast)
                 {
-                    await ReloadAsync();
-                    StateHasChanged();
-                });
+                    _fastLeft--;
+                }
+
+                try
+                {
+                    await InvokeAsync(async () =>
+                    {
+                        bool wasWatching = Watching;
+                        if (await ReloadAsync() || wasWatching != Watching)
+                        {
+                            StateHasChanged();
+                        }
+                    });
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    Logger.LogWarning(ex, "Mods list refresh failed for {ServerId}; retrying.", Server.Id);
+                }
             }
         }
         catch (OperationCanceledException)
         {
-            return; // A newer change took over the watch, or the section closed.
+            // The section closed.
         }
-        catch (Exception ex)
-        {
-            Logger.LogWarning(ex, "Mods list refresh failed for {ServerId}; showing the last read.", Server.Id);
-        }
-
-        _watching = false;
-        await InvokeAsync(StateHasChanged);
     }
 
-    private async Task ReloadAsync()
+    // Re-reads the overview and inventory; true when what the section shows changed.
+    private async Task<bool> ReloadAsync()
     {
         UserId user = await CurrentUserAsync();
         ServerId serverId = Server.Id;
@@ -165,10 +190,18 @@
         ModInventory? inventory = ModInventories.GetLatest(Server.Id, Server.AgentId);
 
         _observedAt = overview?.ConfigObservedAt;
+        ModTableView table = overview is null ? new ModTableView([], []) : ModTable.Build(overview);
+        string shown = Fingerprint(table, inventory);
+        if (string.Equals(shown, _shown, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        _shown = shown;
 
         // Nothing read yet: no persisted lists (before the first discovery) and no inventory.
         _loaded = overview is { ConfigObservedAt: not null } || overview is { Items.Count: > 0 } || inventory is not null;
-        _table = overview is null ? new ModTableView([], []) : ModTable.Build(overview);
+        _table = table;
         _rows = _table.Rows.ToList();
         _pending = _table.PendingRows.ToList();
         _onServer = new HashSet<string>(
@@ -180,6 +213,28 @@
         }
         _warnings = ModRowWarnings.For(_table, inventory);
         _conflicts = ModPartConflicts.From(inventory);
+        return true;
+    }
+
+    // Everything the table, footer and warnings render from, as one comparable string.
+    private static string Fingerprint(ModTableView table, ModInventory? inventory)
+    {
+        System.Text.StringBuilder sb = new();
+        foreach (ModTableRow row in table.Rows)
+        {
+            ModItemView? item = row.Item;
+            sb.Append(row.Key).Append('|').Append(row.Status).Append('|').Append(item?.Title).Append('|').Append(item?.PreviewUrl)
+                .Append('|').Append(item?.SteamUpdatedAt).Append('|').Append(item?.NeedsParts).Append('|')
+                .AppendJoin(',', item?.ObservedModIds ?? []).Append('|').AppendJoin(',', item?.MissingModIds ?? []).Append('|')
+                .AppendJoin(',', row.Mods.Select(m => $"{m.ModId}:{m.Status}")).Append('\n');
+        }
+
+        foreach (ModItemView leftover in table.Leftovers)
+        {
+            sb.Append("L|").Append(leftover.WorkshopId).Append('|').Append(leftover.Title).Append('|').Append(leftover.SizeBytes).Append('\n');
+        }
+
+        return sb.Append("I|").Append(inventory?.ObservedAt).ToString();
     }
 
     private async Task DiscoverModsAsync()

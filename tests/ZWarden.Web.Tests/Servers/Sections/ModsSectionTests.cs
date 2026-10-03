@@ -75,6 +75,46 @@ public sealed class ModsSectionTests
     }
 
     [Test]
+    public async Task After_the_restart_boots_the_rows_turn_active_by_themselves()
+    {
+        // Live pass: after Restart to apply the row kept "Changes on restart" until the page was reopened. The boot's
+        // discovery lands minutes after the click, so the open section keeps re-reading.
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
+        ServerId serverId = await harness.SeedServerAsync("boots");
+        await harness.SeedModStateAsync(
+            serverId, booted: (["100"], ["A"]), configured: (["100", "200"], ["A", "B"]),
+            ("100", [], ["A"], true), ("200", ["B"], [], false));
+        SeedDisk(harness, serverId, ["100", "200"], ["A", "B"], ("100", "A"));
+        IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "mods");
+        cut.WaitForState(() => cut.FindAll("[data-mod-status=InstallsOnRestart]").Count == 1);
+
+        await harness.RecordBootAsync(serverId);
+
+        cut.WaitForState(() => cut.FindAll("[data-mod-status=Active]").Count == 2, TimeSpan.FromSeconds(15));
+        await Assert.That(cut.FindAll("[data-mod-pending-bar]")).IsEmpty();
+    }
+
+    [Test]
+    public async Task A_half_ticked_parts_picker_survives_the_background_refresh()
+    {
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
+        ServerId serverId = await harness.SeedServerAsync("keeps-ticks");
+        await harness.SeedModStateAsync(
+            serverId, booted: (["100"], ["P1"]), configured: (["100"], ["P1"]), ("100", [], ["P1", "P2"], true));
+        SeedDisk(harness, serverId, ["100"], ["P1"], ("100", "P1"), ("100", "P2"));
+        IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "mods");
+        cut.WaitForState(() => cut.FindAll("[data-action=mod-parts-toggle]").Count == 1);
+        await cut.Find("[data-action=mod-parts-toggle]").ClickAsync(new());
+        cut.WaitForState(() => cut.FindAll("[data-mod-pick-parts]").Count == 1);
+        await cut.Find("[data-mod-parts-option][data-mod-id='P2'] [role=checkbox]").ClickAsync(new());
+
+        await Task.Delay(TimeSpan.FromSeconds(6)); // longer than one idle refresh
+
+        await Assert.That(cut.Find("[data-mod-parts-option][data-mod-id='P2'] [role=checkbox]").GetAttribute("aria-checked")).IsEqualTo("true");
+        await Assert.That(cut.FindAll("[data-mod-pick-parts]").Count).IsEqualTo(1);
+    }
+
+    [Test]
     public async Task A_pending_install_shows_its_status_and_undo_takes_it_back_out()
     {
         await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
