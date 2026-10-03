@@ -168,7 +168,7 @@ public sealed class ServerDetailPageTests
         string html = await (await client.GetAsync(new Uri($"/servers/{serverId}?section=mods", UriKind.Relative))).Content.ReadAsStringAsync();
 
         await Assert.That(html).DoesNotContain("data-mod-manage-awaiting");
-        await Assert.That(html).Contains("data-action=\"mod-add\"");
+        await Assert.That(html).Contains("data-action=\"mod-install\"");
         await Assert.That(html).Contains("id=\"mod-workshop-id\"");
         await Assert.That(html).Contains("data-mod-enabled-row");
         await Assert.That(html).Contains("data-action=\"mod-disable\"");

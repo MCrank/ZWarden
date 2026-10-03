@@ -50,6 +50,15 @@ public static class WorkshopServiceCollectionExtensions
             client.MaxResponseContentBufferSize = 4 * 1024 * 1024;
         });
 
+        // #291 D5: an item's required items, offered at Install. Key-gated like search (GetDetails needs the key),
+        // authorized on Mod.View, and its own typed client.
+        services.AddHttpClient<IWorkshopDependencyService, WorkshopDependencyService>(client =>
+        {
+            client.BaseAddress = new Uri(SteamApiBaseAddress);
+            client.Timeout = TimeSpan.FromSeconds(10);
+            client.MaxResponseContentBufferSize = 4 * 1024 * 1024;
+        });
+
         return services;
     }
 }

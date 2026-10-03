@@ -33,10 +33,10 @@ public sealed partial class ModDiscovery : IModDiscovery
     private const string ModsDirName = "mods";
     private const string ModInfoFileName = "mod.info";
 
-    // Build 42 mods add a version folder <modFolder>/42/ with its own mod.info alongside the legacy root one
-    // (research §6). The id is the same in both; we read the root when present and fall back to 42/ for a
-    // B42-only mod that ships no root mod.info.
-    private const string Build42FolderName = "42";
+    // Build 42 mods add version folders (<modFolder>/42/, /42.13/, …) and a common/ folder, each possibly with its
+    // own mod.info, alongside the legacy B41 root one (research §6; spike #291).
+    private const string Build42FolderPrefix = "42";
+    private const string CommonFolderName = "common";
     private const string WorkshopItemsKey = "WorkshopItems";
     private const string ModsKey = "Mods";
 
@@ -132,13 +132,20 @@ public sealed partial class ModDiscovery : IModDiscovery
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            // Prefer the Build 42 version folder's mod.info; fall back to the legacy root one (research §6). The id
-            // is identical across both, but the version/dependency/compat metadata differs per build — and B42 is
-            // the current default build (research §1), so its folder carries the version-appropriate metadata.
-            // (Limitation: a B41-only server running a dual-build mod would want the root file; threading the
-            // server's build to pick the exact file is a #110 follow-up.)
-            ModInfo? info = await ReadModInfoAsync(Path.Combine(modDir, Build42FolderName, ModInfoFileName), cancellationToken).ConfigureAwait(false)
-                ?? await ReadModInfoAsync(Path.Combine(modDir, ModInfoFileName), cancellationToken).ConfigureAwait(false);
+            // B42 reads a mod from its version folders (42, 42.13, 42.20, …) and common/, and the id may differ from
+            // the legacy root file's — More Traits' root says "ToadTraits", its B42 folders "1299328280/ToadTraits",
+            // and PZ 42.21 loads only the latter (spike #291). So: the highest version folder with a mod.info, then
+            // common/, then the root. (Limitation: we don't know the server's exact build, so a folder newer than it
+            // still wins; a B41-only server would want the root file.)
+            ModInfo? info = null;
+            foreach (string candidate in ModInfoCandidates(modDir))
+            {
+                info = await ReadModInfoAsync(candidate, cancellationToken).ConfigureAwait(false);
+                if (info is not null)
+                {
+                    break;
+                }
+            }
             if (info is not null)
             {
                 mods.Add(new DiscoveredMod(
@@ -169,6 +176,36 @@ public sealed partial class ModDiscovery : IModDiscovery
         {
             return null;
         }
+    }
+
+    // The mod.info files to try for one mod folder, best first: B42 version folders from the highest version down,
+    // then common/, then the legacy root. Unreadable folders just yield fewer candidates.
+    private static List<string> ModInfoCandidates(string modDir)
+    {
+        List<(Version Version, string Dir)> versions = [];
+        try
+        {
+            foreach (string dir in Directory.GetDirectories(modDir))
+            {
+                string name = Path.GetFileName(dir);
+                if (name.StartsWith(Build42FolderPrefix, StringComparison.Ordinal)
+                    && Version.TryParse(name.Contains('.', StringComparison.Ordinal) ? name : name + ".0", out Version? version))
+                {
+                    versions.Add((version, dir));
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Fall through to common/ and the root.
+        }
+
+        return
+        [
+            .. versions.OrderByDescending(v => v.Version).Select(v => Path.Combine(v.Dir, ModInfoFileName)),
+            Path.Combine(modDir, CommonFolderName, ModInfoFileName),
+            Path.Combine(modDir, ModInfoFileName),
+        ];
     }
 
     // Reads WorkshopItems= and Mods= from the live servertest.ini via the F20a seam. A missing or unparseable file

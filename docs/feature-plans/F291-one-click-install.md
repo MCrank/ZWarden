@@ -1,6 +1,6 @@
 # Feature #291 Mini-Plan — One-click Install (mod ids from the description, verified after boot)
 
-**Status:** PR-A ready (2026-10-03); PR-B (UI + dependencies) next. Slice 0 spike done: a missing id is skipped,
+**Status:** done — PR-A #318 merged; PR-B closes #291 (2026-10-03). Slice 0 spike done: a missing id is skipped,
 not fatal. v1.0, epic [#289](https://github.com/MCrank/ZWarden/issues/289).
 Needs #290 (done: #314 + #316). Blocks #292.
 
@@ -190,8 +190,53 @@ snapshot exists.
   unchanged.
 - **Docs:** CONTEXT.md gains *Install / Pick parts / Undo*.
 
-**PR-B** (next): the minimal UI in the existing sections (Install → part picker; Pick parts notice; Undo), plus
-dependencies (key-only).
+**PR-B** (`feat/291b-install-ui`, closes #291):
+- **`ModInstallControl`** is one component, used by both the Mod Browser cards and the Mods section's add field
+  (renamed "Install a Workshop item"). It:
+  - resolves the item through the keyless preview (`Mod.View`);
+  - plans it with `ModInstallPlan.For`;
+  - installs straight away (no ids, or one id), or opens an **inline panel**: the part picker, every part ticked,
+    plus any required items.
+
+  The panel is inline, not a dialog: the app has no portal host until #292.
+- **Mods section:**
+  - Each Workshop row shows its Steam title and a status chip: *Installs on restart*, *Removed on restart* or
+    *Pick parts*.
+  - A pending install gets **Undo**. Pending removals are listed under "Removed — unloads on the next restart",
+    each with **Undo**.
+  - **Pick parts** names what the Workshop page listed and what the download provides. It offers a picker over the
+    real parts: the ones already on, or all of them if none are.
+- **New verb `SetItemPartsAsync`** (audited `Mod.PartsSet`). It sets exactly the chosen parts of one item on, in one
+  apply, using `ModListEditor.SetItemParts`. A part that stays on keeps its load position. Without it, swapping a
+  wrong guess for the real part would be an Enable plus a Disable, and the second hits `ServerBusy`. It needs
+  `Mod.Install` when it turns anything on, otherwise `Mod.Remove`. An id the item doesn't provide is
+  `InvalidInput`.
+- **D5, required items:** `IWorkshopDependencyService` (key-gated `IPublishedFileService/GetDetails?includechildren=true`,
+  authorized on `Mod.View`, its own typed client). The ids are validated as numeric, de-duplicated, never the item
+  itself, and capped at 50. Their details come from the keyless client. The required items are offered ticked and
+  installed in the same apply, each with every id its own description lists. With no key, or on any failure,
+  nothing is offered.
+- **Floors:** Infrastructure 617, Web 544 (csproj and `ci.yml`). `app.css` was rebuilt.
+
+**DMZ live-pass fix (2026-10-03).** The DMZ screenshots showed two problems: More Traits' ids appeared as
+`1299328280/ToadTraits`, and UCWF, Equipment UI and Common Sense showed "No readable mod.info". A second local spike
+(PZ 42.21) with those four items found:
+- **Layouts:**
+  - mods keep `mod.info` in **B42 version folders** (`42/`, `42.13/` … `42.20/`) and **`common/`**, beside a legacy
+    B41 root file;
+  - UCWF has only `42.19/`; Common Sense only `common/`; Equipment UI only `42.15/` and `42.20/`.
+- **Ids differ by folder:** More Traits' root says `ToadTraits`, while every B42 folder says
+  `1299328280/ToadTraits`.
+- **What loads:** `Mods=1299328280/ToadTraits` → `loading 1299328280/ToadTraits`. Bare `ToadTraits` → `required mod
+  "ToadTraits" not found`. The maintainer's earlier hand-written config already used the prefixed form.
+
+Fixes:
+- **`PzModId` amends #290 D3.** One `/` is allowed, but only as `<1–20 digits>/<id>`. Paths (`../x`, `A/B`,
+  `12/34/x`) and `\` stay rejected.
+- **The description parser** keeps the Workshop-qualified token whole; it used to strip the prefix.
+- **Agent discovery** tries the highest `42.x` version folder, then `common/`, then the root `mod.info`. It used to try
+  only `42/` and the root.
+- **Floors:** Agent 649, Domain 395.
 
 ## Out of scope
 

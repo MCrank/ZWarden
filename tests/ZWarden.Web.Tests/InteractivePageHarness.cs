@@ -8,6 +8,7 @@ using ZWarden.Application.Mods;
 using ZWarden.Application.Servers;
 using ZWarden.Domain.Backups;
 using ZWarden.Domain.Ids;
+using ZWarden.Domain.Mods;
 using ZWarden.Domain.Operations;
 using ZWarden.Domain.Servers;
 using ZWarden.Infrastructure.Authorization;
@@ -94,6 +95,36 @@ internal sealed class InteractivePageHarness : IAsyncDisposable
         AgentId agent = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>().Set<Server>().Single(s => s.Id == serverId).AgentId;
         Factory.Services.GetRequiredService<IModInventoryCache>()
             .Record(new ModInventory(serverId, agent, installed, workshop, enabled, [], DateTimeOffset.UtcNow));
+    }
+
+    /// <summary>Persists <paramref name="serverId"/>'s #290 mod state: what it booted with, what is configured now,
+    /// and its tracked Workshop items (description guesses, <c>mod.info</c> ids, on disk or not).</summary>
+    public async Task SeedModStateAsync(
+        ServerId serverId,
+        (string[] Workshop, string[] Mods) booted,
+        (string[] Workshop, string[] Mods) configured,
+        params (string WorkshopId, string[] Guessed, string[] Observed, bool OnDisk)[] items)
+    {
+        DateTimeOffset at = DateTimeOffset.UtcNow.AddMinutes(-10);
+        await using AsyncServiceScope scope = Factory.Services.CreateSystemScope();
+        ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
+        ServerModState state = ServerModState.For(serverId);
+        state.MarkBooted(at);
+        state.ObserveConfig(booted.Workshop, booted.Mods, at.AddSeconds(5));
+        state.ObserveConfig(configured.Workshop, configured.Mods, at.AddSeconds(10));
+        db.Set<ServerModState>().Add(state);
+
+        foreach ((string workshopId, string[] guessed, string[] observed, bool onDisk) in items)
+        {
+            ServerWorkshopItem item = ServerWorkshopItem.Track(serverId, workshopId);
+            item.ApplyMetadata($"Item {workshopId}", null, null, null, [], [.. guessed.Select(ModId)], at);
+            item.ObserveDisk(onDisk, [.. observed.Select(ModId)], at);
+            db.Set<ServerWorkshopItem>().Add(item);
+        }
+
+        await db.SaveChangesAsync();
+
+        static PzModId ModId(string id) => PzModId.TryCreate(id, out PzModId valid) ? valid : throw new ArgumentException(id);
     }
 
     /// <summary>Records the host capacity <paramref name="serverId"/>'s Agent last reported.</summary>

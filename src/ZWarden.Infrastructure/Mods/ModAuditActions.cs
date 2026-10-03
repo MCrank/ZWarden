@@ -24,6 +24,9 @@ public static class ModAuditActions
     /// <summary>The <c>Mods=</c> load order was rewritten.</summary>
     public const string Reordered = "Mod.Reordered";
 
+    /// <summary>Which of one Workshop item's mods are on was chosen (Pick parts, #291).</summary>
+    public const string PartsSet = "Mod.PartsSet";
+
     /// <summary>A pending change to one Workshop item was undone: its <c>WorkshopItems=</c> entry and mod ids put back
     /// the way the server last booted (#291).</summary>
     public const string Undone = "Mod.Undone";

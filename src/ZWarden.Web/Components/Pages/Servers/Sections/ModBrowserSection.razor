@@ -14,9 +14,10 @@
         Preview a Workshop item or collection before installing it. Names, previews, size and — for content
         already on this server — version, dependencies and tags are shown for reference only; multiplayer
         support is not machine-readable, so any hint is best-effort. <span class="font-medium">Install</span>
-        adds the item to <span class="font-mono">WorkshopItems=</span>; enable its mods from the
-        <a class="underline hover:no-underline" href="@SectionHref("mods")">Mods</a> section after it downloads,
-        then restart to load them.
+        adds the item and the mod ids its Workshop page lists, so one restart downloads and loads it. An item
+        with several parts lets you choose them first. After the restart, the
+        <a class="underline hover:no-underline" href="@SectionHref("mods")">Mods</a> section flags any part the
+        download doesn't actually provide.
     </p>
 
     @if (_browserMessage is not null)
@@ -195,35 +196,6 @@
         }
     }
 
-    private Task InstallAsync(string workshopId) => ActAsync(async (user, serverId) =>
-    {
-        string id = workshopId.Trim();
-        ModManagementResult result = await Actions.RunAsync<IServerModManager, ModManagementResult>(
-            (mods, ct) => mods.AddWorkshopItemAsync(user, serverId, id, ct));
-        if (result.Succeeded)
-        {
-            _browserAlert = AlertVariant.Success;
-            _browserMessage = $"Added Workshop item {workshopId} (operation {result.Operation}). Enable its mods from the Mods section once it downloads, then restart to load them.";
-        }
-        else
-        {
-            _browserAlert = AlertVariant.Warning;
-            _browserMessage = result.Failure switch
-            {
-                ModManagementFailure.NotAuthorized => "You are not permitted to install mods on this server.",
-                ModManagementFailure.ServerNotFound => "That server is no longer available.",
-                ModManagementFailure.ServerBusy => "The server is busy with another operation; try again once it finishes.",
-                ModManagementFailure.SnapshotUnavailable => "Refresh mod discovery for this server (in the Mods section) before installing.",
-                ModManagementFailure.NoChange => "That Workshop item is already in this server's list.",
-                ModManagementFailure.InvalidInput => result.Message ?? "That Workshop id is not valid.",
-                _ => "The item could not be installed.",
-            };
-        }
-
-        // Reflect the just-added item in the installed/configured sets that drive the card state.
-        LoadInventory();
-    });
-
     // A preview item card: thumbnail, title, id/size/updated, description, compat chips, and Install.
     private RenderFragment ItemCard(WorkshopItemMetadata item) =>
         @<div class="zw-mb-card" data-modbrowser-item data-workshop-id="@item.WorkshopId">
@@ -288,8 +260,7 @@
             }
             else if (Perm.CanInstall)
             {
-                <BbButton Size="ButtonSize.Small" Disabled="_acting"
-                          OnClick="@(() => InstallAsync(workshopId))" data-action="modbrowser-install">Install</BbButton>
+                <ModInstallControl Server="Server" WorkshopId="@workshopId" OnInstalled="LoadInventory" />
             }
         </div>;
 

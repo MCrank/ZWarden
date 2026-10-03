@@ -11,9 +11,9 @@ namespace ZWarden.Application.Mods;
 /// <remarks>
 /// Description text is untrusted (trust-boundaries §8). BBCode is stripped; only lines that <em>start</em> with
 /// <c>Mod ID:</c> / <c>ModID:</c> / <c>Mod IDs:</c> count; a line may list several ids split on <c>,</c> or
-/// <c>;</c>; each candidate keeps only its first word (dropping notes like "(for Build 42)") and, for the B42
-/// <c>workshopId/ModId</c> form, the part after the last <c>/</c>. Every candidate must pass <see cref="PzModId"/>;
-/// the rest are dropped. De-duplicated ordinally, in first-seen order.
+/// <c>;</c>; each candidate keeps only its first word (dropping notes like "(for Build 42)"). The B42
+/// <c>workshopId/ModId</c> form is kept whole: it is the id a B42 <c>mod.info</c> declares and the only one PZ 42.21
+/// loads (spike #291). Every candidate must pass <see cref="PzModId"/>; the rest are dropped. De-duplicated ordinally, in first-seen order.
 /// </remarks>
 public static partial class WorkshopDescriptionModIds
 {
@@ -59,10 +59,10 @@ public static partial class WorkshopDescriptionModIds
     {
         string trimmed = part.Trim().Trim('`');
         int space = trimmed.AsSpan().IndexOfAny(" \t\r");
+        // A B42 "1299328280/ToadTraits" stays whole: it is the mod.info id PZ loads (spike #291). PzModId decides
+        // whether a slash is that Workshop-qualified form or a rejected path.
         string word = space < 0 ? trimmed : trimmed[..space];
-        int slash = word.LastIndexOf('/');
-        string id = slash < 0 ? word : word[(slash + 1)..];
-        return id.Length == 0 ? null : id;
+        return word.Length == 0 ? null : word;
     }
 
     // [b], [/b], [*], [h1], [url=…], [list] … — any bracketed tag, with an optional =argument.

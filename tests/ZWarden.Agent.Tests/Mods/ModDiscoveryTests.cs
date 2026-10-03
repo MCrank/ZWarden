@@ -103,6 +103,35 @@ public class ModDiscoveryTests
     }
 
     [Test]
+    public async Task B42_version_and_common_folders_are_read_preferring_the_highest_version()
+    {
+        // Real layouts (spike #291): More Traits' root mod.info is B41 ("ToadTraits"); its version folders declare the
+        // Workshop-qualified id PZ 42.21 loads. UCWF ships only 42.19/, Common Sense only common/.
+        (ModDiscovery discovery, string root, ServerId serverId) = NewDiscovery();
+        try
+        {
+            WriteMod(root, serverId, "1299328280", "More Traits", "id=ToadTraits\n");
+            WriteMod(root, serverId, "1299328280", Path.Combine("More Traits", "42.13"), "id=1299328280/Old\n");
+            WriteMod(root, serverId, "1299328280", Path.Combine("More Traits", "42.20"), "id=1299328280/ToadTraits\n");
+            WriteMod(root, serverId, "1299328280", Path.Combine("More Traits", "42"), "id=1299328280/Older\n");
+            WriteMod(root, serverId, "3682045254", Path.Combine("Unified Carry Weight Framework", "42.19"), "id=UnifiedCarryWeightFramework\n");
+            WriteMod(root, serverId, "3750253491", Path.Combine("CommonSense", "common"), "id=VB_CommonSense\n");
+            WriteIni(root, serverId, "WorkshopItems=\nMods=\n");
+
+            ModDiscoveryResult result = await discovery.DiscoverAsync(serverId, CancellationToken.None);
+
+            string Ids(string workshopId) => string.Join(";", result.InstalledItems.Single(i => i.WorkshopId == workshopId).Mods.Select(m => m.ModId));
+            await Assert.That(Ids("1299328280")).IsEqualTo("1299328280/ToadTraits");
+            await Assert.That(Ids("3682045254")).IsEqualTo("UnifiedCarryWeightFramework");
+            await Assert.That(Ids("3750253491")).IsEqualTo("VB_CommonSense");
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task A_backslash_prefixed_mods_entry_is_read_as_the_bare_mod_id()
     {
         (ModDiscovery discovery, string root, ServerId serverId) = NewDiscovery();

@@ -216,7 +216,9 @@ _Avoid_: registration (which means adding a Server), pairing, onboarding
 **Mod ID** / **Workshop Item ID**:
 Two distinct identifiers that must never be conflated: a Steam Workshop item may contain several
 Project Zomboid mods. A mod id that enters `Mods=` must pass the **PzModId** rule: printable text with no
-config separators, slashes, quotes or control characters (#290).
+config separators, backslash, quotes or control characters (#290). The one slash allowed is Build 42's
+Workshop-qualified form `<workshop id>/<id>` (e.g. `1299328280/ToadTraits`), which a B42 `mod.info` may
+declare and which PZ then loads only in that form (#291).
 
 **Installed item** / **Booted with** / **Pending** / **Leftover**:
 The control plane's view of a Server's mods (#290, ADR 0047). An **installed item** is a Workshop item the

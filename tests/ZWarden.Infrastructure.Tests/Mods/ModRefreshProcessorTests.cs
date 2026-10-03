@@ -107,7 +107,7 @@ public class ModRefreshProcessorTests
             Dictionary<string, ServerWorkshopItem> items = (await new ServerWorkshopItemRepository(read).ListForServerAsync(server))
                 .ToDictionary(i => i.WorkshopId);
             await Assert.That(items["100"].Title).IsEqualTo("More Traits");
-            await Assert.That(string.Join(";", items["100"].GuessedModIds)).IsEqualTo("ToadTraits;ToadTraitsDynamic");
+            await Assert.That(string.Join(";", items["100"].GuessedModIds)).IsEqualTo("1299328280/ToadTraits;ToadTraitsDynamic");
             await Assert.That(string.Join(";", items["100"].Tags)).IsEqualTo("Build 42");
             await Assert.That(items["100"].MetadataRefreshedAt).IsEqualTo(Now);
             await Assert.That(items["200"].GuessedModIds).IsEmpty();

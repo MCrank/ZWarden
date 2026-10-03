@@ -92,6 +92,17 @@ public interface IServerModManager
         IReadOnlyList<string> modIds,
         CancellationToken cancellationToken = default);
 
+    /// <summary>#291 Pick parts: of <paramref name="workshopId"/>'s mods (its <c>mod.info</c> ids on disk plus its
+    /// description's guesses), exactly <paramref name="modIds"/> are turned on, in one config apply. An id the item
+    /// doesn't provide is <see cref="ModManagementFailure.InvalidInput"/>. Authorizes <c>Mod.Install</c> when it turns
+    /// anything on, otherwise <c>Mod.Remove</c>.</summary>
+    Task<ModManagementResult> SetItemPartsAsync(
+        UserId user,
+        ServerId server,
+        string workshopId,
+        IReadOnlyList<string> modIds,
+        CancellationToken cancellationToken = default);
+
     /// <summary>#291 Undo, before a restart: puts <paramref name="workshopId"/>'s <c>WorkshopItems=</c> entry and its
     /// mod ids back the way the server last booted, in one config apply. An undo that re-adds anything (undoing a
     /// Remove) authorizes <c>Mod.Install</c>; one that only takes entries out (undoing an Install) authorizes

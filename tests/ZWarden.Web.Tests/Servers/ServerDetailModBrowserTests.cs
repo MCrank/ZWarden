@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.RegularExpressions;
 using Bunit;
 using Microsoft.Extensions.DependencyInjection;
+using ZWarden.Application.Configuration;
 using ZWarden.Application.Mods;
 using ZWarden.Application.Workshop;
 using ZWarden.Domain.Ids;
@@ -19,7 +20,8 @@ namespace ZWarden.Web.Tests.Servers;
 /// <summary>
 /// #110 PR-C: the adaptive Mod Browser section on the Server Detail rail. Keyless preview (paste an id or collection
 /// URL → cards → Install) is always available; the free-text search grid lights up only when the tenant has a Steam
-/// Web API key. Install hands off to F22's <c>AddWorkshopItemAsync</c>. All Workshop names/ids are untrusted and
+/// Web API key. Install (#291) writes the item and its description's mod ids in one apply, with a part picker for a
+/// multi-mod item. All Workshop names/ids are untrusted and
 /// escaped at render (trust-boundaries §8). The rendered page is checked over the real host; the actions run as
 /// circuit handlers in bUnit on the same host (#299). The Steam-facing seams are faked so no test makes a live call
 /// (F12 rule).
@@ -120,24 +122,94 @@ public sealed class ServerDetailModBrowserTests
     }
 
     [Test]
-    public async Task Install_from_a_preview_card_enqueues_a_config_apply_touching_workshop_items()
+    public async Task Install_of_a_one_mod_item_writes_workshop_items_and_its_mod_id_in_one_apply()
     {
+        // #291: the description's one "Mod ID:" is enabled with the item, so one restart loads it.
         await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(Fakes(out FakePreview preview, out _, out _));
-        preview.Result = WorkshopPreview.OfItem(new WorkshopItemMetadata("200", Found: true, Title: "New Pack"));
+        preview.Result = WorkshopPreview.OfItem(
+            new WorkshopItemMetadata("200", Found: true, Title: "New Pack", Description: "Great pack.\nMod ID: NewPack"));
         ServerId serverId = await harness.SeedServerAsync("mb-install");
-        // AddWorkshopItem recomputes WorkshopItems= from the last observed inventory, so one must exist.
-        harness.SeedInventory(serverId, installed: [], workshop: ["100"], enabled: []);
+        // Install recomputes the lists from the last observed inventory, so one must exist.
+        harness.SeedInventory(serverId, installed: [], workshop: ["100"], enabled: ["A"]);
         IRenderedComponent<ServerDetail> cut = await PreviewAsync(harness, serverId, "200");
 
-        await cut.Find("[data-workshop-id='200'] [data-action=modbrowser-install]").ClickAsync(new());
+        await cut.Find("[data-modbrowser-item][data-workshop-id='200'] [data-action=mod-install]").ClickAsync(new());
 
         cut.WaitForState(() => harness.FirstOperation(serverId, OperationKind.ConfigApply) is not null);
-        Operation op = harness.FirstOperation(serverId, OperationKind.ConfigApply)!;
-        await Assert.That(op.CommandPayload).Contains("WorkshopItems");
-        await Assert.That(op.CommandPayload).Contains("200");
-        await Assert.That(cut.Markup).Contains("data-modbrowser-message");
+        ConfigApplyPayload payload = ConfigApplyPayload.FromJson(harness.FirstOperation(serverId, OperationKind.ConfigApply)!.CommandPayload!);
+        await Assert.That(payload.Edits.Select(e => $"{e.Path}={e.Value}")).IsEquivalentTo(["WorkshopItems=100;200", "Mods=A;NewPack"]);
+        cut.WaitForState(() => cut.FindAll("[data-mod-install-message]").Count == 1);
+        await Assert.That(cut.Find("[data-mod-install-message]").TextContent).Contains("NewPack");
         // The preview stays on screen across the install (no page reload).
         await Assert.That(cut.Markup).Contains("New Pack");
+    }
+
+    [Test]
+    public async Task A_multi_mod_item_opens_the_part_picker_and_installs_only_the_ticked_parts()
+    {
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(Fakes(out FakePreview preview, out _, out _));
+        preview.Result = WorkshopPreview.OfItem(new WorkshopItemMetadata(
+            "300", Found: true, Title: "Trait Pack", Description: "Mod ID: Core\nMod ID: Extra\nMod ID: Patch"));
+        ServerId serverId = await harness.SeedServerAsync("mb-picker");
+        harness.SeedInventory(serverId, installed: [], workshop: [], enabled: []);
+        IRenderedComponent<ServerDetail> cut = await PreviewAsync(harness, serverId, "300");
+
+        await cut.Find("[data-workshop-id='300'] [data-action=mod-install]").ClickAsync(new());
+        cut.WaitForState(() => cut.FindAll("[data-mod-install-part]").Count == 3);
+        // Nothing is written until the operator confirms; every part starts ticked. Untick "Extra".
+        await Assert.That(harness.FirstOperation(serverId, OperationKind.ConfigApply)).IsNull();
+        await cut.Find("[data-mod-install-part][data-mod-id='Extra'] [role=checkbox]").ClickAsync(new());
+        await cut.Find("[data-action=mod-install-confirm]").ClickAsync(new());
+
+        cut.WaitForState(() => harness.FirstOperation(serverId, OperationKind.ConfigApply) is not null);
+        ConfigApplyPayload payload = ConfigApplyPayload.FromJson(harness.FirstOperation(serverId, OperationKind.ConfigApply)!.CommandPayload!);
+        await Assert.That(payload.Edits.Select(e => $"{e.Path}={e.Value}")).IsEquivalentTo(["WorkshopItems=300", "Mods=Core;Patch"]);
+    }
+
+    [Test]
+    public async Task Required_items_are_offered_ticked_and_installed_in_the_same_apply()
+    {
+        // #291 D5 (search key configured): the item requires a library; both land in one apply, each with the
+        // mod id its own description lists.
+        Action<IServiceCollection> fakes = Fakes(out FakePreview preview, out _, out _);
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(services =>
+        {
+            fakes(services);
+            services.AddSingleton<IWorkshopDependencyService>(new FakeDependencies(
+                new WorkshopItemMetadata("900", Found: true, Title: "Core Library", Description: "Mod ID: CoreLib")));
+        });
+        preview.Result = WorkshopPreview.OfItem(
+            new WorkshopItemMetadata("200", Found: true, Title: "New Pack", Description: "Mod ID: NewPack"));
+        ServerId serverId = await harness.SeedServerAsync("mb-deps");
+        harness.SeedInventory(serverId, installed: [], workshop: [], enabled: []);
+        IRenderedComponent<ServerDetail> cut = await PreviewAsync(harness, serverId, "200");
+
+        await cut.Find("[data-workshop-id='200'] [data-action=mod-install]").ClickAsync(new());
+        cut.WaitForState(() => cut.FindAll("[data-mod-install-dependency][data-workshop-id='900']").Count == 1);
+        await Assert.That(cut.Find("[data-mod-install-dependency]").TextContent).Contains("Core Library");
+        await cut.Find("[data-action=mod-install-confirm]").ClickAsync(new());
+
+        cut.WaitForState(() => harness.FirstOperation(serverId, OperationKind.ConfigApply) is not null);
+        ConfigApplyPayload payload = ConfigApplyPayload.FromJson(harness.FirstOperation(serverId, OperationKind.ConfigApply)!.CommandPayload!);
+        await Assert.That(payload.Edits.Select(e => $"{e.Path}={e.Value}")).IsEquivalentTo(["WorkshopItems=200;900", "Mods=NewPack;CoreLib"]);
+    }
+
+    [Test]
+    public async Task An_item_whose_page_lists_no_mod_ids_is_added_and_asks_for_parts_after_the_restart()
+    {
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(Fakes(out FakePreview preview, out _, out _));
+        preview.Result = WorkshopPreview.OfItem(new WorkshopItemMetadata("400", Found: true, Title: "Map", Description: "A map."));
+        ServerId serverId = await harness.SeedServerAsync("mb-noids");
+        harness.SeedInventory(serverId, installed: [], workshop: [], enabled: ["A"]);
+        IRenderedComponent<ServerDetail> cut = await PreviewAsync(harness, serverId, "400");
+
+        await cut.Find("[data-workshop-id='400'] [data-action=mod-install]").ClickAsync(new());
+
+        cut.WaitForState(() => harness.FirstOperation(serverId, OperationKind.ConfigApply) is not null);
+        ConfigApplyPayload payload = ConfigApplyPayload.FromJson(harness.FirstOperation(serverId, OperationKind.ConfigApply)!.CommandPayload!);
+        await Assert.That(payload.Edits.Select(e => $"{e.Path}={e.Value}")).IsEquivalentTo(["WorkshopItems=400"]);
+        cut.WaitForState(() => cut.FindAll("[data-mod-install-message]").Count == 1);
+        await Assert.That(cut.Find("[data-mod-install-message]").TextContent).Contains("choose its parts");
     }
 
     [Test]
@@ -212,6 +284,13 @@ public sealed class ServerDetailModBrowserTests
         public Task<WorkshopPreview> ResolveAsync(
             UserId actor, ServerId server, string input, CancellationToken cancellationToken = default) =>
             Task.FromResult(Result);
+    }
+
+    private sealed class FakeDependencies(params WorkshopItemMetadata[] required) : IWorkshopDependencyService
+    {
+        public Task<IReadOnlyList<WorkshopItemMetadata>> GetRequiredItemsAsync(
+            UserId actor, ServerId server, string workshopId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<WorkshopItemMetadata>>(required);
     }
 
     private sealed class FakeSearch : IWorkshopSearchService

@@ -162,6 +162,73 @@ public sealed class ServerModManager : IServerModManager
     }
 
     /// <inheritdoc />
+    public async Task<ModManagementResult> SetItemPartsAsync(
+        UserId user,
+        ServerId server,
+        string workshopId,
+        IReadOnlyList<string> modIds,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(modIds);
+        if (ValidateWorkshopId(workshopId) is { } invalid)
+        {
+            return ModManagementResult.Denied(invalid.Failure!.Value, invalid.Message);
+        }
+
+        // As for Undo: these tenant-filtered reads only pick the permission; the pipeline authorizes before anything
+        // is computed or returned. Turning any part on is an install; only turning parts off is a removal.
+        Server? owner = await _servers.FindByIdAsync(server, cancellationToken).ConfigureAwait(false);
+        ModInventory? current = owner is null ? null : _inventory.GetLatest(server, owner.AgentId);
+        bool turnsOn = current is null || modIds.Any(id => !current.EnabledModIds.Contains(id, StringComparer.Ordinal));
+        IReadOnlyList<ServerWorkshopItem> tracked = await _items.ListForServerAsync(server, cancellationToken).ConfigureAwait(false);
+
+        return await ApplyListEditAsync(
+            user, server, turnsOn ? Permissions.ModInstall : Permissions.ModRemove, ModAuditActions.PartsSet,
+            $"choose {modIds.Count} part(s) of workshop item {workshopId}",
+            inventory =>
+            {
+                PzModId[] chosen = [];
+                if (modIds.Count > 0 && ValidateModIds(modIds, out chosen) is { } badModId)
+                {
+                    return badModId;
+                }
+
+                List<PzModId> parts = ItemParts(workshopId, inventory, tracked);
+                if (chosen.Any(id => !parts.Contains(id)))
+                {
+                    return new ListEditOutcome(
+                        null, ModManagementFailure.InvalidInput, "Choose only parts this Workshop item provides.");
+                }
+
+                return Ok(ModListEditor.SetItemParts(inventory.EnabledModIds, parts, chosen));
+            },
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    // One item's mod ids: mod.info on disk (the truth) plus its description's guesses, validated as PzModIds.
+    private static List<PzModId> ItemParts(
+        string workshopId, ModInventory inventory, IReadOnlyList<ServerWorkshopItem> tracked)
+    {
+        IEnumerable<string> onDisk = inventory.InstalledItems
+            .Where(i => string.Equals(i.WorkshopId, workshopId, StringComparison.Ordinal))
+            .SelectMany(i => i.Mods.Select(m => m.ModId));
+        IEnumerable<string> guessed = tracked
+            .Where(i => string.Equals(i.WorkshopId, workshopId, StringComparison.Ordinal))
+            .SelectMany(i => i.GuessedModIds);
+
+        List<PzModId> parts = [];
+        foreach (string id in onDisk.Concat(guessed).Distinct(StringComparer.Ordinal))
+        {
+            if (PzModId.TryCreate(id, out PzModId valid))
+            {
+                parts.Add(valid);
+            }
+        }
+
+        return parts;
+    }
+
+    /// <inheritdoc />
     public async Task<ModManagementResult> UndoPendingAsync(
         UserId user, ServerId server, string workshopId, CancellationToken cancellationToken = default)
     {

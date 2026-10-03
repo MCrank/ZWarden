@@ -687,6 +687,63 @@ public class ServerModManagerTests
         });
     }
 
+    [Test]
+    public async Task Set_parts_swaps_a_wrong_guess_for_the_real_part_in_one_apply()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            AgentId agent = AgentId.New();
+            ServerId serverId = await SeedServerAsync(options, agent);
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ModInstall);
+            await SeedGuessesAsync(options, serverId, "200", "Guess");
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            RecordingCoordinator coordinator = new();
+            CapturingAuditWriter audit = new();
+            ModInventoryCache cache = new();
+            cache.Record(Inventory(serverId, agent, workshop: ["200"], enabled: ["Guess"]) with
+            {
+                InstalledItems = [new InstalledWorkshopItem("200", [new InstalledMod("Real", null)])],
+            });
+            ServerModManager sut = Manager(db, coordinator, audit, cache);
+
+            ModManagementResult result = await sut.SetItemPartsAsync(user, serverId, "200", ["Real"]);
+
+            await Assert.That(result.Succeeded).IsTrue();
+            ConfigApplyPayload payload = ConfigApplyPayload.FromJson(coordinator.LastRequest!.CommandPayload!);
+            await Assert.That(payload.Edits.Single()).IsEqualTo(new ConfigApplyEdit("Mods", ConfigEditKind.Text, "Real"));
+            await Assert.That(audit.Actions).Contains(ModAuditActions.PartsSet);
+        });
+    }
+
+    [Test]
+    public async Task Set_parts_refuses_an_id_the_item_does_not_provide()
+    {
+        // Pick parts chooses among the item's own parts; an arbitrary id goes through Enable instead.
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            AgentId agent = AgentId.New();
+            ServerId serverId = await SeedServerAsync(options, agent);
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ModInstall);
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            RecordingCoordinator coordinator = new();
+            ModInventoryCache cache = new();
+            cache.Record(Inventory(serverId, agent, workshop: ["200"], enabled: []) with
+            {
+                InstalledItems = [new InstalledWorkshopItem("200", [new InstalledMod("Real", null)])],
+            });
+            ServerModManager sut = Manager(db, coordinator, new CapturingAuditWriter(), cache);
+
+            ModManagementResult result = await sut.SetItemPartsAsync(user, serverId, "200", ["Elsewhere"]);
+
+            await Assert.That(result.Failure).IsEqualTo(ModManagementFailure.InvalidInput);
+            await Assert.That(coordinator.LastRequest).IsNull();
+        });
+    }
+
     private static async Task SeedBootAsync(DbContextOptions options, ServerId server, string[] workshop, string[] mods)
     {
         await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
