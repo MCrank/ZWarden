@@ -1,0 +1,256 @@
+@using ZWarden.Application.Mods
+
+@* The Mods table (#292 Variant B): the Server's mods as one BbDataGrid in load order, one row per Workshop item
+   (D1) plus "other mod" rows for enabled ids no item provides. Each row carries its status chip, Remove/Undo,
+   load-order ▲/▼ (the whole item moves), its parts (expandable for a multi-part item, open by itself when the
+   after-boot check asks to Pick parts) and any mod.info warning (D2). Presentational: every action is raised as a
+   ModRowCommand for ModsSection to run through the mod manager, which re-checks the caller's grants. Steam and
+   mod.info text is untrusted, rendered as data (trust-boundaries §8). Grid rows are a List (BbDataGrid gotcha), and
+   BbDataGrid rows take no attributes, so the test hooks ride wrappers inside the cells. *@
+
+<div data-mods-table>
+    <BbDataGrid TData="ModTableRow"
+                Items="Rows"
+                ItemKey="@(r => r.Key)"
+                ShowPagination="false"
+                AriaLabel="Mods in load order"
+                Class="text-sm">
+        <EmptyTemplate>
+            <div class="py-8 text-center text-sm text-muted-foreground" data-mods-empty>
+                No mods yet. Use <span class="font-medium">Add mods</span> to find one on the Workshop.
+            </div>
+        </EmptyTemplate>
+        <Columns>
+            <BbDataGridTemplateColumn TData="ModTableRow" Title="#" Width="76px" Resizable="false" Reorderable="false">
+                <ChildContent Context="r">
+                    <div class="flex items-center gap-0.5 text-xs tabular-nums text-muted-foreground" data-mod-order data-row-key="@r.Key">
+                        <span class="w-5">@Position(r)</span>
+                        @if (Perm.CanInstall && r.CanMoveUp)
+                        {
+                            <BbButton Variant="ButtonVariant.Ghost" Size="ButtonSize.Small" Class="h-6 w-6 p-0" Disabled="Busy"
+                                      aria-label="Load earlier" title="Load earlier"
+                                      OnClick="@(() => RaiseAsync(ModRowVerb.MoveUp, r))" data-action="mod-moveup">▲</BbButton>
+                        }
+                        @if (Perm.CanInstall && r.CanMoveDown)
+                        {
+                            <BbButton Variant="ButtonVariant.Ghost" Size="ButtonSize.Small" Class="h-6 w-6 p-0" Disabled="Busy"
+                                      aria-label="Load later" title="Load later"
+                                      OnClick="@(() => RaiseAsync(ModRowVerb.MoveDown, r))" data-action="mod-movedown">▼</BbButton>
+                        }
+                    </div>
+                </ChildContent>
+            </BbDataGridTemplateColumn>
+
+            <BbDataGridTemplateColumn TData="ModTableRow" Title="Mod" Resizable="false" Reorderable="false">
+                <ChildContent Context="r">@ModCell(r)</ChildContent>
+            </BbDataGridTemplateColumn>
+
+            <BbDataGridTemplateColumn TData="ModTableRow" Title="Updated" Resizable="false" Reorderable="false"
+                                      HeaderClass="hidden md:table-cell" CellClass="hidden md:table-cell">
+                <ChildContent Context="r">
+                    <span class="whitespace-nowrap text-xs text-muted-foreground">@Updated(r)</span>
+                </ChildContent>
+            </BbDataGridTemplateColumn>
+
+            <BbDataGridTemplateColumn TData="ModTableRow" Title="Status" Resizable="false" Reorderable="false">
+                <ChildContent Context="r">
+                    <ModStatusChip Status="r.Status" NeedsParts="@(r.Item?.NeedsParts ?? false)" />
+                </ChildContent>
+            </BbDataGridTemplateColumn>
+
+            <BbDataGridTemplateColumn TData="ModTableRow" Title="Actions" Resizable="false" Reorderable="false" HeaderClass="sr-only">
+                <ChildContent Context="r">
+                    <div class="flex justify-end gap-1" data-mod-actions data-row-key="@r.Key">
+                        @if (r.HasPendingChange && (Perm.CanInstall || Perm.CanRemove))
+                        {
+                            <BbButton Variant="ButtonVariant.Ghost" Size="ButtonSize.Small" Disabled="Busy"
+                                      OnClick="@(() => RaiseAsync(ModRowVerb.Undo, r))" data-action="mod-undo">Undo</BbButton>
+                        }
+                        @if (Perm.CanRemove && r.Status is ModChangeStatus.Active)
+                        {
+                            <BbButton Variant="ButtonVariant.Ghost" Size="ButtonSize.Small" Disabled="Busy"
+                                      OnClick="@(() => RaiseAsync(ModRowVerb.Remove, r))" data-action="mod-remove">Remove</BbButton>
+                        }
+                    </div>
+                </ChildContent>
+            </BbDataGridTemplateColumn>
+        </Columns>
+    </BbDataGrid>
+</div>
+
+@code {
+    /// <summary>The rows, in table order (a List — see the BbDataGrid gotcha).</summary>
+    [Parameter, EditorRequired]
+    public List<ModTableRow> Rows { get; set; } = [];
+
+    /// <summary>The warnings per row key (#292 D2).</summary>
+    [Parameter]
+    public IReadOnlyDictionary<string, IReadOnlyList<string>> Warnings { get; set; } =
+        new Dictionary<string, IReadOnlyList<string>>();
+
+    /// <summary>The caller's per-server mod grants (fail-closed).</summary>
+    [Parameter, EditorRequired]
+    public ModManagePermissions Perm { get; set; }
+
+    /// <summary>An action is in flight; every button is disabled.</summary>
+    [Parameter]
+    public bool Busy { get; set; }
+
+    /// <summary>The operator's display time zone, for the Updated column.</summary>
+    [Parameter]
+    public TimeZoneInfo Zone { get; set; } = TimeZoneInfo.Utc;
+
+    /// <summary>Raised for every row action.</summary>
+    [Parameter]
+    public EventCallback<ModRowCommand> OnCommand { get; set; }
+
+    // Rows whose parts are shown; and the parts ticked per Workshop item, seeded from what is on now.
+    private readonly HashSet<string> _expanded = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, HashSet<string>> _picks = new(StringComparer.Ordinal);
+    private List<ModTableRow>? _seededFrom;
+
+    protected override void OnParametersSet()
+    {
+        if (ReferenceEquals(_seededFrom, Rows))
+        {
+            return;
+        }
+
+        _seededFrom = Rows;
+        _picks.Clear();
+        foreach (ModTableRow row in Rows.Where(r => r.Item is { ObservedModIds.Count: > 0 }))
+        {
+            HashSet<string> enabled = new(row.EnabledModIds, StringComparer.Ordinal);
+            List<string> on = [.. row.Item!.ObservedModIds.Where(enabled.Contains)];
+            // A part check with nothing on suggests every part the download provides.
+            _picks[row.Key] = new HashSet<string>(
+                on.Count > 0 || !row.Item.NeedsParts ? on : row.Item.ObservedModIds, StringComparer.Ordinal);
+        }
+    }
+
+    private RenderFragment ModCell(ModTableRow r)
+    {
+        ModItemView? item = r.Item;
+        bool removed = r.Status is ModChangeStatus.RemovedOnRestart;
+        bool multiPart = item is { ObservedModIds.Count: > 1 };
+        bool showParts = item is { ObservedModIds.Count: > 0 } && (item.NeedsParts || _expanded.Contains(r.Key));
+        return @<div class="flex min-w-0 gap-3" data-mod-row data-row-key="@r.Key" data-workshop-id="@item?.WorkshopId">
+            @if (item?.PreviewUrl is { Length: > 0 } url)
+            {
+                <img class="h-10 w-10 flex-none rounded object-cover bg-muted" src="@url" alt="" loading="lazy" referrerpolicy="no-referrer" />
+            }
+            else
+            {
+                <div class="flex h-10 w-10 flex-none items-center justify-center rounded bg-muted text-muted-foreground"><ShellIcon Name="package" /></div>
+            }
+            <div class="min-w-0 flex-1">
+                <div class="font-medium break-words @(removed ? "text-muted-foreground line-through" : "")" data-mod-title>@Title(r)</div>
+                <div class="truncate font-mono text-xs text-muted-foreground" data-mod-ids>@IdLine(r)</div>
+                @if (multiPart)
+                {
+                    <BbButton Variant="ButtonVariant.Link" Size="ButtonSize.Small" Class="h-auto p-0 text-xs"
+                              OnClick="@(() => Toggle(r.Key))" data-action="mod-parts-toggle">
+                        @PartsSummary(r) @(showParts ? "▴" : "▾")
+                    </BbButton>
+                }
+                @if (Warnings.TryGetValue(r.Key, out IReadOnlyList<string>? lines))
+                {
+                    <ul class="mt-1 space-y-0.5 text-xs text-status-unhealthy" data-mod-warnings>
+                        @foreach (string line in lines)
+                        {
+                            <li>⚠ @line</li>
+                        }
+                    </ul>
+                }
+                @if (showParts)
+                {
+                    @Parts(r, item!)
+                }
+            </div>
+        </div>;
+    }
+
+    // The parts picker: the after-boot notice when the check flagged the item, then one checkbox per part the download
+    // provides. Saving sets exactly the ticked parts on, in one apply.
+    private RenderFragment Parts(ModTableRow r, ModItemView item)
+    {
+        HashSet<string> picks = _picks.TryGetValue(r.Key, out HashSet<string>? found) ? found : [];
+        bool canSave = Perm.CanInstall || Perm.CanRemove;
+        return @<div class="mt-2 rounded-md border border-border p-3" data-mod-pick-parts>
+            @if (item.NeedsParts)
+            {
+                <p class="mb-2 text-xs text-muted-foreground">
+                    @if (item.MissingModIds.Count > 0)
+                    {
+                        <span>The Workshop page listed <span class="font-mono">@string.Join(", ", item.MissingModIds)</span>,
+                            but the download provides <span class="font-mono">@string.Join(", ", item.ObservedModIds)</span>.</span>
+                    }
+                    else
+                    {
+                        <span>None of this item's parts are on yet.</span>
+                    }
+                    Choose which parts to turn on; they load on the next restart.
+                </p>
+            }
+            <div class="space-y-1.5">
+                @foreach (string part in item.ObservedModIds)
+                {
+                    string id = $"parts-{item.WorkshopId}-{part}";
+                    <div class="flex items-center gap-2" data-mod-parts-option data-mod-id="@part">
+                        <BbCheckbox Id="@id" Checked="picks.Contains(part)" Disabled="!canSave"
+                                    CheckedChanged="@((bool on) => { if (on) { picks.Add(part); } else { picks.Remove(part); } })" />
+                        <BbLabel For="@id" Class="font-mono text-xs">@part</BbLabel>
+                    </div>
+                }
+            </div>
+            @if (canSave)
+            {
+                <BbButton Class="mt-3" Size="ButtonSize.Small" Disabled="Busy"
+                          OnClick="@(() => RaiseAsync(ModRowVerb.SaveParts, r, [.. picks]))" data-action="mod-parts-save">Save parts</BbButton>
+            }
+        </div>;
+    }
+
+    private void Toggle(string key)
+    {
+        if (!_expanded.Remove(key))
+        {
+            _expanded.Add(key);
+        }
+    }
+
+    private Task RaiseAsync(ModRowVerb verb, ModTableRow row, IReadOnlyList<string>? parts = null) =>
+        OnCommand.InvokeAsync(new ModRowCommand(verb, row, parts ?? []));
+
+    private string Position(ModTableRow r)
+    {
+        int index = Rows.Where(x => x.EnabledModIds.Any()).ToList().IndexOf(r);
+        return index < 0 ? "–" : (index + 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    private static string Title(ModTableRow r) => r.Item is { } item
+        ? item.Title is { Length: > 0 } title ? title : $"Workshop item {item.WorkshopId}"
+        : r.Mods[0].ModId;
+
+    private static string IdLine(ModTableRow r)
+    {
+        if (r.Item is not { } item)
+        {
+            return "Not from a tracked Workshop item";
+        }
+
+        List<string> ids = [.. r.Mods.Select(m => m.ModId)];
+        return item.ObservedModIds.Count > 1 || ids.Count == 0 ? item.WorkshopId : $"{item.WorkshopId} · {string.Join(", ", ids)}";
+    }
+
+    private static string PartsSummary(ModTableRow r)
+    {
+        HashSet<string> enabled = new(r.EnabledModIds, StringComparer.Ordinal);
+        int on = r.Item!.ObservedModIds.Count(enabled.Contains);
+        return $"{on} of {r.Item.ObservedModIds.Count} parts on";
+    }
+
+    private string Updated(ModTableRow r) => r.Item?.SteamUpdatedAt is { } at
+        ? TimeZoneInfo.ConvertTime(at, Zone).ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)
+        : "—";
+}

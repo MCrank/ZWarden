@@ -172,6 +172,29 @@ public class ModTableTests
     }
 
     [Test]
+    public async Task A_row_is_pending_when_it_installs_is_removed_or_has_a_part_turned_on_or_off()
+    {
+        ServerModOverview overview = Overview(
+            [
+                Item("100", observed: ["A"]),
+                Item("200", ModChangeStatus.InstallsOnRestart, guessed: ["B"], onDisk: false),
+                Item("300", observed: ["P1", "P2"]),
+                Item("400", ModChangeStatus.RemovedOnRestart, observed: ["R"]),
+            ],
+            [
+                new ModIdView("A", ModChangeStatus.Active),
+                new ModIdView("B", ModChangeStatus.InstallsOnRestart),
+                new ModIdView("P1", ModChangeStatus.Active),
+                new ModIdView("P2", ModChangeStatus.InstallsOnRestart),
+                new ModIdView("R", ModChangeStatus.RemovedOnRestart),
+            ]);
+
+        ModTableView table = ModTable.Build(overview);
+
+        await Assert.That(string.Join("|", table.PendingRows.Select(r => r.Key))).IsEqualTo("item:200|item:300|item:400");
+    }
+
+    [Test]
     public async Task An_overview_before_the_first_discovery_has_no_rows()
     {
         ModTableView table = ModTable.Build(new ServerModOverview(Server, false, null, [], []));

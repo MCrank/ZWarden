@@ -29,6 +29,14 @@ public sealed record ModTableRow(
     /// <summary>The row's ids enabled in <c>Mods=</c> now, in load order.</summary>
     public IEnumerable<string> EnabledModIds =>
         Mods.Where(m => m.Status != ModChangeStatus.RemovedOnRestart).Select(m => m.ModId);
+
+    /// <summary>Something about this row changes on the next restart: the item (or other mod) itself installs or is
+    /// removed, or one of its parts is turned on or off.</summary>
+    public bool HasPendingChange =>
+        IsPending(Status) || Mods.Any(m => IsPending(m.Status));
+
+    private static bool IsPending(ModChangeStatus status) =>
+        status is ModChangeStatus.InstallsOnRestart or ModChangeStatus.RemovedOnRestart;
 }
 
 /// <summary>The Mods table (#292): its rows, and the leftover downloads shown apart in the footer.</summary>
@@ -37,6 +45,9 @@ public sealed record ModTableRow(
 /// <param name="Leftovers">Items on disk that are neither configured nor booted with.</param>
 public sealed record ModTableView(IReadOnlyList<ModTableRow> Rows, IReadOnlyList<ModItemView> Leftovers)
 {
+    /// <summary>The rows with a change waiting for a restart — what the pending-changes bar counts and lists.</summary>
+    public IEnumerable<ModTableRow> PendingRows => Rows.Where(r => r.HasPendingChange);
+
     /// <summary>The whole new <c>Mods=</c> order that moves row <paramref name="key"/> one place
     /// <paramref name="direction"/>: its id block swaps with the neighbouring movable row's block, and every block
     /// closes up (a scattered item's parts end up adjacent). <c>null</c> when the row is unknown, has no enabled id, or

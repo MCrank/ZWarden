@@ -2,241 +2,67 @@
 @using ZWarden.Application.Mods
 @inject IModInventoryCache ModInventories
 
-@* The Mods rail section (F21/F22): the live inventory panel plus the mod management controls, gated per control on
-   the per-server Mod.* / Server.Restart grants the page evaluates; the mod manager re-checks on every action. Each
-   button is a circuit handler (#299); the inventory itself is the ownership-guarded in-memory cache. *@
+@* The Mods rail section (#292 Variant B): the Server's mods as one table in load order (ModsTable), with a sticky
+   pending-changes bar whose "Restart to apply" loads every change in one restart. Rows come from the persisted #290
+   overview (ModTable, D1); warnings from the last inventory's mod.info (ModRowWarnings, D2). Each action is a
+   circuit handler (#299) through the mod manager, which re-checks the per-server Mod.* / Server.Restart grants
+   fail-closed; the page only decides which controls to offer. *@
 
 <BbCard Class="p-5" data-mods-card>
-    <h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Mods</h2>
-    <p class="mt-1 text-xs text-muted-foreground">
-        The Workshop content this server has on disk and the mods each item provides, reconciled against the
-        server's <span class="font-mono">WorkshopItems=</span>/<span class="font-mono">Mods=</span> config.
-        It is re-read by itself after every restart and mod change; Refresh re-reads it now.
-    </p>
+    <div class="flex flex-wrap items-start justify-between gap-3">
+        <div>
+            <h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Mods</h2>
+            <p class="mt-1 text-xs text-muted-foreground" data-mods-lede>
+                @if (_table.Rows.Count > 0)
+                {
+                    <span>Top to bottom in load order. Changes take effect when the server restarts.</span>
+                }
+                else
+                {
+                    <span>Workshop mods this server loads, top to bottom in load order.</span>
+                }
+            </p>
+        </div>
+        <BbButton Variant="ButtonVariant.Ghost" Size="ButtonSize.Small" Disabled="_acting"
+                  title="Read this server's mod files and settings again"
+                  OnClick="DiscoverModsAsync" data-action="mod-refresh">Re-scan</BbButton>
+    </div>
 
-    @if (_modMessage is not null)
+    @if (_message is not null)
     {
         <div class="mt-3" data-mod-message>
-            <BbAlert Variant="AlertVariant.Warning" AccentBorder>
-                <BbAlertDescription>@_modMessage</BbAlertDescription>
+            <BbAlert Variant="_alert" AccentBorder>
+                <BbAlertDescription>@_message</BbAlertDescription>
             </BbAlert>
         </div>
     }
 
-    <div class="mt-4">
-        <div class="flex items-center justify-between gap-3">
-            <h3 class="text-sm font-medium">Installed Workshop content</h3>
-            <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" Disabled="_acting"
-                      OnClick="DiscoverModsAsync" data-action="mod-refresh">Refresh</BbButton>
-        </div>
-        <div class="mt-3">
-            <LiveModInventoryPanel ServerId="@Server.Id.ToString()" AgentId="@Server.AgentId.ToString()" />
-        </div>
-    </div>
-
-    @if (Perm.CanAny)
+    @if (Perm.CanInstall)
     {
-        <div class="mt-6 border-t border-border pt-4" data-mod-manage>
-            <h3 class="text-sm font-medium">Manage mods</h3>
-            <p class="mt-1 text-xs text-muted-foreground">
-                Changes are written to <span class="font-mono">WorkshopItems=</span>/<span class="font-mono">Mods=</span>
-                as drift-checked, recorded config edits. Mods load only when the server boots — use
-                <span class="font-medium">Restart to apply &amp; update mods</span> once you are done. The lists below reflect the last
-                discovery; refresh above after a change to see it.
-            </p>
-
-            @if (_modManageMessage is not null)
-            {
-                <div class="mt-3" data-mod-manage-message>
-                    <BbAlert Variant="_modManageAlert" AccentBorder>
-                        <BbAlertDescription>@_modManageMessage</BbAlertDescription>
-                    </BbAlert>
-                </div>
-            }
-
-            @if (_modInventory is null)
-            {
-                <p class="mt-3 text-sm text-muted-foreground" data-mod-manage-awaiting>
-                    Refresh discovery above to load this server's mods before making changes.
-                </p>
-            }
-            else
-            {
-                <div class="mt-4 space-y-5">
-                    @if (Perm.CanInstall)
-                    {
-                        <div class="flex flex-wrap items-end gap-2" data-mod-add>
-                            <div class="flex flex-col text-sm">
-                                <BbLabel For="mod-workshop-id" Class="mb-1 text-muted-foreground">Install a Workshop item</BbLabel>
-                                <BbInput Id="mod-workshop-id" UpdateTiming="UpdateTiming.Immediate" @bind-Value="_modManageForm.WorkshopId" autocomplete="off"
-                                         inputmode="numeric" Placeholder="Workshop id, e.g. 2392709985" />
-                            </div>
-                            <ModInstallControl Server="Server" WorkshopId="@(_modManageForm.WorkshopId ?? string.Empty)"
-                                               OnInstalled="ReloadAsync" />
-                        </div>
-                    }
-
-                    <div data-mod-enabled>
-                        <h4 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Enabled mods — load order</h4>
-                        @if (_modInventory.EnabledModIds.Count == 0)
-                        {
-                            <p class="mt-2 text-sm text-muted-foreground" data-mod-enabled-empty>
-                                No mods enabled in <span class="font-mono">Mods=</span>.
-                            </p>
-                        }
-                        else
-                        {
-                            <BbItemGroup Class="mt-2">
-                                @for (int i = 0; i < _modInventory.EnabledModIds.Count; i++)
-                                {
-                                    string modId = _modInventory.EnabledModIds[i];
-                                    bool isFirst = i == 0;
-                                    bool isLast = i == _modInventory.EnabledModIds.Count - 1;
-                                    <BbItem Variant="ItemVariant.Outline" Size="ItemSize.Sm" data-mod-enabled-row data-mod-id="@modId">
-                                        <BbItemContent>
-                                            <BbItemTitle><span class="font-mono text-sm">@modId</span></BbItemTitle>
-                                        </BbItemContent>
-                                        <BbItemActions>
-                                            @if (Perm.CanInstall && !isFirst)
-                                            {
-                                                <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" Disabled="_acting"
-                                                          OnClick="@(() => ModManageAsync($"moveup|{modId}"))" data-action="mod-moveup">Up</BbButton>
-                                            }
-                                            @if (Perm.CanInstall && !isLast)
-                                            {
-                                                <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" Disabled="_acting"
-                                                          OnClick="@(() => ModManageAsync($"movedown|{modId}"))" data-action="mod-movedown">Down</BbButton>
-                                            }
-                                            @if (Perm.CanRemove)
-                                            {
-                                                <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" Disabled="_acting"
-                                                          OnClick="@(() => ModManageAsync($"disable|{modId}"))" data-action="mod-disable">Disable</BbButton>
-                                            }
-                                        </BbItemActions>
-                                    </BbItem>
-                                }
-                            </BbItemGroup>
-                        }
-
-                        @if (Perm.CanInstall && _enableCandidates.Count > 0)
-                        {
-                            <div class="mt-3 flex flex-wrap items-end gap-2" data-mod-enable>
-                                <div class="flex flex-col text-sm">
-                                    <BbLabel For="mod-enable-id" Class="mb-1 text-muted-foreground">Enable an installed mod</BbLabel>
-                                    <BbNativeSelect TValue="string" Id="mod-enable-id" @bind-Value="_modManageForm.EnableModId">
-                                        @foreach (string candidate in _enableCandidates)
-                                        {
-                                            <option value="@candidate">@candidate</option>
-                                        }
-                                    </BbNativeSelect>
-                                </div>
-                                <BbButton Size="ButtonSize.Small" Disabled="_acting"
-                                          OnClick="@(() => ModManageAsync("enable"))" data-action="mod-enable">Enable</BbButton>
-                            </div>
-                        }
-                    </div>
-
-                    <div data-mod-workshop>
-                        <h4 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Workshop items</h4>
-                        @if (_modInventory.ConfiguredWorkshopIds.Count == 0)
-                        {
-                            <p class="mt-2 text-sm text-muted-foreground" data-mod-workshop-empty>
-                                No items in <span class="font-mono">WorkshopItems=</span>.
-                            </p>
-                        }
-                        else
-                        {
-                            <BbItemGroup Class="mt-2">
-                                @foreach (string workshopId in _modInventory.ConfiguredWorkshopIds)
-                                {
-                                    bool onDisk = _installedWorkshopIds.Contains(workshopId);
-                                    ModItemView? view = ViewOf(workshopId);
-                                    <BbItem Variant="ItemVariant.Outline" Size="ItemSize.Sm" data-mod-workshop-row data-workshop-id="@workshopId">
-                                        <BbItemContent>
-                                            <BbItemTitle>
-                                                @if (view?.Title is { Length: > 0 } title)
-                                                {
-                                                    <span class="text-sm">@title</span>
-                                                    <span class="font-mono text-xs text-muted-foreground">@workshopId</span>
-                                                }
-                                                else
-                                                {
-                                                    <span class="font-mono text-sm">@workshopId</span>
-                                                }
-                                                @StatusChip(view)
-                                            </BbItemTitle>
-                                            <BbItemDescription>@(onDisk ? "on disk" : "not downloaded yet — it downloads on the next restart")</BbItemDescription>
-                                            @if (view is { NeedsParts: true } && (Perm.CanInstall || Perm.CanRemove))
-                                            {
-                                                @PickParts(view)
-                                            }
-                                        </BbItemContent>
-                                        <BbItemActions>
-                                            @if (view is { Status: ModChangeStatus.InstallsOnRestart } && Perm.CanRemove)
-                                            {
-                                                <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" Disabled="_acting"
-                                                          OnClick="@(() => ModManageAsync($"undo|{workshopId}"))" data-action="mod-undo">Undo</BbButton>
-                                            }
-                                            @if (Perm.CanRemove)
-                                            {
-                                                <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" Disabled="_acting"
-                                                          OnClick="@(() => ModManageAsync($"remove|{workshopId}"))" data-action="mod-remove">Remove</BbButton>
-                                            }
-                                        </BbItemActions>
-                                    </BbItem>
-                                }
-                            </BbItemGroup>
-                        }
-
-                        @{
-                            List<ModItemView> removed = [.. _overview?.Items.Where(i => i.Status == ModChangeStatus.RemovedOnRestart) ?? []];
-                        }
-                        @if (removed.Count > 0)
-                        {
-                            <h4 class="mt-4 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Removed — unloads on the next restart</h4>
-                            <BbItemGroup Class="mt-2">
-                                @foreach (ModItemView item in removed)
-                                {
-                                    string removedId = item.WorkshopId;
-                                    <BbItem Variant="ItemVariant.Outline" Size="ItemSize.Sm" data-mod-removed-row data-workshop-id="@removedId">
-                                        <BbItemContent>
-                                            <BbItemTitle>
-                                                <span class="text-sm">@(item.Title ?? removedId)</span>
-                                                @StatusChip(item)
-                                            </BbItemTitle>
-                                        </BbItemContent>
-                                        <BbItemActions>
-                                            @if (Perm.CanInstall)
-                                            {
-                                                <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" Disabled="_acting"
-                                                          OnClick="@(() => ModManageAsync($"undo|{removedId}"))" data-action="mod-undo">Undo</BbButton>
-                                            }
-                                        </BbItemActions>
-                                    </BbItem>
-                                }
-                            </BbItemGroup>
-                        }
-                    </div>
-
-                    @* #273: one safe restart both loads mod changes and pulls newer Workshop versions (PZ re-fetches
-                       WorkshopItems= at boot). It never runs the game update — that is the header's Update game.
-                       Mod.Update or Server.Restart, re-checked by the service. *@
-                    @if (Perm.CanUpdate || Perm.CanRestart)
-                    {
-                        <div class="border-t border-border pt-4" data-mod-apply>
-                            <BbButton Variant="ButtonVariant.Destructive" Size="ButtonSize.Small" Disabled="_acting"
-                                      OnClick="@(() => ModManageAsync("restart"))" data-action="mod-restart">Restart to apply &amp; update mods</BbButton>
-                            <p class="mt-2 text-xs text-muted-foreground">
-                                Warns players, saves and restarts the server. It loads your mod changes and downloads any
-                                newer Workshop versions as it boots. If players get a Lua checksum mismatch on join after a
-                                mod updated on the Workshop, this is the fix. It does not update the game itself.
-                            </p>
-                        </div>
-                    }
-                </div>
-            }
+        <div class="mt-4 flex flex-wrap items-end gap-2" data-mod-add>
+            <div class="flex flex-col text-sm">
+                <BbLabel For="mod-workshop-id" Class="mb-1 text-muted-foreground">Install a Workshop item</BbLabel>
+                <BbInput Id="mod-workshop-id" UpdateTiming="UpdateTiming.Immediate" @bind-Value="_workshopId" autocomplete="off"
+                         inputmode="numeric" Placeholder="Workshop id, e.g. 2392709985" />
+            </div>
+            <ModInstallControl Server="Server" WorkshopId="@(_workshopId ?? string.Empty)" OnInstalled="ReloadAsync" />
         </div>
     }
+
+    <div class="mt-4">
+        @if (!_loaded)
+        {
+            <p class="text-sm text-muted-foreground" data-mod-manage-awaiting>
+                ZWarden hasn't read this server's mods yet. Re-scan to read them now.
+            </p>
+        }
+        else
+        {
+            <ModsTable Rows="_rows" Warnings="_warnings" Perm="Perm" Busy="_acting" Zone="OperatorZone" OnCommand="RunAsync" />
+        }
+    </div>
+
+    <PendingChangesBar Pending="_pending" CanRestart="@(Perm.CanUpdate || Perm.CanRestart)" Busy="_acting" OnRestart="RestartAsync" />
 </BbCard>
 
 @code {
@@ -244,106 +70,32 @@
     [Parameter, EditorRequired]
     public ModManagePermissions Perm { get; set; }
 
-    private readonly ModManageModel _modManageForm = new();
-    private string? _modMessage;
-    private ModInventory? _modInventory;
-    private IReadOnlyList<string> _enableCandidates = [];
-    private HashSet<string> _installedWorkshopIds = [];
-    private string? _modManageMessage;
-    private AlertVariant _modManageAlert = AlertVariant.Warning;
+    private string? _workshopId;
+    private string? _message;
+    private AlertVariant _alert = AlertVariant.Warning;
     private bool _acting;
-    private ServerModOverview? _overview;
-    // Pick parts: the parts ticked per Workshop item, seeded from the overview (#291).
-    private readonly Dictionary<string, HashSet<string>> _partPicks = new(StringComparer.Ordinal);
+    private bool _loaded;
+    private ModTableView _table = new([], []);
+    private List<ModTableRow> _rows = [];
+    private List<ModTableRow> _pending = [];
+    private IReadOnlyDictionary<string, IReadOnlyList<string>> _warnings = new Dictionary<string, IReadOnlyList<string>>();
 
-    protected override async Task OnInitializedAsync()
-    {
-        LoadInventory();
-        await LoadOverviewAsync();
-    }
+    protected override Task OnInitializedAsync() => ReloadAsync();
 
     private async Task ReloadAsync()
     {
-        LoadInventory();
-        await LoadOverviewAsync();
-    }
-
-    // The persisted #290 view: each item's status since the last boot, its Steam title and the Pick parts check.
-    private async Task LoadOverviewAsync()
-    {
         UserId user = await CurrentUserAsync();
         ServerId serverId = Server.Id;
-        _overview = await Actions.RunAsync<IServerModOverviewService, ServerModOverview?>(
-            (overview, ct) => overview.GetAsync(user, serverId, ct));
+        ServerModOverview? overview = await Actions.RunAsync<IServerModOverviewService, ServerModOverview?>(
+            (service, ct) => service.GetAsync(user, serverId, ct));
+        ModInventory? inventory = ModInventoryView.Load(ModInventories, Server).Inventory;
 
-        _partPicks.Clear();
-        HashSet<string> enabled = new(_modInventory?.EnabledModIds ?? [], StringComparer.Ordinal);
-        foreach (ModItemView item in _overview?.Items.Where(i => i.NeedsParts) ?? [])
-        {
-            // Start on the real parts already on; if none are, suggest every part the download provides.
-            List<string> on = [.. item.ObservedModIds.Where(enabled.Contains)];
-            _partPicks[item.WorkshopId] = new HashSet<string>(on.Count > 0 ? on : item.ObservedModIds, StringComparer.Ordinal);
-        }
-    }
-
-    private ModItemView? ViewOf(string workshopId) =>
-        _overview?.Items.FirstOrDefault(i => string.Equals(i.WorkshopId, workshopId, StringComparison.Ordinal));
-
-    private static RenderFragment StatusChip(ModItemView? view) => view?.Status switch
-    {
-        ModChangeStatus.InstallsOnRestart =>
-            @<span class="zw-mb-chip ml-2" data-mod-status="InstallsOnRestart">Installs on restart</span>,
-        ModChangeStatus.RemovedOnRestart =>
-            @<span class="zw-mb-chip ml-2" data-mod-status="RemovedOnRestart">Removed on restart</span>,
-        _ when view is { NeedsParts: true } =>
-            @<span class="zw-mb-chip-bad ml-2" data-mod-status="PickParts">Pick parts</span>,
-        _ => @<span></span>,
-    };
-
-    // #291: the after-boot check — what the Workshop page listed vs what the download provides — and a picker over
-    // the real parts. Saving sets exactly the ticked parts on, in one apply.
-    private RenderFragment PickParts(ModItemView view)
-    {
-        HashSet<string> picks = _partPicks.TryGetValue(view.WorkshopId, out HashSet<string>? found) ? found : [];
-        return @<div class="mt-2 rounded-md border border-border p-3" data-mod-pick-parts>
-            <p class="text-xs text-muted-foreground">
-                @if (view.MissingModIds.Count > 0)
-                {
-                    <span>The Workshop page listed <span class="font-mono">@string.Join(", ", view.MissingModIds)</span>, but the
-                        download provides <span class="font-mono">@string.Join(", ", view.ObservedModIds)</span>.</span>
-                }
-                else
-                {
-                    <span>None of this item's parts are on. The download provides
-                        <span class="font-mono">@string.Join(", ", view.ObservedModIds)</span>.</span>
-                }
-                Choose which parts to turn on; they load on the next restart.
-            </p>
-            <div class="mt-2 space-y-1.5">
-                @foreach (string part in view.ObservedModIds)
-                {
-                    string id = $"parts-{view.WorkshopId}-{part}";
-                    <div class="flex items-center gap-2" data-mod-parts-option data-mod-id="@part">
-                        <BbCheckbox Id="@id" Checked="picks.Contains(part)"
-                                    CheckedChanged="@((bool on) => { if (on) { picks.Add(part); } else { picks.Remove(part); } })" />
-                        <BbLabel For="@id" Class="font-mono text-sm">@part</BbLabel>
-                    </div>
-                }
-            </div>
-            <BbButton Class="mt-3" Size="ButtonSize.Small" Disabled="_acting"
-                      OnClick="@(() => ModManageAsync($"parts|{view.WorkshopId}"))" data-action="mod-parts-save">Save parts</BbButton>
-        </div>;
-    }
-
-    private void LoadInventory()
-    {
-        (_modInventory, _enableCandidates, _installedWorkshopIds) = ModInventoryView.Load(ModInventories, Server);
-
-        // The enable select shows its first candidate, so that is the default choice.
-        if (_modManageForm.EnableModId is null || !_enableCandidates.Contains(_modManageForm.EnableModId))
-        {
-            _modManageForm.EnableModId = _enableCandidates.FirstOrDefault();
-        }
+        // Nothing read yet: no persisted lists (before the first discovery) and no inventory.
+        _loaded = overview is { ConfigObservedAt: not null } || overview is { Items.Count: > 0 } || inventory is not null;
+        _table = overview is null ? new ModTableView([], []) : ModTable.Build(overview);
+        _rows = _table.Rows.ToList();
+        _pending = _table.PendingRows.ToList();
+        _warnings = ModRowWarnings.For(_table, inventory);
     }
 
     private async Task DiscoverModsAsync()
@@ -355,14 +107,16 @@
             ServerId serverId = Server.Id;
             ModDiscoveryDispatch result = await Actions.RunAsync<IModDiscoveryService, ModDiscoveryDispatch>(
                 (discovery, ct) => discovery.RequestAsync(user, serverId, ct));
-            _modMessage = result.Succeeded
-                ? $"Discovery started (operation {result.Operation}). The inventory below refreshes when it completes."
-                : result.Failure switch
-                {
-                    ModDiscoveryFailure.NotAuthorized => "You are not permitted to view this server's mods.",
-                    ModDiscoveryFailure.ServerNotFound => "That server is no longer available.",
-                    _ => "Discovery could not be started.",
-                };
+            SetMessage(
+                result.Succeeded
+                    ? "Re-scan started. The list updates when it finishes."
+                    : result.Failure switch
+                    {
+                        ModDiscoveryFailure.NotAuthorized => "You are not permitted to view this server's mods.",
+                        ModDiscoveryFailure.ServerNotFound => "That server is no longer available.",
+                        _ => "The re-scan could not be started.",
+                    },
+                ok: result.Succeeded);
         }
         finally
         {
@@ -370,58 +124,53 @@
         }
     }
 
-    // One mod-management command: "enable"/"restart", or "{verb}|{id}" for a per-row action
-    // (disable|{modId}, remove|{workshopId}, undo|{workshopId}, parts|{workshopId}, moveup|{modId}, movedown|{modId}).
-    private async Task ModManageAsync(string command)
+    // One row action from the table, through the mod manager. A Workshop item row uses the item verbs; an "other mod"
+    // row (an enabled id no tracked item provides) turns that one id off or back on.
+    private async Task RunAsync(ModRowCommand command)
     {
         _acting = true;
         try
         {
             ServerId serverId = Server.Id;
             UserId user = await CurrentUserAsync();
-            string[] parts = command.Split('|', 2);
-            string verb = parts[0];
-            string arg = parts.Length == 2 ? parts[1] : string.Empty;
+            ModTableRow row = command.Row;
+            string? workshopId = row.Item?.WorkshopId;
+            string modId = row.Mods.Count > 0 ? row.Mods[0].ModId : string.Empty;
 
             Task<ModManagementResult> Manage(Func<IServerModManager, CancellationToken, Task<ModManagementResult>> action) =>
                 Actions.RunAsync(action);
 
-            switch (verb)
+            switch (command.Verb)
             {
-                case "undo":
-                    SetModResult("Undo", await Manage((mods, ct) => mods.UndoPendingAsync(user, serverId, arg, ct)));
+                case ModRowVerb.Remove when workshopId is not null:
+                    SetResult(await Manage((mods, ct) => mods.RemoveWorkshopItemsAsync(user, serverId, [workshopId], ct)));
                     break;
-                case "parts":
-                    string[] chosen = _partPicks.TryGetValue(arg, out HashSet<string>? picks) ? [.. picks] : [];
-                    SetModResult("Save parts", await Manage((mods, ct) => mods.SetItemPartsAsync(user, serverId, arg, chosen, ct)));
+                case ModRowVerb.Remove:
+                    SetResult(await Manage((mods, ct) => mods.DisableModsAsync(user, serverId, [modId], ct)));
                     break;
-                case "enable":
-                    string enableId = (_modManageForm.EnableModId ?? string.Empty).Trim();
-                    if (enableId.Length == 0)
+                case ModRowVerb.Undo when workshopId is not null:
+                    SetResult(await Manage((mods, ct) => mods.UndoPendingAsync(user, serverId, workshopId, ct)));
+                    break;
+                case ModRowVerb.Undo when row.Status is ModChangeStatus.RemovedOnRestart:
+                    SetResult(await Manage((mods, ct) => mods.EnableModsAsync(user, serverId, [modId], ct)));
+                    break;
+                case ModRowVerb.Undo:
+                    SetResult(await Manage((mods, ct) => mods.DisableModsAsync(user, serverId, [modId], ct)));
+                    break;
+                case ModRowVerb.SaveParts when workshopId is not null:
+                    IReadOnlyList<string> parts = command.Parts;
+                    SetResult(await Manage((mods, ct) => mods.SetItemPartsAsync(user, serverId, workshopId, parts, ct)));
+                    break;
+                case ModRowVerb.MoveUp or ModRowVerb.MoveDown:
+                    IReadOnlyList<string>? order = _table.MoveOrder(row.Key, command.Verb == ModRowVerb.MoveUp ? ModMove.Up : ModMove.Down);
+                    if (order is not null)
                     {
-                        SetModMessage("Choose a mod to enable.", ok: false);
-                    }
-                    else
-                    {
-                        SetModResult("Enable", await Manage((mods, ct) => mods.EnableModsAsync(user, serverId, [enableId], ct)));
+                        SetResult(await Manage((mods, ct) => mods.ReorderModsAsync(user, serverId, order, ct)));
                     }
 
                     break;
-                case "disable":
-                    SetModResult("Disable", await Manage((mods, ct) => mods.DisableModsAsync(user, serverId, [arg], ct)));
-                    break;
-                case "remove":
-                    SetModResult("Remove", await Manage((mods, ct) => mods.RemoveWorkshopItemsAsync(user, serverId, [arg], ct)));
-                    break;
-                case "moveup":
-                case "movedown":
-                    await ReorderAsync(user, serverId, verb, arg);
-                    break;
-                case "restart":
-                    SetModRestartResult(await Manage((mods, ct) => mods.UpdateModsAsync(user, serverId, cancellationToken: ct)));
-                    break;
                 default:
-                    SetModMessage("Choose an action.", ok: false);
+                    SetMessage("Choose an action.", ok: false);
                     break;
             }
 
@@ -433,81 +182,59 @@
         }
     }
 
-    private async Task ReorderAsync(UserId user, ServerId serverId, string verb, string modId)
+    // #292 D3: the bar's restart loads every pending change (and pulls newer Workshop versions, #273) after warning
+    // players on the chosen countdown.
+    private async Task RestartAsync(string preset)
     {
-        if (_modInventory is null)
+        _acting = true;
+        try
         {
-            SetModMessage("Refresh mod discovery before reordering.", ok: false);
-            return;
+            ServerId serverId = Server.Id;
+            UserId user = await CurrentUserAsync();
+            GracefulRestartPayload plan = new(ServerDetailFormat.CountdownLeads(preset), "Applying mod changes.");
+            ModManagementResult result = await Actions.RunAsync<IServerModManager, ModManagementResult>(
+                (mods, ct) => mods.UpdateModsAsync(user, serverId, plan, ct));
+            if (result.Succeeded)
+            {
+                SetMessage("Restart started. Mods load and Workshop updates download as the server boots.", ok: true);
+            }
+            else
+            {
+                SetResult(result);
+            }
         }
-
-        List<string> order = [.. _modInventory.EnabledModIds];
-        int index = order.FindIndex(id => string.Equals(id, modId, StringComparison.Ordinal));
-        if (index < 0)
+        finally
         {
-            SetModMessage("That mod is no longer enabled; refresh discovery.", ok: false);
-            return;
+            _acting = false;
         }
-
-        int target = string.Equals(verb, "moveup", StringComparison.Ordinal) ? index - 1 : index + 1;
-        if (target < 0 || target >= order.Count)
-        {
-            return; // Already at the edge — nothing to do.
-        }
-
-        (order[index], order[target]) = (order[target], order[index]);
-        SetModResult("Reorder", await Actions.RunAsync<IServerModManager, ModManagementResult>(
-            (mods, ct) => mods.ReorderModsAsync(user, serverId, order, ct)));
     }
 
-    private void SetModResult(string action, ModManagementResult result)
+    private void SetResult(ModManagementResult result)
     {
         if (result.Succeeded)
         {
-            SetModMessage($"{action} enqueued (operation {result.Operation}). Restart to load the change once it completes.", ok: true);
+            SetMessage("Saved. It takes effect when the server restarts.", ok: true);
             return;
         }
 
-        string message = result.Failure switch
-        {
-            ModManagementFailure.NotAuthorized => "You are not permitted to manage this server's mods.",
-            ModManagementFailure.ServerNotFound => "That server is no longer available.",
-            ModManagementFailure.ServerBusy => "The server is busy with another operation; try again once it finishes.",
-            ModManagementFailure.SnapshotUnavailable => "Refresh mod discovery for this server before making changes.",
-            ModManagementFailure.NoChange => "That did not change the mod list.",
-            ModManagementFailure.InvalidReorder => "A reorder must keep exactly the currently enabled mods.",
-            ModManagementFailure.InvalidInput => result.Message ?? "That mod change is not valid.",
-            _ => "The mod change could not be completed.",
-        };
-        SetModMessage(message, ok: false);
+        SetMessage(
+            result.Failure switch
+            {
+                ModManagementFailure.NotAuthorized => "You are not permitted to manage this server's mods.",
+                ModManagementFailure.ServerNotFound => "That server is no longer available.",
+                ModManagementFailure.ServerBusy => "The server is busy with another operation; try again once it finishes.",
+                ModManagementFailure.SnapshotUnavailable => "Re-scan this server's mods before making changes.",
+                ModManagementFailure.NoChange => "That did not change anything.",
+                ModManagementFailure.InvalidReorder => "The mod list changed underneath you; re-scan and try again.",
+                ModManagementFailure.InvalidInput => result.Message ?? "That mod change is not valid.",
+                _ => "The mod change could not be completed.",
+            },
+            ok: false);
     }
 
-    // #273: the Mods section's one restart, which loads mod changes and pulls Workshop updates.
-    private void SetModRestartResult(ModManagementResult result)
+    private void SetMessage(string message, bool ok)
     {
-        if (result.Succeeded)
-        {
-            SetModMessage(
-                $"Restart enqueued (operation {result.Operation}). Mods load and Workshop updates download as the server boots.",
-                ok: true);
-            return;
-        }
-
-        SetModResult("Restart", result);
-    }
-
-    private void SetModMessage(string message, bool ok)
-    {
-        _modManageMessage = message;
-        _modManageAlert = ok ? AlertVariant.Success : AlertVariant.Warning;
-    }
-
-    private sealed class ModManageModel
-    {
-        // The Workshop id typed into the "Add Workshop item" field.
-        public string? WorkshopId { get; set; }
-
-        // The mod id chosen in the "Enable an installed mod" select.
-        public string? EnableModId { get; set; }
+        _message = message;
+        _alert = ok ? AlertVariant.Success : AlertVariant.Warning;
     }
 }

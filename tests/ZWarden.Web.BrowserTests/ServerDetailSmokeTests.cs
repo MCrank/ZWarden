@@ -124,7 +124,7 @@ public sealed partial class ServerDetailSmokeTests(BrowserHost host)
 
         await session.Page.ClickAsync("[data-action=mod-refresh]");
 
-        await Expect(session.Page.Locator("[data-mod-message]")).ToContainTextAsync("Discovery started");
+        await Expect(session.Page.Locator("[data-mod-message]")).ToContainTextAsync("Re-scan started");
         await session.AssertNoErrorsAsync();
     }
 
