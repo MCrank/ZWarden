@@ -325,7 +325,14 @@ public sealed record ModDiscoveryResult(
 /// bounded, and carried verbatim.</summary>
 /// <param name="WorkshopId">The Steam Workshop item id (numeric, carried as a string).</param>
 /// <param name="Mods">The mods this item provides (may be empty when the item has no readable <c>mod.info</c>).</param>
-public sealed record DiscoveredWorkshopItem(string WorkshopId, IReadOnlyList<DiscoveredMod> Mods);
+/// <param name="InstalledUpdatedAt">(#275) The Steam <c>timeupdated</c> of the copy on disk, from Steam's Workshop
+/// manifest (<c>appworkshop_108600.acf</c>), or <c>null</c> when the manifest has no entry for it. Compared with the
+/// item's current Steam <c>time_updated</c> to tell whether a restart would pull an update. Additive-optional, so
+/// <see cref="ProtocolVersion"/> stays 1 (ADR 0020).</param>
+public sealed record DiscoveredWorkshopItem(
+    string WorkshopId,
+    IReadOnlyList<DiscoveredMod> Mods,
+    DateTimeOffset? InstalledUpdatedAt = null);
 
 /// <summary>A mod declared by a <c>mod.info</c> (F21): its Mod id (the <c>id=</c> value, the token used in the
 /// config's <c>Mods=</c> line), the display name (<c>name=</c>), and (#110) the optional version, dependency, and

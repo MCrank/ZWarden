@@ -1,6 +1,6 @@
 # Feature #275 Mini-Plan — Show when a Workshop mod update is ready
 
-**Status:** planned. D1–D10 accepted in grilling (2026-10-03). Slice 0 spike done. v1.0, epic
+**Status:** PR-A in progress (Contracts + Agent done, floors Agent 685 / Contracts 162). D1–D10 accepted in grilling (2026-10-03). Slice 0 spike done. v1.0, epic
 [#289](https://github.com/MCrank/ZWarden/issues/289). The game half (a new build on the server's branch) was split
 out to [#326](https://github.com/MCrank/ZWarden/issues/326) (v1.1).
 
@@ -77,18 +77,18 @@ server's disk, plus a "Restart to apply" path (the #114 graceful restart, which 
 
 **PR-A — `feat/275-mod-update-ready` (Contracts + Agent)**
 1. Slice 0 spike (done, above).
-2. `SteamWorkshopManifest.ParseInstalledTimeUpdated(string)` returns `IReadOnlyDictionary<string, DateTimeOffset>`.
+2. `SteamWorkshopManifest.ParseInstalledTimeUpdated(string)` (a small KeyValues tokenizer, max depth 16) returns `IReadOnlyDictionary<string, DateTimeOffset>`.
    - It reads only the `WorkshopItemsInstalled` block, with numeric ids and positive values.
    - It is bounded (ignores absurd sizes) and returns empty on garbage.
    - Tests use the spike's real text, plus missing-block, `0`, duplicate and malformed cases.
-3. `IServerInstallPaths` gets the `.acf` path. `ModDiscovery` reads it once per discovery (resilient: an IO error
+3. `IServerInstallPaths.ReadWorkshopInstalledTimes` (4 MB cap). `ModDiscovery` reads it once per discovery (resilient: an IO error
    gives `null`s) and sets `InstalledUpdatedAt` only on walked folders.
-4. Contracts: additive `InstalledUpdatedAt` on `DiscoveredWorkshopItem` and its Application twin
-   `InstalledWorkshopItem`, plus a round-trip serialization test.
+4. Contracts: additive `InstalledUpdatedAt` on `DiscoveredWorkshopItem`, plus a round-trip test. (The Application twin
+   `InstalledWorkshopItem` and the hub mapping move to PR-B, where they are consumed.)
 5. ADR 0028 line fix. Bump the test floors in the csproj **and** `ci.yml`.
 
 **PR-B — `feat/275-mod-update-ready-web` (control plane + Web)**
-1. Domain: `ServerWorkshopItem.InstalledUpdatedAt`, set by `ObserveDisk` and cleared when off disk. EF migration.
+1. Application twin `InstalledWorkshopItem.InstalledUpdatedAt` + hub mapping. Domain: `ServerWorkshopItem.InstalledUpdatedAt`, set by `ObserveDisk` and cleared when off disk. EF migration.
 2. `ModStateRecorder` passes it through. `ModItemView.UpdateReady` and `ServerModOverview.UpdatesReady` count (D3).
 3. `WorkshopMetadataClient`: `bypassCache` plus a 403/429 back-off. `ModRefreshProcessor` takes a max-age override.
 4. `ModUpdateCheckService` (hourly `PeriodicTimer`, system scope, per-tenant enqueue). The Mods page queues an

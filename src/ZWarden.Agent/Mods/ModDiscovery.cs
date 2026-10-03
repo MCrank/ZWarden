@@ -89,12 +89,18 @@ public sealed partial class ModDiscovery : IModDiscovery
         }
 
         Array.Sort(itemDirs, StringComparer.Ordinal);
+        // #275: the version on disk comes from Steam's Workshop manifest, joined on the folders actually present (the
+        // manifest keeps entries for deleted folders).
+        IReadOnlyDictionary<string, DateTimeOffset> installedTimes = _paths.ReadWorkshopInstalledTimes(serverId);
         List<DiscoveredWorkshopItem> items = [];
         foreach (string itemDir in itemDirs)
         {
             cancellationToken.ThrowIfCancellationRequested();
             string workshopId = Path.GetFileName(itemDir);
-            items.Add(new DiscoveredWorkshopItem(workshopId, await ReadItemModsAsync(itemDir, cancellationToken).ConfigureAwait(false)));
+            items.Add(new DiscoveredWorkshopItem(
+                workshopId,
+                await ReadItemModsAsync(itemDir, cancellationToken).ConfigureAwait(false),
+                installedTimes.TryGetValue(workshopId, out DateTimeOffset installedAt) ? installedAt : null));
         }
 
         return items;

@@ -322,5 +322,7 @@ public class DiagnosticsGathererTests
         public string? ReadInstalledBuildId(ServerId serverId) => buildId;
 
         public string GetWorkshopContentRoot(ServerId serverId) => "/pz/server/steamapps/workshop/content/108600";
+
+        public IReadOnlyDictionary<string, DateTimeOffset> ReadWorkshopInstalledTimes(ServerId serverId) => throw new NotSupportedException();
     }
 }

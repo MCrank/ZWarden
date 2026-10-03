@@ -24,6 +24,11 @@ public interface IServerInstallPaths
     /// lives as <c>&lt;workshopId&gt;/</c> (F21). The directory may not exist (nothing downloaded yet); callers
     /// treat its absence as "no Workshop content".</summary>
     string GetWorkshopContentRoot(ServerId serverId);
+
+    /// <summary>Reads the Steam <c>timeupdated</c> of each Workshop item installed on the Server's install volume
+    /// from <c>steamapps/workshop/appworkshop_108600.acf</c> (#275), keyed by Workshop id. Empty when the manifest is
+    /// absent, unreadable, oversized, or doesn't parse. It can still list items whose folders were deleted.</summary>
+    IReadOnlyDictionary<string, DateTimeOffset> ReadWorkshopInstalledTimes(ServerId serverId);
 }
 
 /// <summary>The default <see cref="IServerInstallPaths"/> over the Agent's <c>DataMountRoot</c>. The paths mirror
@@ -39,6 +44,9 @@ public sealed class ServerInstallPaths : IServerInstallPaths
     // (research: project-zomboid-runtime.md §4). SteamCMD/the server download items to
     // steamapps/workshop/content/108600/<workshopId>/.
     private const string WorkshopAppId = "108600";
+    private const string WorkshopManifestFile = "appworkshop_" + WorkshopAppId + ".acf";
+    private const long MaxWorkshopManifestBytes = 4 * 1024 * 1024;
+    private static readonly IReadOnlyDictionary<string, DateTimeOffset> EmptyTimes = new Dictionary<string, DateTimeOffset>();
 
     private readonly AgentOptions _options;
 
@@ -77,4 +85,27 @@ public sealed class ServerInstallPaths : IServerInstallPaths
     /// <inheritdoc />
     public string GetWorkshopContentRoot(ServerId serverId) =>
         Path.Combine(_options.DataMountRoot, $"{serverId}.server", "steamapps", "workshop", "content", WorkshopAppId);
+
+    /// <inheritdoc />
+    public IReadOnlyDictionary<string, DateTimeOffset> ReadWorkshopInstalledTimes(ServerId serverId)
+    {
+        string manifest = Path.Combine(
+            _options.DataMountRoot, $"{serverId}.server", "steamapps", "workshop", WorkshopManifestFile);
+        try
+        {
+            // The file is a few hundred bytes per item; anything far larger is not a Steam manifest we trust.
+            FileInfo file = new(manifest);
+            return file.Exists && file.Length <= MaxWorkshopManifestBytes
+                ? SteamWorkshopManifest.ParseInstalledTimeUpdated(File.ReadAllText(manifest))
+                : EmptyTimes;
+        }
+        catch (IOException)
+        {
+            return EmptyTimes;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return EmptyTimes;
+        }
+    }
 }

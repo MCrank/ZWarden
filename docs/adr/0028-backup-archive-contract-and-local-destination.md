@@ -39,8 +39,10 @@ opaque success are not enough** (the F24 sibling of ADR 0009's stdout-parsing ru
 *refuse* a corrupt archive, which means the backup has to carry a verifiable checksum computed over exactly the bytes
 that will be restored.
 
-The `/pz/data` tree also contains a `workshop` **symlink** into the ephemeral runtime tmpfs. A naive recursive archive
-would follow it and pull in Workshop content that is neither world data nor guaranteed to exist at rest.
+The `/pz/data` tree also contains a `workshop` **symlink** into the server's Workshop content (since #293 it points
+into the install volume, `/pz/server/steamapps/workshop/content/108600`; it originally pointed into the ephemeral
+runtime tmpfs). A naive recursive archive would follow it and pull in Workshop content that is not world data and is
+re-downloadable at boot.
 
 ## Decision
 
