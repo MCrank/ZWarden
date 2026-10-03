@@ -80,3 +80,6 @@ npm-debug.log*
 
 # Local Data Protection key ring written by a dev run of ZWarden.Web (never commit key material)
 src/ZWarden.Web/dp-keys/
+
+# Local planning scratch (e.g. /user-story drafts); the GitHub issue is the record
+.local/
