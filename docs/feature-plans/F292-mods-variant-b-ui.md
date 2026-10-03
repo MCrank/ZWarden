@@ -1,6 +1,6 @@
 # Feature #292 Mini-Plan — Mods: Variant B UI (one table, Add-mods sheet, pending-changes bar)
 
-**Status:** planned — D1–D4 decided 2026-10-03 (all recommendations taken); next slice 1. v1.0, epic [#289](https://github.com/MCrank/ZWarden/issues/289).
+**Status:** PR-A done (slices 1–5); PR-B in progress. D1–D4 decided 2026-10-03 (all recommendations taken). v1.0, epic [#289](https://github.com/MCrank/ZWarden/issues/289).
 Needs #290 + #291 (both done). #293 (delete files) and #275 (update ready) build on this.
 
 **Written against:** issue #292; epic #289 (Variant B, prototype `prototype/mods-ux` `VariantB.razor`, local only);
@@ -75,10 +75,20 @@ section.
 5. New `ModsSection` composes them; delete `LiveModInventoryPanel` + F22 lists; rail: one "Mods" entry,
    `modbrowser` redirect — bUnit + rail tests.
 
+*PR-A as built:*
+- `ModRowsBuilder` shipped as `ModTable` (9a285c5). The countdown is e52e96b.
+- Slices 3–5 landed together (1f83ccc), because the table, bar and section are tested through the page harness.
+- `ModRowWarnings` derives the D2 warnings straight from `mod.info` (requires / incompatible / duplicate), rather than
+  parsing the F21 issue text.
+- #273's restart-to-update-mods (the Lua checksum fix) stays as a hint line whenever nothing is pending.
+- **The rail merge moved to PR-B** (slice 7). Until the Add sheet exists, PR-A keeps the install field and the Mod
+  Browser rail entry, so a mod can still be added.
+
 **PR-B**
 6. `return_tags` on search + `WorkshopBuildSupport` (B41-only rule) — unit tests.
 7. `AddModsSheet` (paste/preview keyless, search key-gated, cards with Install via `ModInstallControl`, "Added ✓",
-   multi-part hint, B41 blocked) — bUnit; delete `ModBrowserSection`.
+   multi-part hint, B41 blocked) — bUnit; delete `ModBrowserSection`; rail: one "Mods" entry, `modbrowser`
+   redirect; drop PR-A's interim install field.
 8. Leftover footer row (count, expand, Reinstall) — bUnit.
 9. Copy pass (no `WorkshopItems=`/`Mods=` outside a tooltip), app.css rebuild, floors bump, Playwright smoke +
    screenshot at 1280px, clean console; delete `prototype/mods-ux`.
