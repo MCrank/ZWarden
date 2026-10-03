@@ -26,6 +26,13 @@ public interface IModRefreshTrigger
     /// target are read from the persisted Operation, and only the owning Agent's report counts.</summary>
     Task OperationSucceededAsync(OperationId operationId, AgentId reportingAgent, CancellationToken cancellationToken = default);
 
+    /// <summary>#291: a config apply is about to be marked succeeded. Its own <c>WorkshopItems=</c> / <c>Mods=</c>
+    /// edits are written into the cached Mod Inventory first, so the next mod change (a second Install moments later)
+    /// is computed from the lists just written, not the last discovery's. Called before completion, so no change can
+    /// slip in between; the follow-up discovery then confirms the lists from disk. Only the owning Agent's report
+    /// counts; it never throws into the hub.</summary>
+    Task RecordAppliedModListsAsync(OperationId operationId, AgentId reportingAgent, CancellationToken cancellationToken = default);
+
     /// <summary>An Agent connected: queue a discovery for each Server it owns, so mod data comes back after a web
     /// restart without a boot.</summary>
     void AgentConnected(AgentId agent);

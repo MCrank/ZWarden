@@ -167,7 +167,7 @@ public static class ModListEditor
         IReadOnlyList<string> bootedWorkshopIds,
         IReadOnlyList<string> bootedModIds,
         string workshopId,
-        IReadOnlyList<string> itemModIds)
+        IReadOnlyList<PzModId> itemModIds)
     {
         ArgumentNullException.ThrowIfNull(configuredWorkshopIds);
         ArgumentNullException.ThrowIfNull(enabledModIds);
@@ -177,7 +177,7 @@ public static class ModListEditor
         ArgumentNullException.ThrowIfNull(itemModIds);
 
         List<string> nextWorkshop = MatchBooted(configuredWorkshopIds, bootedWorkshopIds, [workshopId]);
-        List<string> nextMods = MatchBooted(enabledModIds, bootedModIds, itemModIds);
+        List<string> nextMods = MatchBooted(enabledModIds, bootedModIds, [.. itemModIds.Select(m => m.Value)]);
 
         List<ConfigApplyEdit> edits = [];
         if (!SequenceEqual(configuredWorkshopIds, nextWorkshop))

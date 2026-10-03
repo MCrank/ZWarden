@@ -176,7 +176,15 @@ public sealed class ServerModManager : IServerModManager
         ServerModState? state = await _states.FindAsync(server, cancellationToken).ConfigureAwait(false);
         ServerWorkshopItem? item = (await _items.ListForServerAsync(server, cancellationToken).ConfigureAwait(false))
             .FirstOrDefault(i => string.Equals(i.WorkshopId, workshopId, StringComparison.Ordinal));
-        string[] itemModIds = item is null ? [] : [.. item.ObservedModIds.Union(item.GuessedModIds, StringComparer.Ordinal)];
+        // Stored ids were validated on the way in (#290); they re-enter Mods= only as PzModIds.
+        List<PzModId> itemModIds = [];
+        foreach (string id in item is null ? [] : item.ObservedModIds.Union(item.GuessedModIds, StringComparer.Ordinal))
+        {
+            if (PzModId.TryCreate(id, out PzModId valid))
+            {
+                itemModIds.Add(valid);
+            }
+        }
         Server? owner = await _servers.FindByIdAsync(server, cancellationToken).ConfigureAwait(false);
         ModInventory? current = owner is null ? null : _inventory.GetLatest(server, owner.AgentId);
         PermissionDefinition permission =
@@ -198,11 +206,11 @@ public sealed class ServerModManager : IServerModManager
 
     // Undo re-adds an entry when the item or one of its ids loaded at the last boot but is no longer configured.
     private static bool ReAddsEntries(
-        ServerModState state, ModInventory current, string workshopId, IReadOnlyList<string> itemModIds) =>
+        ServerModState state, ModInventory current, string workshopId, IReadOnlyList<PzModId> itemModIds) =>
         (state.BootedWorkshopIds.Contains(workshopId, StringComparer.Ordinal)
             && !current.ConfiguredWorkshopIds.Contains(workshopId, StringComparer.Ordinal))
-        || itemModIds.Any(id => state.BootedModIds.Contains(id, StringComparer.Ordinal)
-            && !current.EnabledModIds.Contains(id, StringComparer.Ordinal));
+        || itemModIds.Any(id => state.BootedModIds.Contains(id.Value, StringComparer.Ordinal)
+            && !current.EnabledModIds.Contains(id.Value, StringComparer.Ordinal));
 
     // What each Workshop item is known to provide: mod.info on disk (the truth), else the description's guesses.
     private async Task<IReadOnlyList<InstalledWorkshopItem>> KnownProvidersAsync(

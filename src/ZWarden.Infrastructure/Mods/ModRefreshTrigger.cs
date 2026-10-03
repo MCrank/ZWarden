@@ -1,7 +1,9 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using ZWarden.Application.Configuration;
 using ZWarden.Application.Mods;
 using ZWarden.Application.Tenancy;
+using ZWarden.Domain.Configuration;
 using ZWarden.Domain.Ids;
 using ZWarden.Domain.Mods;
 using ZWarden.Domain.Operations;
@@ -21,6 +23,7 @@ public sealed partial class ModRefreshTrigger : IModRefreshTrigger
     private readonly ServerModStateRepository _states;
     private readonly ZWardenDbContext _context;
     private readonly IModRefreshScheduler _scheduler;
+    private readonly IModInventoryCache _inventory;
     private readonly ITenantContext _tenant;
     private readonly TimeProvider _clock;
     private readonly ModRefreshOptions _options;
@@ -31,6 +34,7 @@ public sealed partial class ModRefreshTrigger : IModRefreshTrigger
         ServerModStateRepository states,
         ZWardenDbContext context,
         IModRefreshScheduler scheduler,
+        IModInventoryCache inventory,
         ITenantContext tenant,
         TimeProvider clock,
         IOptions<ModRefreshOptions> options,
@@ -40,6 +44,7 @@ public sealed partial class ModRefreshTrigger : IModRefreshTrigger
         ArgumentNullException.ThrowIfNull(states);
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(scheduler);
+        ArgumentNullException.ThrowIfNull(inventory);
         ArgumentNullException.ThrowIfNull(tenant);
         ArgumentNullException.ThrowIfNull(clock);
         ArgumentNullException.ThrowIfNull(options);
@@ -48,6 +53,7 @@ public sealed partial class ModRefreshTrigger : IModRefreshTrigger
         _states = states;
         _context = context;
         _scheduler = scheduler;
+        _inventory = inventory;
         _tenant = tenant;
         _clock = clock;
         _options = options.Value;
@@ -100,6 +106,63 @@ public sealed partial class ModRefreshTrigger : IModRefreshTrigger
         }
 #pragma warning restore CA1031
     }
+
+    /// <inheritdoc />
+    public async Task RecordAppliedModListsAsync(
+        OperationId operationId, AgentId reportingAgent, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            Operation? operation = await _operations.FindByIdAsync(operationId, cancellationToken).ConfigureAwait(false);
+            if (operation is not { Kind: OperationKind.ConfigApply, ServerId: { } server, CommandPayload: { } json }
+                || operation.AgentId != reportingAgent
+                || _inventory.GetLatest(server, reportingAgent) is not { } current)
+            {
+                return;
+            }
+
+            ConfigApplyPayload payload = ConfigApplyPayload.FromJson(json);
+            if (payload.File != PzConfigFile.Ini)
+            {
+                return;
+            }
+
+            // Each edit replaces a whole list value, exactly as the Agent wrote it.
+            ModInventory patched = current;
+            foreach (ConfigApplyEdit edit in payload.Edits)
+            {
+                if (string.Equals(edit.Path, WorkshopItemsKey, StringComparison.Ordinal))
+                {
+                    patched = patched with { ConfiguredWorkshopIds = SplitList(edit.Value) };
+                }
+                else if (string.Equals(edit.Path, ModsKey, StringComparison.Ordinal))
+                {
+                    patched = patched with { EnabledModIds = SplitList(edit.Value) };
+                }
+            }
+
+            if (!ReferenceEquals(patched, current))
+            {
+                _inventory.Record(patched);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+#pragma warning disable CA1031 // Patching the cache must never fail the operation's completion; discovery corrects it.
+        catch (Exception ex)
+        {
+            LogTriggerFailed(operationId, ex);
+        }
+#pragma warning restore CA1031
+    }
+
+    private const string WorkshopItemsKey = "WorkshopItems";
+    private const string ModsKey = "Mods";
+
+    private static string[] SplitList(string value) =>
+        value.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
     /// <inheritdoc />
     public void AgentConnected(AgentId agent) =>

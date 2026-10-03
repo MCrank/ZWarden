@@ -1,18 +1,23 @@
 using Microsoft.AspNetCore.Http.Connections;
 using Microsoft.AspNetCore.SignalR.Client;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using ZWarden.Application.Agents;
 using ZWarden.Application.Configuration;
 using ZWarden.Application.Mods;
 using ZWarden.Application.Operations;
+using ZWarden.Application.Workshop;
 using ZWarden.Contracts.Protocol;
 using ZWarden.Contracts.Protocol.Messages;
 using ZWarden.Domain.Agents;
 using ZWarden.Domain.Audit;
+using ZWarden.Domain.Authorization;
 using ZWarden.Domain.Configuration;
 using ZWarden.Domain.Ids;
 using ZWarden.Domain.Operations;
+using ZWarden.Domain.Tenancy;
 using ZWarden.Infrastructure.Agents;
+using ZWarden.Infrastructure.Authorization;
 using ZWarden.Infrastructure.Configuration;
 using ZWarden.Infrastructure.Mods;
 using ZWarden.Infrastructure.Operations;
@@ -408,6 +413,144 @@ public class OperationDispatchIntegrationTests
 
         static string Statuses(ServerModOverview overview) =>
             string.Join("|", overview.Items.Select(i => $"{i.WorkshopId}={i.Status}"));
+    }
+
+    [Test]
+    public async Task One_click_install_loads_in_one_restart_and_a_wrong_guess_asks_to_pick_parts()
+    {
+        // #291 acceptance, end to end through the hub: Install writes WorkshopItems= and Mods= in one apply from the
+        // description's guess; one restart downloads and loads it. Item 300's guess is right (Active, nothing to do);
+        // item 400's description names "Guess" but the download provides "Real", so it asks to pick parts.
+        StubWorkshopMetadata steam = new(new Dictionary<string, string>
+        {
+            ["300"] = "[h1]Kill counter[/h1]\nWorkshop ID: 300\nMod ID: KillCount",
+            ["400"] = "Mod ID: Guess",
+        });
+        await using ZWardenWebAppFactory factory = new()
+        {
+            ConfigureTestServicesHook = services => services.AddSingleton<IWorkshopMetadataClient>(steam),
+        };
+        (AgentId agentId, string credential) = await SeedTrustedAgentAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, agentId);
+        UserId operatorUser = await SeedOwnerAsync(factory);
+        await using HubConnection connection = BuildConnection(factory, credential);
+
+        // The stand-in Agent's "servertest.ini" and Workshop folder. A ConfigApply rewrites the ini lists; a restart
+        // downloads whatever WorkshopItems= names (PZ downloads before it loads Mods=, spike #291).
+        List<string> configuredItems = ["100"];
+        List<string> enabledMods = ["A"];
+        Dictionary<string, string> provides = new() { ["100"] = "A", ["300"] = "KillCount", ["400"] = "Real" };
+        HashSet<string> downloaded = ["100"];
+        connection.On<string>(AgentHubProtocol.ReceiveCommand, async json =>
+        {
+            Envelope<IProtocolMessage> command = ProtocolJson.Deserialize(json);
+            if (command.OperationId is not { } operationId)
+            {
+                return;
+            }
+
+            if (command.Payload is ConfigApply apply)
+            {
+                foreach (ConfigValueEdit edit in apply.Edits)
+                {
+                    List<string> target = edit.Path == "WorkshopItems" ? configuredItems : enabledMods;
+                    target.Clear();
+                    target.AddRange(edit.Value.Split(';', StringSplitOptions.RemoveEmptyEntries));
+                }
+            }
+
+            if (command.Payload is RestartServer)
+            {
+                downloaded.UnionWith(configuredItems);
+            }
+
+            OperationCompleted? result = command.Payload switch
+            {
+                RestartServer or ConfigApply => new OperationCompleted(OperationOutcome.Succeeded),
+                DiscoverMods => new OperationCompleted(
+                    OperationOutcome.Succeeded,
+                    Mods: new ModDiscoveryResult(
+                        [.. downloaded.Order().Select(id => new DiscoveredWorkshopItem(id, [new DiscoveredMod(provides[id], null)]))],
+                        [.. configuredItems], [.. enabledMods], Findings: [])),
+                _ => null,
+            };
+            if (result is not null)
+            {
+                await connection.SendAsync(
+                    AgentHubProtocol.OperationCompleted,
+                    Envelope.Create(result, Now, serverId: command.ServerId, operationId: operationId));
+            }
+        });
+
+        await connection.StartAsync();
+        await connection.InvokeAsync<ProtocolNegotiationResult>(AgentHubProtocol.Hello, Hello(agentId));
+        await RestartAsync(factory, agentId, serverId, "e2e-install-boot-1");
+        await WaitForOverviewAsync(factory, serverId, o => o.HasBootSnapshot && o.Items.Count == 1);
+
+        await InstallAsync(factory, operatorUser, serverId, "300");
+        await InstallAsync(factory, operatorUser, serverId, "400");
+        ServerModOverview pending = await WaitForOverviewAsync(
+            factory, serverId, o => o.Items.Count(i => i.Status == ModChangeStatus.InstallsOnRestart) == 2);
+        await Assert.That(string.Join(";", enabledMods)).IsEqualTo("A;KillCount;Guess");
+        await Assert.That(pending.PendingChanges).IsEqualTo(4);
+
+        await RestartAsync(factory, agentId, serverId, "e2e-install-boot-2");
+        ServerModOverview booted = await WaitForOverviewAsync(
+            factory, serverId, o => o.PendingChanges == 0 && o.Items.Any(i => i is { WorkshopId: "400", NeedsParts: true }));
+
+        ModItemView right = booted.Items.Single(i => i.WorkshopId == "300");
+        ModItemView wrong = booted.Items.Single(i => i.WorkshopId == "400");
+        await Assert.That(right.Status).IsEqualTo(ModChangeStatus.Active);
+        await Assert.That(right.NeedsParts).IsFalse();
+        await Assert.That(wrong.NeedsParts).IsTrue();
+        await Assert.That(string.Join(";", wrong.MissingModIds)).IsEqualTo("Guess");
+        await Assert.That(string.Join(";", wrong.ObservedModIds)).IsEqualTo("Real");
+
+        await connection.StopAsync();
+    }
+
+    // Plans from the (stubbed) Steam description and installs with the plan's ids, as the Install button will.
+    private static async Task InstallAsync(ZWardenWebAppFactory factory, UserId user, ServerId serverId, string workshopId)
+    {
+        ModManagementResult result;
+        using (AsyncServiceScope scope = factory.Services.CreateSystemScope())
+        {
+            IWorkshopMetadataClient steam = scope.ServiceProvider.GetRequiredService<IWorkshopMetadataClient>();
+            ModInstallPlan plan = ModInstallPlan.For((await steam.GetItemsAsync([workshopId]))[0]);
+            result = await scope.ServiceProvider.GetRequiredService<IServerModManager>().InstallWorkshopItemsAsync(
+                user, serverId, [workshopId], [.. plan.CandidateModIds.Select(id => id.Value)]);
+        }
+
+        await Assert.That(result.Succeeded).IsTrue();
+        await Assert.That(await WaitForStateAsync(factory, result.Operation!.Value, OperationState.Succeeded)).IsNotNull();
+    }
+
+    private static async Task<UserId> SeedOwnerAsync(ZWardenWebAppFactory factory)
+    {
+        await AuthorizationBootstrapper.EnsureSeededAsync(factory.Services);
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
+        ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
+        Role owner = await db.Set<Role>().FirstAsync(r => r.BuiltIn == BuiltInRoleKind.TenantOwner);
+        UserId user = UserId.New();
+        db.Add(RoleAssignment.TenantWide(Tenant.DefaultId, user, owner.Id));
+        await db.SaveChangesAsync();
+        return user;
+    }
+
+    private sealed class StubWorkshopMetadata(IReadOnlyDictionary<string, string> descriptions) : IWorkshopMetadataClient
+    {
+        public Task<IReadOnlyList<WorkshopItemMetadata>> GetItemsAsync(
+            IReadOnlyList<string> workshopIds, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<WorkshopItemMetadata>>(
+            [
+                .. workshopIds.Select(id => descriptions.TryGetValue(id, out string? text)
+                    ? new WorkshopItemMetadata(id, Found: true, Title: $"Item {id}", Description: text)
+                    : WorkshopItemMetadata.NotFound(id)),
+            ]);
+
+        public Task<IReadOnlyList<string>> GetCollectionItemIdsAsync(
+            string collectionId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<string>>([]);
     }
 
     private static async Task RestartAsync(ZWardenWebAppFactory factory, AgentId agentId, ServerId serverId, string key)
