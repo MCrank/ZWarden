@@ -1,0 +1,53 @@
+@using ZWarden.Application.Mods
+
+@* A Mods-table row's status (#292), in the StatusBadge idiom: squared, dot + uppercase label, the dot carrying the
+   status-token hue and the label ink staying --foreground. A part that needs choosing wins over the item's own
+   status. Class strings are full literals so the Tailwind content scan emits them. *@
+<span class="inline-flex items-center gap-1.5 whitespace-nowrap rounded-sm border px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-foreground @Border"
+      data-mod-status="@Key">
+    <span class="inline-block h-2 w-2 rounded-full @Dot"></span>@Label
+</span>
+
+@code {
+    /// <summary>The row's status.</summary>
+    [Parameter, EditorRequired]
+    public ModChangeStatus Status { get; set; }
+
+    /// <summary>The after-boot check flagged a part that needs choosing (#291).</summary>
+    [Parameter]
+    public bool NeedsParts { get; set; }
+
+    private bool PickParts => NeedsParts && Status is not ModChangeStatus.RemovedOnRestart;
+
+    private string Key => PickParts ? "PickParts" : Status.ToString();
+
+    private string Label => PickParts
+        ? "Pick parts"
+        : Status switch
+        {
+            ModChangeStatus.Active => "Active",
+            ModChangeStatus.InstallsOnRestart => "Installs on restart",
+            ModChangeStatus.RemovedOnRestart => "Removed on restart",
+            _ => "Unused files",
+        };
+
+    private string Border => PickParts
+        ? "border-status-unknown"
+        : Status switch
+        {
+            ModChangeStatus.Active => "border-status-running",
+            ModChangeStatus.InstallsOnRestart => "border-status-busy",
+            ModChangeStatus.RemovedOnRestart => "border-status-unhealthy",
+            _ => "border-status-stopped",
+        };
+
+    private string Dot => PickParts
+        ? "bg-status-unknown"
+        : Status switch
+        {
+            ModChangeStatus.Active => "bg-status-running",
+            ModChangeStatus.InstallsOnRestart => "bg-status-busy",
+            ModChangeStatus.RemovedOnRestart => "bg-status-unhealthy",
+            _ => "bg-status-stopped",
+        };
+}

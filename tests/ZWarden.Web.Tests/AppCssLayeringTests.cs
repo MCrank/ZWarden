@@ -79,11 +79,20 @@ public sealed class AppCssLayeringTests
     [Test]
     public async Task Generated_app_css_dark_variant_follows_the_dark_class()
     {
+        // Tailwind emits the variant only where a dark: utility is used, and the app may use none (#292 removed the
+        // last), so the class-based variant is checked at its declaration and the output only for the OS preference.
+        string source = await File.ReadAllTextAsync(TailwindSourcePath());
         string css = await File.ReadAllTextAsync(GeneratedAppCssPath());
 
-        await Assert.That(css).Contains(":where(.dark, .dark *)")
+        await Assert.That(source).Contains("@custom-variant dark (&:where(.dark, .dark *));")
             .Because("dark: must follow the .dark class the theme toggle sets, not prefers-color-scheme");
         await Assert.That(css).DoesNotContain("prefers-color-scheme: dark")
             .Because("dark: utilities must not follow the OS preference");
+    }
+
+    private static string TailwindSourcePath([CallerFilePath] string thisFile = "")
+    {
+        string repoRoot = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(thisFile)!, "..", ".."));
+        return Path.Combine(repoRoot, "src", "ZWarden.Web", "Styles", "app.tailwind.css");
     }
 }

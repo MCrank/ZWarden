@@ -1,0 +1,74 @@
+@using ZWarden.Application.Mods
+
+@* The sticky pending-changes bar (#292): how many Mods-table rows change on the next restart, a +/− summary, and the
+   one "Restart to apply" with a countdown (D3 — the #114/#213 presets, default five minutes). Shown only while
+   something is pending. The restart is raised to ModsSection, which runs UpdateModsAsync (Mod.Update or
+   Server.Restart, re-checked by the service). Titles are untrusted Steam text, rendered as data. *@
+
+@if (Pending.Count > 0)
+{
+    <div class="sticky bottom-4 z-10 mt-4 flex flex-wrap items-center gap-3 rounded-md border border-status-busy bg-card p-3 shadow-lg"
+         data-mod-pending-bar>
+        <span class="inline-block h-2 w-2 flex-none rounded-full bg-status-busy"></span>
+        <div class="min-w-0 flex-1">
+            <div class="text-sm font-medium" data-mod-pending-count>
+                @Pending.Count change@(Pending.Count == 1 ? "" : "s") waiting for a restart
+            </div>
+            <div class="truncate text-xs text-muted-foreground" data-mod-pending-summary>
+                @string.Join(" · ", Pending.Select(Summary))
+            </div>
+        </div>
+        @if (CanRestart)
+        {
+            <BbNativeSelect TValue="string" Id="mod-restart-countdown" @bind-Value="_countdown" Class="w-40" aria-label="Warn players">
+                <option value="15m" selected="@(_countdown == "15m")">Warn 15 minutes</option>
+                <option value="5m" selected="@(_countdown == "5m")">Warn 5 minutes</option>
+                <option value="1m" selected="@(_countdown == "1m")">Warn 1 minute</option>
+                <option value="immediate" selected="@(_countdown == "immediate")">Restart now</option>
+            </BbNativeSelect>
+            <BbButton Disabled="Busy" OnClick="@(() => OnRestart.InvokeAsync(_countdown))" data-action="mod-restart">Restart to apply</BbButton>
+        }
+    </div>
+}
+else if (CanRestart)
+{
+    @* #273: with nothing pending, a restart still pulls newer Workshop versions — the fix for a Lua checksum
+       mismatch on join after a mod updated. Default five-minute warning; never the game update. *@
+    <p class="mt-4 text-xs text-muted-foreground" data-mod-update-hint>
+        Players getting a Lua checksum mismatch after a mod updated on the Workshop?
+        <BbButton Variant="ButtonVariant.Link" Size="ButtonSize.Small" Class="h-auto p-0 text-xs" Disabled="Busy"
+                  OnClick="@(() => OnRestart.InvokeAsync("5m"))" data-action="mod-update-restart">Restart to update mods</BbButton>
+        (warns players for five minutes; the game itself is not updated).
+    </p>
+}
+
+@code {
+    /// <summary>The rows with a change waiting for a restart.</summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyList<ModTableRow> Pending { get; set; } = [];
+
+    /// <summary>The caller may restart to apply (Mod.Update or Server.Restart).</summary>
+    [Parameter]
+    public bool CanRestart { get; set; }
+
+    /// <summary>An action is in flight.</summary>
+    [Parameter]
+    public bool Busy { get; set; }
+
+    /// <summary>Raised with the chosen countdown preset ("15m" / "5m" / "1m" / "immediate").</summary>
+    [Parameter]
+    public EventCallback<string> OnRestart { get; set; }
+
+    private string _countdown = "5m";
+
+    private static string Summary(ModTableRow row)
+    {
+        string name = row.Item?.Title is { Length: > 0 } title ? title : row.Item?.WorkshopId ?? row.Mods[0].ModId;
+        return row.Status switch
+        {
+            ModChangeStatus.InstallsOnRestart => $"+ {name}",
+            ModChangeStatus.RemovedOnRestart => $"− {name}",
+            _ => $"± {name} (parts)",
+        };
+    }
+}

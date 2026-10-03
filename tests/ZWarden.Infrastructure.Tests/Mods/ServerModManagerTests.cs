@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using ZWarden.Application.Configuration;
 using ZWarden.Application.Mods;
 using ZWarden.Application.Operations;
+using ZWarden.Application.Servers;
 using ZWarden.Domain.Authorization;
 using ZWarden.Domain.Configuration;
 using ZWarden.Domain.Ids;
@@ -453,6 +454,49 @@ public class ServerModManagerTests
 
             await Assert.That(result.Succeeded).IsTrue();
             await Assert.That(coordinator.LastRequest!.Kind).IsEqualTo(OperationKind.RestartServer);
+        });
+    }
+
+    [Test]
+    public async Task Update_with_a_countdown_carries_the_graceful_plan_on_the_restart()
+    {
+        // #292 D3: the pending-changes bar's countdown select rides the restart as the #114 graceful payload.
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            ServerId serverId = await SeedServerAsync(options, AgentId.New());
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ModUpdate);
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            RecordingCoordinator coordinator = new();
+            ServerModManager sut = Manager(db, coordinator, new CapturingAuditWriter(), new ModInventoryCache());
+            GracefulRestartPayload plan = new([60, 30, 10], "Applying mod changes.");
+
+            ModManagementResult result = await sut.UpdateModsAsync(user, serverId, plan);
+
+            await Assert.That(result.Succeeded).IsTrue();
+            await Assert.That(coordinator.LastRequest!.CommandPayload).IsEqualTo(plan.ToJson());
+        });
+    }
+
+    [Test]
+    public async Task Update_with_an_invalid_countdown_is_refused_before_anything_is_enqueued()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            ServerId serverId = await SeedServerAsync(options, AgentId.New());
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ModUpdate);
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            RecordingCoordinator coordinator = new();
+            ServerModManager sut = Manager(db, coordinator, new CapturingAuditWriter(), new ModInventoryCache());
+
+            // Past the 15-minute ceiling: the countdown would pin the per-server lock (GracefulRestartRules).
+            ModManagementResult result = await sut.UpdateModsAsync(user, serverId, new GracefulRestartPayload([3600, 60]));
+
+            await Assert.That(result.Failure).IsEqualTo(ModManagementFailure.InvalidInput);
+            await Assert.That(coordinator.LastRequest).IsNull();
         });
     }
 
