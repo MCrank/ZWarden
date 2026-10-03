@@ -47,7 +47,7 @@
 
             <BbDataGridTemplateColumn TData="ModTableRow" Title="Status" Resizable="false" Reorderable="false">
                 <ChildContent Context="r">
-                    <ModStatusChip Status="r.Status" NeedsParts="@(r.Item?.NeedsParts ?? false)" />
+                    <ModStatusChip Status="r.Status" NeedsParts="@(r.Item?.NeedsParts ?? false)" PartsPending="r.HasPendingChange" />
                 </ChildContent>
             </BbDataGridTemplateColumn>
 

@@ -17,12 +17,20 @@
     [Parameter]
     public bool NeedsParts { get; set; }
 
+    /// <summary>The item loaded at the last boot, but one of its parts is turned on or off since (live pass).</summary>
+    [Parameter]
+    public bool PartsPending { get; set; }
+
     private bool PickParts => NeedsParts && Status is not ModChangeStatus.RemovedOnRestart;
 
-    private string Key => PickParts ? "PickParts" : Status.ToString();
+    private bool PartsChange => !PickParts && PartsPending && Status is ModChangeStatus.Active;
+
+    private string Key => PickParts ? "PickParts" : PartsChange ? "PartsOnRestart" : Status.ToString();
 
     private string Label => PickParts
         ? "Pick parts"
+        : PartsChange
+        ? "Changes on restart"
         : Status switch
         {
             ModChangeStatus.Active => "Active",
@@ -33,6 +41,8 @@
 
     private string Border => PickParts
         ? "border-status-unknown"
+        : PartsChange
+        ? "border-status-busy"
         : Status switch
         {
             ModChangeStatus.Active => "border-status-running",
@@ -43,6 +53,8 @@
 
     private string Dot => PickParts
         ? "bg-status-unknown"
+        : PartsChange
+        ? "bg-status-busy"
         : Status switch
         {
             ModChangeStatus.Active => "bg-status-running",

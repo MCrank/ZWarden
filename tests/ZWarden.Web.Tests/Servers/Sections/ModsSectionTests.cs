@@ -270,6 +270,24 @@ public sealed class ModsSectionTests
     }
 
     [Test]
+    public async Task A_loaded_item_whose_parts_changed_says_it_changes_on_restart_not_active()
+    {
+        // Live pass: after Save parts the row still read Active until the restart, though the change was pending.
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
+        ServerId serverId = await harness.SeedServerAsync("parts-pending");
+        await harness.SeedModStateAsync(
+            serverId, booted: (["100", "200"], ["P1", "X"]), configured: (["100", "200"], ["P1", "P2", "X"]),
+            ("100", [], ["P1", "P2"], true), ("200", [], ["X"], true));
+        SeedDisk(harness, serverId, ["100", "200"], ["P1", "P2", "X"], ("100", "P1"), ("100", "P2"), ("200", "X"));
+        IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "mods");
+
+        cut.WaitForState(() => cut.FindAll("[data-mod-status=PartsOnRestart]").Count == 1);
+        await Assert.That(cut.Find("[data-mod-status=PartsOnRestart]").TextContent).Contains("Changes on restart");
+        // The untouched item is still plainly Active.
+        await Assert.That(cut.FindAll("[data-mod-status=Active]").Count).IsEqualTo(1);
+    }
+
+    [Test]
     public async Task A_missing_requirement_shows_as_a_warning_on_the_row()
     {
         await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
