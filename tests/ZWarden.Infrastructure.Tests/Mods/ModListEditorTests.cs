@@ -17,7 +17,7 @@ public class ModListEditorTests
     [Test]
     public async Task Enable_appends_new_mod_ids_after_the_existing_ones_in_order()
     {
-        ModListEditResult result = ModListEditor.EnableMods(["A", "B"], ["C", "D"]);
+        ModListEditResult result = ModListEditor.EnableMods(["A", "B"], Ids("C", "D"));
 
         await Assert.That(result.Status).IsEqualTo(ModListEditStatus.Changed);
         await Assert.That(result.Edits.Count).IsEqualTo(1);
@@ -27,7 +27,7 @@ public class ModListEditorTests
     [Test]
     public async Task Enable_of_an_already_enabled_mod_is_no_change()
     {
-        ModListEditResult result = ModListEditor.EnableMods(["A", "B"], ["A"]);
+        ModListEditResult result = ModListEditor.EnableMods(["A", "B"], Ids("A"));
 
         await Assert.That(result.Status).IsEqualTo(ModListEditStatus.NoChange);
         await Assert.That(result.Edits).IsEmpty();
@@ -36,7 +36,7 @@ public class ModListEditorTests
     [Test]
     public async Task Enable_dedupes_a_repeated_request_and_keeps_the_first_position()
     {
-        ModListEditResult result = ModListEditor.EnableMods(["A"], ["B", "B"]);
+        ModListEditResult result = ModListEditor.EnableMods(["A"], Ids("B", "B"));
 
         await Assert.That(result.Edits[0]).IsEqualTo(new ConfigApplyEdit("Mods", ConfigEditKind.Text, "A;B"));
     }
@@ -44,7 +44,7 @@ public class ModListEditorTests
     [Test]
     public async Task Enable_with_an_empty_request_is_no_change()
     {
-        ModListEditResult result = ModListEditor.EnableMods(["A"], []);
+        ModListEditResult result = ModListEditor.EnableMods(["A"], Ids());
 
         await Assert.That(result.Status).IsEqualTo(ModListEditStatus.NoChange);
     }
@@ -53,7 +53,7 @@ public class ModListEditorTests
     public async Task Enable_compares_mod_ids_ordinally_case_sensitively()
     {
         // PZ Mod ids are case-sensitive (research §6), so "mod" and "Mod" are distinct.
-        ModListEditResult result = ModListEditor.EnableMods(["Mod"], ["mod"]);
+        ModListEditResult result = ModListEditor.EnableMods(["Mod"], Ids("mod"));
 
         await Assert.That(result.Edits[0]).IsEqualTo(new ConfigApplyEdit("Mods", ConfigEditKind.Text, "Mod;mod"));
     }
@@ -63,7 +63,7 @@ public class ModListEditorTests
     [Test]
     public async Task Disable_removes_the_ids_and_preserves_remaining_order()
     {
-        ModListEditResult result = ModListEditor.DisableMods(["A", "B", "C"], ["B"]);
+        ModListEditResult result = ModListEditor.DisableMods(["A", "B", "C"], Ids("B"));
 
         await Assert.That(result.Edits[0]).IsEqualTo(new ConfigApplyEdit("Mods", ConfigEditKind.Text, "A;C"));
     }
@@ -71,7 +71,7 @@ public class ModListEditorTests
     [Test]
     public async Task Disable_of_the_last_mod_yields_an_empty_value()
     {
-        ModListEditResult result = ModListEditor.DisableMods(["A"], ["A"]);
+        ModListEditResult result = ModListEditor.DisableMods(["A"], Ids("A"));
 
         await Assert.That(result.Status).IsEqualTo(ModListEditStatus.Changed);
         await Assert.That(result.Edits[0]).IsEqualTo(new ConfigApplyEdit("Mods", ConfigEditKind.Text, ""));
@@ -80,7 +80,7 @@ public class ModListEditorTests
     [Test]
     public async Task Disable_of_an_absent_mod_is_no_change()
     {
-        ModListEditResult result = ModListEditor.DisableMods(["A", "B"], ["Z"]);
+        ModListEditResult result = ModListEditor.DisableMods(["A", "B"], Ids("Z"));
 
         await Assert.That(result.Status).IsEqualTo(ModListEditStatus.NoChange);
     }
@@ -90,7 +90,7 @@ public class ModListEditorTests
     [Test]
     public async Task Reorder_sets_the_exact_requested_order()
     {
-        ModListEditResult result = ModListEditor.ReorderMods(["A", "B", "C"], ["C", "A", "B"]);
+        ModListEditResult result = ModListEditor.ReorderMods(["A", "B", "C"], Ids("C", "A", "B"));
 
         await Assert.That(result.Edits[0]).IsEqualTo(new ConfigApplyEdit("Mods", ConfigEditKind.Text, "C;A;B"));
     }
@@ -98,7 +98,7 @@ public class ModListEditorTests
     [Test]
     public async Task Reorder_to_the_same_order_is_no_change()
     {
-        ModListEditResult result = ModListEditor.ReorderMods(["A", "B", "C"], ["A", "B", "C"]);
+        ModListEditResult result = ModListEditor.ReorderMods(["A", "B", "C"], Ids("A", "B", "C"));
 
         await Assert.That(result.Status).IsEqualTo(ModListEditStatus.NoChange);
     }
@@ -107,7 +107,7 @@ public class ModListEditorTests
     public async Task Reorder_that_is_not_a_permutation_of_the_current_set_is_rejected()
     {
         // A reorder must be order-only: adding or dropping an id here would be a silent enable/disable.
-        ModListEditResult result = ModListEditor.ReorderMods(["A", "B"], ["A", "C"]);
+        ModListEditResult result = ModListEditor.ReorderMods(["A", "B"], Ids("A", "C"));
 
         await Assert.That(result.Status).IsEqualTo(ModListEditStatus.InvalidReorder);
         await Assert.That(result.Edits).IsEmpty();
@@ -116,7 +116,7 @@ public class ModListEditorTests
     [Test]
     public async Task Reorder_that_drops_an_id_is_rejected()
     {
-        ModListEditResult result = ModListEditor.ReorderMods(["A", "B", "C"], ["A", "B"]);
+        ModListEditResult result = ModListEditor.ReorderMods(["A", "B", "C"], Ids("A", "B"));
 
         await Assert.That(result.Status).IsEqualTo(ModListEditStatus.InvalidReorder);
     }
@@ -214,4 +214,8 @@ public class ModListEditorTests
 
         await Assert.That(result.Status).IsEqualTo(ModListEditStatus.NoChange);
     }
+
+    // The operator-intent lists are validated ids (#290 D3); the current lists stay raw config text.
+    private static PzModId[] Ids(params string[] ids) =>
+        [.. ids.Select(id => PzModId.TryCreate(id, out PzModId valid) ? valid : throw new ArgumentException(id))];
 }

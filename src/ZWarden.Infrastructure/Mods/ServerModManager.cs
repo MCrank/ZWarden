@@ -62,7 +62,7 @@ public sealed class ServerModManager : IServerModManager
         ArgumentNullException.ThrowIfNull(modIds);
         return ApplyListEditAsync(
             user, server, Permissions.ModInstall, ModAuditActions.Enabled, $"enable {modIds.Count} mod(s)",
-            inventory => ValidateModIds(modIds) ?? Ok(ModListEditor.EnableMods(inventory.EnabledModIds, modIds)),
+            inventory => ValidateModIds(modIds, out PzModId[] ids) ?? Ok(ModListEditor.EnableMods(inventory.EnabledModIds, ids)),
             cancellationToken);
     }
 
@@ -73,7 +73,7 @@ public sealed class ServerModManager : IServerModManager
         ArgumentNullException.ThrowIfNull(modIds);
         return ApplyListEditAsync(
             user, server, Permissions.ModRemove, ModAuditActions.Disabled, $"disable {modIds.Count} mod(s)",
-            inventory => ValidateModIds(modIds) ?? Ok(ModListEditor.DisableMods(inventory.EnabledModIds, modIds)),
+            inventory => ValidateModIds(modIds, out PzModId[] ids) ?? Ok(ModListEditor.DisableMods(inventory.EnabledModIds, ids)),
             cancellationToken);
     }
 
@@ -84,7 +84,7 @@ public sealed class ServerModManager : IServerModManager
         ArgumentNullException.ThrowIfNull(orderedModIds);
         return ApplyListEditAsync(
             user, server, Permissions.ModInstall, ModAuditActions.Reordered, "reorder mods",
-            inventory => ValidateModIds(orderedModIds) ?? Ok(ModListEditor.ReorderMods(inventory.EnabledModIds, orderedModIds)),
+            inventory => ValidateModIds(orderedModIds, out PzModId[] ids) ?? Ok(ModListEditor.ReorderMods(inventory.EnabledModIds, ids)),
             cancellationToken);
     }
 
@@ -248,18 +248,28 @@ public sealed class ServerModManager : IServerModManager
 
     private static ListEditOutcome Ok(ModListEditResult result) => new(result, null, null);
 
-    private static ListEditOutcome? ValidateModIds(IReadOnlyList<string> modIds)
+    // Every operator-supplied mod id passes PzModId (#290 D3) before ModListEditor sees it, so a separator or
+    // control character can never split or corrupt Mods=.
+    private static ListEditOutcome? ValidateModIds(IReadOnlyList<string> modIds, out PzModId[] ids)
     {
+        ids = [];
         if (modIds.Count == 0)
         {
             return new ListEditOutcome(null, ModManagementFailure.InvalidInput, "No mods were supplied.");
         }
 
-        if (modIds.Any(id => string.IsNullOrWhiteSpace(id) || id.Length > MaxIdLength))
+        PzModId[] valid = new PzModId[modIds.Count];
+        for (int i = 0; i < modIds.Count; i++)
         {
-            return new ListEditOutcome(null, ModManagementFailure.InvalidInput, "A mod id is empty or too long.");
+            if (!PzModId.TryCreate(modIds[i], out valid[i]))
+            {
+                return new ListEditOutcome(
+                    null, ModManagementFailure.InvalidInput,
+                    $"A mod id must be 1–{PzModId.MaxLength} characters with no separators (; , =), slashes, quotes or control characters.");
+            }
         }
 
+        ids = valid;
         return null;
     }
 
