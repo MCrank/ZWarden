@@ -163,6 +163,67 @@ public sealed class ServerModManager : IServerModManager
     }
 
     /// <inheritdoc />
+    public async Task<ModManagementResult> DeleteDownloadsAsync(
+        UserId user, ServerId server, IReadOnlyList<string> workshopIds, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(workshopIds);
+        if (ValidateWorkshopIds(workshopIds) is { } invalid)
+        {
+            return ModManagementResult.Denied(invalid.Failure!.Value, invalid.Message);
+        }
+
+        Server? resolved = await ResolveAndAuthorizeAsync(user, server, Permissions.ModRemove, cancellationToken).ConfigureAwait(false);
+        if (resolved is null)
+        {
+            return await DenyResolveAsync(user, server, Permissions.ModRemove, cancellationToken).ConfigureAwait(false);
+        }
+
+        // Only unused downloads (#290 Leftover: on disk, neither configured nor loaded at the last boot). An item
+        // removed since the boot may still be loaded, so it waits for the restart. The Agent re-checks WorkshopItems=.
+        ServerModOverview overview = ModChangeSet.Derive(
+            server,
+            await _states.FindAsync(server, cancellationToken).ConfigureAwait(false),
+            await _items.ListForServerAsync(server, cancellationToken).ConfigureAwait(false));
+        HashSet<string> leftovers = new(
+            overview.Items.Where(i => i.Status is ModChangeStatus.Leftover).Select(i => i.WorkshopId), StringComparer.Ordinal);
+        string subject = $"delete {workshopIds.Count} unused download(s)";
+        if (workshopIds.FirstOrDefault(id => !leftovers.Contains(id)) is { } inUse)
+        {
+            await _audit.WriteAsync(
+                new AuditEntry(ModAuditActions.DownloadsDeleted, AuditOutcome.Failed, user, resolved.Id, $"{subject}: {inUse} is not unused"),
+                cancellationToken).ConfigureAwait(false);
+            return ModManagementResult.Denied(
+                ModManagementFailure.InvalidInput,
+                $"Workshop item {inUse} is still used by the server or waits for a restart, so its files can't be deleted.");
+        }
+
+        try
+        {
+            Operation operation = await _operations.EnqueueAsync(
+                new EnqueueOperationRequest(
+                    resolved.AgentId, OperationKind.DeleteWorkshopContent, IsMutating: true, Guid.NewGuid().ToString("N"),
+                    ServerId: resolved.Id, CommandPayload: new WorkshopContentCommandPayload([.. workshopIds]).ToJson()),
+                user,
+                cancellationToken).ConfigureAwait(false);
+
+            await _audit.WriteAsync(
+                new AuditEntry(
+                    ModAuditActions.DownloadsDeleted, AuditOutcome.Succeeded, user, resolved.Id,
+                    $"{subject} ({string.Join(", ", workshopIds)}), operation {operation.Id}"),
+                cancellationToken).ConfigureAwait(false);
+
+            return ModManagementResult.Success(operation.Id);
+        }
+        catch (ServerBusyException)
+        {
+            await _audit.WriteAsync(
+                new AuditEntry(ModAuditActions.DownloadsDeleted, AuditOutcome.Failed, user, resolved.Id, $"{subject}: server busy"),
+                cancellationToken).ConfigureAwait(false);
+            return ModManagementResult.Denied(ModManagementFailure.ServerBusy);
+        }
+    }
+
+    /// <inheritdoc />
     public async Task<ModManagementResult> SetItemPartsAsync(
         UserId user,
         ServerId server,

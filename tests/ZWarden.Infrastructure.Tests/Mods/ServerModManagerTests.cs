@@ -788,6 +788,177 @@ public class ServerModManagerTests
         });
     }
 
+    [Test]
+    public async Task Delete_downloads_enqueues_a_mutating_delete_of_unused_items_and_audits_it()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            AgentId agent = AgentId.New();
+            ServerId serverId = await SeedServerAsync(options, agent);
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ModRemove);
+            await SeedStateAsync(options, serverId, booted: ["100"], configured: ["100"]);
+            await SeedOnDiskAsync(options, serverId, "100", "200", "300");
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            RecordingCoordinator coordinator = new();
+            CapturingAuditWriter audit = new();
+            ServerModManager sut = Manager(db, coordinator, audit, new ModInventoryCache());
+
+            ModManagementResult result = await sut.DeleteDownloadsAsync(user, serverId, ["200", "300"]);
+
+            await Assert.That(result.Succeeded).IsTrue();
+            await Assert.That(coordinator.LastRequest!.Kind).IsEqualTo(OperationKind.DeleteWorkshopContent);
+            await Assert.That(coordinator.LastRequest!.IsMutating).IsTrue();
+            await Assert.That(coordinator.LastRequest!.ServerId).IsEqualTo(serverId);
+            await Assert.That(coordinator.LastRequest!.AgentId).IsEqualTo(agent);
+            await Assert.That(WorkshopContentCommandPayload.FromJson(coordinator.LastRequest!.CommandPayload!).WorkshopIds)
+                .IsEquivalentTo(["200", "300"]);
+            await Assert.That(audit.Actions).Contains(ModAuditActions.DownloadsDeleted);
+        });
+    }
+
+    [Test]
+    public async Task Delete_downloads_refuses_an_item_the_server_still_uses()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            AgentId agent = AgentId.New();
+            ServerId serverId = await SeedServerAsync(options, agent);
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ModRemove);
+            await SeedStateAsync(options, serverId, booted: ["100"], configured: ["100"]);
+            await SeedOnDiskAsync(options, serverId, "100", "200");
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            RecordingCoordinator coordinator = new();
+            CapturingAuditWriter audit = new();
+            ServerModManager sut = Manager(db, coordinator, audit, new ModInventoryCache());
+
+            ModManagementResult result = await sut.DeleteDownloadsAsync(user, serverId, ["200", "100"]);
+
+            await Assert.That(result.Failure).IsEqualTo(ModManagementFailure.InvalidInput);
+            await Assert.That(coordinator.LastRequest).IsNull();
+            await Assert.That(audit.Actions).Contains(ModAuditActions.DownloadsDeleted);
+        });
+    }
+
+    [Test]
+    public async Task Delete_downloads_refuses_an_item_removed_since_the_last_boot()
+    {
+        // Removed from WorkshopItems= but loaded at the last boot (RemovedOnRestart): PZ may still read its files.
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            AgentId agent = AgentId.New();
+            ServerId serverId = await SeedServerAsync(options, agent);
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ModRemove);
+            await SeedStateAsync(options, serverId, booted: ["100", "200"], configured: ["100"]);
+            await SeedOnDiskAsync(options, serverId, "100", "200");
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            RecordingCoordinator coordinator = new();
+            ServerModManager sut = Manager(db, coordinator, new CapturingAuditWriter(), new ModInventoryCache());
+
+            ModManagementResult result = await sut.DeleteDownloadsAsync(user, serverId, ["200"]);
+
+            await Assert.That(result.Failure).IsEqualTo(ModManagementFailure.InvalidInput);
+            await Assert.That(coordinator.LastRequest).IsNull();
+        });
+    }
+
+    [Test]
+    public async Task Delete_downloads_denies_without_the_server_scoped_mod_remove_permission()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            AgentId agent = AgentId.New();
+            ServerId serverId = await SeedServerAsync(options, agent);
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ModInstall);
+            await SeedStateAsync(options, serverId, booted: [], configured: []);
+            await SeedOnDiskAsync(options, serverId, "200");
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            RecordingCoordinator coordinator = new();
+            ServerModManager sut = Manager(db, coordinator, new CapturingAuditWriter(), new ModInventoryCache());
+
+            ModManagementResult result = await sut.DeleteDownloadsAsync(user, serverId, ["200"]);
+
+            await Assert.That(result.Failure).IsEqualTo(ModManagementFailure.NotAuthorized);
+            await Assert.That(coordinator.LastRequest).IsNull();
+        });
+    }
+
+    [Test]
+    [Arguments("12a")]
+    [Arguments("../1")]
+    [Arguments("")]
+    public async Task Delete_downloads_rejects_an_id_that_is_not_numeric(string bad)
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            ServerId serverId = await SeedServerAsync(options, AgentId.New());
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ModRemove);
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            RecordingCoordinator coordinator = new();
+            ServerModManager sut = Manager(db, coordinator, new CapturingAuditWriter(), new ModInventoryCache());
+
+            ModManagementResult result = await sut.DeleteDownloadsAsync(user, serverId, [bad]);
+
+            await Assert.That(result.Failure).IsEqualTo(ModManagementFailure.InvalidInput);
+            await Assert.That(coordinator.LastRequest).IsNull();
+        });
+    }
+
+    [Test]
+    public async Task Delete_downloads_reports_a_busy_server()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            AgentId agent = AgentId.New();
+            ServerId serverId = await SeedServerAsync(options, agent);
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ModRemove);
+            await SeedStateAsync(options, serverId, booted: [], configured: []);
+            await SeedOnDiskAsync(options, serverId, "200");
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            ServerModManager sut = Manager(
+                db, new RecordingCoordinator { ThrowBusy = true }, new CapturingAuditWriter(), new ModInventoryCache());
+
+            ModManagementResult result = await sut.DeleteDownloadsAsync(user, serverId, ["200"]);
+
+            await Assert.That(result.Failure).IsEqualTo(ModManagementFailure.ServerBusy);
+        });
+    }
+
+    private static async Task SeedStateAsync(DbContextOptions options, ServerId server, string[] booted, string[] configured)
+    {
+        await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+        ServerModState state = ServerModState.For(server);
+        state.MarkBooted(Now);
+        state.ObserveConfig(booted, [], Now.AddSeconds(5));
+        state.ObserveConfig(configured, [], Now.AddSeconds(10));
+        db.Set<ServerModState>().Add(state);
+        await db.SaveChangesAsync();
+    }
+
+    private static async Task SeedOnDiskAsync(DbContextOptions options, ServerId server, params string[] workshopIds)
+    {
+        await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+        foreach (string workshopId in workshopIds)
+        {
+            ServerWorkshopItem item = ServerWorkshopItem.Track(server, workshopId);
+            item.ObserveDisk(true, [], Now);
+            db.Set<ServerWorkshopItem>().Add(item);
+        }
+
+        await db.SaveChangesAsync();
+    }
+
     private static async Task SeedBootAsync(DbContextOptions options, ServerId server, string[] workshop, string[] mods)
     {
         await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));

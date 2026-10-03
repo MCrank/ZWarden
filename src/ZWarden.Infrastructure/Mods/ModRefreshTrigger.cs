@@ -90,8 +90,10 @@ public sealed partial class ModRefreshTrigger : IModRefreshTrigger
                 _scheduler.Enqueue(discover);
                 _scheduler.EnqueueAfter(discover, _options.PostBootRediscoverDelay);
             }
-            else if (operation.Kind is OperationKind.ConfigApply or OperationKind.ConfigApplyRaw)
+            else if (operation.Kind is OperationKind.ConfigApply or OperationKind.ConfigApplyRaw
+                     or OperationKind.DeleteWorkshopContent)
             {
+                // A config apply changed the lists; a Workshop delete (#293) changed the disk.
                 _scheduler.Enqueue(discover);
             }
         }

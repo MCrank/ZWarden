@@ -1397,6 +1397,9 @@ html:not(.dark) .zw-ico-moon {
   .h-full {
     height: 100%;
   }
+  .max-h-48 {
+    max-height: calc(var(--spacing) * 48);
+  }
   .min-h-screen {
     min-height: 100vh;
   }

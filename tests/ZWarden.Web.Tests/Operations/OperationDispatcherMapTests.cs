@@ -1,6 +1,7 @@
 using ZWarden.Application.Backups;
 using ZWarden.Application.Configuration;
 using ZWarden.Application.Console;
+using ZWarden.Application.Mods;
 using ZWarden.Application.Players;
 using ZWarden.Application.Servers;
 using ZWarden.Contracts.Protocol.Messages;
@@ -294,6 +295,21 @@ public class OperationDispatcherMapTests
     public async Task A_delete_backup_kind_without_a_payload_throws()
     {
         await Assert.That(() => OperationDispatcher.CommandFor(OperationKind.DeleteBackup)).Throws<InvalidOperationException>();
+    }
+
+    [Test]
+    public async Task The_workshop_delete_kind_reads_its_ids_from_the_payload()
+    {
+        string json = new WorkshopContentCommandPayload(["2392709985", "111"]).ToJson();
+        var delete = (DeleteWorkshopContent)OperationDispatcher.CommandFor(OperationKind.DeleteWorkshopContent, json);
+        await Assert.That(delete.WorkshopIds).IsEquivalentTo(["2392709985", "111"]);
+    }
+
+    [Test]
+    public async Task A_workshop_delete_kind_without_a_payload_throws()
+    {
+        await Assert.That(() => OperationDispatcher.CommandFor(OperationKind.DeleteWorkshopContent))
+            .Throws<InvalidOperationException>();
     }
 
     [Test]

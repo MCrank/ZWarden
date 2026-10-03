@@ -1,6 +1,6 @@
 # Feature #293 Mini-Plan — Delete unused Workshop downloads from disk
 
-**Status:** in progress — D1–D6 accepted as recommended (2026-10-03). v1.0, epic [#289](https://github.com/MCrank/ZWarden/issues/289). Needs #292
+**Status:** implemented — PR-A #324 (Contracts + Agent + pz-lib fix), PR-B (control plane + UI, closes #293); D1–D6 accepted (2026-10-03). Awaiting the DMZ live pass. v1.0, epic [#289](https://github.com/MCrank/ZWarden/issues/289). Needs #292
 (done: #320 + #321), which built the `LeftoverDownloads` footer with Delete hidden.
 
 **Written against:** issue #293; [F292](./F292-mods-variant-b-ui.md) (`ModTable.Leftovers`, `LeftoverDownloads`);
