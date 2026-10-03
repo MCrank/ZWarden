@@ -26,10 +26,6 @@ public interface IModDiscovery
 /// <inheritdoc cref="IModDiscovery" />
 public sealed partial class ModDiscovery : IModDiscovery
 {
-    // ZWarden provisions with the default PZ server name; the config files share this prefix (see ServerConfigWriter
-    // and the container launch -servername).
-    private const string ServerName = "servertest";
-    private const string ConfigDirName = "Server";
     private const string ModsDirName = "mods";
     private const string ModInfoFileName = "mod.info";
 
@@ -37,12 +33,9 @@ public sealed partial class ModDiscovery : IModDiscovery
     // own mod.info, alongside the legacy B41 root one (research §6; spike #291).
     private const string Build42FolderPrefix = "42";
     private const string CommonFolderName = "common";
-    private const string WorkshopItemsKey = "WorkshopItems";
-    private const string ModsKey = "Mods";
 
     private readonly IServerInstallPaths _paths;
-    private readonly IPzConfigParser _parser;
-    private readonly AgentOptions _options;
+    private readonly ServerModConfigReader _config;
     private readonly ILogger<ModDiscovery> _logger;
 
     public ModDiscovery(
@@ -56,8 +49,7 @@ public sealed partial class ModDiscovery : IModDiscovery
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(logger);
         _paths = paths;
-        _parser = parser;
-        _options = options.Value;
+        _config = new ServerModConfigReader(parser, options);
         _logger = logger;
     }
 
@@ -213,42 +205,18 @@ public sealed partial class ModDiscovery : IModDiscovery
     private async Task<(IReadOnlyList<string> Configured, IReadOnlyList<string> Enabled)> ReadConfigListsAsync(
         ServerId serverId, CancellationToken cancellationToken)
     {
-        string path = Path.Combine(_options.DataMountRoot, serverId.ToString(), ConfigDirName, $"{ServerName}.ini");
-        byte[] bytes;
-        try
+        ServerModConfig config = await _config.ReadAsync(serverId, cancellationToken).ConfigureAwait(false);
+        if (config.Status is ServerModConfigStatus.Unreadable)
         {
-            if (!File.Exists(path))
-            {
-                return ([], []);
-            }
-
-            bytes = await File.ReadAllBytesAsync(path, cancellationToken).ConfigureAwait(false);
+            LogConfigUnreadable(serverId, config.Reason ?? "unknown");
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            LogConfigUnreadable(serverId, ex.Message);
-            return ([], []);
-        }
-
-        PzConfigReadResult read = _parser.Open(PzConfigKind.Ini, bytes);
-        if (!read.Parsed || read.Document is not { } document)
+        else if (config.Status is ServerModConfigStatus.Unparsed)
         {
             LogConfigUnparsed(serverId);
-            return ([], []);
         }
 
-        IReadOnlyList<string> enabled = [.. ReadList(document, ModsKey)
-            .Select(id => id.StartsWith('\\') ? id[1..].Trim() : id)
-            .Where(id => id.Length > 0)];
-        return (ReadList(document, WorkshopItemsKey), enabled);
+        return (config.WorkshopIds, config.ModIds);
     }
-
-    // PZ writes both lists as a single semicolon-separated INI value (research §4). Empty entries are dropped.
-    // B42 also accepts a "\ModId" entry in Mods= (spike #291, PZ 42.21); the caller strips it to the bare mod.info id.
-    private static IReadOnlyList<string> ReadList(IPzConfigDocument document, string key) =>
-        document.TryGetValue(key, out PzValue value) && value is PzString text
-            ? [.. text.Value.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)]
-            : [];
 
     [LoggerMessage(Level = LogLevel.Information,
         Message = "Mod discovery for server {ServerId}: {ItemCount} Workshop item(s), {FindingCount} finding(s).")]

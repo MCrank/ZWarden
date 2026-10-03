@@ -4,7 +4,7 @@ A ZWarden backup is a **compressed `.tar.gz` archive of a Server's `/pz/data` wo
 with direct host I/O — never `exec` or `docker cp` — and verified by a SHA-256 over the produced archive** (F24).
 The Agent archives **only** the world tree (`<DataMountRoot>/<serverId>`): it **excludes** the SteamCMD install
 (the host sibling `<serverId>.server`, reinstallable via F17) by construction, and it **never follows the
-`data/workshop` symlink** (it points into ephemeral runtime storage, not world data). The archive is written to a
+`data/workshop` symlink** (it points at the re-downloadable Workshop cache, not world data — on the install volume since #293). The archive is written to a
 **configurable, Agent-owned `BackupRoot`**, one subdirectory per Server (`<BackupRoot>/<serverId>/<name>.tar.gz`),
 through the Agent's **atomic temp-then-rename** idiom, so a crash never leaves a half-archive at the final name.
 The control plane persists a tenant-owned **`Backup`** record (`bkp-`) holding the **relative** archive locator, the

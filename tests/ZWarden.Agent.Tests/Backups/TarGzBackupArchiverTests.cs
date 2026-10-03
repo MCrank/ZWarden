@@ -75,7 +75,7 @@ public class TarGzBackupArchiverTests
         string source = temp.Dir("world");
         File.WriteAllText(Path.Combine(source, "real.bin"), "world");
 
-        // data/workshop is a symlink into ephemeral runtime storage; it must not be chased into the archive.
+        // data/workshop is a symlink to the Workshop cache on the install volume; it must not be chased into the archive.
         string outside = temp.Dir("steamroot");
         File.WriteAllText(Path.Combine(outside, "108600.bin"), "workshop content");
         try

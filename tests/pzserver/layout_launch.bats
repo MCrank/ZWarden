@@ -21,6 +21,15 @@ teardown() {
 @test "create_layout symlinks the Workshop cache into data/workshop" {
   pz_create_layout "$PZ_ROOT"
   [ -L "$PZ_ROOT/data/workshop" ]
+  # The server downloads Workshop items under its own install dir, the persistent /pz/server volume (spike #293).
+  [ "$(readlink "$PZ_ROOT/data/workshop")" = "$PZ_ROOT/server/steamapps/workshop/content/108600" ]
+}
+
+@test "create_layout leaves the Workshop folder for the server to create" {
+  pz_create_layout "$PZ_ROOT"
+  # Nothing downloads to the ephemeral runtime/ Steam root, and the install volume is not pre-populated (#293).
+  [ ! -e "$PZ_ROOT/runtime/steamapps" ]
+  [ ! -e "$PZ_ROOT/server/steamapps" ]
 }
 
 @test "launch command runs the shipped launcher with cachedir and servername" {
@@ -83,4 +92,27 @@ teardown() {
   cp "$FIXTURES/start-server.sh" "$PZ_ROOT/start-server.sh"
   pz_tune_jvm "$PZ_ROOT/start-server.sh"
   grep -q -- "-XX:+AlwaysPreTouch" "$PZ_ROOT/start-server.sh"
+}
+
+@test "share_workshop makes existing Workshop folders group-writable so the Agent can delete unused ones (#293)" {
+  local ws="$PZ_ROOT/server/steamapps/workshop/content/108600"
+  mkdir -p "$ws/111/mods/A"
+  echo "id=A" > "$ws/111/mods/A/mod.info"
+  chmod 755 "$ws" "$ws/111" "$ws/111/mods" "$ws/111/mods/A"
+  chmod 644 "$ws/111/mods/A/mod.info"
+
+  run pz_share_workshop "$PZ_ROOT/server"
+  assert_success
+
+  # Removing an entry needs write on the folder holding it, so every folder gets group-write; files are left alone.
+  for d in "$ws" "$ws/111" "$ws/111/mods" "$ws/111/mods/A"; do
+    [ "$(stat -c %A "$d" | cut -c6)" = "w" ]
+  done
+  [ "$(stat -c %a "$ws/111/mods/A/mod.info")" = "644" ]
+}
+
+@test "share_workshop is a no-op before the server has downloaded anything" {
+  run pz_share_workshop "$PZ_ROOT/server"
+  assert_success
+  [ ! -e "$PZ_ROOT/server/steamapps" ]
 }

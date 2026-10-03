@@ -54,6 +54,7 @@ public class AgentCommandProcessorTests
         IModDiscovery? modDiscovery = null,
         IHostDiagnosticsGatherer? hostDiagnostics = null,
         IServerDiagnosticsGatherer? serverDiagnostics = null,
+        IWorkshopContentRemover? workshopRemover = null,
         ILogger<AgentCommandProcessor>? logger = null)
     {
         IContainerRuntime effectiveRuntime = runtime ?? new FakeContainerRuntime();
@@ -102,6 +103,7 @@ public class AgentCommandProcessorTests
             modDiscovery ?? new FakeModDiscovery(),
             hostDiagnostics ?? new FakeHostDiagnosticsGatherer(),
             serverDiagnostics ?? new FakeServerDiagnosticsGatherer(),
+            workshopRemover ?? new FakeWorkshopContentRemover(),
             options,
             logger ?? NullLogger<AgentCommandProcessor>.Instance);
     }
@@ -808,6 +810,61 @@ public class AgentCommandProcessorTests
 
         await Assert.That(reply!.Payload.Outcome).IsEqualTo(OperationOutcome.Failed);
         await Assert.That(backups.DeleteCount).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task Delete_workshop_content_reports_each_ids_outcome()
+    {
+        WorkshopContentDeletion deleted = new("2392709985", WorkshopContentDeletionOutcome.Deleted);
+        var remover = new FakeWorkshopContentRemover { Removal = new(true, null, new([deleted])) };
+        ServerId serverId = ServerId.New();
+
+        Envelope<OperationCompleted>? reply = await Processor(workshopRemover: remover)
+            .ProcessAsync(Json(new DeleteWorkshopContent(["2392709985"]), OperationId.New(), serverId), CancellationToken.None);
+
+        await Assert.That(reply!.Payload.Outcome).IsEqualTo(OperationOutcome.Succeeded);
+        await Assert.That(reply.Payload.WorkshopContentDeletion!.Items.Single()).IsEqualTo(deleted);
+        await Assert.That(remover.LastServerId).IsEqualTo(serverId);
+        await Assert.That(remover.LastWorkshopIds!).IsEquivalentTo(["2392709985"]);
+    }
+
+    [Test]
+    public async Task Delete_workshop_content_fails_with_the_removers_reason()
+    {
+        var remover = new FakeWorkshopContentRemover { Removal = new(false, "'..' is not a Workshop item id.", null) };
+
+        Envelope<OperationCompleted>? reply = await Processor(workshopRemover: remover)
+            .ProcessAsync(Json(new DeleteWorkshopContent([".."]), OperationId.New(), ServerId.New()), CancellationToken.None);
+
+        await Assert.That(reply!.Payload.Outcome).IsEqualTo(OperationOutcome.Failed);
+        await Assert.That(reply.Payload.FailureReason).IsEqualTo("'..' is not a Workshop item id.");
+        await Assert.That(reply.Payload.WorkshopContentDeletion).IsNull();
+    }
+
+    [Test]
+    public async Task Delete_workshop_content_without_a_target_server_fails_and_does_not_run()
+    {
+        var remover = new FakeWorkshopContentRemover();
+
+        Envelope<OperationCompleted>? reply = await Processor(workshopRemover: remover)
+            .ProcessAsync(Json(new DeleteWorkshopContent(["1"]), OperationId.New()), CancellationToken.None);
+
+        await Assert.That(reply!.Payload.Outcome).IsEqualTo(OperationOutcome.Failed);
+        await Assert.That(remover.CallCount).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task A_redelivered_delete_workshop_content_runs_once()
+    {
+        var remover = new FakeWorkshopContentRemover();
+        AgentCommandProcessor processor = Processor(workshopRemover: remover);
+        string json = Json(new DeleteWorkshopContent(["1"]), OperationId.New(), ServerId.New());
+
+        await processor.ProcessAsync(json, CancellationToken.None);
+        Envelope<OperationCompleted>? replay = await processor.ProcessAsync(json, CancellationToken.None);
+
+        await Assert.That(replay).IsNull();
+        await Assert.That(remover.CallCount).IsEqualTo(1);
     }
 
     [Test]

@@ -272,14 +272,28 @@ pz_apply_update() {
 
 # pz_create_layout <root>
 # Builds the canonical PZ filesystem (PRD 23). /pz/data is the persistent user-data
-# volume; the Workshop cache lives under the Steam root and is symlinked in as
-# data/workshop so operators and later features see one logical tree.
+# volume. The server downloads WorkshopItems= under its OWN install dir - the persistent
+# /pz/server volume, "installed to /pz/server/steamapps/workshop/content/108600/<id>"
+# (spikes #291/#293) - not the runtime/ Steam root a standalone SteamCMD would use. That
+# folder is symlinked in as data/workshop so operators see one logical tree; the server
+# creates it on its first download, so the link may dangle until then.
 pz_create_layout() {
   local root="$1"
   mkdir -p "${root}/server" "${root}/runtime" "${root}/data"
-  local workshop_cache="${root}/runtime/steamapps/workshop/content/${PZ_STEAM_APPID_TXT}"
-  mkdir -p "${workshop_cache}"
-  ln -sfn "${workshop_cache}" "${root}/data/workshop"
+  ln -sfn "${root}/server/steamapps/workshop/content/${PZ_STEAM_APPID_TXT}" "${root}/data/workshop"
+}
+
+# pz_share_workshop <server_dir>
+# Gives the PZ game-server group (gid 10000, which the Agent runs in - #184) write on every
+# folder of the Workshop tree, so the Agent can delete an unused download (#293). Removing an
+# entry needs write on the folder holding it, so folders are enough; files are left as they
+# are. The entrypoint's umask covers new downloads; this repairs folders PZ's Steam client
+# made under the old 0022 umask. Runs as their owner (pzserver), so chmod is allowed; only
+# folders still missing the bit are touched. A no-op before the first download.
+pz_share_workshop() {
+  local workshop="$1/steamapps/workshop"
+  [ -d "${workshop}" ] || return 0
+  find "${workshop}" -type d ! -perm -g=w -exec chmod g+w {} +
 }
 
 # pz_admin_password <data_dir>

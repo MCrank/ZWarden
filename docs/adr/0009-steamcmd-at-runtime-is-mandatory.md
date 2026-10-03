@@ -74,3 +74,7 @@ no account and no ownership.
 - Workshop content lands under the **Steam root** (`steamapps/workshop/content/108600/<id>/`),
   not under the PZ install or the user-data directory, so PRD 23's `data/workshop` is a
   relocation rather than a passthrough.
+  **Corrected (2026-10-03, #293):** that holds for a standalone SteamCMD `workshop_download_item`.
+  The dedicated server downloads `WorkshopItems=` itself, under its **own install dir**: PZ 42.21
+  logs `installed to /pz/server/steamapps/workshop/content/108600/<id>` (spikes #291 and #293).
+  `data/workshop` now links there, and Agent discovery and deletion read that folder.
