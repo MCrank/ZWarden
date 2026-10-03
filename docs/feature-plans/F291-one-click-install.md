@@ -1,7 +1,7 @@
 # Feature #291 Mini-Plan — One-click Install (mod ids from the description, verified after boot)
 
-**Status:** planned — maintainer took every recommendation (2026-10-03). Slice 0 spike done: a missing id is skipped,
-not fatal. Next: PR-A TDD. v1.0, epic [#289](https://github.com/MCrank/ZWarden/issues/289).
+**Status:** PR-A ready (2026-10-03); PR-B (UI + dependencies) next. Slice 0 spike done: a missing id is skipped,
+not fatal. v1.0, epic [#289](https://github.com/MCrank/ZWarden/issues/289).
 Needs #290 (done: #314 + #316). Blocks #292.
 
 **Written against:** issue #291; epic #289 (Variant B; "ids come from the description, `mod.info` corrects them");
@@ -150,6 +150,48 @@ snapshot exists.
   - Install with a wrong guess, restart, rediscover → PickParts, with guessed vs observed.
 - **Web (PR-B):** the bUnit picker dialog shows for >1 ids and Install sends the chosen subset; the PickParts notice;
   Undo.
+
+## Result
+
+**PR-A** (`feat/291-one-click-install`):
+- **Agent discovery** reads a `\ModId` entry in `Mods=` as the bare id (spike finding).
+- **`ModListEditor.InstallWorkshopItems`** handles the item plus any dependencies and the ids, with at most one edit
+  per key. **`UndoItem`** applies one rule: the item's entry and each of its ids are present exactly when they
+  were at the last boot. That covers undoing an Install, a Remove or a parts change, and a restored entry goes
+  back to its booted position.
+- **`ServerModManager`:**
+  - **`InstallWorkshopItemsAsync`:** `Mod.Install`, audited `Mod.Installed`. No ids is valid.
+  - **`UndoPendingAsync`:** audited `Mod.Undone`. It needs `Mod.Install` when it re-adds anything and `Mod.Remove`
+    when it only takes entries out. It is `InvalidInput` before the first recorded boot.
+  - **Remove** also drops a not-yet-downloaded item's **guessed** ids. The guesses stand in for `mod.info` in the
+    "exclusively provides" rule.
+- **The planner is a pure `ModInstallPlan.For(metadata)`, not a service.** The preview path
+  (`IWorkshopMetadataService.ResolveAsync`, already `Mod.View`) returns the description, so there's no new egress
+  seam. The kinds are `NoIds` / `OneId` / `Choose` (CA1720 rules out `Single`). Dropped from the design: tracking
+  the row at Install time. The `ConfigApplied` discovery and metadata refresh create it seconds later.
+- **`ModChangeSet`:** `ModItemView.NeedsParts` plus `MissingModIds`.
+- **Found by the acceptance test: back-to-back mod changes lost the first one** (this predates #291; it's in
+  F22's design). Every verb recomputes the whole list from the cached discovery snapshot. After an apply succeeded,
+  that snapshot stayed stale until the follow-up discovery landed, so a second Install rewrote `Mods=` without the
+  first one's ids. The drift check can't see this, because nothing outside ZWarden changed the file.
+  - **Fix:** `IModRefreshTrigger.RecordAppliedModListsAsync` writes the apply's own `WorkshopItems=` / `Mods=` edits
+    into the cached inventory. The hub calls it **before** `CompleteSucceededAsync`, so no change can slip in
+    between. Discovery still confirms the lists from disk afterwards.
+  - Before the fix, 3 of 7 runs lost an install; after it, 6 of 6 passed.
+- **Acceptance**
+  (`OperationDispatchIntegrationTests.One_click_install_loads_in_one_restart_and_a_wrong_guess_asks_to_pick_parts`):
+  the real hub, a stand-in Agent and a stubbed Steam description. Two Installs, one restart:
+  - the right guess ends **Active**;
+  - the wrong guess ends **Pick parts**, with `Guess` missing and `Real` observed.
+- **Architecture:** the `UntrustedModTextGuardTests` allow-list gains `workshopIdsToAdd`, `bootedWorkshopIds` and
+  `bootedModIds`, which are Workshop ids and config lists as read. `UndoItem`'s `itemModIds` is
+  `IReadOnlyList<PzModId>`.
+- **Floors:** Agent 648, Infrastructure 606, Web 538 (csproj and `ci.yml`). Architecture 80 and Domain 389 are
+  unchanged.
+- **Docs:** CONTEXT.md gains *Install / Pick parts / Undo*.
+
+**PR-B** (next): the minimal UI in the existing sections (Install → part picker; Pick parts notice; Undo), plus
+dependencies (key-only).
 
 ## Out of scope
 
