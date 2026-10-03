@@ -1,9 +1,7 @@
 using Bunit;
-using Microsoft.Extensions.DependencyInjection;
 using ZWarden.Application.Configuration;
 using ZWarden.Application.Mods;
 using ZWarden.Application.Servers;
-using ZWarden.Application.Workshop;
 using ZWarden.Domain.Ids;
 using ZWarden.Domain.Operations;
 using ZWarden.Web.Components.Pages.Servers;
@@ -29,25 +27,6 @@ public sealed class ModsSectionTests
 
         cut.WaitForState(() => harness.FirstOperation(serverId, OperationKind.ModDiscovery) is not null);
         await Assert.That(cut.Find("[data-mod-message]").TextContent).Contains("Re-scan started");
-    }
-
-    [Test]
-    public async Task Add_installs_the_typed_item_with_its_description_mod_id()
-    {
-        // #291: the add field is one-click Install too — WorkshopItems= and the description's Mod ID in one apply.
-        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(services =>
-            services.AddSingleton<IWorkshopMetadataService>(new OneItemPreview("200", "Mod ID: NewMod")));
-        ServerId serverId = await harness.SeedServerAsync("addable");
-        harness.SeedInventory(serverId, installed: [], workshop: ["100"], enabled: []);
-        IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "mods");
-
-        await InteractivePageHarness.TypeAsync(cut, "mod-workshop-id", "200");
-        await cut.Find("[data-mod-add] [data-action=mod-install]").ClickAsync(new());
-
-        cut.WaitForState(() => harness.FirstOperation(serverId, OperationKind.ConfigApply) is not null);
-        Operation op = harness.FirstOperation(serverId, OperationKind.ConfigApply)!;
-        await Assert.That(op.IsMutating).IsTrue();
-        await Assert.That(Edits(harness, serverId)).IsEquivalentTo(["WorkshopItems=100;200", "Mods=NewMod"]);
     }
 
     [Test]
@@ -283,11 +262,4 @@ public sealed class ModsSectionTests
 
     private static IEnumerable<string> Edits(InteractivePageHarness harness, ServerId serverId) =>
         ConfigApplyPayload.FromJson(harness.Payload(serverId, OperationKind.ConfigApply)!).Edits.Select(e => $"{e.Path}={e.Value}");
-
-    private sealed class OneItemPreview(string workshopId, string description) : IWorkshopMetadataService
-    {
-        public Task<WorkshopPreview> ResolveAsync(
-            UserId actor, ServerId server, string input, CancellationToken cancellationToken = default) =>
-            Task.FromResult(WorkshopPreview.OfItem(new WorkshopItemMetadata(workshopId, Found: true, Title: "t", Description: description)));
-    }
 }

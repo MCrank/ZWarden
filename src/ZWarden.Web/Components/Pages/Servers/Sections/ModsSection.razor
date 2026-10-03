@@ -23,9 +23,15 @@
                 }
             </p>
         </div>
-        <BbButton Variant="ButtonVariant.Ghost" Size="ButtonSize.Small" Disabled="_acting"
-                  title="Read this server's mod files and settings again"
-                  OnClick="DiscoverModsAsync" data-action="mod-refresh">Re-scan</BbButton>
+        <div class="flex items-center gap-2">
+            <BbButton Variant="ButtonVariant.Ghost" Size="ButtonSize.Small" Disabled="_acting"
+                      title="Read this server's mod files and settings again"
+                      OnClick="DiscoverModsAsync" data-action="mod-refresh">Re-scan</BbButton>
+            @if (Perm.CanInstall)
+            {
+                <BbButton Size="ButtonSize.Small" OnClick="@(() => _addOpen = true)" data-action="add-mods-open">+ Add mods</BbButton>
+            }
+        </div>
     </div>
 
     @if (_message is not null)
@@ -39,14 +45,8 @@
 
     @if (Perm.CanInstall)
     {
-        <div class="mt-4 flex flex-wrap items-end gap-2" data-mod-add>
-            <div class="flex flex-col text-sm">
-                <BbLabel For="mod-workshop-id" Class="mb-1 text-muted-foreground">Install a Workshop item</BbLabel>
-                <BbInput Id="mod-workshop-id" UpdateTiming="UpdateTiming.Immediate" @bind-Value="_workshopId" autocomplete="off"
-                         inputmode="numeric" Placeholder="Workshop id, e.g. 2392709985" />
-            </div>
-            <ModInstallControl Server="Server" WorkshopId="@(_workshopId ?? string.Empty)" OnInstalled="ReloadAsync" />
-        </div>
+        <AddModsSheet Server="Server" Perm="Perm" @bind-Open="_addOpen" OnServer="_onServer"
+                      PendingCount="_pending.Count" OnInstalled="ReloadAsync" />
     }
 
     <div class="mt-4">
@@ -70,7 +70,12 @@
     [Parameter, EditorRequired]
     public ModManagePermissions Perm { get; set; }
 
-    private string? _workshopId;
+    /// <summary>Open the Add-mods sheet on arrival (<c>?add=1</c>, or the old Mod Browser link).</summary>
+    [Parameter]
+    public bool OpenAdd { get; set; }
+
+    private bool _addOpen;
+    private HashSet<string> _onServer = new(StringComparer.Ordinal);
     private string? _message;
     private AlertVariant _alert = AlertVariant.Warning;
     private bool _acting;
@@ -80,7 +85,11 @@
     private List<ModTableRow> _pending = [];
     private IReadOnlyDictionary<string, IReadOnlyList<string>> _warnings = new Dictionary<string, IReadOnlyList<string>>();
 
-    protected override Task OnInitializedAsync() => ReloadAsync();
+    protected override Task OnInitializedAsync()
+    {
+        _addOpen = OpenAdd && Perm.CanInstall;
+        return ReloadAsync();
+    }
 
     private async Task ReloadAsync()
     {
@@ -95,6 +104,13 @@
         _table = overview is null ? new ModTableView([], []) : ModTable.Build(overview);
         _rows = _table.Rows.ToList();
         _pending = _table.PendingRows.ToList();
+        _onServer = new HashSet<string>(
+            overview?.Items.Where(i => i.Status is ModChangeStatus.Active or ModChangeStatus.InstallsOnRestart).Select(i => i.WorkshopId) ?? [],
+            StringComparer.Ordinal);
+        foreach (string configured in inventory?.ConfiguredWorkshopIds ?? [])
+        {
+            _onServer.Add(configured);
+        }
         _warnings = ModRowWarnings.For(_table, inventory);
     }
 

@@ -1406,6 +1406,9 @@ html:not(.dark) .zw-ico-moon {
   .mt-10 {
     margin-top: calc(var(--spacing) * 10);
   }
+  .mr-auto {
+    margin-right: auto;
+  }
   .mb-1 {
     margin-bottom: var(--spacing);
   }
@@ -1420,6 +1423,12 @@ html:not(.dark) .zw-ico-moon {
   }
   .ml-2 {
     margin-left: calc(var(--spacing) * 2);
+  }
+  .line-clamp-2 {
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
   }
   .block {
     display: block;
@@ -1463,6 +1472,9 @@ html:not(.dark) .zw-ico-moon {
   .h-10 {
     height: calc(var(--spacing) * 10);
   }
+  .h-16 {
+    height: calc(var(--spacing) * 16);
+  }
   .h-auto {
     height: auto;
   }
@@ -1486,6 +1498,9 @@ html:not(.dark) .zw-ico-moon {
   }
   .w-10 {
     width: calc(var(--spacing) * 10);
+  }
+  .w-16 {
+    width: calc(var(--spacing) * 16);
   }
   .w-32 {
     width: calc(var(--spacing) * 32);
@@ -1558,6 +1573,9 @@ html:not(.dark) .zw-ico-moon {
   }
   .flex-col {
     flex-direction: column;
+  }
+  .flex-row {
+    flex-direction: row;
   }
   .flex-wrap {
     flex-wrap: wrap;
@@ -1665,6 +1683,16 @@ html:not(.dark) .zw-ico-moon {
   .gap-y-4 {
     row-gap: calc(var(--spacing) * 4);
   }
+  :where(.divide-y > :not(:last-child)) {
+    --tw-divide-y-reverse: 0;
+    border-bottom-style: var(--tw-border-style);
+    border-top-style: var(--tw-border-style);
+    border-top-width: calc(1px * var(--tw-divide-y-reverse));
+    border-bottom-width: calc(1px * calc(1 - var(--tw-divide-y-reverse)));
+  }
+  :where(.divide-border > :not(:last-child)) {
+    border-color: var(--border);
+  }
   .truncate {
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1675,6 +1703,9 @@ html:not(.dark) .zw-ico-moon {
   }
   .overflow-x-auto {
     overflow-x: auto;
+  }
+  .overflow-y-auto {
+    overflow-y: auto;
   }
   .rounded {
     border-radius: var(--radius);
@@ -1854,6 +1885,9 @@ html:not(.dark) .zw-ico-moon {
   .py-2 {
     padding-block: calc(var(--spacing) * 2);
   }
+  .py-3 {
+    padding-block: calc(var(--spacing) * 3);
+  }
   .py-8 {
     padding-block: calc(var(--spacing) * 8);
   }
@@ -1868,6 +1902,12 @@ html:not(.dark) .zw-ico-moon {
   }
   .pr-4 {
     padding-right: calc(var(--spacing) * 4);
+  }
+  .pb-4 {
+    padding-bottom: calc(var(--spacing) * 4);
+  }
+  .pb-6 {
+    padding-bottom: calc(var(--spacing) * 6);
   }
   .pl-5 {
     padding-left: calc(var(--spacing) * 5);
@@ -2059,6 +2099,9 @@ html:not(.dark) .zw-ico-moon {
     .sm\:col-span-2 {
       grid-column: span 2 / span 2;
     }
+    .sm\:max-w-xl {
+      max-width: var(--container-xl);
+    }
     .sm\:grid-cols-2 {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
@@ -2181,6 +2224,11 @@ html:not(.dark) .zw-ico-moon {
   }
 }
 @property --tw-space-y-reverse {
+  syntax: "*";
+  inherits: false;
+  initial-value: 0;
+}
+@property --tw-divide-y-reverse {
   syntax: "*";
   inherits: false;
   initial-value: 0;
@@ -2349,6 +2397,7 @@ html:not(.dark) .zw-ico-moon {
   @supports ((-webkit-hyphens: none) and (not (margin-trim: inline))) or ((-moz-orient: inline) and (not (color:rgb(from red r g b)))) {
     *, ::before, ::after, ::backdrop {
       --tw-space-y-reverse: 0;
+      --tw-divide-y-reverse: 0;
       --tw-border-style: solid;
       --tw-leading: initial;
       --tw-font-weight: initial;

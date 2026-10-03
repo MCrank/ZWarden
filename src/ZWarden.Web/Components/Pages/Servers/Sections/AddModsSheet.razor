@@ -1,0 +1,281 @@
+@inherits ServerSectionBase
+@using ZWarden.Application.Mods
+@using ZWarden.Application.Workshop
+
+@* The "+ Add mods" sheet (#292 Variant B; replaces the #110 Mod Browser section). One box: a pasted Workshop link or
+   id (keyless preview, always available) or, with a Steam Web API key, free-text search (ADR 0044). Each result card
+   installs through the shared #291 one-click ModInstallControl, shows "Added ✓" once the item is on the server, says
+   when an item holds several mods, and blocks a Build 41-only item. Workshop text is untrusted, rendered as data; the
+   mod manager re-checks Mod.Install on every Install. Renders through the page's BbPortalHost. *@
+
+<BbSheet Open="Open" OpenChanged="OpenChanged">
+    <BbSheetContent Class="w-full overflow-y-auto sm:max-w-xl" data-add-mods-sheet>
+        <BbSheetHeader>
+            <BbSheetTitle>Add mods</BbSheetTitle>
+            <BbSheetDescription>
+                @if (_searchAvailable)
+                {
+                    <span>Search the Workshop, or paste a Workshop link or id.</span>
+                }
+                else
+                {
+                    <span>Paste a Workshop link or id.</span>
+                }
+                Mods you add download and load on the next restart.
+            </BbSheetDescription>
+        </BbSheetHeader>
+
+        <div class="space-y-4 px-4 pb-6">
+            <EditForm Model="_form" OnValidSubmit="FindAsync">
+                <div class="flex items-end gap-2" data-add-mods-find>
+                    <div class="flex flex-1 flex-col text-sm">
+                        <BbLabel For="add-mods-input" Class="mb-1 text-muted-foreground">
+                            @(_searchAvailable ? "Search, or paste a link / id" : "Workshop link or id")
+                        </BbLabel>
+                        <BbInput Id="add-mods-input" UpdateTiming="UpdateTiming.Immediate" @bind-Value="_form.Input" autocomplete="off"
+                                 spellcheck="false"
+                                 Placeholder="@(_searchAvailable ? "e.g. Brita, or 2392709985" : "2392709985 or https://steamcommunity.com/…/?id=…")" />
+                    </div>
+                    <BbButton Type="ButtonType.Submit" Size="ButtonSize.Small" Disabled="_acting" data-action="add-mods-find">Find</BbButton>
+                </div>
+            </EditForm>
+
+            @if (!_searchAvailable)
+            {
+                <p class="text-xs text-muted-foreground" data-add-mods-search-off>
+                    To search by name, add an optional Steam Web API key in
+                    <a class="underline hover:no-underline" href="/settings">Settings</a>.
+                </p>
+            }
+
+            @if (_note is not null)
+            {
+                <p class="text-sm text-muted-foreground" data-add-mods-note>@_note</p>
+            }
+
+            @if (_cards.Count > 0)
+            {
+                @if (_collectionSize is { } size)
+                {
+                    <p class="text-xs text-muted-foreground" data-add-mods-collection>
+                        A collection of @size item@(size == 1 ? "" : "s"). Install each one you want.
+                    </p>
+                }
+
+                <div class="divide-y divide-border" data-add-mods-results>
+                    @foreach (Card card in _cards)
+                    {
+                        @CardFragment(card)
+                    }
+                </div>
+            }
+        </div>
+
+        <BbSheetFooter Class="flex-row items-center px-4 pb-4">
+            <span class="mr-auto text-xs text-muted-foreground" data-add-mods-pending>
+                @PendingCount change@(PendingCount == 1 ? "" : "s") waiting for a restart
+            </span>
+            <BbButton Variant="ButtonVariant.Outline" OnClick="CloseAsync" data-action="add-mods-done">Done</BbButton>
+        </BbSheetFooter>
+    </BbSheetContent>
+</BbSheet>
+
+@code {
+    /// <summary>The sheet is open.</summary>
+    [Parameter]
+    public bool Open { get; set; }
+
+    /// <summary>Raised when the sheet opens or closes.</summary>
+    [Parameter]
+    public EventCallback<bool> OpenChanged { get; set; }
+
+    /// <summary>The caller's per-server mod grants (fail-closed); Install needs Mod.Install.</summary>
+    [Parameter, EditorRequired]
+    public ModManagePermissions Perm { get; set; }
+
+    /// <summary>The Workshop items already on the server (configured), shown as "Added ✓".</summary>
+    [Parameter]
+    public IReadOnlySet<string> OnServer { get; set; } = new HashSet<string>(StringComparer.Ordinal);
+
+    /// <summary>How many changes wait for a restart, for the footer.</summary>
+    [Parameter]
+    public int PendingCount { get; set; }
+
+    /// <summary>Raised after an Install was enqueued, so the Mods table reloads.</summary>
+    [Parameter]
+    public EventCallback OnInstalled { get; set; }
+
+    private readonly FindModel _form = new();
+    private bool _searchAvailable;
+    private bool _acting;
+    private string? _note;
+    private int? _collectionSize;
+    private List<Card> _cards = [];
+    private readonly HashSet<string> _added = new(StringComparer.Ordinal);
+
+    protected override async Task OnInitializedAsync() =>
+        _searchAvailable = await Actions.RunAsync<IWorkshopSettingsService, bool>((settings, ct) => settings.IsSearchAvailableAsync(ct));
+
+    // A pasted link or id is previewed keylessly; anything else is a search when a key is configured.
+    private async Task FindAsync()
+    {
+        string input = _form.Input?.Trim() ?? string.Empty;
+        _note = null;
+        _collectionSize = null;
+        _cards = [];
+        if (input.Length == 0)
+        {
+            return;
+        }
+
+        _acting = true;
+        try
+        {
+            if (WorkshopReference.TryParseId(input, out _))
+            {
+                await PreviewAsync(input);
+            }
+            else if (_searchAvailable)
+            {
+                await SearchAsync(input);
+            }
+            else
+            {
+                _note = "That isn't a Workshop link or id. Paste a numeric id or a steamcommunity.com link, or add a Steam Web API key in Settings to search by name.";
+            }
+        }
+        finally
+        {
+            _acting = false;
+        }
+    }
+
+    private async Task PreviewAsync(string input)
+    {
+        UserId user = await CurrentUserAsync();
+        ServerId serverId = Server.Id;
+        WorkshopPreview preview = await Actions.RunAsync<IWorkshopMetadataService, WorkshopPreview>(
+            (metadata, ct) => metadata.ResolveAsync(user, serverId, input, ct));
+        if (preview.Status != WorkshopPreviewStatus.Resolved)
+        {
+            _note = preview.Status == WorkshopPreviewStatus.Unresolvable
+                ? "That isn't a Workshop item or collection. Check the link or id."
+                : "That Workshop item can't be looked up for this server.";
+            return;
+        }
+
+        _collectionSize = preview.IsCollection ? preview.Items.Count : null;
+        _cards = [.. preview.Items.Select(Card.Of)];
+        if (_cards.Count == 0)
+        {
+            _note = "That collection has no items.";
+        }
+    }
+
+    private async Task SearchAsync(string query)
+    {
+        WorkshopSearchResults results = await Actions.RunAsync<IWorkshopSearchService, WorkshopSearchResults>(
+            (search, ct) => search.SearchAsync(query, ct));
+        if (!results.SearchAvailable)
+        {
+            _note = "Workshop search is unavailable: the Steam Web API key was rejected. Check it in Settings.";
+            return;
+        }
+
+        _cards = [.. results.Items.Select(Card.Of)];
+        if (_cards.Count == 0)
+        {
+            _note = "No Workshop items matched that search.";
+        }
+    }
+
+    private RenderFragment CardFragment(Card card)
+    {
+        bool added = OnServer.Contains(card.WorkshopId) || _added.Contains(card.WorkshopId);
+        return @<div class="flex gap-3 py-3" data-add-mods-card data-workshop-id="@card.WorkshopId">
+            @if (card.PreviewUrl is { Length: > 0 } url)
+            {
+                <img class="h-16 w-16 flex-none rounded object-cover bg-muted" src="@url" alt="" loading="lazy" referrerpolicy="no-referrer" />
+            }
+            else
+            {
+                <div class="flex h-16 w-16 flex-none items-center justify-center rounded bg-muted text-muted-foreground"><ShellIcon Name="package" /></div>
+            }
+            <div class="min-w-0 flex-1">
+                <div class="text-sm font-medium break-words" data-item-title>@card.Title</div>
+                <div class="text-xs text-muted-foreground">@card.Meta</div>
+                @if (card.Snippet is { } snippet)
+                {
+                    <p class="mt-1 line-clamp-2 text-xs text-muted-foreground">@snippet</p>
+                }
+                @if (card.Parts > 1)
+                {
+                    <p class="mt-1 text-xs" data-add-mods-multipart>Contains @card.Parts mods. You'll choose which to turn on.</p>
+                }
+                @if (card.Build41Only)
+                {
+                    <p class="mt-1 text-xs text-status-unhealthy" data-add-mods-b41>Build 41 only. It won't load on this server.</p>
+                }
+                <div class="mt-2">
+                    @if (card.Build41Only && !added)
+                    {
+                        <BbButton Size="ButtonSize.Small" Disabled="true" data-action="mod-install-blocked">Install</BbButton>
+                    }
+                    else
+                    {
+                        <ModInstallControl Server="Server" WorkshopId="@card.WorkshopId" Added="added"
+                                           OnInstalled="@(() => InstalledAsync(card.WorkshopId))" />
+                    }
+                </div>
+            </div>
+        </div>;
+    }
+
+    private async Task InstalledAsync(string workshopId)
+    {
+        _added.Add(workshopId);
+        await OnInstalled.InvokeAsync();
+    }
+
+    private Task CloseAsync() => OpenChanged.InvokeAsync(false);
+
+    // One result card's view, from a keyless preview item or a search hit. All text is untrusted Steam data.
+    private sealed record Card(
+        string WorkshopId, string Title, string Meta, string? Snippet, string? PreviewUrl, int Parts, bool Build41Only)
+    {
+        public static Card Of(WorkshopItemMetadata item) => new(
+            item.WorkshopId,
+            item.Found && !string.IsNullOrWhiteSpace(item.Title) ? item.Title! : "Untitled item",
+            MetaLine(item.WorkshopId, item.SizeBytes is { } size ? ServerDetailFormat.FormatSize(size) : null, item.UpdatedAt),
+            item.Found && item.Description is { Length: > 0 } d ? (d.Length <= 240 ? d : d[..240] + "…") : null,
+            item.PreviewUrl,
+            ModInstallPlan.For(item).CandidateModIds.Count,
+            WorkshopBuildSupport.IsBuild41Only(item.Tags));
+
+        public static Card Of(WorkshopSearchResult hit) => new(
+            hit.WorkshopId,
+            !string.IsNullOrWhiteSpace(hit.Title) ? hit.Title! : "Untitled item",
+            MetaLine(
+                hit.WorkshopId,
+                hit.Subscriptions is { } subs ? $"{subs.ToString("N0", System.Globalization.CultureInfo.InvariantCulture)} subscribers" : null,
+                hit.UpdatedAt),
+            null,
+            hit.PreviewUrl,
+            0,
+            WorkshopBuildSupport.IsBuild41Only(hit.Tags));
+
+        private static string MetaLine(string workshopId, string? middle, DateTimeOffset? updated) =>
+            string.Join(" · ", new[]
+            {
+                workshopId,
+                middle,
+                updated is { } at ? $"updated {at.UtcDateTime.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)}" : null,
+            }.OfType<string>());
+    }
+
+    private sealed class FindModel
+    {
+        // A pasted Workshop link / id, or free-text search (key-gated).
+        public string? Input { get; set; }
+    }
+}

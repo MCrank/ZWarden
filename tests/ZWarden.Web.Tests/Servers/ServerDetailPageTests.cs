@@ -154,8 +154,7 @@ public sealed class ServerDetailPageTests
         string html = await (await client.GetAsync(new Uri($"/servers/{serverId}?section=mods", UriKind.Relative))).Content.ReadAsStringAsync();
 
         await Assert.That(html).DoesNotContain("data-mod-manage-awaiting");
-        await Assert.That(html).Contains("data-action=\"mod-install\"");
-        await Assert.That(html).Contains("id=\"mod-workshop-id\"");
+        await Assert.That(html).Contains("data-action=\"add-mods-open\"");
         await Assert.That(html).Contains("data-mods-table");
         // #292 D2: the F21 inventory panel and the F22 lists are gone — each item is listed once, in the table.
         await Assert.That(html).DoesNotContain("data-live-mods");

@@ -11,87 +11,93 @@ using ZWarden.Domain.Security;
 using ZWarden.Domain.Servers;
 using ZWarden.Infrastructure.Authorization;
 using ZWarden.Infrastructure.Persistence;
+using ZWarden.Infrastructure.Tenancy;
 using ZWarden.Web.Components.Pages.Servers;
 using ZWarden.Web.Tests.Account;
-using ZWarden.Infrastructure.Tenancy;
 
-namespace ZWarden.Web.Tests.Servers;
+namespace ZWarden.Web.Tests.Servers.Sections;
 
 /// <summary>
-/// #110 PR-C: the adaptive Mod Browser section on the Server Detail rail. Keyless preview (paste an id or collection
-/// URL → cards → Install) is always available; the free-text search grid lights up only when the tenant has a Steam
-/// Web API key. Install (#291) writes the item and its description's mod ids in one apply, with a part picker for a
-/// multi-mod item. All Workshop names/ids are untrusted and
-/// escaped at render (trust-boundaries §8). The rendered page is checked over the real host; the actions run as
-/// circuit handlers in bUnit on the same host (#299). The Steam-facing seams are faked so no test makes a live call
-/// (F12 rule).
+/// #292: the Mods section's "+ Add mods" sheet, which replaces the #110 Mod Browser rail section. One box takes a
+/// pasted Workshop link or id (keyless preview, always available) or — with a Steam Web API key — free-text search
+/// (ADR 0044). Each card installs through #291's one-click Install (the item and its description's mod ids in one
+/// apply, a part picker for a multi-mod item, required items offered), shows "Added ✓" once the item is on the
+/// server, and blocks a Build 41-only item. Workshop text is untrusted and escaped at render (trust-boundaries §8).
+/// The Steam-facing seams are faked so no test makes a live call (F12 rule).
 /// </summary>
-public sealed class ServerDetailModBrowserTests
+public sealed class AddModsSheetTests
 {
     private const string StrongPassword = "correct horse battery staple";
 
     [Test]
-    public async Task The_rail_shows_the_mod_browser_link_for_a_viewer()
+    public async Task The_rail_has_one_mods_entry_and_no_mod_browser()
     {
         await using ZWardenWebAppFactory factory = new() { ConfigureTestServicesHook = Fakes(out _, out _, out _) };
         HttpClient client = await SignedInOperatorAsync(factory);
-        ServerId serverId = await SeedServerAsync(factory, "mb-rail");
+        ServerId serverId = await SeedServerAsync(factory, "add-rail");
 
         string html = await GetAsync(client, $"/servers/{serverId}");
 
-        await Assert.That(html).Contains("data-rail-item=\"modbrowser\"");
-        await Assert.That(html).Contains("?section=modbrowser");
+        await Assert.That(html).Contains("data-rail-item=\"mods\"");
+        await Assert.That(html).DoesNotContain("data-rail-item=\"modbrowser\"");
         client.Dispose();
     }
 
     [Test]
-    public async Task The_section_renders_the_keyless_lookup_and_hides_search_without_a_key()
+    public async Task The_old_mod_browser_link_lands_on_mods_with_the_sheet_open()
     {
-        await using ZWardenWebAppFactory factory = new() { ConfigureTestServicesHook = Fakes(out _, out _, out FakeSettings settings) };
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(Fakes(out _, out _, out _));
+        ServerId serverId = await harness.SeedServerAsync("add-legacy");
+
+        IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "modbrowser");
+
+        cut.WaitForState(() => cut.FindAll("[data-add-mods-sheet]").Count == 1);
+        await Assert.That(cut.FindAll("[data-mods-card]").Count).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task The_add_button_opens_the_sheet_and_done_closes_it()
+    {
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(Fakes(out _, out _, out _));
+        ServerId serverId = await harness.SeedServerAsync("add-open");
+        IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "mods");
+        await Assert.That(cut.FindAll("[data-add-mods-sheet]")).IsEmpty();
+
+        await cut.Find("[data-action=add-mods-open]").ClickAsync(new());
+        cut.WaitForState(() => cut.FindAll("[data-add-mods-sheet]").Count == 1);
+        await cut.Find("[data-action=add-mods-done]").ClickAsync(new());
+
+        cut.WaitForState(() => cut.FindAll("[data-add-mods-sheet]").Count == 0);
+    }
+
+    [Test]
+    public async Task Without_a_key_the_sheet_takes_links_and_says_how_to_search_by_name()
+    {
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(Fakes(out _, out _, out FakeSettings settings));
         settings.Available = false;
-        HttpClient client = await SignedInOperatorAsync(factory);
-        ServerId serverId = await SeedServerAsync(factory, "mb-keyless");
+        ServerId serverId = await harness.SeedServerAsync("add-keyless");
+        IRenderedComponent<ServerDetail> cut = await OpenAsync(harness, serverId);
 
-        string html = await GetAsync(client, $"/servers/{serverId}?section=modbrowser");
+        await Assert.That(cut.FindAll("[data-add-mods-search-off]").Count).IsEqualTo(1);
+        await InteractivePageHarness.TypeAsync(cut, "add-mods-input", "hydrocraft");
+        await cut.Find("[data-add-mods-find]").Closest("form")!.SubmitAsync();
 
-        await Assert.That(html).Contains("data-modbrowser-card");
-        await Assert.That(html).Contains("data-modbrowser-lookup");
-        await Assert.That(html).Contains("data-action=\"modbrowser-resolve\"");
-        // Keyless: the search box is not rendered; the "add a key" note is.
-        await Assert.That(html).Contains("data-modbrowser-search-off");
-        await Assert.That(html).DoesNotContain("data-action=\"modbrowser-search\"");
-        client.Dispose();
+        cut.WaitForState(() => cut.FindAll("[data-add-mods-note]").Count == 1);
+        await Assert.That(cut.Find("[data-add-mods-note]").TextContent).Contains("isn't a Workshop link or id");
     }
 
     [Test]
-    public async Task The_search_box_renders_when_a_key_is_configured()
-    {
-        await using ZWardenWebAppFactory factory = new() { ConfigureTestServicesHook = Fakes(out _, out _, out FakeSettings settings) };
-        settings.Available = true;
-        HttpClient client = await SignedInOperatorAsync(factory);
-        ServerId serverId = await SeedServerAsync(factory, "mb-keyed");
-
-        string html = await GetAsync(client, $"/servers/{serverId}?section=modbrowser");
-
-        await Assert.That(html).Contains("data-modbrowser-search");
-        await Assert.That(html).Contains("data-action=\"modbrowser-search\"");
-        await Assert.That(html).DoesNotContain("data-modbrowser-search-off");
-        client.Dispose();
-    }
-
-    [Test]
-    public async Task Preview_resolves_a_pasted_reference_and_renders_a_card()
+    public async Task A_pasted_id_previews_a_card()
     {
         await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(Fakes(out FakePreview preview, out _, out _));
         preview.Result = WorkshopPreview.OfItem(
             new WorkshopItemMetadata("2392709985", Found: true, Title: "Brita Weapon Pack", SizeBytes: 123456));
-        ServerId serverId = await harness.SeedServerAsync("mb-preview");
+        ServerId serverId = await harness.SeedServerAsync("add-preview");
 
-        IRenderedComponent<ServerDetail> cut = await PreviewAsync(harness, serverId, "2392709985");
+        IRenderedComponent<ServerDetail> cut = await FindAsync(harness, serverId, "2392709985");
 
-        await Assert.That(cut.Markup).Contains("data-modbrowser-item");
-        await Assert.That(cut.Markup).Contains("2392709985");
-        await Assert.That(cut.Markup).Contains("Brita Weapon Pack");
+        await Assert.That(cut.Find("[data-add-mods-card][data-workshop-id='2392709985']").TextContent).Contains("Brita Weapon Pack");
+        await Assert.That(preview.LastInput).IsEqualTo("2392709985");
     }
 
     [Test]
@@ -99,26 +105,12 @@ public sealed class ServerDetailModBrowserTests
     {
         await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(Fakes(out FakePreview preview, out _, out _));
         preview.Result = WorkshopPreview.OfItem(new WorkshopItemMetadata("111", Found: true, Title: "<script>alert(1)</script>"));
-        ServerId serverId = await harness.SeedServerAsync("mb-xss");
+        ServerId serverId = await harness.SeedServerAsync("add-xss");
 
-        IRenderedComponent<ServerDetail> cut = await PreviewAsync(harness, serverId, "111");
+        IRenderedComponent<ServerDetail> cut = await FindAsync(harness, serverId, "111");
 
         await Assert.That(cut.Markup).Contains("&lt;script&gt;");
         await Assert.That(cut.Markup).DoesNotContain("<script>alert(1)");
-    }
-
-    [Test]
-    public async Task An_unresolvable_input_shows_a_message()
-    {
-        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(Fakes(out FakePreview preview, out _, out _));
-        preview.Result = WorkshopPreview.Unresolvable;
-        ServerId serverId = await harness.SeedServerAsync("mb-unresolvable");
-        IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "modbrowser");
-
-        await InteractivePageHarness.TypeAsync(cut, "modbrowser-input", "not-a-workshop-link");
-        await cut.Find("[data-modbrowser-lookup]").Closest("form")!.SubmitAsync();
-
-        cut.WaitForState(() => cut.FindAll("[data-modbrowser-unresolvable]").Count == 1);
     }
 
     [Test]
@@ -128,32 +120,32 @@ public sealed class ServerDetailModBrowserTests
         await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(Fakes(out FakePreview preview, out _, out _));
         preview.Result = WorkshopPreview.OfItem(
             new WorkshopItemMetadata("200", Found: true, Title: "New Pack", Description: "Great pack.\nMod ID: NewPack"));
-        ServerId serverId = await harness.SeedServerAsync("mb-install");
+        ServerId serverId = await harness.SeedServerAsync("add-install");
         // Install recomputes the lists from the last observed inventory, so one must exist.
         harness.SeedInventory(serverId, installed: [], workshop: ["100"], enabled: ["A"]);
-        IRenderedComponent<ServerDetail> cut = await PreviewAsync(harness, serverId, "200");
+        IRenderedComponent<ServerDetail> cut = await FindAsync(harness, serverId, "200");
 
-        await cut.Find("[data-modbrowser-item][data-workshop-id='200'] [data-action=mod-install]").ClickAsync(new());
+        await cut.Find("[data-add-mods-card][data-workshop-id='200'] [data-action=mod-install]").ClickAsync(new());
 
         cut.WaitForState(() => harness.FirstOperation(serverId, OperationKind.ConfigApply) is not null);
-        ConfigApplyPayload payload = ConfigApplyPayload.FromJson(harness.FirstOperation(serverId, OperationKind.ConfigApply)!.CommandPayload!);
-        await Assert.That(payload.Edits.Select(e => $"{e.Path}={e.Value}")).IsEquivalentTo(["WorkshopItems=100;200", "Mods=A;NewPack"]);
-        cut.WaitForState(() => cut.FindAll("[data-mod-install-message]").Count == 1);
+        await Assert.That(Edits(harness, serverId)).IsEquivalentTo(["WorkshopItems=100;200", "Mods=A;NewPack"]);
+        // The card turns to "Added ✓" and keeps the confirmation; the results stay on screen.
+        cut.WaitForState(() => cut.FindAll("[data-workshop-id='200'] [data-add-mods-added]").Count == 1);
         await Assert.That(cut.Find("[data-mod-install-message]").TextContent).Contains("NewPack");
-        // The preview stays on screen across the install (no page reload).
-        await Assert.That(cut.Markup).Contains("New Pack");
+        await Assert.That(cut.FindAll("[data-workshop-id='200'] [data-action=mod-install]")).IsEmpty();
     }
 
     [Test]
-    public async Task A_multi_mod_item_opens_the_part_picker_and_installs_only_the_ticked_parts()
+    public async Task A_multi_mod_item_says_so_and_installs_only_the_ticked_parts()
     {
         await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(Fakes(out FakePreview preview, out _, out _));
         preview.Result = WorkshopPreview.OfItem(new WorkshopItemMetadata(
             "300", Found: true, Title: "Trait Pack", Description: "Mod ID: Core\nMod ID: Extra\nMod ID: Patch"));
-        ServerId serverId = await harness.SeedServerAsync("mb-picker");
+        ServerId serverId = await harness.SeedServerAsync("add-picker");
         harness.SeedInventory(serverId, installed: [], workshop: [], enabled: []);
-        IRenderedComponent<ServerDetail> cut = await PreviewAsync(harness, serverId, "300");
+        IRenderedComponent<ServerDetail> cut = await FindAsync(harness, serverId, "300");
 
+        await Assert.That(cut.Find("[data-add-mods-multipart]").TextContent).Contains("Contains 3 mods");
         await cut.Find("[data-workshop-id='300'] [data-action=mod-install]").ClickAsync(new());
         cut.WaitForState(() => cut.FindAll("[data-mod-install-part]").Count == 3);
         // Nothing is written until the operator confirms; every part starts ticked. Untick "Extra".
@@ -162,8 +154,7 @@ public sealed class ServerDetailModBrowserTests
         await cut.Find("[data-action=mod-install-confirm]").ClickAsync(new());
 
         cut.WaitForState(() => harness.FirstOperation(serverId, OperationKind.ConfigApply) is not null);
-        ConfigApplyPayload payload = ConfigApplyPayload.FromJson(harness.FirstOperation(serverId, OperationKind.ConfigApply)!.CommandPayload!);
-        await Assert.That(payload.Edits.Select(e => $"{e.Path}={e.Value}")).IsEquivalentTo(["WorkshopItems=300", "Mods=Core;Patch"]);
+        await Assert.That(Edits(harness, serverId)).IsEquivalentTo(["WorkshopItems=300", "Mods=Core;Patch"]);
     }
 
     [Test]
@@ -180,9 +171,9 @@ public sealed class ServerDetailModBrowserTests
         });
         preview.Result = WorkshopPreview.OfItem(
             new WorkshopItemMetadata("200", Found: true, Title: "New Pack", Description: "Mod ID: NewPack"));
-        ServerId serverId = await harness.SeedServerAsync("mb-deps");
+        ServerId serverId = await harness.SeedServerAsync("add-deps");
         harness.SeedInventory(serverId, installed: [], workshop: [], enabled: []);
-        IRenderedComponent<ServerDetail> cut = await PreviewAsync(harness, serverId, "200");
+        IRenderedComponent<ServerDetail> cut = await FindAsync(harness, serverId, "200");
 
         await cut.Find("[data-workshop-id='200'] [data-action=mod-install]").ClickAsync(new());
         cut.WaitForState(() => cut.FindAll("[data-mod-install-dependency][data-workshop-id='900']").Count == 1);
@@ -190,8 +181,7 @@ public sealed class ServerDetailModBrowserTests
         await cut.Find("[data-action=mod-install-confirm]").ClickAsync(new());
 
         cut.WaitForState(() => harness.FirstOperation(serverId, OperationKind.ConfigApply) is not null);
-        ConfigApplyPayload payload = ConfigApplyPayload.FromJson(harness.FirstOperation(serverId, OperationKind.ConfigApply)!.CommandPayload!);
-        await Assert.That(payload.Edits.Select(e => $"{e.Path}={e.Value}")).IsEquivalentTo(["WorkshopItems=200;900", "Mods=NewPack;CoreLib"]);
+        await Assert.That(Edits(harness, serverId)).IsEquivalentTo(["WorkshopItems=200;900", "Mods=NewPack;CoreLib"]);
     }
 
     [Test]
@@ -199,67 +189,78 @@ public sealed class ServerDetailModBrowserTests
     {
         await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(Fakes(out FakePreview preview, out _, out _));
         preview.Result = WorkshopPreview.OfItem(new WorkshopItemMetadata("400", Found: true, Title: "Map", Description: "A map."));
-        ServerId serverId = await harness.SeedServerAsync("mb-noids");
+        ServerId serverId = await harness.SeedServerAsync("add-noids");
         harness.SeedInventory(serverId, installed: [], workshop: [], enabled: ["A"]);
-        IRenderedComponent<ServerDetail> cut = await PreviewAsync(harness, serverId, "400");
+        IRenderedComponent<ServerDetail> cut = await FindAsync(harness, serverId, "400");
 
         await cut.Find("[data-workshop-id='400'] [data-action=mod-install]").ClickAsync(new());
 
         cut.WaitForState(() => harness.FirstOperation(serverId, OperationKind.ConfigApply) is not null);
-        ConfigApplyPayload payload = ConfigApplyPayload.FromJson(harness.FirstOperation(serverId, OperationKind.ConfigApply)!.CommandPayload!);
-        await Assert.That(payload.Edits.Select(e => $"{e.Path}={e.Value}")).IsEquivalentTo(["WorkshopItems=400"]);
+        await Assert.That(Edits(harness, serverId)).IsEquivalentTo(["WorkshopItems=400"]);
         cut.WaitForState(() => cut.FindAll("[data-mod-install-message]").Count == 1);
         await Assert.That(cut.Find("[data-mod-install-message]").TextContent).Contains("choose its parts");
     }
 
     [Test]
-    public async Task Search_renders_result_cards_when_keyed()
+    public async Task With_a_key_free_text_searches_and_a_build_41_only_hit_is_blocked()
     {
-        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(Fakes(out _, out FakeSearch search, out FakeSettings settings));
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(Fakes(out FakePreview preview, out FakeSearch search, out FakeSettings settings));
         settings.Available = true;
-        search.Result = WorkshopSearchResults.From([new WorkshopSearchResult("500", Title: "Hydrocraft", Subscriptions: 9001)]);
-        ServerId serverId = await harness.SeedServerAsync("mb-search");
-        IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "modbrowser");
+        search.Result = WorkshopSearchResults.From(
+        [
+            new WorkshopSearchResult("500", Title: "Hydrocraft", Subscriptions: 9001, Tags: ["Build 42"]),
+            new WorkshopSearchResult("501", Title: "Old Hydrocraft", Tags: ["Build 41"]),
+        ]);
+        ServerId serverId = await harness.SeedServerAsync("add-search");
 
-        await InteractivePageHarness.TypeAsync(cut, "modbrowser-query", "hydro");
-        await cut.Find("[data-modbrowser-search] form").SubmitAsync();
+        IRenderedComponent<ServerDetail> cut = await FindAsync(harness, serverId, "hydro");
 
-        cut.WaitForState(() => cut.FindAll("[data-modbrowser-search-results]").Count == 1);
-        await Assert.That(cut.Markup).Contains("Hydrocraft");
-        await Assert.That(cut.Markup).Contains("500");
+        await Assert.That(search.LastQuery).IsEqualTo("hydro");
+        await Assert.That(preview.LastInput).IsNull();
+        await Assert.That(cut.Find("[data-add-mods-card][data-workshop-id='500']").TextContent).Contains("9,001 subscribers");
+        await Assert.That(cut.FindAll("[data-workshop-id='500'] [data-action=mod-install]").Count).IsEqualTo(1);
+        await Assert.That(cut.Find("[data-workshop-id='501'] [data-add-mods-b41]").TextContent).Contains("Build 41 only");
+        await Assert.That(cut.Find("[data-workshop-id='501'] [data-action=mod-install-blocked]").HasAttribute("disabled")).IsTrue();
+        await Assert.That(cut.FindAll("[data-workshop-id='501'] [data-action=mod-install]")).IsEmpty();
     }
 
     [Test]
-    public async Task An_installed_item_preview_shows_compatibility_chips()
+    public async Task An_item_already_on_the_server_shows_added()
     {
         await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(Fakes(out FakePreview preview, out _, out _));
         preview.Result = WorkshopPreview.OfItem(new WorkshopItemMetadata("100", Found: true, Title: "Installed Pack"));
-        ServerId serverId = await harness.SeedServerAsync("mb-compat");
-        // The item is on disk with a declared PZ version — the card enriches from the observed inventory.
+        ServerId serverId = await harness.SeedServerAsync("add-added");
         harness.SeedInventory(
-            serverId,
-            installed: [new InstalledWorkshopItem("100", [new InstalledMod("ModA", "Mod A", PzVersion: "41.78")])],
-            workshop: ["100"],
-            enabled: []);
+            serverId, installed: [new InstalledWorkshopItem("100", [new InstalledMod("ModA", null)])], workshop: ["100"], enabled: ["ModA"]);
 
-        IRenderedComponent<ServerDetail> cut = await PreviewAsync(harness, serverId, "100");
+        IRenderedComponent<ServerDetail> cut = await FindAsync(harness, serverId, "100");
 
-        await Assert.That(cut.Markup).Contains("data-item-compat");
-        await Assert.That(cut.Markup).Contains("data-compat-pz");
-        await Assert.That(cut.Markup).Contains("41.78");
-        // Already in WorkshopItems= — the card shows that state instead of an Install button.
-        await Assert.That(cut.Markup).Contains("data-item-configured");
+        await Assert.That(cut.FindAll("[data-workshop-id='100'] [data-add-mods-added]").Count).IsEqualTo(1);
+        await Assert.That(cut.FindAll("[data-workshop-id='100'] [data-action=mod-install]")).IsEmpty();
     }
 
-    // Opens the Mod Browser, pastes the reference and previews it; waits for the result cards.
-    private static async Task<IRenderedComponent<ServerDetail>> PreviewAsync(InteractivePageHarness harness, ServerId serverId, string input)
+    // Opens Mods with the sheet open (?add=1).
+    private static async Task<IRenderedComponent<ServerDetail>> OpenAsync(InteractivePageHarness harness, ServerId serverId)
     {
-        IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "modbrowser");
-        await InteractivePageHarness.TypeAsync(cut, "modbrowser-input", input);
-        await cut.Find("[data-modbrowser-lookup]").Closest("form")!.SubmitAsync();
-        cut.WaitForState(() => cut.FindAll("[data-modbrowser-results]").Count == 1);
+        IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "mods", "&add=1");
+        cut.WaitForState(() => cut.FindAll("[data-add-mods-sheet]").Count == 1);
+        await Task.CompletedTask;
         return cut;
     }
+
+    // Opens the sheet, types the input and submits it; waits for the result cards.
+    private static async Task<IRenderedComponent<ServerDetail>> FindAsync(InteractivePageHarness harness, ServerId serverId, string input)
+    {
+        IRenderedComponent<ServerDetail> cut = await OpenAsync(harness, serverId);
+        await InteractivePageHarness.TypeAsync(cut, "add-mods-input", input);
+        await cut.Find("[data-add-mods-find]").Closest("form")!.SubmitAsync();
+        cut.WaitForState(() => cut.FindAll("[data-add-mods-results]").Count == 1);
+        return cut;
+    }
+
+    private static IEnumerable<string> Edits(InteractivePageHarness harness, ServerId serverId) =>
+        ConfigApplyPayload.FromJson(harness.FirstOperation(serverId, OperationKind.ConfigApply)!.CommandPayload!).Edits
+            .Select(e => $"{e.Path}={e.Value}");
 
     private static Action<IServiceCollection> Fakes(out FakePreview preview, out FakeSearch search, out FakeSettings settings)
     {
@@ -281,9 +282,15 @@ public sealed class ServerDetailModBrowserTests
     {
         public WorkshopPreview Result { get; set; } = WorkshopPreview.Unresolvable;
 
+        public string? LastInput { get; private set; }
+
         public Task<WorkshopPreview> ResolveAsync(
-            UserId actor, ServerId server, string input, CancellationToken cancellationToken = default) =>
-            Task.FromResult(Result);
+            UserId actor, ServerId server, string input, CancellationToken cancellationToken = default)
+        {
+            // ModInstallControl also resolves the item it installs; record only the sheet's own lookups.
+            LastInput ??= input;
+            return Task.FromResult(Result);
+        }
     }
 
     private sealed class FakeDependencies(params WorkshopItemMetadata[] required) : IWorkshopDependencyService
@@ -297,8 +304,13 @@ public sealed class ServerDetailModBrowserTests
     {
         public WorkshopSearchResults Result { get; set; } = WorkshopSearchResults.Unavailable;
 
-        public Task<WorkshopSearchResults> SearchAsync(string query, CancellationToken cancellationToken = default) =>
-            Task.FromResult(Result);
+        public string? LastQuery { get; private set; }
+
+        public Task<WorkshopSearchResults> SearchAsync(string query, CancellationToken cancellationToken = default)
+        {
+            LastQuery = query;
+            return Task.FromResult(Result);
+        }
     }
 
     private sealed class FakeSettings : IWorkshopSettingsService

@@ -2,12 +2,12 @@
 @using ZWarden.Application.Mods
 @using ZWarden.Application.Workshop
 
-@* #291 one-click Install for one Workshop item, shared by the Mod Browser cards and the Mods section's add field.
+@* #291 one-click Install for one Workshop item, used by each result card in the Mods section's Add-mods sheet (#292).
    Install reads the item's description (keyless preview, Mod.View) and plans it: no ids → add the item only (Pick
    parts after the next boot); one id → install with it; several → an inline part picker, every part ticked, before
    anything is written. With a Steam Web API key, the item's required items are offered too, ticked, and installed in
    the same apply with their own description ids (D5). The manager re-checks Mod.Install and validates every id.
-   Workshop text is rendered as data. Inline, not a dialog: the app has no portal host yet (#292 adds one). *@
+   Workshop text is rendered as data. Inline in its card, so the picker stays next to the item it installs. *@
 
 <div class="zw-mb-actions flex-col items-start gap-2" data-mod-install data-workshop-id="@WorkshopId">
     @if (_plan is { } plan)
@@ -62,6 +62,10 @@
             </div>
         </div>
     }
+    else if (Added)
+    {
+        <span class="text-xs text-muted-foreground" data-add-mods-added>Added ✓</span>
+    }
     else
     {
         <BbButton Size="ButtonSize.Small" Disabled="_acting || string.IsNullOrWhiteSpace(WorkshopId)"
@@ -82,6 +86,11 @@
     /// <summary>The button text.</summary>
     [Parameter]
     public string Label { get; set; } = "Install";
+
+    /// <summary>The item is already on the server (#292): show "Added ✓" in place of the button, keeping any
+    /// message from the Install that just added it.</summary>
+    [Parameter]
+    public bool Added { get; set; }
 
     /// <summary>Raised after an Install was enqueued, so the host can reload what it shows.</summary>
     [Parameter]
@@ -219,7 +228,7 @@
         ModManagementFailure.NotAuthorized => "You are not permitted to install mods on this server.",
         ModManagementFailure.ServerNotFound => "That server is no longer available.",
         ModManagementFailure.ServerBusy => "The server is busy with another operation; try again once it finishes.",
-        ModManagementFailure.SnapshotUnavailable => "This server's mods haven't been read yet; refresh discovery in Mods first.",
+        ModManagementFailure.SnapshotUnavailable => "This server's mods haven't been read yet; use Re-scan in Mods first.",
         ModManagementFailure.NoChange => "That item and its parts are already installed.",
         ModManagementFailure.InvalidInput => result.Message ?? "That Workshop item can't be installed.",
         _ => "The item could not be installed.",
