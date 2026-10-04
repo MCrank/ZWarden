@@ -41,6 +41,9 @@ builder.Services.SuppressKestrelServerHeader();
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
+// #322: a circuit connection the hub closes over an oversized/malformed message is logged at Warning, not only Debug.
+builder.Logging.AddHubCloseReasonLogging();
+
 // Cascades the authentication state to components (drives AuthorizeRouteView / [Authorize] on the
 // static-rendered Account pages, F4 UI #63).
 builder.Services.AddCascadingAuthenticationState();
