@@ -193,8 +193,8 @@ docker compose up -d agent
 > For a hardened production deploy, push the image to a registry and pin its `repo@sha256:…` **digest**
 > instead. A locally built image that was never pushed has no digest — pin its build tag.
 
-Now provision a server: in the UI go to **Fleet → Register a new server**, pick your host, give it a name,
-and **Deploy**. The server appears immediately and starts once the Agent has built its container. **The
+Now provision a server: in the UI go to **Fleet → Deploy server**, pick your host, give it a name, step
+through **Next**, and **Deploy**. The server appears immediately and starts once the Agent has built its container. **The
 first boot downloads Project Zomboid (~7 GB) via SteamCMD**, so give it time; watch progress with
 `docker logs -f <server-container>`.
 

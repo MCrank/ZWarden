@@ -4,8 +4,11 @@ using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Playwright;
 using TUnit.Core.Interfaces;
+using ZWarden.Application.Agents;
 using ZWarden.Application.Configuration;
+using ZWarden.Domain.Agents;
 using ZWarden.Domain.Configuration;
+using ZWarden.Domain.Enrollments;
 using ZWarden.Domain.Ids;
 using ZWarden.Domain.Servers;
 using ZWarden.Infrastructure.Authorization;
@@ -71,6 +74,20 @@ public sealed class BrowserHost : IAsyncInitializer, IAsyncDisposable
         db.Set<Server>().Add(server);
         await db.SaveChangesAsync();
         return server.Id;
+    }
+
+    /// <summary>Enrolls a Host labelled <paramref name="label"/> and marks its Agent connected (#338: the Deploy sheet
+    /// offers only connected hosts). No Agent really runs, so a deployed Server stays in its in-progress state.</summary>
+    public async Task<AgentId> SeedConnectedHostAsync(string label)
+    {
+        await using AsyncServiceScope scope = _factory!.Services.CreateSystemScope();
+        ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
+        Agent agent = Agent.Enroll(
+            "agenthashaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", EnrollmentId.New(), DateTimeOffset.UtcNow, label);
+        db.Set<Agent>().Add(agent);
+        await db.SaveChangesAsync();
+        _factory.Services.GetRequiredService<IAgentConnectionRegistry>().Register(agent.Id, Guid.NewGuid().ToString(), () => { });
+        return agent.Id;
     }
 
     /// <summary>Opens <paramref name="relativeUrl"/> as the signed-in owner in a new browser context, recording every

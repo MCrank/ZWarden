@@ -183,6 +183,69 @@ public class ServerInventoryTests
         });
     }
 
+    // --- #338: the Deploy sheet's host picker ---------------------------------------------------------------------
+
+    [Test]
+    public async Task Deploy_hosts_are_empty_without_server_register()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            await SeedAssignmentAsync(options, user, server: null, Permissions.AgentView);
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            await PersistAgentAsync(db);
+
+            IReadOnlyList<DeployHost> hosts = await Inventory(db, new ServerDiscoveryCache(), new CapturingAuditWriter())
+                .ListDeployHostsAsync(user);
+
+            await Assert.That(hosts).IsEmpty();
+        });
+    }
+
+    [Test]
+    public async Task Deploy_hosts_are_the_trusted_agents_named_for_a_caller_with_agent_view()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            await SeedAssignmentAsync(options, user, server: null, Permissions.ServerRegister);
+            await SeedAssignmentAsync(options, user, server: null, Permissions.AgentView);
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            Agent named = Agent.Enroll(AgentHash, EnrollmentId.New(), Now, "host-alpha");
+            named.RecordHostDescriptor("nsfw-01", "1.0.0", "Linux");
+            Agent disabled = Agent.Enroll(AgentHash, EnrollmentId.New(), Now, "host-off");
+            disabled.Disable();
+            Agent revoked = Agent.Enroll(AgentHash, EnrollmentId.New(), Now, "host-revoked");
+            revoked.RevokeCredential(Now);
+            db.Set<Agent>().AddRange(named, disabled, revoked);
+            await db.SaveChangesAsync();
+
+            IReadOnlyList<DeployHost> hosts = await Inventory(db, new ServerDiscoveryCache(), new CapturingAuditWriter())
+                .ListDeployHostsAsync(user);
+
+            await Assert.That(hosts.Count).IsEqualTo(1);
+            await Assert.That(hosts[0]).IsEqualTo(new DeployHost(named.Id, "host-alpha", "nsfw-01"));
+        });
+    }
+
+    [Test]
+    public async Task Deploy_hosts_withhold_the_names_without_agent_view()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            await SeedAssignmentAsync(options, user, server: null, Permissions.ServerRegister);
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            AgentId agent = await PersistAgentAsync(db);
+
+            IReadOnlyList<DeployHost> hosts = await Inventory(db, new ServerDiscoveryCache(), new CapturingAuditWriter())
+                .ListDeployHostsAsync(user);
+
+            await Assert.That(hosts.Count).IsEqualTo(1);
+            await Assert.That(hosts[0]).IsEqualTo(new DeployHost(agent, null, null));
+        });
+    }
+
     // --- #230: heap, initial settings and the capacity acknowledgement ------------------------------------------
 
     private const long GiB = 1024L * 1024 * 1024;
