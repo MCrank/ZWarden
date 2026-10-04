@@ -43,11 +43,11 @@
             The audit log keeps the history of commands run.
         </p>
         <div class="mt-3">
-            <LiveConsoleOutputPanel ServerId="@Server.Id.ToString()"
-                                    AgentId="@Server.AgentId.ToString()"
+            <LiveConsoleOutputPanel ServerId="@Server.Id"
+                                    AgentId="@Server.AgentId"
                                     OperationId="@_consoleOperationId"
                                     Command="@_consoleCommand"
-                                    TimeZoneId="@OperatorZone.Id" />
+                                    Zone="@OperatorZone" />
         </div>
     </div>
 </BbCard>
@@ -59,7 +59,7 @@
 
     // The console Operation just enqueued and its command line, handed to the output pane so it shows that reply
     // alone (#242).
-    private string? _consoleOperationId;
+    private OperationId? _consoleOperationId;
     private string? _consoleCommand;
     private AlertVariant _consoleAlert = AlertVariant.Warning;
 
@@ -84,7 +84,7 @@
             _consoleMessage = DescribeConsole(result);
             if (result.Succeeded)
             {
-                _consoleOperationId = result.Operation!.Value.ToString();
+                _consoleOperationId = result.Operation;
                 _consoleCommand = input;
             }
         }

@@ -4,15 +4,14 @@
 @implements IDisposable
 @inject IConsoleOutputCache Output
 
-@* The live console-output island (F28): an interactive island embedded in the static server-detail page,
-   mirroring LivePlayerRosterPanel / LiveServerLogPanel. The parent did the authorized, tenant-filtered load and
-   the Console.Execute gate; this child carries no tenant context — which a circuit lacks — and only reads the
-   process-local, ownership-guarded output cache (keyed by ServerId + owning AgentId) by a monotonic sequence
-   cursor once per second. It shows ONE reply (#242): the reply to the command just run (the parent hands in its
-   OperationId and text; until it arrives the pane waits for it), else the latest one — a later reply replaces it
-   rather than appending, so the operator never scrolls to find the answer. Ids arrive as strings so they cross the
-   static→interactive boundary cleanly. Every reply is untrusted PZ output, bounded at the Agent and rendered here
-   as data (trust-boundaries.md §8). Output text is Chivo Mono (the data face). *@
+@* The live console-output panel (F28), a child of the interactive Server Detail page's Console section (#299),
+   mirroring LivePlayerRosterPanel / LiveServerLogPanel. The page did the authorized, tenant-filtered load and the
+   Console.Execute gate; this child carries no tenant context and only reads the process-local, ownership-guarded
+   output cache (keyed by ServerId + owning AgentId) by a monotonic sequence cursor once per second. It shows ONE
+   reply (#242): the reply to the command just run (the parent hands in its OperationId and text; until it arrives
+   the pane waits for it), else the latest one — a later reply replaces it rather than appending, so the operator
+   never scrolls to find the answer. Every reply is untrusted PZ output, bounded at the Agent and rendered here as
+   data (trust-boundaries.md §8). Output text is Chivo Mono (the data face). *@
 
 <div data-console-output>
     <BbScrollArea Type="ScrollAreaType.Always" MaxHeight="24rem"
@@ -20,7 +19,7 @@
                   ViewportClass="p-3 font-mono text-xs leading-relaxed">
         @if (_entry is null && !_awaiting)
         {
-            <p class="text-muted-foreground" data-console-empty>@EmptyText</p>
+            <p class="text-muted-foreground" data-console-empty>No output yet — run a command to see the server's reply here.</p>
         }
         else
         {
@@ -57,48 +56,41 @@
 </div>
 
 @code {
-    /// <summary>The Server, as its canonical string id (crosses the static→interactive boundary as a string).</summary>
+    /// <summary>The Server.</summary>
     [Parameter]
     [EditorRequired]
-    public string ServerId { get; set; } = string.Empty;
+    public ServerId ServerId { get; set; }
 
-    /// <summary>The Server's owning Agent, as its canonical string id (the cache ownership-guard key).</summary>
+    /// <summary>The Server's owning Agent (the cache ownership-guard key).</summary>
     [Parameter]
     [EditorRequired]
-    public string AgentId { get; set; } = string.Empty;
+    public AgentId AgentId { get; set; }
 
     /// <summary>The console Operation the operator just enqueued, if any (#242): the pane waits for and shows its
     /// reply rather than an older one. Null on a plain visit, which shows the latest reply.</summary>
     [Parameter]
-    public string? OperationId { get; set; }
+    public OperationId? OperationId { get; set; }
 
     /// <summary>The command line that <see cref="OperationId"/> ran, shown above its reply. Operator-authored text,
     /// rendered as data.</summary>
     [Parameter]
     public string? Command { get; set; }
 
-    /// <summary>The operator's display time-zone id, resolved by the static parent from the cookie (#211); null or
-    /// blank ⇒ UTC.</summary>
+    /// <summary>The operator's display time zone (#211); UTC when not given.</summary>
     [Parameter]
-    public string? TimeZoneId { get; set; }
+    public TimeZoneInfo Zone { get; set; } = TimeZoneInfo.Utc;
 
-    private ZWarden.Domain.Ids.ServerId _server;
-    private ZWarden.Domain.Ids.AgentId _agent;
-    private ZWarden.Domain.Ids.OperationId _focus;
-    private bool _parsed;
+    private OperationId? _focus;
     private bool _awaiting;
     private long _cursor;
     private ConsoleOutputEntry? _entry;
-    private TimeZoneInfo _zone = TimeZoneInfo.Utc;
     private PeriodicTimer? _timer;
     private Task? _loop;
 
     protected override void OnInitialized()
     {
-        _zone = OperatorTimeZone.Resolve(TimeZoneId);
-        _parsed = ZWarden.Domain.Ids.ServerId.TryParse(ServerId, out _server)
-            & ZWarden.Domain.Ids.AgentId.TryParse(AgentId, out _agent);
-        _awaiting = _parsed && ZWarden.Domain.Ids.OperationId.TryParse(OperationId, out _focus);
+        _focus = OperationId;
+        _awaiting = _focus is not null;
         Refresh();
         _timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
         _loop = RunAsync();
@@ -129,12 +121,7 @@
     // only its own reply is taken (earlier ones are skipped); after that, the latest reply wins.
     private bool Refresh()
     {
-        if (!_parsed)
-        {
-            return false;
-        }
-
-        IReadOnlyList<ConsoleOutputEntry> next = Output.GetSince(_server, _agent, _cursor);
+        IReadOnlyList<ConsoleOutputEntry> next = Output.GetSince(ServerId, AgentId, _cursor);
         if (next.Count == 0)
         {
             return false;
@@ -166,11 +153,7 @@
     private bool ShowsCommand => !string.IsNullOrWhiteSpace(Command)
         && (_awaiting || (_entry is not null && _entry.OperationId == _focus));
 
-    private string EmptyText => _parsed
-        ? "No output yet — run a command to see the server's reply here."
-        : "Console output is unavailable for this server.";
-
-    private string Time(DateTimeOffset at) => OperatorTimeZone.Format(at, _zone, "HH:mm:ss");
+    private string Time(DateTimeOffset at) => OperatorTimeZone.Format(at, Zone, "HH:mm:ss");
 
     public void Dispose() => _timer?.Dispose();
 }
