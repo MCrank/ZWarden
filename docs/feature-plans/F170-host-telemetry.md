@@ -51,8 +51,11 @@ current without a reload, with an age line that turns into a stale warning when 
   texts (`12.3 GiB / 31.2 GiB`, `212.0 GiB free of 480.0 GiB`), an age (`updated 5s ago`) and `Stale` when the
   report is older than 60 s (four missed 15 s ticks). An unreachable host has no telemetry (as today).
 - **D5 — render.** The card's telemetry block shows CPU (meter), Memory (meter plus a used/total line) and
-  **Disk free** (a used-share meter plus a free-of-total line), then the age line. A stale report keeps its values,
-  muted, with `stale · updated 3m ago`. A missing figure shows `—` (the slot is kept, as on Fleet).
+  **Disk** (a used-share meter, so it warms as the volume fills, plus an `x free of y` line), then the age line. A
+  stale report keeps its values, with the age line in the busy tone: `stale · as of 3 min ago`. A missing figure
+  shows `—` in the meter slot and hides its text line (the slot is kept, as on Fleet). Changed after the Aspire
+  screenshot: the row was first labelled "Disk free" over a used-share meter (it read as "63 % free"), and an empty
+  figure showed `—` twice.
 - **D6 — live.** New `GET /api/hosts/telemetry` (`Agent.View` policy, tenant-filtered through
   `IAgentInventory.ListHostsAsync`, `no-store`), using the same `HostTelemetry` projection. The page root carries
   `data-live-hosts="/api/hosts/telemetry"`. `live-status.js` gains a hosts branch that reuses `applyMeter`/`setText` to

@@ -129,18 +129,18 @@ else
                                             <span data-meter-empty hidden="@(t.MemoryTotalBytes is not null)" class="font-mono tabular-nums text-muted-foreground">—</span>
                                         </span>
                                     </div>
-                                    <div class="mt-0.5 text-right font-mono tabular-nums text-muted-foreground" data-host-cell="memory-text">@t.MemoryText</div>
+                                    <div class="mt-0.5 text-right font-mono tabular-nums text-muted-foreground" data-host-cell="memory-text" hidden="@(t.MemoryTotalBytes is null)">@t.MemoryText</div>
                                 </div>
                                 <div>
-                                    @* The meter is the used share, so it fills (and warms) as the volume fills up. *@
+                                    @* The meter is the used share, so it fills (and warms) as the volume fills up; the line under it says what is free. A missing figure shows only the meter slot's —. *@
                                     <div class="flex items-center justify-between gap-2">
-                                        <span class="text-muted-foreground">Disk free</span>
+                                        <span class="text-muted-foreground">Disk</span>
                                         <span data-host-cell="disk">
                                             <span data-meter-slot hidden="@(t.DiskTotalBytes is null)"><MeterBar Value="@(t.DiskUsedBytes ?? 0)" Max="@(t.DiskTotalBytes ?? 0)" Label="Disk used" /></span>
                                             <span data-meter-empty hidden="@(t.DiskTotalBytes is not null)" class="font-mono tabular-nums text-muted-foreground">—</span>
                                         </span>
                                     </div>
-                                    <div class="mt-0.5 text-right font-mono tabular-nums text-muted-foreground" data-host-cell="disk-text">@t.DiskText</div>
+                                    <div class="mt-0.5 text-right font-mono tabular-nums text-muted-foreground" data-host-cell="disk-text" hidden="@(t.DiskTotalBytes is null)">@t.DiskText</div>
                                 </div>
                                 <p class="@AgeClass(t.Stale)" data-host-cell="age">@t.Age</p>
                             </div>

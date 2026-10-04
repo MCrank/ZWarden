@@ -160,7 +160,7 @@ public sealed class HostInventoryPageTests
         await Assert.That(html).Contains("aria-label=\"CPU: 38%\"");
         await Assert.That(html).Contains("aria-label=\"Memory: 38%\"");
         await Assert.That(html).Contains("12.0 GiB / 32.0 GiB");
-        await Assert.That(html).Contains("Disk free");
+        await Assert.That(html).Contains("aria-label=\"Disk used: 56%\"");
         await Assert.That(html).Contains("212.0 GiB free of 480.0 GiB");
         await Assert.That(html).Contains("as of just now");
         await Assert.That(html).DoesNotContain("No telemetry");
@@ -178,7 +178,7 @@ public sealed class HostInventoryPageTests
         string html = await (await client.GetAsync(new Uri("/hosts", UriKind.Relative))).Content.ReadAsStringAsync();
 
         await Assert.That(html).Contains($"data-host-telemetry-for=\"{agentId}\"");
-        await Assert.That(Regex.IsMatch(html, "data-host-cell=\"memory-text\"[^>]*>(—|&#x2014;)<")).IsTrue();
+        await Assert.That(Regex.IsMatch(html, "data-host-cell=\"memory-text\" hidden[^>]*>(—|&#x2014;)<")).IsTrue();
         await Assert.That(html).Contains("no report yet");
         client.Dispose();
     }

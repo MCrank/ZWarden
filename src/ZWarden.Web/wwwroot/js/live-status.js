@@ -253,13 +253,16 @@
             applyMeter(cell, h.memoryUsedBytes, h.memoryTotalBytes);
             break;
           case 'memory-text':
+            // Shown only with a value: the meter slot already says — when there is none.
             setText(cell, h.memoryText ? String(h.memoryText) : DASH);
+            setHidden(cell, typeof h.memoryTotalBytes !== 'number');
             break;
           case 'disk':
             applyMeter(cell, h.diskUsedBytes, h.diskTotalBytes);
             break;
           case 'disk-text':
             setText(cell, h.diskText ? String(h.diskText) : DASH);
+            setHidden(cell, typeof h.diskTotalBytes !== 'number');
             break;
           case 'age':
             setText(cell, h.age ? String(h.age) : '');
