@@ -278,7 +278,7 @@ public sealed class ServerLifecycleEndpointsTests
         factory.Services.GetRequiredService<IServerMetricsCache>().Record(
         [
             new ServerMetrics(agentId, serverId, 42, 512, 1024, null, null, 5, now, now.AddMinutes(-2),
-                now.AddHours(-2).AddMinutes(-14), "24909836"),
+                now.AddHours(-2).AddMinutes(-14), "24909836", MaxPlayers: 16),
         ]);
 
         HttpResponseMessage response = await client.GetAsync(new Uri("/api/servers/status", UriKind.Relative));
@@ -290,6 +290,8 @@ public sealed class ServerLifecycleEndpointsTests
         await Assert.That(entry.GetProperty("attention").GetBoolean()).IsFalse();
         await Assert.That(entry.GetProperty("players").GetInt32()).IsEqualTo(5);
         await Assert.That(entry.GetProperty("playersAge").GetString()).IsEqualTo("as of 2 min ago");
+        await Assert.That(entry.GetProperty("maxPlayers").GetInt32()).IsEqualTo(16);       // #337
+        await Assert.That(entry.GetProperty("playersText").GetString()).IsEqualTo("5 / 16");
         await Assert.That(entry.GetProperty("uptime").GetString()).IsEqualTo("2h 14m");
         await Assert.That(entry.GetProperty("version").GetString()).IsEqualTo("24909836");
         await Assert.That(entry.GetProperty("cpuPercent").GetDouble()).IsEqualTo(42d);

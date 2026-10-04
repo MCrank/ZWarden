@@ -54,11 +54,11 @@
                 </ChildContent>
             </BbDataGridTemplateColumn>
 
-            @* #257: players from the Agent's slow RCON sample; the tooltip says how old it is. *@
+            @* #257: players from the Agent's slow RCON sample; the tooltip says how old it is. #337: over the ini's MaxPlayers. *@
             <BbDataGridTemplateColumn TData="FleetRow" Title="Players" Sortable="true" SortBy="@(r => (object)(r.Players ?? -1))">
                 <ChildContent Context="r">
                     <span class="font-mono text-xs tabular-nums @(r.Players is null ? "text-muted-foreground" : "text-foreground")"
-                          data-fleet-server="@r.Id" data-fleet-cell="players" title="@r.PlayersAge">@(r.Players?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "—")</span>
+                          data-fleet-server="@r.Id" data-fleet-cell="players" title="@r.PlayersAge">@FleetFacts.FormatPlayers(r.Players, r.MaxPlayers)</span>
                 </ChildContent>
             </BbDataGridTemplateColumn>
 

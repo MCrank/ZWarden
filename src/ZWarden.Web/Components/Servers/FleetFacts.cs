@@ -20,6 +20,8 @@ namespace ZWarden.Web.Components.Servers;
 /// <param name="MemoryLimitBytes">The container's memory limit for the sample, or <c>null</c>.</param>
 /// <param name="IsRunning">The last-reported run-state is Running (the Running tile).</param>
 /// <param name="NeedsAttention">Health Failed/Degraded or run-state Failed (the Needs attention tile).</param>
+/// <param name="MaxPlayers">The configured player cap from the live ini (#337), or <c>null</c> — config, so kept from
+/// the last sample even while the Agent is offline.</param>
 public sealed record FleetServerFacts(
     int? Players,
     DateTimeOffset? PlayersSampledAt,
@@ -30,7 +32,8 @@ public sealed record FleetServerFacts(
     long? MemoryUsedBytes,
     long? MemoryLimitBytes,
     bool IsRunning,
-    bool NeedsAttention);
+    bool NeedsAttention,
+    int? MaxPlayers = null);
 
 /// <summary>The fleet KPI tiles (#257).</summary>
 /// <param name="Running">How many visible Servers last reported Running.</param>
@@ -59,8 +62,10 @@ public static class FleetFacts
         bool live = agentOnline && sample is not null;
         // The persisted value wins; the cached sample fills in until the first report has been stored.
         string? build = FirstKnown(server.InstalledBuildId, sample?.InstalledBuildId);
+        // #337 D3: a stopped server on an Agent we can hear from has nobody on it (RCON is only sampled while running).
+        bool stopped = agentOnline && server.LastRunState == ServerRunState.Stopped;
         return new FleetServerFacts(
-            live ? sample!.PlayerCount : null,
+            stopped ? 0 : live ? sample!.PlayerCount : null,
             live && sample!.PlayerCount is not null ? sample.PlayerCountSampledAt : null,
             live ? sample!.StartedAt : null,
             FirstKnown(server.GameVersion, sample?.GameVersion) ?? build,
@@ -69,7 +74,16 @@ public static class FleetFacts
             sample?.MemoryUsedBytes,
             sample?.MemoryLimitBytes,
             server.LastRunState == ServerRunState.Running,
-            server.LastHealth is ServerHealth.Failed or ServerHealth.Degraded || server.LastRunState == ServerRunState.Failed);
+            server.LastHealth is ServerHealth.Failed or ServerHealth.Degraded || server.LastRunState == ServerRunState.Failed,
+            sample?.MaxPlayers);
+    }
+
+    /// <summary>The Players cell (#337): <c>2 / 16</c>; <c>— / 16</c> when the count is unknown; the count alone (or
+    /// <see cref="Dash"/>) when the cap is unknown. The status poll sends it preformatted.</summary>
+    public static string FormatPlayers(int? players, int? maxPlayers)
+    {
+        string current = players?.ToString(CultureInfo.InvariantCulture) ?? Dash;
+        return maxPlayers is { } max ? Invariant($"{current} / {max}") : current;
     }
 
     /// <summary>The Version cell's tooltip (#262): the Steam build id behind the shown game version, or a note that

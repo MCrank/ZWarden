@@ -387,7 +387,8 @@
                 FleetFacts.FormatUptime(facts.StartedAt, now),
                 FleetFacts.FormatVersionTitle(facts),
                 server.Branch,
-                modUpdates.GetValueOrDefault(server.Id)));
+                modUpdates.GetValueOrDefault(server.Id),
+                facts.MaxPlayers));
         }
 
         _rows = rows;

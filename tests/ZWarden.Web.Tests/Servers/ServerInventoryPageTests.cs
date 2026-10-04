@@ -226,14 +226,14 @@ public sealed class ServerInventoryPageTests
         factory.Services.GetRequiredService<IServerMetricsCache>().Record(
         [
             new ServerMetrics(agentId, serverId, 10, 1, 2, null, null, 7, now, now.AddMinutes(-3),
-                now.AddHours(-5).AddMinutes(-2), "24909836"),
+                now.AddHours(-5).AddMinutes(-2), "24909836", MaxPlayers: 16),
         ]);
 
         string html = await (await client.GetAsync(new Uri("/servers", UriKind.Relative))).Content.ReadAsStringAsync();
 
         await Assert.That(html).DoesNotContain(">Tick<");
         await Assert.That(html).Contains($"data-fleet-server=\"{serverId}\"");
-        await Assert.That(Regex.IsMatch(html, "data-fleet-cell=\"players\"[^>]*title=\"as of 3 min ago\"[^>]*>7<")).IsTrue();
+        await Assert.That(Regex.IsMatch(html, "data-fleet-cell=\"players\"[^>]*title=\"as of 3 min ago\"[^>]*>7 / 16<")).IsTrue();
         await Assert.That(Regex.IsMatch(html, "data-fleet-cell=\"uptime\"[^>]*>5h 2m<")).IsTrue();
         await Assert.That(Regex.IsMatch(html, "data-fleet-cell=\"version\"[^>]*>24909836<")).IsTrue();
         // The Players online tile sums the known counts.
