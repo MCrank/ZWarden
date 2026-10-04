@@ -114,8 +114,18 @@ Use them and don't write static workarounds. The rules:
   handles a link before the circuit hears of it, and `OnBeforeInternalNavigation` never runs. A "leave this page?"
   guard has to check clicks in JS, in the capture phase, and hand the held link to .NET to ask: see
   `wwwroot/js/unsaved-guard.js`.
+- **A link to another URL of the same interactive page switches in the circuit (#312).** Otherwise it is an enhanced
+  navigation, and the server prerenders the whole page (its query, every permission check, the section's load, even a
+  live Agent read) only to throw it away while the circuit loads it again. `NavigationManager.NavigateTo` is no way
+  out: without an interactive router it is an enhanced navigation too. Server Detail does it with
+  `wwwroot/js/in-place-nav.js`: a plain click on a link to the page, and back/forward between its entries,
+  `pushState` the URL and hand it to the page's `[JSInvokable] NavigatedInPlace`. The page keeps its own URL in a
+  `ServerDetailLocation` (the circuit's `NavigationManager` never sees a `pushState`) and still follows a real
+  navigation through `LocationChanged`. Sections move with `GoToAsync` (the cascaded `ServerDetailNavigator`), not
+  `NavigateTo`. The script loads before `blazor.web.js`: listeners on `window` run in the order they were added, so
+  it has to come first to stop Blazor's `popstate` handler.
 - **Keep persisted state small: well under 32 KB.** A prerender's state rides in the page, and every enhanced
-  navigation (a rail or tab click) posts it to the circuit as one hub message. Past the Blazor hub's 32 KB
+  navigation (any link the circuit doesn't switch in place) posts it to the circuit as one hub message. Past the Blazor hub's 32 KB
   `MaximumReceiveMessageSize`, the hub drops the connection: the reconnect overlay flashes. That was #322: the
   whole config editor was persisted. Don't raise the limit. Persist ids or deltas, and let the circuit load the rest.
   `HubCloseReasonLogging` logs such a close as a Warning.
@@ -132,11 +142,13 @@ Use them and don't write static workarounds. The rules:
   `pwsh tests/ZWarden.Web.BrowserTests/bin/Debug/net10.0/playwright.ps1 install chromium` and the built test exe.
 - **No new static-only JS.** Since #299 `dialog.js` and `config-editor.js` are gone and `live-status.js` serves
   only Fleet. Browser-only conveniences on an interactive page are small ES modules imported through
-  `IJSRuntime` (`dismissed-failures.js`, `local-prefs.js`), guarded so the page works without storage.
+  `IJSRuntime` (`dismissed-failures.js`, `local-prefs.js`), guarded so the page works without storage. The one
+  exception is `in-place-nav.js`, a classic script because it must load before `blazor.web.js` (above).
 - **Only the routed page reads the query string.** A child that the page renders when the query changes (a rail
   section) must take `?file=`-style values as `[Parameter]`s from the page, not `[SupplyParameterFromQuery]`: it
   would subscribe during the location-changed dispatch, which throws "Collection was modified" in the circuit
-  (caught by the rail-navigation browser test).
+  (caught by the rail-navigation browser test). A page that switches in place reads its own `ServerDetailLocation`
+  instead of `[SupplyParameterFromQuery]`, which would go stale after a `pushState`.
 - **A `BbInput` that feeds an action uses `UpdateTiming="UpdateTiming.Immediate"`.** The default reports the value
   on blur, and a click can reach the circuit first, so the action would see the old value. Browser tests type
   through `BrowserSession.FillAsync` and wait for the network to settle after load, because a `BbInput` attaches its

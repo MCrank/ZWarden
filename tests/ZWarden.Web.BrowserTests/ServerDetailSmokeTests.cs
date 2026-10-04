@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 using Microsoft.Playwright;
 using ZWarden.Domain.Ids;
@@ -104,25 +105,69 @@ public sealed partial class ServerDetailSmokeTests(BrowserHost host)
         // same circuit renders the new section (no full-page reload, no new page instance).
         // #322: the fixture is a real-sized SandboxVars, so its editor state is far past the hub's 32 KB receive limit;
         // were it posted to the circuit on a click, the hub would close the connection and a new one would open.
-        await using BrowserSession session = await OpenSectionAsync("smoke-rail", section: null);
+        // #312: the circuit switches by itself, so the server is never asked for the page again (no prerender), and a
+        // file seen for the first time is read from the host exactly once.
+        ServerId serverId = await host.SeedServerAsync("smoke-rail");
+        await using BrowserSession session = await host.OpenAsync($"/servers/{serverId}");
         string instance = await session.Page.GetAttributeAsync("[data-circuit]", "data-circuit-instance") ?? string.Empty;
         int sockets = 0;
         session.Page.WebSocket += (_, _) => Interlocked.Increment(ref sockets);
+        StrongBox<int> pageRequests = CountPageRequests(session, serverId);
 
         await session.Page.ClickAsync("[data-rail-item=players]");
         await Expect(session.Page.Locator("[data-players-card]")).ToBeVisibleAsync();
         await session.Page.ClickAsync("[data-rail-item=config]");
         await Expect(session.Page.Locator("[data-cfg-form]")).ToBeVisibleAsync();
+        await session.WaitForCircuitAsync();
+        await Assert.That(host.ConfigReads(serverId)).IsEqualTo(1);
         foreach (string tab in (string[])["SandboxVars", "SpawnRegions", "Ini", "SpawnPoints", "SandboxVars"])
         {
+            int reads = host.ConfigReads(serverId);
             await session.Page.ClickAsync($"[data-config-tab={tab}]");
             await Expect(session.Page.Locator($"[data-config-tab={tab}]")).ToHaveClassAsync(ActiveTab());
             await session.WaitForCircuitAsync();
+            await Assert.That(host.ConfigReads(serverId)).IsEqualTo(reads + 1).Because($"the switch to {tab} reads it once");
         }
 
         await Expect(session.Page).ToHaveURLAsync(SandboxVarsUrl());
         await Assert.That(await session.Page.GetAttributeAsync("[data-circuit]", "data-circuit-instance")).IsEqualTo(instance);
         await Assert.That(Volatile.Read(ref sockets)).IsEqualTo(0).Because("a click must not open a new circuit connection");
+        await Assert.That(Volatile.Read(ref pageRequests.Value)).IsEqualTo(0).Because("a click must not ask the server for the page");
+        await session.AssertNoErrorsAsync();
+    }
+
+    [Test]
+    public async Task Back_and_forward_switch_in_place_and_a_switched_url_still_opens_its_section()
+    {
+        // #312: the address bar follows every switch, so back/forward walks the sections (still in the circuit, still no
+        // request for the page) and the URL is a bookmark: loading it opens the same section and file.
+        ServerId serverId = await host.SeedServerAsync("smoke-history");
+        await using BrowserSession session = await host.OpenAsync($"/servers/{serverId}");
+        StrongBox<int> pageRequests = CountPageRequests(session, serverId);
+
+        await session.Page.ClickAsync("[data-rail-item=logs]");
+        await Expect(session.Page.Locator("[data-live-logs]")).ToBeVisibleAsync();
+        await session.Page.ClickAsync("[data-rail-item=config]");
+        await session.Page.ClickAsync("[data-config-tab=SandboxVars]");
+        await Expect(session.Page).ToHaveURLAsync(SandboxVarsUrl());
+        await session.WaitForCircuitAsync();
+
+        await session.Page.GoBackAsync();
+        await Expect(session.Page).ToHaveURLAsync(ConfigUrl());
+        await Expect(session.Page.Locator("[data-config-tab=Ini]")).ToHaveClassAsync(ActiveTab());
+        await session.Page.GoBackAsync();
+        await Expect(session.Page.Locator("[data-live-logs]")).ToBeVisibleAsync();
+        await Expect(session.Page.Locator("[data-rail-item=logs]")).ToHaveClassAsync(ActiveTab());
+        await session.Page.GoForwardAsync();
+        await session.Page.GoForwardAsync();
+        await Expect(session.Page).ToHaveURLAsync(SandboxVarsUrl());
+        await Expect(session.Page.Locator("[data-config-tab=SandboxVars]")).ToHaveClassAsync(ActiveTab());
+        await session.WaitForCircuitAsync();
+        await Assert.That(Volatile.Read(ref pageRequests.Value)).IsEqualTo(0).Because("back/forward must not ask the server for the page");
+
+        await session.Page.ReloadAsync();
+        await session.WaitForCircuitAsync();
+        await Expect(session.Page.Locator("[data-config-tab=SandboxVars]")).ToHaveClassAsync(ActiveTab());
         await session.AssertNoErrorsAsync();
     }
 
@@ -242,6 +287,21 @@ public sealed partial class ServerDetailSmokeTests(BrowserHost host)
         return await host.OpenAsync($"/servers/{serverId}{query}");
     }
 
+    // Counts every request for the Server page itself (a document load, or an enhanced navigation's fetch) from now on.
+    private static StrongBox<int> CountPageRequests(BrowserSession session, ServerId serverId)
+    {
+        StrongBox<int> count = new();
+        string path = $"/servers/{serverId}";
+        session.Page.Request += (_, request) =>
+        {
+            if (string.Equals(new Uri(request.Url).AbsolutePath.TrimEnd('/'), path, StringComparison.OrdinalIgnoreCase))
+            {
+                Interlocked.Increment(ref count.Value);
+            }
+        };
+        return count;
+    }
+
     [GeneratedRegex(@"\bzw-cfg-changed\b")]
     private static partial Regex ChangedRow();
 
@@ -250,6 +310,9 @@ public sealed partial class ServerDetailSmokeTests(BrowserHost host)
 
     [GeneratedRegex(@"\?section=config&file=SandboxVars$")]
     private static partial Regex SandboxVarsUrl();
+
+    [GeneratedRegex(@"\?section=config$")]
+    private static partial Regex ConfigUrl();
 
     [GeneratedRegex(@"/servers/?$")]
     private static partial Regex FleetUrl();

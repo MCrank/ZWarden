@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.Extensions.DependencyInjection;
@@ -34,12 +35,16 @@ public sealed class BrowserHost : IAsyncInitializer, IAsyncDisposable
     /// cookies on <c>localhost</c> over plain http).</summary>
     public Uri BaseAddress { get; private set; } = default!;
 
+    private readonly FakeConfigReader _configReader = new(ConfigFixtures.SandboxView());
+
+    /// <summary>How many live configuration reads (Agent round-trips) <paramref name="server"/> has had (#312).</summary>
+    public int ConfigReads(ServerId server) => _configReader.Reads(server);
+
     public async Task InitializeAsync()
     {
         _factory = new ZWardenWebAppFactory
         {
-            ConfigureTestServicesHook = static s =>
-                s.AddSingleton<IServerConfigurationReader>(new FakeConfigReader(ConfigFixtures.SandboxView())),
+            ConfigureTestServicesHook = s => s.AddSingleton<IServerConfigurationReader>(_configReader),
         };
         _factory.UseKestrel(0);
         _factory.StartServer();
@@ -114,8 +119,15 @@ public sealed class BrowserHost : IAsyncInitializer, IAsyncDisposable
 
     private sealed class FakeConfigReader(ConfigDocumentView view) : IServerConfigurationReader
     {
+        private readonly ConcurrentDictionary<ServerId, int> _reads = new();
+
+        public int Reads(ServerId server) => _reads.GetValueOrDefault(server);
+
         public Task<ConfigDocumentView> ReadAsync(
-            UserId user, ServerId server, PzConfigFile file, CancellationToken cancellationToken = default) =>
-            Task.FromResult(view);
+            UserId user, ServerId server, PzConfigFile file, CancellationToken cancellationToken = default)
+        {
+            _reads.AddOrUpdate(server, 1, (_, count) => count + 1);
+            return Task.FromResult(view);
+        }
     }
 }
