@@ -17,6 +17,10 @@ namespace ZWarden.Contracts.Protocol.Messages;
 /// <param name="MemoryUsedBytes">#170: host RAM in use (<c>MemTotal − MemAvailable</c>); <c>null</c> when unknown.</param>
 /// <param name="DiskFreeBytes">#170: free space the Agent can write on the volume holding the PZ data root.</param>
 /// <param name="DiskTotalBytes">#170: the total size of that volume.</param>
+/// <param name="CpuCores">#170: the host's logical CPUs (threads); <c>null</c> when unknown.</param>
+/// <param name="LoadAverage1">#170: the 1-minute load average; the three load averages are <c>null</c> when unknown.</param>
+/// <param name="LoadAverage5">#170: the 5-minute load average.</param>
+/// <param name="LoadAverage15">#170: the 15-minute load average.</param>
 [ProtocolMessage("agent.host-capacity")]
 public sealed record HostCapacityReport(
     long TotalMemoryBytes,
@@ -27,4 +31,8 @@ public sealed record HostCapacityReport(
     double? CpuPercent = null,
     long? MemoryUsedBytes = null,
     long? DiskFreeBytes = null,
-    long? DiskTotalBytes = null) : AgentEvent;
+    long? DiskTotalBytes = null,
+    int? CpuCores = null,
+    double? LoadAverage1 = null,
+    double? LoadAverage5 = null,
+    double? LoadAverage15 = null) : AgentEvent;

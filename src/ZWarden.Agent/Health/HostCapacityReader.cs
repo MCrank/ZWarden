@@ -48,6 +48,10 @@ public sealed class HostCapacityReader : IHostCapacityReader
             vitals.CpuPercent,
             vitals.MemoryUsedBytes,
             vitals.DiskFreeBytes,
-            vitals.DiskTotalBytes);
+            vitals.DiskTotalBytes,
+            vitals.CpuCores,
+            vitals.LoadAverage1,
+            vitals.LoadAverage5,
+            vitals.LoadAverage15);
     }
 }

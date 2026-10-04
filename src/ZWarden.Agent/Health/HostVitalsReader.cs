@@ -9,7 +9,19 @@ namespace ZWarden.Agent.Health;
 /// <param name="MemoryUsedBytes">Host RAM in use (<c>MemTotal − MemAvailable</c>).</param>
 /// <param name="DiskFreeBytes">Free space the Agent can write on the volume holding the PZ data root.</param>
 /// <param name="DiskTotalBytes">The total size of that volume.</param>
-public readonly record struct HostVitals(double? CpuPercent, long? MemoryUsedBytes, long? DiskFreeBytes, long? DiskTotalBytes);
+/// <param name="CpuCores">The host's logical CPUs (one <c>cpuN</c> line each in <c>/proc/stat</c>).</param>
+/// <param name="LoadAverage1">The 1-minute load average from <c>/proc/loadavg</c>.</param>
+/// <param name="LoadAverage5">The 5-minute load average.</param>
+/// <param name="LoadAverage15">The 15-minute load average.</param>
+public readonly record struct HostVitals(
+    double? CpuPercent,
+    long? MemoryUsedBytes,
+    long? DiskFreeBytes,
+    long? DiskTotalBytes,
+    int? CpuCores = null,
+    double? LoadAverage1 = null,
+    double? LoadAverage5 = null,
+    double? LoadAverage15 = null);
 
 /// <summary>Reads the host's vitals (#170). Fail-soft: a figure it can't read is <c>null</c>, never an exception.</summary>
 public interface IHostVitalsReader
@@ -23,7 +35,7 @@ public interface IHostVitalsReader
 /// <c>/proc/meminfo</c> are not namespaced, so they describe the whole host — no extra mount or privilege. The disk
 /// figures come from <see cref="DriveInfo"/> on the data root itself, which on Unix is a <c>statvfs</c> of the host
 /// volume behind the bind mount (not the path root, which would be the container's overlay). Without <c>/proc</c>
-/// (a Windows dev box) CPU and memory are simply unknown. Every value is observed, untrusted data for ZWarden.Web.
+/// (a Windows dev box) CPU, memory, cores and load are simply unknown. Every value is observed, untrusted data for ZWarden.Web.
 /// </summary>
 public sealed class HostVitalsReader : IHostVitalsReader
 {
@@ -43,13 +55,38 @@ public sealed class HostVitalsReader : IHostVitalsReader
     /// <inheritdoc />
     public HostVitals Read()
     {
+        string[]? stat = ReadLines("stat");
         (long? free, long? total) = ReadDisk();
-        return new HostVitals(ReadCpuPercent(), ReadMemoryUsed(), free, total);
+        (double? load1, double? load5, double? load15) = ReadLoadAverages();
+        return new HostVitals(
+            ReadCpuPercent(stat), ReadMemoryUsed(), free, total, CountCores(stat), load1, load5, load15);
     }
 
-    private double? ReadCpuPercent()
+    // One "cpuN" line per logical CPU (the aggregate line is "cpu " with no digit).
+    private static int? CountCores(string[]? stat)
     {
-        CpuTimes? current = ReadCpuTimes();
+        int cores = stat?.Count(l => l.Length > 3 && l.StartsWith("cpu", StringComparison.Ordinal) && char.IsAsciiDigit(l[3])) ?? 0;
+        return cores > 0 ? cores : null;
+    }
+
+    // "0.12 0.20 0.18 1/234 5678": the first three fields are the 1, 5 and 15 minute load averages.
+    private (double? One, double? Five, double? Fifteen) ReadLoadAverages()
+    {
+        string[]? fields = ReadLines("loadavg")?.FirstOrDefault()?.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (fields is not { Length: >= 3 }
+            || !double.TryParse(fields[0], NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out double one)
+            || !double.TryParse(fields[1], NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out double five)
+            || !double.TryParse(fields[2], NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out double fifteen))
+        {
+            return (null, null, null);
+        }
+
+        return (one, five, fifteen);
+    }
+
+    private double? ReadCpuPercent(string[]? stat)
+    {
+        CpuTimes? current = ReadCpuTimes(stat);
         lock (_gate)
         {
             CpuTimes? previous = _previous;
@@ -73,9 +110,9 @@ public sealed class HostVitalsReader : IHostVitalsReader
 
     // The aggregate "cpu" line: user nice system idle iowait irq softirq steal [guest guest_nice]. Guest time is already
     // inside user/nice, so the total is the first eight; idle includes iowait (the CPU had nothing to run).
-    private CpuTimes? ReadCpuTimes()
+    private static CpuTimes? ReadCpuTimes(string[]? stat)
     {
-        string? line = ReadLines("stat")?.FirstOrDefault(l => l.StartsWith("cpu ", StringComparison.Ordinal));
+        string? line = stat?.FirstOrDefault(l => l.StartsWith("cpu ", StringComparison.Ordinal));
         if (line is null)
         {
             return null;

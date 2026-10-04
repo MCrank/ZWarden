@@ -74,6 +74,38 @@ public sealed class HostVitalsReaderTests : IDisposable
     }
 
     [Test]
+    public async Task The_core_count_is_the_number_of_per_cpu_lines()
+    {
+        File.WriteAllText(Path.Combine(_proc, "stat"),
+            "cpu  1 0 1 1 0 0 0 0 0 0\ncpu0 1 0 0 0 0 0 0 0 0 0\ncpu1 1 0 0 0 0 0 0 0 0 0\ncpu2 1 0 0 0 0 0 0 0 0 0\ncpu3 1 0 0 0 0 0 0 0 0 0\nintr 1\n");
+
+        await Assert.That(Reader().Read().CpuCores).IsEqualTo(4);
+    }
+
+    [Test]
+    public async Task The_load_averages_come_from_loadavg()
+    {
+        File.WriteAllText(Path.Combine(_proc, "loadavg"), "0.12 0.20 1.75 1/234 5678\n");
+
+        HostVitals vitals = Reader().Read();
+
+        await Assert.That(vitals.LoadAverage1).IsEqualTo(0.12);
+        await Assert.That(vitals.LoadAverage5).IsEqualTo(0.20);
+        await Assert.That(vitals.LoadAverage15).IsEqualTo(1.75);
+    }
+
+    [Test]
+    public async Task A_malformed_loadavg_reads_as_no_load()
+    {
+        File.WriteAllText(Path.Combine(_proc, "loadavg"), "busy\n");
+
+        HostVitals vitals = Reader().Read();
+
+        await Assert.That(vitals.LoadAverage1).IsNull();
+        await Assert.That(vitals.CpuCores).IsNull();
+    }
+
+    [Test]
     public async Task Memory_in_use_is_total_minus_available()
     {
         File.WriteAllText(Path.Combine(_proc, "meminfo"),

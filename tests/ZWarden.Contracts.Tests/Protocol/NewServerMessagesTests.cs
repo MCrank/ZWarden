@@ -87,7 +87,8 @@ public class NewServerMessagesTests
         HostCapacityReport report = new(
             TotalMemoryBytes: 32 * GiB, CommittedMemoryBytes: 10 * GiB, MemoryOverheadBytes: 6 * GiB,
             DefaultHeapSizeBytes: 4 * GiB, ReserveMemoryBytes: 2 * GiB,
-            CpuPercent: 37.5, MemoryUsedBytes: 12 * GiB, DiskFreeBytes: 212 * GiB, DiskTotalBytes: 480 * GiB);
+            CpuPercent: 37.5, MemoryUsedBytes: 12 * GiB, DiskFreeBytes: 212 * GiB, DiskTotalBytes: 480 * GiB,
+            CpuCores: 8, LoadAverage1: 0.12, LoadAverage5: 0.2, LoadAverage15: 0.18);
 
         Envelope<HostCapacityReport> back = ProtocolJson.Deserialize<HostCapacityReport>(
             ProtocolJson.Serialize(Envelope.Create(report, At, agentId: AgentId.New())));
@@ -105,6 +106,10 @@ public class NewServerMessagesTests
         payload.Remove("memoryUsedBytes");
         payload.Remove("diskFreeBytes");
         payload.Remove("diskTotalBytes");
+        payload.Remove("cpuCores");
+        payload.Remove("loadAverage1");
+        payload.Remove("loadAverage5");
+        payload.Remove("loadAverage15");
 
         Envelope<HostCapacityReport> back = ProtocolJson.Deserialize<HostCapacityReport>(payload.Root.ToJsonString());
 
@@ -112,6 +117,8 @@ public class NewServerMessagesTests
         await Assert.That(back.Payload.MemoryUsedBytes).IsNull();
         await Assert.That(back.Payload.DiskFreeBytes).IsNull();
         await Assert.That(back.Payload.DiskTotalBytes).IsNull();
+        await Assert.That(back.Payload.CpuCores).IsNull();
+        await Assert.That(back.Payload.LoadAverage1).IsNull();
         await Assert.That(back.Payload.TotalMemoryBytes).IsEqualTo(1);
     }
 
