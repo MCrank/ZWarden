@@ -5,10 +5,9 @@ namespace ZWarden.Web.Components.Pages.Servers.Sections;
 
 /// <summary>
 /// The configuration editor's unsaved state for one file (#299, decision D1): the live read the rows came from, the
-/// drift baseline, every row with its edit, and the raw-edit text. The Config section keeps it in
-/// <c>[PersistentState]</c>, so the prerender's read reaches the circuit without a second Agent round-trip, and the
-/// operator's unsaved edits survive a dropped connection or an evicted circuit. It lives in server memory only
-/// (never browser storage): the values include secrets such as <c>RCONPassword</c>.
+/// drift baseline, every row with its edit, and the raw-edit text. It lives in circuit memory only (never browser
+/// storage): the values include secrets such as <c>RCONPassword</c>. What survives a paused or evicted circuit is its
+/// <see cref="ConfigDraftSnapshot"/>, only the unsaved edits (#322).
 /// </summary>
 public sealed class ConfigEditorDraft
 {
@@ -40,8 +39,32 @@ public sealed class ConfigEditorDraft
         Rows = BuildRows(view),
     };
 
+    /// <summary>The draft rebuilt over a fresh read after a paused or evicted circuit (#322): the snapshot's edits on
+    /// top of the current values, against the baseline the operator was shown, so an apply still drift-checks what
+    /// they saw.</summary>
+    public static ConfigEditorDraft Restore(ConfigDraftSnapshot snapshot, ConfigDocumentView view)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        ConfigEditorDraft draft = From(snapshot.File, view);
+        draft.BaselineHash = snapshot.BaselineHash;
+        draft.Carry(snapshot.Edits);
+        draft.RawContent = snapshot.RawContent;
+        draft.RawConfirmed = snapshot.RawConfirmed;
+        return draft;
+    }
+
     /// <summary>Whether any row differs from the value it was read with.</summary>
     public bool HasEdits => Rows.Any(r => r.IsDirty);
+
+    /// <summary>Whether there is anything to lose: a changed row or a started raw edit.</summary>
+    public bool HasUnsavedState => HasEdits || RawContent is not null || RawConfirmed;
+
+    /// <summary>The unsaved edits alone, small enough to persist (#322); <see langword="null"/> when there are none.
+    /// The whole draft (the read, every row, the raw text) is far past the Blazor hub's 32 KB receive limit on a real
+    /// SandboxVars, and the circuit can read the file again.</summary>
+    public ConfigDraftSnapshot? ToSnapshot() => HasUnsavedState
+        ? new ConfigDraftSnapshot(File, BaselineHash, Edits(), RawContent, RawConfirmed)
+        : null;
 
     /// <summary>The changed rows as surgical edits.</summary>
     public List<ConfigApplyEdit> Edits() =>
@@ -102,6 +125,17 @@ public sealed class ConfigEditorDraft
         return rows;
     }
 }
+
+/// <summary>
+/// What a paused or evicted circuit keeps of the editor (#299 D1, #322): the file, the baseline the operator was
+/// shown, the changed settings and the raw edit. The rest is read again from the host on restore.
+/// </summary>
+public sealed record ConfigDraftSnapshot(
+    PzConfigFile File,
+    string? BaselineHash,
+    List<ConfigApplyEdit> Edits,
+    string? RawContent,
+    bool RawConfirmed);
 
 /// <summary>One setting in the editor: what it was read as and what the operator has made of it.</summary>
 public sealed class ConfigEditorRow

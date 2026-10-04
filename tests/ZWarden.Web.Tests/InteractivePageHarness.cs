@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using BlazorBlueprint.Components;
 using Bunit;
+using Bunit.TestDoubles;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -34,10 +35,12 @@ internal sealed class InteractivePageHarness : IAsyncDisposable
 
     private readonly AsyncServiceScope _scope;
 
-    private InteractivePageHarness(ZWardenWebAppFactory factory, BunitContext context, AsyncServiceScope scope)
+    private InteractivePageHarness(
+        ZWardenWebAppFactory factory, BunitContext context, BunitPersistentComponentState state, AsyncServiceScope scope)
     {
         Factory = factory;
         Context = context;
+        State = state;
         _scope = scope;
     }
 
@@ -45,8 +48,13 @@ internal sealed class InteractivePageHarness : IAsyncDisposable
 
     public BunitContext Context { get; }
 
-    /// <summary>Boots the host and signs in <see cref="OperatorEmail"/> as the Tenant Owner (every permission).</summary>
-    public static async Task<InteractivePageHarness> StartAsync(Action<IServiceCollection>? configureServices = null)
+    /// <summary>The persisted component state: what a prerender or a pausing circuit wrote, and what a new one reads.</summary>
+    public BunitPersistentComponentState State { get; }
+
+    /// <summary>Boots the host and signs in <see cref="OperatorEmail"/> as the Tenant Owner (every permission). With
+    /// <paramref name="prerendering"/> the page renders as the static prerender does, not in a circuit.</summary>
+    public static async Task<InteractivePageHarness> StartAsync(
+        Action<IServiceCollection>? configureServices = null, bool prerendering = false)
     {
         var factory = new ZWardenWebAppFactory { ConfigureTestServicesHook = configureServices };
         await factory.CreateConfirmedUserAsync(OperatorEmail, StrongPassword);
@@ -58,15 +66,15 @@ internal sealed class InteractivePageHarness : IAsyncDisposable
         // Every registration precedes the first resolve (SetRendererInfo resolves the renderer).
         var context = new BunitContext();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
-        context.AddBunitPersistentComponentState();
+        BunitPersistentComponentState state = context.AddBunitPersistentComponentState();
         context.AddAuthorization()
             .SetAuthorized(OperatorEmail)
             .SetClaims(
                 new Claim(ClaimTypes.NameIdentifier, userId.ToString()),
                 new Claim(ClaimsPrincipalTenantContext.TenantClaimType, tenant.ToString()));
         context.Services.AddFallbackServiceProvider(scope.ServiceProvider);
-        context.SetRendererInfo(new RendererInfo("Server", isInteractive: true));
-        return new InteractivePageHarness(factory, context, scope);
+        context.SetRendererInfo(new RendererInfo(prerendering ? "Static" : "Server", isInteractive: !prerendering));
+        return new InteractivePageHarness(factory, context, state, scope);
     }
 
     /// <summary>Adds an imported Server to the database, on a host port pair when one is given.</summary>

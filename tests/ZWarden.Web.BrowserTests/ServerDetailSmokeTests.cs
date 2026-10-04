@@ -102,18 +102,27 @@ public sealed partial class ServerDetailSmokeTests(BrowserHost host)
     {
         // #299: the rail and the file tabs are ordinary links, so they stay bookmarkable; on the interactive page the
         // same circuit renders the new section (no full-page reload, no new page instance).
+        // #322: the fixture is a real-sized SandboxVars, so its editor state is far past the hub's 32 KB receive limit;
+        // were it posted to the circuit on a click, the hub would close the connection and a new one would open.
         await using BrowserSession session = await OpenSectionAsync("smoke-rail", section: null);
         string instance = await session.Page.GetAttributeAsync("[data-circuit]", "data-circuit-instance") ?? string.Empty;
+        int sockets = 0;
+        session.Page.WebSocket += (_, _) => Interlocked.Increment(ref sockets);
 
         await session.Page.ClickAsync("[data-rail-item=players]");
         await Expect(session.Page.Locator("[data-players-card]")).ToBeVisibleAsync();
         await session.Page.ClickAsync("[data-rail-item=config]");
         await Expect(session.Page.Locator("[data-cfg-form]")).ToBeVisibleAsync();
-        await session.Page.ClickAsync("[data-config-tab=SandboxVars]");
-        await Expect(session.Page.Locator("[data-config-tab=SandboxVars]")).ToHaveClassAsync(ActiveTab());
+        foreach (string tab in (string[])["SandboxVars", "SpawnRegions", "Ini", "SpawnPoints", "SandboxVars"])
+        {
+            await session.Page.ClickAsync($"[data-config-tab={tab}]");
+            await Expect(session.Page.Locator($"[data-config-tab={tab}]")).ToHaveClassAsync(ActiveTab());
+            await session.WaitForCircuitAsync();
+        }
 
         await Expect(session.Page).ToHaveURLAsync(SandboxVarsUrl());
         await Assert.That(await session.Page.GetAttributeAsync("[data-circuit]", "data-circuit-instance")).IsEqualTo(instance);
+        await Assert.That(Volatile.Read(ref sockets)).IsEqualTo(0).Because("a click must not open a new circuit connection");
         await session.AssertNoErrorsAsync();
     }
 
