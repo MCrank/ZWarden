@@ -188,7 +188,8 @@ public sealed class ServerInventory : IServerInventory
 
         // The target must be something this Agent actually discovered (trust-boundaries.md §3): a caller
         // cannot register an arbitrary id, only adopt an observed orphan.
-        if (!_discovery.GetDiscovered(agentId).Any(d => d.ServerId == serverId))
+        DiscoveredServer? observed = _discovery.GetDiscovered(agentId).FirstOrDefault(d => d.ServerId == serverId);
+        if (observed is null)
         {
             return ServerImportResult.Denied(ServerImportFailure.NotDiscovered);
         }
@@ -200,7 +201,16 @@ public sealed class ServerInventory : IServerInventory
             return ServerImportResult.Success(existing.Id);
         }
 
-        Server server = Server.Import(agentId, serverId, name, _clock.GetUtcNow());
+        DateTimeOffset now = _clock.GetUtcNow();
+        Server server = Server.Import(agentId, serverId, name, now);
+        // #339: the Agent sends run state on connect and on a change only, so a container that was already running
+        // would stay Unknown until something changed. Start from what the Agent last reported for it.
+        server.RecordObservedState(observed.RunState, now);
+        if (observed.Health is { } health)
+        {
+            server.RecordObservedHealth(health, now);
+        }
+
         _servers.Add(server);
         await _context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         await _audit.WriteAsync(
