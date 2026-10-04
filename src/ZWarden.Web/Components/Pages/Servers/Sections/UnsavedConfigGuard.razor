@@ -1,0 +1,59 @@
+@using ZWarden.Domain.Ids
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+@* #331: warns before unsaved Config edits are lost. While Active, unsaved-guard.js gives a reload, a tab close or an
+   external link the browser's own "Leave site?" prompt, and asks before a link to another page in the app. Moving
+   between this Server's rail sections and config file tabs never asks: the circuit keeps the edits (ConfigDraftStore).
+   Renders nothing. *@
+
+@code {
+    /// <summary>The module that holds the warning in the browser.</summary>
+    public const string ModulePath = "./js/unsaved-guard.js";
+
+    /// <summary>What the operator is asked before leaving the page with unsaved edits.</summary>
+    public const string LeaveQuestion =
+        "You have unsaved configuration changes. Leave this page and lose them?";
+
+    /// <summary>The Server whose page this is; links to it (any section or file) keep the edits.</summary>
+    [Parameter, EditorRequired]
+    public ServerId ServerId { get; set; }
+
+    /// <summary>Whether there are unsaved edits to warn about.</summary>
+    [Parameter]
+    public bool Active { get; set; }
+
+    private IJSObjectReference? _module;
+    private bool? _sent;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_sent == Active)
+        {
+            return;
+        }
+
+        _module ??= await JS.InvokeAsync<IJSObjectReference>("import", ModulePath);
+        _sent = Active;
+        await _module.InvokeVoidAsync("set", Active ? $"/servers/{ServerId}" : null, LeaveQuestion);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_module is null)
+        {
+            return;
+        }
+
+        try
+        {
+            // Off for now; the guard that replaces this one (the page's or the Config section's) turns it back on.
+            await _module.InvokeVoidAsync("set", null, LeaveQuestion);
+            await _module.DisposeAsync();
+        }
+        catch (JSDisconnectedException)
+        {
+            // The circuit is gone, and so is the page.
+        }
+    }
+}

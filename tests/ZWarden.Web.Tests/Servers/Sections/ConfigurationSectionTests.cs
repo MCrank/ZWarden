@@ -555,6 +555,65 @@ public sealed class ConfigurationSectionTests
         await Assert.That(cut.Find("[data-cfg-path=Zombies]").ClassList).DoesNotContain("zw-cfg-changed");
     }
 
+    // ---- warning before unsaved edits are lost (#331) ------------------------------------------------------------
+    // The prompts themselves are the browser's (unsaved-guard.js): ServerDetailSmokeTests.Unsaved_config_edits_warn_
+    // before_a_reload_or_leaving_the_page. These pin when the page turns the warning on and off.
+
+    [Test]
+    public async Task The_warning_is_on_only_while_there_are_unsaved_edits_on_any_section()
+    {
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(Reader(SampleView(), out _));
+        BunitJSModuleInterop guard = harness.Context.JSInterop.SetupModule(UnsavedConfigGuard.ModulePath);
+        ServerId serverId = await harness.SeedServerAsync("guard-on");
+        IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "config", "&file=SandboxVars");
+        cut.WaitForAssertion(() => guard.VerifyInvoke("set"));
+        await Assert.That(GuardPath(guard)).IsNull();
+
+        await cut.Find("[data-cfg-path=Zombies] select").ChangeAsync(new() { Value = "1" });
+        cut.WaitForAssertion(() => _ = GuardPath(guard) ?? throw new InvalidOperationException("The warning is off."));
+        await Assert.That(GuardPath(guard)).IsEqualTo($"/servers/{serverId}");
+
+        // Kept while another section is open, so a reload there would lose them too.
+        await NavigateAsync(harness, cut, $"/servers/{serverId}?section=logs");
+        cut.WaitForState(() => cut.FindAll("[data-cfg-form]").Count == 0);
+        cut.WaitForAssertion(() => _ = GuardPath(guard) ?? throw new InvalidOperationException("The warning is off."));
+    }
+
+    [Test]
+    public async Task Once_applied_the_edits_no_longer_warn()
+    {
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(Reader(SampleView(), out _));
+        BunitJSModuleInterop guard = harness.Context.JSInterop.SetupModule(UnsavedConfigGuard.ModulePath);
+        ServerId serverId = await harness.SeedServerAsync("guard-applied");
+        IRenderedComponent<ServerDetail> cut = await ApplyZombiesChangeAsync(harness, serverId);
+
+        cut.WaitForAssertion(() =>
+        {
+            if (GuardPath(guard) is not null)
+            {
+                throw new InvalidOperationException("Still warning about an applied edit.");
+            }
+        });
+    }
+
+    [Test]
+    public async Task A_page_with_nothing_unsaved_never_turns_the_warning_on()
+    {
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(Reader(SampleView(), out _));
+        BunitJSModuleInterop guard = harness.Context.JSInterop.SetupModule(UnsavedConfigGuard.ModulePath);
+        ServerId serverId = await harness.SeedServerAsync("guard-clean");
+        IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "config", "&file=SandboxVars");
+
+        await NavigateAsync(harness, cut, $"/servers/{serverId}?section=logs");
+        cut.WaitForState(() => cut.FindAll("[data-cfg-form]").Count == 0);
+
+        await Assert.That(guard.Invocations["set"].All(i => i.Arguments[0] is null)).IsTrue();
+    }
+
+    // The Server page the browser-side warning was last turned on for, or null when it is off.
+    private static string? GuardPath(BunitJSModuleInterop guard) =>
+        guard.Invocations["set"] is { Count: > 0 } calls ? calls[^1].Arguments[0] as string : null;
+
     // A rail or tab click: an enhanced navigation the page sees as a query change.
     private static Task NavigateAsync(InteractivePageHarness harness, IRenderedComponent<ServerDetail> cut, string url) =>
         cut.InvokeAsync(() => harness.Context.Services.GetRequiredService<NavigationManager>().NavigateTo(url));

@@ -127,6 +127,61 @@ public sealed partial class ServerDetailSmokeTests(BrowserHost host)
     }
 
     [Test]
+    public async Task Unsaved_config_edits_warn_before_a_reload_or_leaving_the_page()
+    {
+        // #331: the shell's links and a reload would drop the circuit's kept edits, so both ask first.
+        await using BrowserSession session = await OpenSectionAsync("smoke-unsaved", "config", "&file=SandboxVars");
+        ILocator row = session.Page.Locator("[data-cfg-row]", new() { HasText = "Population" });
+        await row.Locator("select[data-cfg-value]").SelectOptionAsync("1");
+        await Expect(row).ToHaveClassAsync(ChangedRow());
+        TaskCompletionSource confirm = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource beforeUnload = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        int confirms = 0;
+        session.Page.Dialog += (_, dialog) =>
+        {
+            if (dialog.Type == "beforeunload")
+            {
+                beforeUnload.TrySetResult();
+            }
+            else
+            {
+                Interlocked.Increment(ref confirms);
+                confirm.TrySetResult();
+            }
+
+            _ = dialog.DismissAsync();
+        };
+
+        // Leaving for the fleet list: the confirm is dismissed, so the page and the edit stay.
+        await session.Page.ClickAsync("[data-nav=fleet]");
+        await confirm.Task.WaitAsync(TimeSpan.FromSeconds(15));
+        await Expect(session.Page).ToHaveURLAsync(SandboxVarsUrl());
+        await Expect(row).ToHaveClassAsync(ChangedRow());
+
+        // Moving to another section and back never asks: the circuit keeps the edit.
+        await session.Page.ClickAsync("[data-rail-item=logs]");
+        await Expect(session.Page.Locator("[data-live-logs]")).ToBeVisibleAsync();
+        await session.Page.ClickAsync("[data-rail-item=config]");
+        await session.Page.ClickAsync("[data-config-tab=SandboxVars]");
+        await Expect(row).ToHaveClassAsync(ChangedRow());
+        await Assert.That(Volatile.Read(ref confirms)).IsEqualTo(1);
+
+        // A reload gets the browser's own "Leave site?" prompt; dismissing it cancels the reload.
+        try
+        {
+            await session.Page.ReloadAsync(new() { Timeout = 3000 });
+        }
+        catch (Exception ex) when (ex is PlaywrightException or TimeoutException)
+        {
+            // The dismissed prompt cancels the reload, so it never completes.
+        }
+
+        await beforeUnload.Task.WaitAsync(TimeSpan.FromSeconds(15));
+        await Expect(row).ToHaveClassAsync(ChangedRow());
+        await session.AssertNoErrorsAsync();
+    }
+
+    [Test]
     public async Task Mods_starts_a_discovery()
     {
         await using BrowserSession session = await OpenSectionAsync("smoke-mods", "mods");

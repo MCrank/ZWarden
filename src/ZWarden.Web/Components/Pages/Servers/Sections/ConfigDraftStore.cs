@@ -4,31 +4,46 @@ using ZWarden.Domain.Ids;
 namespace ZWarden.Web.Components.Pages.Servers.Sections;
 
 /// <summary>
-/// The Config editor's unsaved drafts that aren't on screen (#322 live pass): one per Server and file, kept while the
-/// operator opens another rail section or config file tab and handed back when they return. Scoped, so it lives as
-/// long as the circuit, in server memory only (the values include secrets). A draft with nothing unsaved isn't kept,
-/// so coming back to a clean file reads it fresh.
+/// The Config editor's drafts for this circuit (#322 live pass, #331): one per Server and file, the one on screen and
+/// those kept while the operator opens another rail section or config file tab. Scoped, so it lives as long as the
+/// circuit, in server memory only (the values include secrets). It also answers whether anything is unsaved, so the
+/// page can warn before a reload or a navigation away loses it.
 /// </summary>
 public sealed class ConfigDraftStore
 {
     private readonly Dictionary<(ServerId Server, PzConfigFile File), ConfigEditorDraft> _drafts = [];
 
-    /// <summary>Keeps <paramref name="draft"/> for <paramref name="server"/> if it holds unsaved edits; otherwise
-    /// forgets any draft kept for that file.</summary>
-    public void Keep(ServerId server, ConfigEditorDraft draft)
+    /// <summary>Makes <paramref name="draft"/> the current draft of its file on <paramref name="server"/>. The store
+    /// holds the live object, so later edits to it count.</summary>
+    public void Track(ServerId server, ConfigEditorDraft draft)
     {
         ArgumentNullException.ThrowIfNull(draft);
-        if (draft.HasUnsavedState)
-        {
-            _drafts[(server, draft.File)] = draft;
-        }
-        else
-        {
-            _drafts.Remove((server, draft.File));
-        }
+        _drafts[(server, draft.File)] = draft;
     }
 
-    /// <summary>Hands back (and forgets) the draft kept for <paramref name="server"/>'s <paramref name="file"/>.</summary>
-    public ConfigEditorDraft? Take(ServerId server, PzConfigFile file) =>
-        _drafts.Remove((server, file), out ConfigEditorDraft? draft) ? draft : null;
+    /// <summary>Drops the draft of <paramref name="file"/> on <paramref name="server"/> (its edits were applied).</summary>
+    public void Forget(ServerId server, PzConfigFile file) => _drafts.Remove((server, file));
+
+    /// <summary>The draft of <paramref name="file"/> on <paramref name="server"/> if it holds unsaved edits; a clean one
+    /// is dropped, so coming back to that file reads it fresh.</summary>
+    public ConfigEditorDraft? Find(ServerId server, PzConfigFile file)
+    {
+        if (!_drafts.TryGetValue((server, file), out ConfigEditorDraft? draft))
+        {
+            return null;
+        }
+
+        if (draft.HasUnsavedState)
+        {
+            return draft;
+        }
+
+        _drafts.Remove((server, file));
+        return null;
+    }
+
+    /// <summary>Whether any of <paramref name="server"/>'s files has unsaved edits, apart from
+    /// <paramref name="ignoring"/> (a file whose edits are already being applied).</summary>
+    public bool HasUnsaved(ServerId server, PzConfigFile? ignoring = null) =>
+        _drafts.Any(d => d.Key.Server == server && d.Key.File != ignoring && d.Value.HasUnsavedState);
 }
