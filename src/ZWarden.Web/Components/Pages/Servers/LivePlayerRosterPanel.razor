@@ -3,12 +3,11 @@
 @implements IDisposable
 @inject IPlayerRosterCache Rosters
 
-@* The live roster island (F19): an interactive island embedded in the static server-detail page, mirroring
-   LiveServerPanel. The parent does the authorized, tenant-filtered work (it has an HttpContext); this child only
-   reads the process-local, ownership-guarded roster cache (keyed by ServerId + owning AgentId), so it needs no
-   tenant context — which a circuit lacks. It refreshes once per second and shows the newest roster a ListPlayers
-   Operation observed. Ids arrive as strings so they cross the static→interactive boundary cleanly. Usernames are
-   untrusted PZ output and rendered as data (trust-boundaries.md §8). *@
+@* The live roster panel (F19), a child of the interactive Server Detail page's Players section (#299), mirroring
+   LiveServerPanel. The page does the authorized, tenant-filtered work; this child only reads the process-local,
+   ownership-guarded roster cache (keyed by ServerId + owning AgentId), so it needs no tenant context. It refreshes
+   once per second and shows the newest roster a ListPlayers Operation observed. Usernames are untrusted PZ output
+   and rendered as data (trust-boundaries.md §8). *@
 
 <div data-live-roster>
     @if (_roster is { } roster)
@@ -46,27 +45,22 @@
 </div>
 
 @code {
-    /// <summary>The Server, as its canonical string id (crosses the static→interactive boundary as a string).</summary>
+    /// <summary>The Server.</summary>
     [Parameter]
     [EditorRequired]
-    public string ServerId { get; set; } = string.Empty;
+    public ServerId ServerId { get; set; }
 
-    /// <summary>The Server's owning Agent, as its canonical string id (the cache ownership-guard key).</summary>
+    /// <summary>The Server's owning Agent (the cache ownership-guard key).</summary>
     [Parameter]
     [EditorRequired]
-    public string AgentId { get; set; } = string.Empty;
+    public AgentId AgentId { get; set; }
 
-    private ZWarden.Domain.Ids.ServerId _server;
-    private ZWarden.Domain.Ids.AgentId _agent;
-    private bool _parsed;
     private PlayerRoster? _roster;
     private PeriodicTimer? _timer;
     private Task? _loop;
 
     protected override void OnInitialized()
     {
-        _parsed = ZWarden.Domain.Ids.ServerId.TryParse(ServerId, out _server)
-            & ZWarden.Domain.Ids.AgentId.TryParse(AgentId, out _agent);
         Refresh();
         _timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
         _loop = RunAsync();
@@ -88,13 +82,7 @@
         }
     }
 
-    private void Refresh()
-    {
-        if (_parsed)
-        {
-            _roster = Rosters.GetLatest(_server, _agent);
-        }
-    }
+    private void Refresh() => _roster = Rosters.GetLatest(ServerId, AgentId);
 
     private static string Observed(DateTimeOffset at) =>
         at.UtcDateTime.ToString("HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture) + " UTC";
