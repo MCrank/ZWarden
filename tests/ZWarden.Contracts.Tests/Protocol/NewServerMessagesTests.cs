@@ -81,6 +81,41 @@ public class NewServerMessagesTests
     }
 
     [Test]
+    public async Task HostCapacityReport_round_trips_the_host_vitals()
+    {
+        // #170: CPU %, memory in use and the data volume's free / total ride the same report as trailing members.
+        HostCapacityReport report = new(
+            TotalMemoryBytes: 32 * GiB, CommittedMemoryBytes: 10 * GiB, MemoryOverheadBytes: 6 * GiB,
+            DefaultHeapSizeBytes: 4 * GiB, ReserveMemoryBytes: 2 * GiB,
+            CpuPercent: 37.5, MemoryUsedBytes: 12 * GiB, DiskFreeBytes: 212 * GiB, DiskTotalBytes: 480 * GiB);
+
+        Envelope<HostCapacityReport> back = ProtocolJson.Deserialize<HostCapacityReport>(
+            ProtocolJson.Serialize(Envelope.Create(report, At, agentId: AgentId.New())));
+
+        await Assert.That(back.Payload).IsEqualTo(report);
+    }
+
+    [Test]
+    public async Task A_host_capacity_report_without_the_vitals_still_reads_as_nulls()
+    {
+        // An Agent built before #170 omits the trailing members entirely (ADR 0020 — no protocol bump).
+        string json = ProtocolJson.Serialize(Envelope.Create(new HostCapacityReport(1, 0, 0, 1, 0), At));
+        JsonObject payload = JsonNode.Parse(json)!["payload"]!.AsObject();
+        payload.Remove("cpuPercent");
+        payload.Remove("memoryUsedBytes");
+        payload.Remove("diskFreeBytes");
+        payload.Remove("diskTotalBytes");
+
+        Envelope<HostCapacityReport> back = ProtocolJson.Deserialize<HostCapacityReport>(payload.Root.ToJsonString());
+
+        await Assert.That(back.Payload.CpuPercent).IsNull();
+        await Assert.That(back.Payload.MemoryUsedBytes).IsNull();
+        await Assert.That(back.Payload.DiskFreeBytes).IsNull();
+        await Assert.That(back.Payload.DiskTotalBytes).IsNull();
+        await Assert.That(back.Payload.TotalMemoryBytes).IsEqualTo(1);
+    }
+
+    [Test]
     public async Task HostCapacityReport_is_an_agent_event_with_its_own_discriminator()
     {
         string json = ProtocolJson.Serialize(Envelope.Create(new HostCapacityReport(1, 0, 0, 1, 0), At));
