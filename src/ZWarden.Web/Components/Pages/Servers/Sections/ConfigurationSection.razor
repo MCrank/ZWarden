@@ -11,7 +11,8 @@
    history, gated on the per-server Server.Configuration.Edit by the page and re-checked in the services. Values read
    from the host are untrusted Agent text, rendered as data. Interactive since #299: search, the changed-row mark,
    collapse/expand-all and the "applying…" tracking are circuit state (config-editor.js is gone), and the unsaved
-   edits are a [PersistentState] draft (D1), kept in server memory only — the values include secrets. *@
+   edits are a draft (D1) in circuit memory only — the values include secrets. A paused or evicted circuit persists
+   just those edits, never the prerender (#322). *@
 
 <BbCard Class="p-5" data-config-card>
     <h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Configuration</h2>
@@ -444,9 +445,18 @@
     [Parameter]
     public string? OperationParam { get; set; }
 
-    /// <summary>The unsaved editor state (D1): restored from the prerender, or after a reconnect.</summary>
-    [PersistentState]
-    public ConfigEditorDraft? Draft { get; set; }
+    // The persisted-state key of the unsaved edits (D1); one Config section per page.
+    private const string DraftStateKey = "zw-config-draft";
+
+    [Inject]
+    private PersistentComponentState PersistentState { get; set; } = default!;
+
+    // The editor state (D1), in circuit memory. Only its snapshot is ever persisted (#322).
+    private ConfigEditorDraft? Draft { get; set; }
+
+    // The unsaved edits a paused or evicted circuit kept, waiting for this file's fresh read.
+    private ConfigDraftSnapshot? _restored;
+    private PersistingComponentStateSubscription _persisting;
 
     private readonly ConfigFormModel _configForm = new();
     private readonly Dictionary<string, bool> _sectionOverrides = new(StringComparer.Ordinal);
@@ -465,6 +475,30 @@
     private ConfigWriteView? _write;
     private bool _tracking;
     private CancellationTokenSource? _trackingCts;
+
+    protected override void OnInitialized()
+    {
+        if (PersistentState.TryTakeFromJson(DraftStateKey, out ConfigDraftSnapshot? snapshot))
+        {
+            _restored = snapshot;
+        }
+
+        _persisting = PersistentState.RegisterOnPersisting(PersistDraftAsync);
+    }
+
+    // #322: only a live circuit (a pause, or an eviction after a dropped connection) persists, and only the unsaved
+    // edits. A prerender's state rides in the page, and an enhanced navigation (a rail or tab click) posts it to the
+    // circuit as one hub message: the whole draft of a real .ini or SandboxVars is far past the hub's 32 KB receive
+    // limit, so the hub closed the connection. The circuit reads the file itself instead.
+    private Task PersistDraftAsync()
+    {
+        if (RendererInfo.IsInteractive && Draft?.ToSnapshot() is { } snapshot)
+        {
+            PersistentState.PersistAsJson(DraftStateKey, snapshot);
+        }
+
+        return Task.CompletedTask;
+    }
 
     protected override async Task OnParametersSetAsync()
     {
@@ -493,12 +527,21 @@
             return;
         }
 
-        // A draft for this file (from the prerender, or kept across a reconnect) is the editor as the operator left
-        // it; anything else is a fresh read. Switching files discards the other file's unsaved edits.
+        // A draft for this file is the editor as the operator left it; anything else is a fresh read, with the edits a
+        // paused or evicted circuit kept carried on top. Switching files discards the other file's unsaved edits.
         if (Draft is null || Draft.File != file)
         {
-            await ReadAsync();
+            if (_restored is { } restored && restored.File == file)
+            {
+                Draft = ConfigEditorDraft.Restore(restored, await FreshReadAsync(file));
+            }
+            else
+            {
+                await ReadAsync();
+            }
         }
+
+        _restored = null;
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -899,6 +942,7 @@
 
     public void Dispose()
     {
+        _persisting.Dispose();
         _trackingCts?.Cancel();
         _trackingCts?.Dispose();
     }

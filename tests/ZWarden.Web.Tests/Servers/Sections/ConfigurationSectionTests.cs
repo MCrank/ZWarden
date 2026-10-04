@@ -10,6 +10,7 @@ using ZWarden.Infrastructure.Persistence;
 using ZWarden.Infrastructure.Tenancy;
 using ZWarden.PzConfig.Revisions;
 using ZWarden.Web.Components.Pages.Servers;
+using ZWarden.Web.Components.Pages.Servers.Sections;
 
 namespace ZWarden.Web.Tests.Servers.Sections;
 
@@ -405,8 +406,102 @@ public sealed class ConfigurationSectionTests
         await Assert.That(harness.FirstOperation(serverId, OperationKind.ConfigApplyRaw)).IsNull();
     }
 
-    // The draft surviving a circuit pause/resume (D1) needs the real framework's [PersistentState] provider, so it is
-    // a browser test: ServerDetailSmokeTests.Config_keeps_an_unsaved_edit_across_a_circuit_pause_and_resume.
+    // ---- the persisted draft (D1, #322) --------------------------------------------------------------------------
+    // The end-to-end pause/resume is a browser test: ServerDetailSmokeTests.Config_keeps_an_unsaved_edit_across_a_
+    // circuit_pause_and_resume. These pin what is persisted, and when.
+
+    [Test]
+    public async Task The_prerender_persists_no_editor_state()
+    {
+        // #322: a prerender's state rides in the page and an enhanced navigation posts it to the circuit, where a
+        // real-size file's editor state broke the hub's 32 KB receive limit and dropped the connection.
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(
+            Reader(LargeSandboxView(300), out _), prerendering: true);
+        ServerId serverId = await harness.SeedServerAsync("draft-prerender");
+        harness.Render(serverId, "config", "&file=SandboxVars");
+
+        harness.State.TriggerOnPersisting();
+
+        await Assert.That(harness.State.TryTake(DraftStateKey, out ConfigDraftSnapshot? _)).IsFalse();
+    }
+
+    [Test]
+    public async Task A_circuit_with_no_unsaved_edits_persists_nothing()
+    {
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(Reader(SampleView(), out _));
+        ServerId serverId = await harness.SeedServerAsync("draft-clean");
+        harness.Render(serverId, "config", "&file=SandboxVars");
+
+        harness.State.TriggerOnPersisting();
+
+        await Assert.That(harness.State.TryTake(DraftStateKey, out ConfigDraftSnapshot? _)).IsFalse();
+    }
+
+    [Test]
+    public async Task A_circuit_persists_only_the_unsaved_edits_with_the_baseline_the_operator_saw()
+    {
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(Reader(LargeSandboxView(300), out _));
+        ServerId serverId = await harness.SeedServerAsync("draft-edits");
+        IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "config", "&file=SandboxVars");
+        await cut.Find("[data-cfg-path='Custom.Key150'] input").InputAsync(new() { Value = "2" });
+
+        harness.State.TriggerOnPersisting();
+
+        await Assert.That(harness.State.TryTake(DraftStateKey, out ConfigDraftSnapshot? snapshot)).IsTrue();
+        await Assert.That(snapshot!.File).IsEqualTo(PzConfigFile.SandboxVars);
+        await Assert.That(snapshot.Edits.Select(e => (e.Path, e.Value))).IsEquivalentTo([("Custom.Key150", "2")]);
+        await Assert.That(snapshot.BaselineHash).IsEqualTo(LargeSandboxView(300).BaselineHash);
+    }
+
+    [Test]
+    public async Task A_restored_draft_shows_the_kept_edit_over_a_fresh_read_and_applies_it()
+    {
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(Reader(SampleView(), out _));
+        ServerId serverId = await harness.SeedServerAsync("draft-restore");
+        harness.State.Persist(DraftStateKey, new ConfigDraftSnapshot(
+            PzConfigFile.SandboxVars, "hash-abc", [new ConfigApplyEdit("Zombies", ConfigEditKind.Number, "1")], null, false));
+
+        IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "config", "&file=SandboxVars");
+
+        await Assert.That(cut.Find("[data-cfg-path=Zombies]").ClassList).Contains("zw-cfg-changed");
+        await cut.Find("[data-action=config-apply-batch]").ClickAsync(new());
+        cut.WaitForState(() => harness.Payload(serverId, OperationKind.ConfigApply) is not null);
+        await Assert.That(harness.Payload(serverId, OperationKind.ConfigApply)!).Contains("Zombies");
+    }
+
+    [Test]
+    public async Task A_restored_draft_whose_file_changed_on_the_host_refuses_the_apply_as_drift()
+    {
+        // The snapshot keeps the baseline the operator was shown, so a write made while the circuit was gone is caught.
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(
+            Reader(SampleView(baseline: "hash-moved"), out _));
+        ServerId serverId = await harness.SeedServerAsync("draft-restore-drift");
+        harness.State.Persist(DraftStateKey, new ConfigDraftSnapshot(
+            PzConfigFile.SandboxVars, "hash-abc", [new ConfigApplyEdit("Zombies", ConfigEditKind.Number, "1")], null, false));
+
+        IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "config", "&file=SandboxVars");
+        await cut.Find("[data-action=config-apply-batch]").ClickAsync(new());
+
+        cut.WaitForState(() => cut.FindAll("[data-config-drift]").Count == 1);
+        await Assert.That(harness.FirstOperation(serverId, OperationKind.ConfigApply)).IsNull();
+        await Assert.That(cut.Find("[data-cfg-path=Zombies]").ClassList).Contains("zw-cfg-changed");
+    }
+
+    [Test]
+    public async Task A_kept_draft_for_another_file_is_not_carried_onto_this_one()
+    {
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(Reader(SampleView(), out _));
+        ServerId serverId = await harness.SeedServerAsync("draft-other-file");
+        harness.State.Persist(DraftStateKey, new ConfigDraftSnapshot(
+            PzConfigFile.Ini, "hash-abc", [new ConfigApplyEdit("Zombies", ConfigEditKind.Number, "1")], null, false));
+
+        IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "config", "&file=SandboxVars");
+
+        await Assert.That(cut.Find("[data-cfg-path=Zombies]").ClassList).DoesNotContain("zw-cfg-changed");
+    }
+
+    // The persisted-state key the Config section keeps its unsaved edits under.
+    private const string DraftStateKey = "zw-config-draft";
 
     // ---- helpers -------------------------------------------------------------------------------------------------
 
