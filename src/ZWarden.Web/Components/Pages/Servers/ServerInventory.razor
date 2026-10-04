@@ -24,8 +24,8 @@
    /audit: it runs per request with a live HttpContext so the session-derived tenant resolves and the read is
    tenant-filtered. Gated by [Authorize] (authenticated) rather than a server-scoped Server.View policy, which
    with no resource denies outright (ADR 0018) — the inventory self-filters to the Servers the caller may view,
-   fail-closed. The KPI strip, degraded banner and the Import form are static SSR; the fleet TABLE (FleetBoard:
-   sort + row-click) and the Deploy server sheet (#338) are interactive islands. The first render reads the
+   fail-closed. The KPI strip and degraded banner are static SSR; the fleet TABLE (FleetBoard: sort + row-click),
+   the Deploy server sheet (#338) and the adopt callout (#339) are interactive islands. The first render reads the
    ownership-guarded metrics cache here (this render has the owning AgentId); from then on live-status.js polls
    the batched status endpoint and updates the Status badges (#253), the fact cells and the Running / Needs
    attention / Players tiles (#257) in place. Lifecycle controls moved to Server Detail with the redesign (#162); this
@@ -44,7 +44,7 @@
     {
         @* #338: the Deploy server button + sheet, an interactive island; ?deploy=1 opens it (as ?add=1 on Mods). *@
         <div class="ml-auto" data-deploy-server>
-            <DeployServerSheet @rendermode="InteractiveServer" OpenOnLoad="@(Deploy == "1")" />
+            <DeployServerSheet @rendermode="InteractiveServer" OpenOnLoad="@(Deploy == "1" || Adopt == "1")" StartOnAdopt="@(Adopt == "1")" />
         </div>
     }
 </div>
@@ -52,6 +52,14 @@
     Your fleet of managed Project Zomboid servers, filtered to those you may view. State is the last the managing
     Agent reported.
 </p>
+
+@if (_unmanaged.Count > 0)
+{
+    @* #339: the adopt callout, only while a Host reports containers with no Server record (Server.Register only). *@
+    <div class="mt-4">
+        <UnmanagedBanner @rendermode="InteractiveServer" Hosts="_unmanaged" />
+    </div>
+}
 
 @if (_offlineHosts.Count > 0)
 {
@@ -107,83 +115,31 @@
     <FleetBoard @rendermode="InteractiveServer" Rows="_rows" />
 </div>
 
-@if (_canRegister)
-{
-    <section class="mt-10">
-        <h2 class="text-lg font-semibold tracking-tight">Import a discovered container</h2>
-        <p class="mt-1 text-sm text-muted-foreground">
-            Canonical containers an Agent has reported that are not yet registered. Adopting one brings it
-            under management as a Server.
-        </p>
-
-        @if (_importMessage is not null)
-        {
-            <div class="mt-3" data-import-message>
-                <BbAlert Variant="AlertVariant.Warning" AccentBorder>
-                    <BbAlertDescription>@_importMessage</BbAlertDescription>
-                </BbAlert>
-            </div>
-        }
-
-        @if (_discovered.Count == 0)
-        {
-            <p class="mt-3 text-sm text-muted-foreground" data-discovered-empty>
-                No unregistered containers discovered. They appear here once a connected Agent reports them.
-            </p>
-        }
-        else
-        {
-            @* Blueprint form primitives over the seam (ADR 0003) — the SSR-safe subset (BbNativeSelect/BbInput/
-               BbButton render real named form controls that participate in the static POST; see issue #84). *@
-            <EditForm Model="_form" FormName="import-server" OnValidSubmit="ImportAsync" class="mt-4 flex flex-wrap items-end gap-3">
-                <DataAnnotationsValidator />
-                <div class="flex flex-col text-sm">
-                    <BbLabel For="import-target" Class="mb-1 text-muted-foreground">Discovered container</BbLabel>
-                    @* BbNativeSelect auto-derives only the leaf field name ("Target"); under static SSR the POST
-                       binds by the full model path, so Name is set explicitly (issue #84 exemplar note). *@
-                    <BbNativeSelect TValue="string" Id="import-target" Name="_form.Target" @bind-Value="_form!.Target" Placeholder="Select…">
-                        @foreach (DiscoveredServerOnAgent d in _discovered)
-                        {
-                            <option value="@($"{d.AgentId}|{d.ServerId}")" selected="@($"{d.AgentId}|{d.ServerId}" == _form.Target)">@d.ServerId (@d.RunState on @HostName(d.AgentId))</option>
-                        }
-                    </BbNativeSelect>
-                </div>
-                <div class="flex flex-col text-sm">
-                    <BbLabel For="import-name" Class="mb-1 text-muted-foreground">Name</BbLabel>
-                    <BbInput Id="import-name" @bind-Value="_form!.Name" />
-                </div>
-                <BbButton Type="ButtonType.Submit">Import</BbButton>
-            </EditForm>
-        }
-    </section>
-}
-
 @code {
     [CascadingParameter]
     private Task<AuthenticationState>? AuthState { get; set; }
-
-    [SupplyParameterFromForm(FormName = "import-server")]
-    private ImportModel? _form { get; set; }
 
     /// <summary><c>?deploy=1</c> opens the Deploy server sheet (#338).</summary>
     [SupplyParameterFromQuery(Name = "deploy")]
     private string? Deploy { get; set; }
 
+    /// <summary><c>?adopt=1</c> opens it on Adopt existing (#339).</summary>
+    [SupplyParameterFromQuery(Name = "adopt")]
+    private string? Adopt { get; set; }
+
     private IReadOnlyList<ServerSummary> _servers = [];
     private IReadOnlyList<FleetRow> _rows = [];
-    private IReadOnlyList<DiscoveredServerOnAgent> _discovered = [];
+    private List<UnmanagedHost> _unmanaged = [];
     private IReadOnlyList<AgentId> _offlineHosts = [];
     private bool _canRegister;
     private bool _anyBusy;
     private FleetKpis _kpis = new(0, 0, null, null);
     private int _hostsTotal;
     private int _hostsOnline;
-    private string? _importMessage;
     private IReadOnlyDictionary<AgentId, string> _hostNames = new Dictionary<AgentId, string>();
 
     protected override async Task OnInitializedAsync()
     {
-        _form ??= new ImportModel();
         UserId user = await CurrentUserAsync();
 
         _servers = await Inventory.ListVisibleAsync(user);
@@ -255,44 +211,12 @@
         _canRegister = (await PermissionChecker.EvaluateAsync(user, Permissions.ServerRegister)).IsAllowed;
         if (_canRegister)
         {
-            _discovered = await Inventory.ListAllDiscoveredUnregisteredAsync();
+            // #339: per-host counts for the adopt callout (this tenant's Hosts only), by the Host's name (#336).
+            _unmanaged = [.. (await Inventory.ListAllDiscoveredUnregisteredAsync())
+                .GroupBy(d => d.AgentId)
+                .Select(g => new UnmanagedHost(HostName(g.Key), g.Count()))
+                .OrderBy(h => h.Name, StringComparer.OrdinalIgnoreCase)];
         }
-    }
-
-    private async Task ImportAsync()
-    {
-        UserId user = await CurrentUserAsync();
-        ImportModel form = _form ?? new ImportModel();
-        if (string.IsNullOrWhiteSpace(form.Target) || string.IsNullOrWhiteSpace(form.Name))
-        {
-            _importMessage = "Choose a discovered container and a name.";
-            return;
-        }
-
-        string[] parts = form.Target.Split('|');
-        if (parts.Length != 2
-            || !AgentId.TryParse(parts[0], out AgentId agentId)
-            || !ServerId.TryParse(parts[1], out ServerId serverId))
-        {
-            _importMessage = "That selection is no longer valid.";
-            return;
-        }
-
-        ServerImportResult result = await Inventory.ImportAsync(user, agentId, serverId, form.Name.Trim());
-        if (result.Succeeded)
-        {
-            // Redirect after post so a refresh does not re-submit and the new Server shows in the table.
-            Nav.NavigateTo("/servers");
-            return;
-        }
-
-        _importMessage = result.Failure switch
-        {
-            ServerImportFailure.NotAuthorized => "You are not permitted to register servers.",
-            ServerImportFailure.AgentNotFound => "That host is no longer known.",
-            ServerImportFailure.NotDiscovered => "That container is no longer discovered.",
-            _ => "The import could not be completed.",
-        };
     }
 
     // A Host's operator-facing name (#336): its Label or Hostname when the caller may view Hosts, else its short id.
@@ -306,12 +230,5 @@
         return Guid.TryParse(Users.GetUserId(principal), out Guid id)
             ? UserId.FromGuid(id)
             : throw new InvalidOperationException("Authenticated request carries no user id claim.");
-    }
-
-    private sealed class ImportModel
-    {
-        public string? Target { get; set; }
-
-        public string? Name { get; set; }
     }
 }

@@ -8,20 +8,29 @@
 @inject IAgentConnectionRegistry Connections
 @inject ToastService Toasts
 @inject NavigationManager Nav
+@inject DeploySheetRequests Requests
+@implements IDisposable
 
 @* The Fleet board's "Deploy server" button and sheet (#338; replaces the #230 inline Register form). An interactive
    island on the static Fleet page (ADR 0040/0046): it lists the Hosts and registers the Server through
    ActionScopeRunner, a scope per action carrying the circuit's tenant (#297). The page renders it only for a caller
-   holding Server.Register, and the service re-checks it on Deploy. Host names are untrusted, rendered as data. *@
+   holding Server.Register, and the service re-checks it on Deploy and Adopt. When a Host reports containers with no
+   Server record, an "Adopt existing" tab adopts one (#339; the Fleet banner opens it through DeploySheetRequests).
+   Host names are untrusted, rendered as data. *@
 
 @* "on" once the circuit has rendered the island (browser tests wait for it); see ServerDetail. *@
 <span hidden data-circuit="@(_circuitReady ? "on" : "off")"></span>
-<BbButton OnClick="OpenAsync" data-action="deploy-server-open">+ Deploy server</BbButton>
+<BbButton OnClick="@(() => OpenAsync(DeploySheetTab.New))" data-action="deploy-server-open">+ Deploy server</BbButton>
 
-<StepSheet Open="_open" OpenChanged="OpenChangedAsync" Title="Deploy server"
-           Description="A fresh Project Zomboid container on one of your hosts. It starts once the host's Agent has built it."
-           Steps="DeployServerDraft.StepNames" Step="_step" StepChanged="StepChangedAsync" CanAdvance="CanAdvanceAsync"
-           OnFinish="DeployAsync" FinishLabel="Deploy" Busy="_busy" data-deploy-server-sheet>
+<StepSheet Open="_open" OpenChanged="OpenChangedAsync"
+           Title="@(_tab == DeploySheetTab.Adopt ? "Adopt a server" : "Deploy server")"
+           Description="@(_tab == DeploySheetTab.Adopt
+               ? "A Project Zomboid container ZWarden created that has no server record here, e.g. after a database restore. Adopting it brings it back under management; nothing is changed on the host."
+               : "A fresh Project Zomboid container on one of your hosts. It starts once the host's Agent has built it.")"
+           Steps="@(_tab == DeploySheetTab.Adopt ? AdoptSteps : DeployServerDraft.StepNames)"
+           Step="@(_tab == DeploySheetTab.Adopt ? 0 : _step)" StepChanged="StepChangedAsync" CanAdvance="CanAdvanceAsync"
+           OnFinish="FinishAsync" FinishLabel="@(_tab == DeploySheetTab.Adopt ? "Adopt" : "Deploy")" Busy="_busy"
+           Lead="@(_adoptable.Count > 0 ? TabsLead : null)" data-deploy-server-sheet>
     @if (_message is not null)
     {
         <div data-deploy-message>
@@ -31,8 +40,11 @@
         </div>
     }
 
-    @switch (_step)
+    @switch (_tab == DeploySheetTab.Adopt ? -1 : _step)
     {
+        case -1:
+            @AdoptStep
+            break;
         case DeployServerDraft.Basics:
             @BasicsStep
             break;
@@ -49,15 +61,25 @@
 <BbToastProvider />
 
 @code {
-    /// <summary>Open the sheet on the first interactive render (the <c>?deploy=1</c> deep link).</summary>
+    /// <summary>Open the sheet on the first interactive render (the <c>?deploy=1</c> / <c>?adopt=1</c> deep links).</summary>
     [Parameter]
     public bool OpenOnLoad { get; set; }
+
+    /// <summary>With <see cref="OpenOnLoad"/>, open on the Adopt existing tab (<c>?adopt=1</c>).</summary>
+    [Parameter]
+    public bool StartOnAdopt { get; set; }
 
     [CascadingParameter]
     private Task<AuthenticationState>? AuthState { get; set; }
 
+    private static readonly IReadOnlyList<string> AdoptSteps = ["Adopt"];
+
     private DeployServerDraft _draft = new();
     private IReadOnlyList<HostOption>? _hosts;
+    private IReadOnlyList<AdoptOption> _adoptable = [];
+    private DeploySheetTab _tab = DeploySheetTab.New;
+    private string? _adoptTarget;
+    private string? _adoptName;
     private bool _circuitReady;
     private bool _open;
     private bool _busy;
@@ -188,6 +210,50 @@
         }
     </div>;
 
+    // Only shown when a Host reports something to adopt; the tabs switch what the sheet does.
+    private RenderFragment TabsLead => @<BbTabs Value="@TabValue(_tab)" ValueChanged="TabChangedAsync" data-deploy-tabs>
+        <BbTabsList Class="w-full">
+            <BbTabsTrigger Value="new" Class="flex-1" data-tab="new">New server</BbTabsTrigger>
+            <BbTabsTrigger Value="adopt" Class="flex-1" data-tab="adopt">Adopt existing (@_adoptable.Count)</BbTabsTrigger>
+        </BbTabsList>
+    </BbTabs>;
+
+    private RenderFragment AdoptStep => @<div class="space-y-4" data-deploy-step="adopt">
+        @if (_adoptable.Count == 0)
+        {
+            <p class="text-sm text-muted-foreground" data-adopt-empty>Nothing to adopt: no host reports an unmanaged container.</p>
+        }
+        else
+        {
+            <div class="space-y-2">
+                <BbLabel Class="text-sm text-muted-foreground">Container</BbLabel>
+                <BbRadioGroup TValue="string" Value="@_adoptTarget" ValueChanged="AdoptTargetChanged" AriaLabel="Container to adopt" data-adopt-list>
+                    @foreach (AdoptOption option in _adoptable)
+                    {
+                        <div class="flex items-center gap-3 rounded-md border border-border px-3 py-2" data-adopt-option="@option.Value">
+                            <BbRadioGroupItem TValue="string" Value="@option.Value" Id="@($"adopt-{option.Index}")" />
+                            <label for="@($"adopt-{option.Index}")" class="flex-1 cursor-pointer text-sm">
+                                <span class="font-medium">@option.RunState</span> on <span class="font-medium">@option.HostName</span>
+                                @if (option.Detail is not null)
+                                {
+                                    <span class="ml-1 font-mono text-xs text-muted-foreground">@option.Detail</span>
+                                }
+                            </label>
+                        </div>
+                    }
+                </BbRadioGroup>
+            </div>
+            <div class="flex flex-col text-sm">
+                <BbLabel For="adopt-name" Class="mb-1 text-muted-foreground">Name</BbLabel>
+                <BbInput Id="adopt-name" UpdateTiming="UpdateTiming.Immediate" @bind-Value="_adoptName" autocomplete="off" />
+            </div>
+        }
+    </div>;
+
+    protected override void OnInitialized() => Requests.OpenRequested += OnOpenRequestedAsync;
+
+    public void Dispose() => Requests.OpenRequested -= OnOpenRequestedAsync;
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (!firstRender || !RendererInfo.IsInteractive)
@@ -198,18 +264,39 @@
         _circuitReady = true;
         if (OpenOnLoad)
         {
-            await OpenAsync();
+            await OpenAsync(StartOnAdopt ? DeploySheetTab.Adopt : DeploySheetTab.New);
         }
 
         StateHasChanged();
     }
 
-    private async Task OpenAsync()
+    // The adopt banner (another island in this circuit) asks for the sheet.
+    private Task OnOpenRequestedAsync(DeploySheetTab tab) => InvokeAsync(async () =>
+    {
+        await OpenAsync(tab);
+        StateHasChanged();
+    });
+
+    private async Task OpenAsync(DeploySheetTab tab)
     {
         _open = true;
         _message = null;
         await LoadHostsAsync();
+        _tab = tab == DeploySheetTab.Adopt && _adoptable.Count > 0 ? DeploySheetTab.Adopt : DeploySheetTab.New;
     }
+
+    private static string TabValue(DeploySheetTab tab) => tab == DeploySheetTab.Adopt ? "adopt" : "new";
+
+    private Task TabChangedAsync(string? value)
+    {
+        _tab = value == "adopt" ? DeploySheetTab.Adopt : DeploySheetTab.New;
+        _message = null;
+        return Task.CompletedTask;
+    }
+
+    private void AdoptTargetChanged(string? value) => _adoptTarget = value;
+
+    private Task FinishAsync() => _tab == DeploySheetTab.Adopt ? AdoptAsync() : DeployAsync();
 
     private Task OpenChangedAsync(bool open)
     {
@@ -233,6 +320,16 @@
         if (_draft.HostId is null && connected.Count == 1)
         {
             _draft.HostId = connected[0].Id.ToString();
+        }
+
+        // #339: what the tenant's Hosts report without a Server record, on the Hosts listed above.
+        IReadOnlyList<DiscoveredServerOnAgent> discovered = await Actions.RunAsync<IServerInventory, IReadOnlyList<DiscoveredServerOnAgent>>(
+            (inventory, ct) => inventory.ListAllDiscoveredUnregisteredAsync(ct));
+        Dictionary<AgentId, string> names = _hosts.ToDictionary(h => h.Id, h => h.Name);
+        _adoptable = AdoptOption.For([.. discovered.Where(d => names.ContainsKey(d.AgentId))], names);
+        if (_adoptable.All(o => o.Value != _adoptTarget))
+        {
+            _adoptTarget = _adoptable.Count == 1 ? _adoptable[0].Value : null;
         }
     }
 
@@ -299,8 +396,7 @@
                 _draft = new DeployServerDraft();
                 _overcommitWarning = null;
                 _hosts = null;
-                // An enhanced refresh of the static page: the grid gains the new row, this island (and its toast) stays.
-                Nav.Refresh();
+                RefreshPage();
                 return;
             }
 
@@ -321,6 +417,64 @@
         }
     }
 
+    private async Task AdoptAsync()
+    {
+        string name = _adoptName?.Trim() ?? string.Empty;
+        AdoptOption? option = _adoptable.FirstOrDefault(o => o.Value == _adoptTarget);
+        if (option is null || name.Length == 0)
+        {
+            _message = "Choose a container and a name.";
+            return;
+        }
+
+        _busy = true;
+        _message = null;
+        try
+        {
+            UserId user = await CurrentUserAsync();
+            ServerImportResult result = await Actions.RunAsync<IServerInventory, ServerImportResult>(
+                (inventory, ct) => inventory.ImportAsync(user, option.AgentId, option.ServerId, name, ct));
+            if (result.Succeeded)
+            {
+                Toasts.Success($"{name} on {option.HostName} is now managed.", "Server adopted");
+                _open = false;
+                _adoptTarget = null;
+                _adoptName = null;
+                _adoptable = [];
+                _hosts = null;
+                RefreshPage();
+                return;
+            }
+
+            _message = result.Failure switch
+            {
+                ServerImportFailure.NotAuthorized => "You are not permitted to adopt servers.",
+                ServerImportFailure.AgentNotFound => "That host is no longer known.",
+                ServerImportFailure.NotDiscovered => "That container is no longer reported. It may have been removed.",
+                _ => "The server could not be adopted.",
+            };
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    // Reloads the static page in place so the grid gains the new row (and the adopt banner updates), while this island,
+    // and its toast, stays. A ?deploy=1 / ?adopt=1 deep link is dropped so a later reload doesn't reopen the sheet.
+    private void RefreshPage()
+    {
+        Uri current = new(Nav.Uri);
+        if (current.Query.Length > 0)
+        {
+            Nav.NavigateTo(current.GetLeftPart(UriPartial.Path), replace: true);
+        }
+        else
+        {
+            Nav.Refresh();
+        }
+    }
+
     private HashSet<AgentId> Deployable() => [.. (_hosts ?? []).Where(h => h.Connected).Select(h => h.Id)];
 
     private async Task<UserId> CurrentUserAsync()
@@ -329,6 +483,32 @@
         return Guid.TryParse(Users.GetUserId(principal), out Guid id)
             ? UserId.FromGuid(id)
             : throw new InvalidOperationException("Authenticated request carries no user id claim.");
+    }
+
+    // One container to adopt: its run state and host, and a short server id only when its host reports several (the
+    // id is the only thing that tells them apart).
+    private sealed record AdoptOption(int Index, string Value, AgentId AgentId, ServerId ServerId, string HostName, string RunState, string? Detail)
+    {
+        public static IReadOnlyList<AdoptOption> For(IReadOnlyList<DiscoveredServerOnAgent> discovered, IReadOnlyDictionary<AgentId, string> names)
+        {
+            HashSet<AgentId> crowded = [.. discovered.GroupBy(d => d.AgentId).Where(g => g.Count() > 1).Select(g => g.Key)];
+            return [.. discovered
+                .OrderBy(d => names[d.AgentId], StringComparer.OrdinalIgnoreCase)
+                .Select((d, i) => new AdoptOption(
+                    i,
+                    $"{d.AgentId}|{d.ServerId}",
+                    d.AgentId,
+                    d.ServerId,
+                    names[d.AgentId],
+                    d.RunState.ToString(),
+                    crowded.Contains(d.AgentId) ? ShortServerId(d.ServerId) : null))];
+        }
+
+        private static string ShortServerId(ServerId id)
+        {
+            string full = id.ToString();
+            return $"{full[..12]}…{full[^5..]}";
+        }
     }
 
     // One host in the picker: its name (#336, or its short id), whether it is connected, and its free memory.

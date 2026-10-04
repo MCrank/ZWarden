@@ -44,6 +44,9 @@ builder.Services.AddRazorComponents()
 // #322: the Config editor's unsaved drafts survive switching section or file, for the circuit's lifetime.
 builder.Services.AddScoped<ZWarden.Web.Components.Pages.Servers.Sections.ConfigDraftStore>();
 
+// #339: the Fleet adopt banner asks the Deploy sheet (another island in the same circuit) to open.
+builder.Services.AddScoped<ZWarden.Web.Components.Servers.DeploySheetRequests>();
+
 // #322: a circuit connection the hub closes over an oversized/malformed message is logged at Warning, not only Debug.
 builder.Logging.AddHubCloseReasonLogging();
 

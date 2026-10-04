@@ -138,7 +138,10 @@ public sealed class ServerInventory : IServerInventory
     {
         HashSet<ServerId> registeredIds = [.. (await _servers.ListAsync(cancellationToken).ConfigureAwait(false))
             .Select(s => s.Id)];
+        // #339: the discovery cache holds every connected Agent's report; keep only this tenant's Agents.
+        HashSet<AgentId> tenantAgents = [.. (await _agents.ListAsync(cancellationToken).ConfigureAwait(false)).Select(a => a.Id)];
         return _discovery.KnownAgents()
+            .Where(tenantAgents.Contains)
             .SelectMany(agentId => _discovery.GetDiscovered(agentId)
                 .Where(d => !registeredIds.Contains(d.ServerId))
                 .Select(d => new DiscoveredServerOnAgent(agentId, d.ServerId, d.RunState)))

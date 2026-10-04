@@ -35,6 +35,29 @@ public sealed class FleetSmokeTests(BrowserHost host)
     }
 
     [Test]
+    public async Task The_adopt_banner_adopts_a_discovered_container_and_clears()
+    {
+        // #339: the banner and the sheet are separate islands in one circuit; Adopt in one opens the other.
+        AgentId agent = await host.SeedConnectedHostAsync("adopt-host");
+        host.Discover(agent, ServerId.New(), ZWarden.Domain.Servers.ServerRunState.Running);
+        await using BrowserSession session = await host.OpenAsync("/servers");
+        ILocator banner = session.Page.Locator("[data-unmanaged-banner]");
+        await Expect(banner).ToContainTextAsync("adopt-host");
+
+        await banner.Locator("[data-action=adopt-open]").ClickAsync();
+        ILocator sheet = session.Page.Locator("[data-deploy-server-sheet]");
+        await Expect(sheet.Locator("[data-deploy-step=adopt]")).ToBeVisibleAsync();
+        await sheet.Locator("[data-adopt-option]", new() { HasText = "adopt-host" }).Locator("[role=radio]").ClickAsync();
+        await session.FillAsync("#adopt-name", "smoke-adopted");
+        await session.Page.ClickAsync("[data-action=step-finish]");
+
+        await Expect(sheet).ToHaveCountAsync(0);
+        await Expect(session.Page.Locator("[data-fleet-board]")).ToContainTextAsync("smoke-adopted");
+        await Expect(banner).ToHaveCountAsync(0);
+        await session.AssertNoErrorsAsync();
+    }
+
+    [Test]
     public async Task The_deploy_deep_link_opens_the_sheet()
     {
         await using BrowserSession session = await host.OpenAsync("/servers?deploy=1");

@@ -183,6 +183,32 @@ public class ServerInventoryTests
         });
     }
 
+    // --- #339: the discovered listing behind the adopt callout ----------------------------------------------------
+
+    [Test]
+    public async Task Discovered_unregistered_lists_only_this_tenants_agents_and_skips_registered_ids()
+    {
+        await WithSqlite(async options =>
+        {
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            AgentId ours = await PersistAgentAsync(db);
+            ServerId registered = ServerId.New();
+            db.Set<Server>().Add(Server.Import(ours, registered, "managed", Now));
+            await db.SaveChangesAsync();
+            ServerId orphan = ServerId.New();
+            AgentId foreign = AgentId.New();
+            ServerDiscoveryCache cache = new();
+            cache.Record(ours, [new DiscoveredServer(orphan, ServerRunState.Running), new DiscoveredServer(registered, ServerRunState.Running)]);
+            cache.Record(foreign, [new DiscoveredServer(ServerId.New(), ServerRunState.Stopped)]);
+
+            IReadOnlyList<DiscoveredServerOnAgent> discovered = await Inventory(db, cache, new CapturingAuditWriter())
+                .ListAllDiscoveredUnregisteredAsync();
+
+            await Assert.That(discovered.Count).IsEqualTo(1);
+            await Assert.That(discovered[0]).IsEqualTo(new DiscoveredServerOnAgent(ours, orphan, ServerRunState.Running));
+        });
+    }
+
     // --- #338: the Deploy sheet's host picker ---------------------------------------------------------------------
 
     [Test]

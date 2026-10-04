@@ -384,6 +384,149 @@ public sealed class DeployServerSheetTests
         await Assert.That(cut.Markup).DoesNotContain("<script>alert(1)");
     }
 
+    // --- #339: the Adopt existing tab ---------------------------------------------------------------------------
+
+    [Test]
+    public async Task With_nothing_discovered_the_sheet_has_no_adopt_tab()
+    {
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
+        AgentId agent = await SeedHostAsync(harness, "host-alpha", connected: true);
+        harness.Factory.Services.GetRequiredService<IServerDiscoveryCache>().Record(agent, []);
+
+        IRenderedComponent<DeployServerSheet> cut = await OpenAsync(harness);
+
+        await Assert.That(cut.FindAll("[data-deploy-tabs]")).IsEmpty();
+    }
+
+    [Test]
+    public async Task The_banner_opens_the_sheet_on_adopt_existing_listing_host_and_state_without_ids()
+    {
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
+        AgentId agent = await SeedHostAsync(harness, "host-alpha", connected: true);
+        ServerId orphan = ServerId.New();
+        Discover(harness, agent, (orphan, ServerRunState.Running));
+        IRenderedComponent<DeployServerSheet> sheet = harness.Context.Render<DeployServerSheet>();
+        IRenderedComponent<UnmanagedBanner> banner = harness.Context.Render<UnmanagedBanner>(
+            p => p.Add(c => c.Hosts, [new UnmanagedHost("host-alpha", 1)]));
+        await Assert.That(banner.Find("[data-unmanaged-text]").TextContent).IsEqualTo("1 unmanaged server found on host-alpha.");
+
+        await banner.Find("[data-action=adopt-open]").ClickAsync(new());
+
+        sheet.WaitForState(() => sheet.FindAll("[data-deploy-step=adopt]").Count == 1);
+        await Assert.That(sheet.FindAll("[data-deploy-tabs]").Count).IsEqualTo(1);
+        await Assert.That(sheet.FindAll("[data-step-strip]")).IsEmpty();
+        string option = sheet.Find($"[data-adopt-option='{agent}|{orphan}']").TextContent;
+        await Assert.That(option).Contains("Running");
+        await Assert.That(option).Contains("host-alpha");
+        await Assert.That(option).DoesNotContain(orphan.ToString());
+        await Assert.That(sheet.Find("[data-action=step-finish]").TextContent.Trim()).IsEqualTo("Adopt");
+    }
+
+    [Test]
+    public async Task Several_containers_on_one_host_are_told_apart_by_a_short_id()
+    {
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
+        AgentId agent = await SeedHostAsync(harness, "host-alpha", connected: true);
+        ServerId one = ServerId.New();
+        ServerId two = ServerId.New();
+        Discover(harness, agent, (one, ServerRunState.Running), (two, ServerRunState.Stopped));
+
+        IRenderedComponent<DeployServerSheet> cut = await OpenAdoptAsync(harness);
+
+        string text = cut.Find($"[data-adopt-option='{agent}|{two}']").TextContent;
+        await Assert.That(text).Contains(two.ToString()[..12]);
+        await Assert.That(text).DoesNotContain(two.ToString());
+    }
+
+    [Test]
+    public async Task Adopt_needs_a_name()
+    {
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
+        AgentId agent = await SeedHostAsync(harness, "host-alpha", connected: true);
+        Discover(harness, agent, (ServerId.New(), ServerRunState.Running));
+        IRenderedComponent<DeployServerSheet> cut = await OpenAdoptAsync(harness);
+
+        await cut.Find("[data-action=step-finish]").ClickAsync(new());
+
+        cut.WaitForState(() => cut.FindAll("[data-deploy-message]").Count == 1);
+        await Assert.That(cut.Find("[data-deploy-message]").TextContent).Contains("Choose a container and a name.");
+        await Assert.That(await ServerCountAsync(harness)).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task Adopt_brings_the_chosen_container_under_management_and_toasts()
+    {
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
+        AgentId agent = await SeedHostAsync(harness, "host-alpha", connected: true);
+        ServerId first = ServerId.New();
+        ServerId second = ServerId.New();
+        Discover(harness, agent, (first, ServerRunState.Running), (second, ServerRunState.Stopped));
+        IRenderedComponent<DeployServerSheet> cut = await OpenAdoptAsync(harness);
+        await cut.Find($"[data-adopt-option='{agent}|{second}'] [role=radio]").ClickAsync(new());
+        await InteractivePageHarness.TypeAsync(cut, "adopt-name", "restored");
+
+        await cut.Find("[data-action=step-finish]").ClickAsync(new());
+
+        cut.WaitForState(() => cut.FindAll("[data-deploy-server-sheet]").Count == 0);
+        await using (AsyncServiceScope scope = harness.Factory.Services.CreateSystemScope())
+        {
+            Server adopted = await scope.ServiceProvider.GetRequiredService<ZWardenDbContext>().Set<Server>().SingleAsync();
+            await Assert.That(adopted.Id).IsEqualTo(second);
+            await Assert.That(adopted.Name).IsEqualTo("restored");
+        }
+
+        await Assert.That(cut.Markup).Contains("restored on host-alpha is now managed.");
+        BunitNavigationManager nav = harness.Context.Services.GetRequiredService<BunitNavigationManager>();
+        await Assert.That(nav.History.First().Options.ReplaceHistoryEntry).IsTrue();
+    }
+
+    [Test]
+    public async Task The_adopt_deep_link_opens_on_adopt_existing_and_adopting_drops_it()
+    {
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
+        AgentId agent = await SeedHostAsync(harness, "host-alpha", connected: true);
+        Discover(harness, agent, (ServerId.New(), ServerRunState.Running));
+        BunitNavigationManager nav = harness.Context.Services.GetRequiredService<BunitNavigationManager>();
+        nav.NavigateTo("/servers?adopt=1");
+
+        IRenderedComponent<DeployServerSheet> cut = harness.Context.Render<DeployServerSheet>(p => p
+            .Add(c => c.OpenOnLoad, true)
+            .Add(c => c.StartOnAdopt, true));
+
+        cut.WaitForState(() => cut.FindAll("[data-deploy-step=adopt]").Count == 1);
+        await InteractivePageHarness.TypeAsync(cut, "adopt-name", "linked");
+        await cut.Find("[data-action=step-finish]").ClickAsync(new());
+        cut.WaitForState(() => cut.FindAll("[data-deploy-server-sheet]").Count == 0);
+        await Assert.That(nav.Uri).EndsWith("/servers");
+    }
+
+    [Test]
+    public async Task The_tabs_switch_between_new_server_and_adopt_existing()
+    {
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
+        AgentId agent = await SeedHostAsync(harness, "host-alpha", connected: true);
+        Discover(harness, agent, (ServerId.New(), ServerRunState.Running));
+        IRenderedComponent<DeployServerSheet> cut = await OpenAsync(harness);
+
+        await cut.Find("[data-tab=adopt]").ClickAsync(new());
+        cut.WaitForState(() => cut.FindAll("[data-deploy-step=adopt]").Count == 1);
+        await cut.Find("[data-tab=new]").ClickAsync(new());
+
+        cut.WaitForState(() => cut.FindAll("[data-deploy-step=basics]").Count == 1);
+    }
+
+    private static async Task<IRenderedComponent<DeployServerSheet>> OpenAdoptAsync(InteractivePageHarness harness)
+    {
+        IRenderedComponent<DeployServerSheet> cut = await OpenAsync(harness);
+        await cut.Find("[data-tab=adopt]").ClickAsync(new());
+        cut.WaitForState(() => cut.FindAll("[data-deploy-step=adopt]").Count == 1);
+        return cut;
+    }
+
+    private static void Discover(InteractivePageHarness harness, AgentId agent, params (ServerId Id, ServerRunState State)[] containers) =>
+        harness.Factory.Services.GetRequiredService<IServerDiscoveryCache>()
+            .Record(agent, [.. containers.Select(c => new DiscoveredServer(c.Id, c.State))]);
+
     private static async Task<IRenderedComponent<DeployServerSheet>> OpenAsync(InteractivePageHarness harness)
     {
         IRenderedComponent<DeployServerSheet> cut = harness.Context.Render<DeployServerSheet>();

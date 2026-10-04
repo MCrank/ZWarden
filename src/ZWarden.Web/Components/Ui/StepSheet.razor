@@ -13,20 +13,26 @@
             }
         </BbSheetHeader>
 
-        <ol class="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs" data-step-strip>
-            @for (int i = 0; i < Steps.Count; i++)
-            {
-                int index = i;
-                bool current = index == Step;
-                bool done = index < Step;
-                <li class="flex items-center gap-2 @(current ? "font-semibold text-foreground" : "text-muted-foreground")"
-                    data-step="@index" aria-current="@(current ? "step" : null)">
-                    <span class="flex h-5 w-5 flex-none items-center justify-center rounded-full border text-[11px] tabular-nums
-                                 @(current ? "border-primary bg-primary text-primary-foreground" : done ? "border-primary text-primary" : "border-border")">@(index + 1)</span>
-                    @Steps[index]
-                </li>
-            }
-        </ol>
+        @Lead
+
+        @* One step needs no strip (e.g. the Deploy sheet's Adopt existing tab). *@
+        @if (Steps.Count > 1)
+        {
+            <ol class="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs" data-step-strip>
+                @for (int i = 0; i < Steps.Count; i++)
+                {
+                    int index = i;
+                    bool current = index == Step;
+                    bool done = index < Step;
+                    <li class="flex items-center gap-2 @(current ? "font-semibold text-foreground" : "text-muted-foreground")"
+                        data-step="@index" aria-current="@(current ? "step" : null)">
+                        <span class="flex h-5 w-5 flex-none items-center justify-center rounded-full border text-[11px] tabular-nums
+                                     @(current ? "border-primary bg-primary text-primary-foreground" : done ? "border-primary text-primary" : "border-border")">@(index + 1)</span>
+                        @Steps[index]
+                    </li>
+                }
+            </ol>
+        }
 
         <div class="flex-1 space-y-4 pb-6" data-step-body="@Step">
             @ChildContent
@@ -90,6 +96,10 @@
     /// <summary>An action is running: the footer buttons are disabled.</summary>
     [Parameter]
     public bool Busy { get; set; }
+
+    /// <summary>Optional content between the header and the step strip (e.g. tabs that switch what the sheet does).</summary>
+    [Parameter]
+    public RenderFragment? Lead { get; set; }
 
     [Parameter]
     public RenderFragment? ChildContent { get; set; }
