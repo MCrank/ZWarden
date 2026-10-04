@@ -3,12 +3,15 @@
 @using ZWarden.Application.Agents
 @using ZWarden.Domain.Agents
 @using ZWarden.Domain.Ids
+@using ZWarden.Web.Components.Hosts
 @using ZWarden.Web.Components.Servers
 @attribute [Authorize(Policy = "Agent.View")]
 @inject IAgentInventory Inventory
 @inject IServerInventory Servers
 @inject AuthenticationStateProvider AuthProvider
 @inject UserManager<ApplicationUser> Users
+@inject IHostCapacityCache Capacity
+@inject TimeProvider Clock
 
 @* The Hosts inventory (#159), re-skinned from the F35 table into the Signal card grid: Hosts are few and rich,
    so a card each reads better than a row (deliberately not a table). Static server render (no @rendermode), like
@@ -19,8 +22,8 @@
    Agent.View: a viewer sees only the Servers it may already see, grouped under their owning Agent. Every
    Agent-reported fact (hostname, version, OS) is untrusted and rendered as data (trust-boundaries.md §3):
    observed, never an authorization input. "Connected" is live from this control-plane instance (the F10
-   registry overlay); an unreachable Host shows its last-known facts with no telemetry. The live, auto-refreshing
-   fleet view is a later interactive surface (F36). *@
+   registry overlay); an unreachable Host shows its last-known facts with no telemetry. The host vitals (#170) are
+   polled in place by live-status.js; a connect or disconnect still needs a reload. *@
 
 <PageTitle>Hosts — ZWarden</PageTitle>
 
@@ -53,7 +56,8 @@
 else
 {
     @* One column at phone width (acceptance criterion), reflowing to a rich card grid from md up. *@
-    <div class="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+    @* #170: live-status.js polls the telemetry endpoint and moves each card's meters in place. *@
+    <div class="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3" data-live-hosts="/api/hosts/telemetry">
         @foreach (HostSummary host in _hosts)
         {
             bool degraded = !host.IsConnected;
@@ -98,24 +102,47 @@ else
                         </div>
                     </dl>
 
-                    @* Host telemetry. A degraded (unreachable) Host reports nothing, so it shows no meters
-                       (acceptance criterion). There is no host-level CPU/memory feed in v1.0 — only per-Server
-                       ServerMetrics exists — so a connected Host renders the meter slots empty (—), the same
-                       "keep the slot, show —" posture as the fleet board (#158) until that feed lands. *@
+                    @* Host telemetry (#170): the Agent's latest CPU / memory / data-volume vitals (HostTelemetry). An
+                       unreachable Host reports nothing, so it shows no meters; a figure an older Agent doesn't send keeps
+                       its slot and shows — (the fleet board's posture, #158). Each cell renders both the meter and its —
+                       so live-status.js can show whichever applies as it polls /api/hosts/telemetry. *@
                     <div class="border-t border-border pt-3" data-host-telemetry>
-                        @if (degraded)
+                        @if (HostTelemetry.For(Capacity.GetLatest(host.Id), host.IsConnected, _now) is not { } t)
                         {
                             <p class="text-xs text-muted-foreground">No telemetry — Agent unreachable.</p>
                         }
                         else
                         {
-                            <div class="flex items-center justify-between gap-2 text-xs">
-                                <span class="text-muted-foreground">CPU</span>
-                                <span class="font-mono tabular-nums text-muted-foreground">—</span>
-                            </div>
-                            <div class="mt-1 flex items-center justify-between gap-2 text-xs">
-                                <span class="text-muted-foreground">Memory</span>
-                                <span class="font-mono tabular-nums text-muted-foreground">—</span>
+                            <div class="space-y-2 text-xs" data-host-telemetry-for="@host.Id">
+                                <div class="flex items-center justify-between gap-2">
+                                    <span class="text-muted-foreground">CPU</span>
+                                    <span data-host-cell="cpu">
+                                        <span data-meter-slot hidden="@(t.CpuPercent is null)"><MeterBar Value="@(t.CpuPercent ?? 0)" Max="100" Label="CPU" /></span>
+                                        <span data-meter-empty hidden="@(t.CpuPercent is not null)" class="font-mono tabular-nums text-muted-foreground">—</span>
+                                    </span>
+                                </div>
+                                <div>
+                                    <div class="flex items-center justify-between gap-2">
+                                        <span class="text-muted-foreground">Memory</span>
+                                        <span data-host-cell="memory">
+                                            <span data-meter-slot hidden="@(t.MemoryTotalBytes is null)"><MeterBar Value="@(t.MemoryUsedBytes ?? 0)" Max="@(t.MemoryTotalBytes ?? 0)" Label="Memory" /></span>
+                                            <span data-meter-empty hidden="@(t.MemoryTotalBytes is not null)" class="font-mono tabular-nums text-muted-foreground">—</span>
+                                        </span>
+                                    </div>
+                                    <div class="mt-0.5 text-right font-mono tabular-nums text-muted-foreground" data-host-cell="memory-text">@t.MemoryText</div>
+                                </div>
+                                <div>
+                                    @* The meter is the used share, so it fills (and warms) as the volume fills up. *@
+                                    <div class="flex items-center justify-between gap-2">
+                                        <span class="text-muted-foreground">Disk free</span>
+                                        <span data-host-cell="disk">
+                                            <span data-meter-slot hidden="@(t.DiskTotalBytes is null)"><MeterBar Value="@(t.DiskUsedBytes ?? 0)" Max="@(t.DiskTotalBytes ?? 0)" Label="Disk used" /></span>
+                                            <span data-meter-empty hidden="@(t.DiskTotalBytes is not null)" class="font-mono tabular-nums text-muted-foreground">—</span>
+                                        </span>
+                                    </div>
+                                    <div class="mt-0.5 text-right font-mono tabular-nums text-muted-foreground" data-host-cell="disk-text">@t.DiskText</div>
+                                </div>
+                                <p class="@AgeClass(t.Stale)" data-host-cell="age">@t.Age</p>
                             </div>
                         }
                     </div>
@@ -160,6 +187,7 @@ else
     private IReadOnlyList<HostSummary> _hosts = [];
     private IReadOnlyList<ServerSummary> _servers = [];
     private int _connected;
+    private DateTimeOffset _now;
 
     protected override async Task OnInitializedAsync()
     {
@@ -173,7 +201,11 @@ else
         _hosts = await Inventory.ListHostsAsync(user);
         _servers = await Servers.ListVisibleAsync(user);
         _connected = _hosts.Count(h => h.IsConnected);
+        _now = Clock.GetUtcNow();
     }
+
+    // A stale report (the Agent stopped sending) warns in the busy tone; live-status.js swaps the same two classes.
+    private static string AgeClass(bool stale) => stale ? "text-status-busy" : "text-muted-foreground";
 
     private IReadOnlyList<ServerSummary> ServersOn(AgentId host)
         => _servers.Where(s => s.AgentId == host).ToList();

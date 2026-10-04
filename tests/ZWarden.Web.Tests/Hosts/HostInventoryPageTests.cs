@@ -3,6 +3,7 @@ using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.DependencyInjection;
 using ZWarden.Application.Agents;
+using ZWarden.Application.Servers;
 using ZWarden.Domain.Agents;
 using ZWarden.Domain.Enrollments;
 using ZWarden.Domain.Ids;
@@ -140,6 +141,106 @@ public sealed class HostInventoryPageTests
         await Assert.That(html).Contains("camp-alpha");
         await Assert.That(html).Contains($"/servers/{serverId}");
         client.Dispose();
+    }
+
+    [Test]
+    public async Task A_connected_host_shows_its_cpu_memory_and_disk_telemetry()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        AgentId agentId = await SeedHostAsync(factory);
+        factory.Services.GetRequiredService<IAgentConnectionRegistry>().Register(agentId, "conn-online", () => { });
+        RecordVitals(factory, agentId);
+
+        string html = await (await client.GetAsync(new Uri("/hosts", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        // #170: the meters, the lines and the age, under the card the poll keys by Agent id.
+        await Assert.That(html).Contains("data-live-hosts=\"/api/hosts/telemetry\"");
+        await Assert.That(html).Contains($"data-host-telemetry-for=\"{agentId}\"");
+        await Assert.That(html).Contains("aria-label=\"CPU: 38%\"");
+        await Assert.That(html).Contains("aria-label=\"Memory: 38%\"");
+        await Assert.That(html).Contains("12.0 GiB / 32.0 GiB");
+        await Assert.That(html).Contains("Disk free");
+        await Assert.That(html).Contains("212.0 GiB free of 480.0 GiB");
+        await Assert.That(html).Contains("as of just now");
+        await Assert.That(html).DoesNotContain("No telemetry");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task A_connected_host_with_no_report_yet_keeps_the_slots_with_dashes()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        AgentId agentId = await SeedHostAsync(factory);
+        factory.Services.GetRequiredService<IAgentConnectionRegistry>().Register(agentId, "conn-online", () => { });
+
+        string html = await (await client.GetAsync(new Uri("/hosts", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        await Assert.That(html).Contains($"data-host-telemetry-for=\"{agentId}\"");
+        await Assert.That(Regex.IsMatch(html, "data-host-cell=\"memory-text\"[^>]*>(—|&#x2014;)<")).IsTrue();
+        await Assert.That(html).Contains("no report yet");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task The_telemetry_endpoint_refuses_anonymous_callers()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        using HttpClient client = factory.CreateWebClient();
+
+        HttpResponseMessage response = await client.GetAsync(new Uri("/api/hosts/telemetry", UriKind.Relative));
+
+        await Assert.That(response.StatusCode).IsNotEqualTo(HttpStatusCode.OK);
+    }
+
+    [Test]
+    public async Task The_telemetry_endpoint_needs_agent_view()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        await SignedInOperatorAsync(factory);
+        // A second account holds no role, so no Agent.View.
+        await factory.CreateConfirmedUserAsync("nobody@zwarden.test", StrongPassword);
+        using HttpClient client = factory.CreateWebClient();
+        await LoginAsync(client, "nobody@zwarden.test", StrongPassword);
+
+        HttpResponseMessage response = await client.GetAsync(new Uri("/api/hosts/telemetry", UriKind.Relative));
+
+        // Denied at the door (the access-denied redirect), not bounced to sign-in: the caller is signed in.
+        await Assert.That(response.StatusCode).IsNotEqualTo(HttpStatusCode.OK);
+        await Assert.That(response.Headers.Location?.OriginalString ?? string.Empty).DoesNotContain("/login");
+    }
+
+    [Test]
+    public async Task The_telemetry_endpoint_returns_the_connected_hosts_vitals_only()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        AgentId online = await SeedHostAsync(factory);
+        AgentId offline = await SeedHostAsync(factory);
+        factory.Services.GetRequiredService<IAgentConnectionRegistry>().Register(online, "conn-online", () => { });
+        RecordVitals(factory, online);
+        RecordVitals(factory, offline);
+
+        HttpResponseMessage response = await client.GetAsync(new Uri("/api/hosts/telemetry", UriKind.Relative));
+        string json = await response.Content.ReadAsStringAsync();
+
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
+        await Assert.That(response.Headers.CacheControl?.NoStore).IsTrue();
+        await Assert.That(json).Contains($"\"id\":\"{online}\"");
+        await Assert.That(json).Contains("\"cpuPercent\":37.5");
+        await Assert.That(json).Contains("\"diskText\":\"212.0 GiB free of 480.0 GiB\"");
+        // An unreachable host shows no telemetry, even with a cached report.
+        await Assert.That(json).DoesNotContain(offline.ToString());
+        client.Dispose();
+    }
+
+    private static void RecordVitals(ZWardenWebAppFactory factory, AgentId agentId)
+    {
+        const long GiB = 1024L * 1024 * 1024;
+        factory.Services.GetRequiredService<IHostCapacityCache>().Record(new HostCapacity(
+            agentId, 32 * GiB, 0, 0, 4 * GiB, 0, DateTimeOffset.UtcNow,
+            new HostVitals(37.5, 12 * GiB, 212 * GiB, 480 * GiB)));
     }
 
     private static async Task<AgentId> SeedHostAsync(ZWardenWebAppFactory factory)

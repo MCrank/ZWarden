@@ -26,6 +26,7 @@ using ZWarden.Web.Components.Agents;
 using ZWarden.Web.Components.Audit;
 using ZWarden.Web.Components.Console;
 using ZWarden.Web.Components.Diagnostics;
+using ZWarden.Web.Components.Hosts;
 using ZWarden.Web.Components.Operations;
 using ZWarden.Web.Components.Players;
 using ZWarden.Web.Components.Servers;
@@ -164,6 +165,9 @@ app.MapServerEndpoints();
 app.MapPlayerEndpoints();
 app.MapConsoleEndpoints();
 app.MapDiagnosticsEndpoints();
+
+// The Hosts page's live telemetry poll (#170), gated by Agent.View.
+app.MapHostEndpoints();
 
 // The audit-trail CSV export (#161), gated by the same Audit.View policy as the viewer page.
 app.MapAuditEndpoints();
