@@ -35,6 +35,9 @@
     <Routes />
     @* The Signal-styled circuit reconnect dialog (#299); it only shows on an interactive page. *@
     <ReconnectModal />
+    @* Switches Server Detail's sections and config files in its circuit (#312). Before blazor.web.js, so its popstate
+       listener runs ahead of Blazor's. *@
+    <script src="@Assets["js/in-place-nav.js"]"></script>
     <script src="@Assets["_framework/blazor.web.js"]"></script>
     @* App-shell behaviour (menus, mobile drawer, theme toggle) — static-SSR progressive enhancement,
        delegated on document so it survives enhanced-navigation DOM merges (ADR 0040). *@

@@ -4,7 +4,6 @@
 @using ZWarden.Application.Operations
 @using ZWarden.Domain.Configuration
 @using ZWarden.Domain.Operations
-@inject NavigationManager Navigation
 @inject IJSRuntime JS
 
 @* The Config rail section (F20/F20c): the live schema editor, the gated raw edit, the by-path apply and the revision
@@ -104,7 +103,8 @@
         </div>
     }
 
-    @* File tabs — bookmarkable switching (?file=), like the section rail. Switching files discards unsaved edits. *@
+    @* File tabs — bookmarkable switching (?file=), like the section rail, in the circuit (#312). A file being left
+       keeps its unsaved edits (#322). *@
     <div class="zw-cfg-tabs" data-config-tabs>
         @foreach (PzConfigFile file in ConfigFiles)
         {
@@ -749,12 +749,12 @@
     });
 
     // "Load history" for the Advanced form's file: show that file (its editor and history).
-    private void LoadAdvancedHistory()
+    private async Task LoadAdvancedHistory()
     {
         PzConfigFile file = ParseFile(_configForm.File);
         if (file != _selectedFile)
         {
-            Navigation.NavigateTo(ConfigFileHref(file));
+            await GoToAsync(ConfigFileHref(file));
         }
     }
 
@@ -780,7 +780,7 @@
                 else
                 {
                     // A by-path edit to another file: show that file, tracking the write.
-                    Navigation.NavigateTo(ConfigOperationHref(file, operation));
+                    await GoToAsync(ConfigOperationHref(file, operation));
                 }
 
                 return;

@@ -43,10 +43,30 @@ public abstract class ServerSectionBase : ComponentBase
     [Inject]
     private UserManager<ApplicationUser> Users { get; set; } = default!;
 
+    [CascadingParameter(Name = ServerDetailCascade.Navigator)]
+    private ServerDetailNavigator? Navigator { get; set; }
+
+    [Inject]
+    private NavigationManager Pages { get; set; } = default!;
+
     /// <summary>The bookmarkable link to another rail section of this Server (#162).</summary>
     protected string SectionHref(string section) => section == "overview"
         ? $"/servers/{Server.Id}"
         : $"/servers/{Server.Id}?section={section}";
+
+    /// <summary>Moves the page to another of this Server's URLs in the circuit (#312), as a click on its link does; a
+    /// <c>NavigationManager.NavigateTo</c> would make the server prerender the whole page first.</summary>
+    protected async Task GoToAsync(string href)
+    {
+        if (Navigator is not null)
+        {
+            await Navigator.GoToAsync(href);
+        }
+        else
+        {
+            Pages.NavigateTo(href);
+        }
+    }
 
     /// <summary>The signed-in operator, re-read on each action.</summary>
     protected async Task<UserId> CurrentUserAsync()
@@ -63,4 +83,7 @@ public static class ServerDetailCascade
 {
     /// <summary>The operator's display <see cref="TimeZoneInfo"/>.</summary>
     public const string OperatorZone = "zw-operator-zone";
+
+    /// <summary>The page's <see cref="ServerDetailNavigator"/> (#312).</summary>
+    public const string Navigator = "zw-server-navigator";
 }

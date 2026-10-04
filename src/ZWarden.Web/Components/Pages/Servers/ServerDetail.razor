@@ -173,8 +173,8 @@ else
 
     <div class="zw-srvlayout mt-6">
         @* Grouped vertical rail (#162). Each item links to its ?section= (bookmarkable), so only the selected
-           section — and its one live panel — renders. A section appears only where the operator holds its
-           per-server permission. *@
+           section — and its one live panel — renders; a click switches in the circuit (#312, in-place-nav.js). A
+           section appears only where the operator holds its per-server permission. *@
         <nav class="zw-rail" aria-label="Server sections" data-server-rail>
             <a class="zw-railitem @Active("overview")" href="@SectionHref("overview")" data-rail-item="overview">
                 <ShellIcon Name="layout-dashboard" /><span>Overview</span>
@@ -249,6 +249,7 @@ else
             @* Only the selected section renders (and so only its data loads); ResolveSection has already failed an
                unauthorized ?section= closed to the overview. *@
             <CascadingValue Name="@ServerDetailCascade.OperatorZone" Value="_zone" IsFixed="true">
+            <CascadingValue Name="@ServerDetailCascade.Navigator" Value="_navigator" IsFixed="true">
                 @switch (_activeSection)
                 {
                     case "logs":
@@ -265,10 +266,10 @@ else
                         break;
                     case "mods":
                         <ModsSection Server="_server" Perm="_perm.Mods"
-                                     OpenAdd="@(Add == "1" || string.Equals(Section, "modbrowser", StringComparison.Ordinal))" />
+                                     OpenAdd="@(_location.Add == "1" || string.Equals(_location.Section, "modbrowser", StringComparison.Ordinal))" />
                         break;
                     case "config":
-                        <ConfigurationSection Server="_server" FileParam="@File" OperationParam="@Op" />
+                        <ConfigurationSection Server="_server" FileParam="@_location.File" OperationParam="@_location.Op" />
                         break;
                     case "backups":
                         <BackupsSection Server="_server" Perm="_perm.Backups" />
@@ -279,6 +280,7 @@ else
                                          OnLifecycleResult="OnLifecycleResultAsync" OnLifecycleWarning="OnLifecycleWarning" />
                         break;
                 }
+            </CascadingValue>
             </CascadingValue>
         </div>
     </div>
@@ -296,21 +298,17 @@ else
     [Parameter]
     public string Id { get; set; } = string.Empty;
 
-    // Which rail section to render (#162). Absent, unknown, or unauthorized falls back to overview (fail-closed).
-    [SupplyParameterFromQuery]
-    public string? Section { get; set; }
-
-    // The Config section's ?file= and ?op= (F20c, #226). Only the page reads the query: a section the page creates
-    // while the query changes must not subscribe to it, or the circuit's location-changed dispatch throws.
-    [SupplyParameterFromQuery(Name = "file")]
-    public string? File { get; set; }
-
-    [SupplyParameterFromQuery(Name = "op")]
-    public string? Op { get; set; }
-
-    // #292: ?section=mods&add=1 opens the Mods section's Add-mods sheet (the old ?section=modbrowser lands there too).
-    [SupplyParameterFromQuery(Name = "add")]
-    public string? Add { get; set; }
+    // The page's URL and its query (#312): ?section= picks the rail section (#162; absent, unknown or unauthorized
+    // falls back to overview, fail-closed), ?file= and ?op= go to the Config section (F20c, #226), and
+    // ?section=mods&add=1 opens the Mods section's Add-mods sheet (#292; the old ?section=modbrowser lands there too).
+    // The page keeps it itself rather than reading [SupplyParameterFromQuery]: a section or file switch happens in the
+    // circuit (in-place-nav.js), as a history.pushState the circuit's NavigationManager never sees. Only the page reads
+    // it: a section the page creates while the query changes must not subscribe to the query, or the circuit's
+    // location-changed dispatch throws.
+    private ServerDetailLocation _location = ServerDetailLocation.Parse(string.Empty);
+    private ServerDetailNavigator? _navigator;
+    private DotNetObjectReference<ServerDetail>? _self;
+    private string? _inPlaceFor; // The Server id in-place-nav.js switches for, once the circuit has attached it.
 
     /// <summary>The prerender's load, handed to the circuit (#299).</summary>
     [PersistentState]
@@ -348,6 +346,13 @@ else
     private ServerFailureView? VisibleFailure =>
         State?.Header.LastFailure is { } failure && !_dismissedFailures.Contains(failure.OperationId) ? failure : null;
 
+    protected override void OnInitialized()
+    {
+        _location = ServerDetailLocation.Parse(Navigation.Uri);
+        _navigator = new ServerDetailNavigator(GoToAsync);
+        Navigation.LocationChanged += OnLocationChanged;
+    }
+
     protected override async Task OnParametersSetAsync()
     {
         ZoneId ??= OperatorTz.Zone.Id;
@@ -373,7 +378,7 @@ else
 
         // Resolve the active section only after the per-section gates are known, so an unknown or unauthorized
         // ?section= fails closed to the always-available overview.
-        _activeSection = ResolveSection(Section);
+        _activeSection = ResolveSection(_location.Section);
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -384,6 +389,14 @@ else
             _ = PollHeaderAsync(_polling.Token);
             _circuitReady = true;
             StateHasChanged();
+        }
+
+        // #312: from here on this page's own links switch in the circuit (again after a move to another Server).
+        if (_inPlaceFor != Id)
+        {
+            _self ??= DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("zwInPlaceNav.attach", $"/servers/{Id}", _self, _instance);
+            _inPlaceFor = Id;
         }
 
         // Hide a failure this viewer dismissed before (checked once per failure, in the browser's storage).
@@ -413,6 +426,58 @@ else
     };
 
     private string Active(string section) => _activeSection == section ? "active" : string.Empty;
+
+    /// <summary>A click on one of this page's links, or a back/forward between its entries, already in the address bar
+    /// (in-place-nav.js, #312). False when <paramref name="url"/> isn't this page, and the browser then loads it.</summary>
+    [JSInvokable]
+    public bool NavigatedInPlace(string url)
+    {
+        ServerDetailLocation location = ServerDetailLocation.Parse(url);
+        if (!location.IsServerPage(Id))
+        {
+            return false;
+        }
+
+        Show(location);
+        return true;
+    }
+
+    // A section's move to another of this page's URLs (ServerDetailNavigator): the same in-place switch as a click.
+    private async Task GoToAsync(string href)
+    {
+        string url = Navigation.ToAbsoluteUri(href).AbsoluteUri;
+        ServerDetailLocation location = ServerDetailLocation.Parse(url);
+        if (_inPlaceFor is null || !location.IsServerPage(Id))
+        {
+            Navigation.NavigateTo(href);
+            return;
+        }
+
+        await JS.InvokeVoidAsync("zwInPlaceNav.push", url);
+        Show(location);
+    }
+
+    // A real navigation (an enhanced one: a link the module left alone, or a click before the circuit was up). It
+    // starts before the server is asked for the new page, so the page follows it here; a move to another page only
+    // records the URL, without a render, for the parameters that follow.
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        ServerDetailLocation location = ServerDetailLocation.Parse(e.Location);
+        if (!location.IsServerPage(Id))
+        {
+            _location = location;
+            return;
+        }
+
+        _ = InvokeAsync(() => Show(location));
+    }
+
+    private void Show(ServerDetailLocation location)
+    {
+        _location = location;
+        _activeSection = ResolveSection(location.Section);
+        StateHasChanged();
+    }
 
     private string SectionHref(string section) => section == "overview"
         ? $"/servers/{Id}"
@@ -606,6 +671,21 @@ else
 
     public async ValueTask DisposeAsync()
     {
+        Navigation.LocationChanged -= OnLocationChanged;
+        if (_inPlaceFor is not null)
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("zwInPlaceNav.detach", _instance);
+            }
+            catch (JSDisconnectedException)
+            {
+                // The circuit is already gone; the module goes with it.
+            }
+        }
+
+        _self?.Dispose();
+
         if (_polling is not null)
         {
             await _polling.CancelAsync();
