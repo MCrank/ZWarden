@@ -56,6 +56,12 @@ current without a reload, with an age line that turns into a stale warning when 
   shows `—` in the meter slot and hides its text line (the slot is kept, as on Fleet). Changed after the Aspire
   screenshot: the row was first labelled "Disk free" over a used-share meter (it read as "63 % free"), and an empty
   figure showed `—` twice.
+- **D5b — panel layout (user pick "B" from the mockups, 2026-10-04).** Each metric sits in its own shaded panel
+  (`bg-muted`, `rounded-md`) with a Lucide icon (`cpu`, `memory-stick`, `hard-drive` via `ShellIcon`; meta rows keep
+  no icons) and a two-sided detail line: `4 cores | load 0.12 / 0.20 / 0.18`, `9.3 GiB available | 6.2 / 15.5 GiB`,
+  `191.7 GiB used | 34.0 GiB free of 225.7 GiB`. A detail line with nothing on either side is hidden. For this the
+  report gains `CpuCores` (the `cpuN` lines of `/proc/stat`) and `LoadAverage1/5/15` (`/proc/loadavg`), also trailing
+  and nullable; ingest drops a core count outside 1–4096 and all three loads if any is negative or not a number.
 - **D6 — live.** New `GET /api/hosts/telemetry` (`Agent.View` policy, tenant-filtered through
   `IAgentInventory.ListHostsAsync`, `no-store`), using the same `HostTelemetry` projection. The page root carries
   `data-live-hosts="/api/hosts/telemetry"`. `live-status.js` gains a hosts branch that reuses `applyMeter`/`setText` to

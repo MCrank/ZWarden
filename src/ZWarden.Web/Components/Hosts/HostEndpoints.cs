@@ -53,6 +53,10 @@ public static class HostEndpoints
         diskUsedBytes = t.DiskUsedBytes,
         diskTotalBytes = t.DiskTotalBytes,
         diskText = t.DiskText,
+        cpuCoresText = t.CpuCoresText,
+        loadText = t.LoadText,
+        memoryAvailableText = t.MemoryAvailableText,
+        diskUsedText = t.DiskUsedText,
         age = t.Age,
         stale = t.Stale,
     };

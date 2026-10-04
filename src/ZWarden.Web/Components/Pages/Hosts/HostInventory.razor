@@ -113,36 +113,51 @@ else
                         }
                         else
                         {
-                            <div class="space-y-2 text-xs" data-host-telemetry-for="@host.Id">
-                                <div class="flex items-center justify-between gap-2">
-                                    <span class="text-muted-foreground">CPU</span>
-                                    <span data-host-cell="cpu">
-                                        <span data-meter-slot hidden="@(t.CpuPercent is null)"><MeterBar Value="@(t.CpuPercent ?? 0)" Max="100" Label="CPU" /></span>
-                                        <span data-meter-empty hidden="@(t.CpuPercent is not null)" class="font-mono tabular-nums text-muted-foreground">—</span>
-                                    </span>
-                                </div>
-                                <div>
+                            @* Variant B (#170 mockups): one shaded panel per metric — icon + label and the meter, then a
+                               two-sided detail line (cores | load, available | used / total, used | free of total). A
+                               detail line with nothing on either side is hidden; live-status.js re-applies the same rule. *@
+                            <div class="space-y-1.5 text-xs" data-host-telemetry-for="@host.Id">
+                                <div class="rounded-md bg-muted px-3 py-2.5" data-host-panel="cpu">
                                     <div class="flex items-center justify-between gap-2">
-                                        <span class="text-muted-foreground">Memory</span>
+                                        <span class="flex items-center gap-2 text-foreground"><ShellIcon Name="cpu" />CPU</span>
+                                        <span data-host-cell="cpu">
+                                            <span data-meter-slot hidden="@(t.CpuPercent is null)"><MeterBar Value="@(t.CpuPercent ?? 0)" Max="100" Label="CPU" /></span>
+                                            <span data-meter-empty hidden="@(t.CpuPercent is not null)" class="font-mono tabular-nums text-muted-foreground">—</span>
+                                        </span>
+                                    </div>
+                                    <div class="mt-1 flex justify-between gap-2 font-mono tabular-nums text-muted-foreground" data-host-detail hidden="@(t.CpuCoresText.Length == 0 && t.LoadText.Length == 0)">
+                                        <span data-host-cell="cpu-cores">@t.CpuCoresText</span>
+                                        <span class="text-right" data-host-cell="load">@t.LoadText</span>
+                                    </div>
+                                </div>
+                                <div class="rounded-md bg-muted px-3 py-2.5" data-host-panel="memory">
+                                    <div class="flex items-center justify-between gap-2">
+                                        <span class="flex items-center gap-2 text-foreground"><ShellIcon Name="memory-stick" />Memory</span>
                                         <span data-host-cell="memory">
                                             <span data-meter-slot hidden="@(t.MemoryTotalBytes is null)"><MeterBar Value="@(t.MemoryUsedBytes ?? 0)" Max="@(t.MemoryTotalBytes ?? 0)" Label="Memory" /></span>
                                             <span data-meter-empty hidden="@(t.MemoryTotalBytes is not null)" class="font-mono tabular-nums text-muted-foreground">—</span>
                                         </span>
                                     </div>
-                                    <div class="mt-0.5 text-right font-mono tabular-nums text-muted-foreground" data-host-cell="memory-text" hidden="@(t.MemoryTotalBytes is null)">@t.MemoryText</div>
+                                    <div class="mt-1 flex justify-between gap-2 font-mono tabular-nums text-muted-foreground" data-host-detail hidden="@(t.MemoryText.Length == 0)">
+                                        <span data-host-cell="memory-available">@t.MemoryAvailableText</span>
+                                        <span class="text-right" data-host-cell="memory-text">@t.MemoryText</span>
+                                    </div>
                                 </div>
-                                <div>
-                                    @* The meter is the used share, so it fills (and warms) as the volume fills up; the line under it says what is free. A missing figure shows only the meter slot's —. *@
+                                @* The meter is the used share, so it fills (and warms) as the volume fills up. *@
+                                <div class="rounded-md bg-muted px-3 py-2.5" data-host-panel="disk">
                                     <div class="flex items-center justify-between gap-2">
-                                        <span class="text-muted-foreground">Disk</span>
+                                        <span class="flex items-center gap-2 text-foreground"><ShellIcon Name="hard-drive" />Disk</span>
                                         <span data-host-cell="disk">
                                             <span data-meter-slot hidden="@(t.DiskTotalBytes is null)"><MeterBar Value="@(t.DiskUsedBytes ?? 0)" Max="@(t.DiskTotalBytes ?? 0)" Label="Disk used" /></span>
                                             <span data-meter-empty hidden="@(t.DiskTotalBytes is not null)" class="font-mono tabular-nums text-muted-foreground">—</span>
                                         </span>
                                     </div>
-                                    <div class="mt-0.5 text-right font-mono tabular-nums text-muted-foreground" data-host-cell="disk-text" hidden="@(t.DiskTotalBytes is null)">@t.DiskText</div>
+                                    <div class="mt-1 flex justify-between gap-2 font-mono tabular-nums text-muted-foreground" data-host-detail hidden="@(t.DiskText.Length == 0)">
+                                        <span data-host-cell="disk-used">@t.DiskUsedText</span>
+                                        <span class="text-right" data-host-cell="disk-text">@t.DiskText</span>
+                                    </div>
                                 </div>
-                                <p class="@AgeClass(t.Stale)" data-host-cell="age">@t.Age</p>
+                                <p class="pt-0.5 @AgeClass(t.Stale)" data-host-cell="age">@t.Age</p>
                             </div>
                         }
                     </div>

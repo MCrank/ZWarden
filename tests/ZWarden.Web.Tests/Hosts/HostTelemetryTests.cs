@@ -40,6 +40,28 @@ public class HostTelemetryTests
     }
 
     [Test]
+    public async Task Each_panel_gets_a_second_line_on_both_sides()
+    {
+        // B layout: cores | load, available | used / total, used | free of total.
+        HostTelemetry t = HostTelemetry.For(
+            Report(new HostVitals(37.5, 12 * GiB, 212 * GiB, 480 * GiB, 4, 0.123, 0.2, 1.75)), true, Now)!;
+
+        await Assert.That(t.CpuCoresText).IsEqualTo("4 cores");
+        await Assert.That(t.LoadText).IsEqualTo("load 0.12 / 0.20 / 1.75");
+        await Assert.That(t.MemoryAvailableText).IsEqualTo("20.0 GiB available");
+        await Assert.That(t.DiskUsedText).IsEqualTo("268.0 GiB used");
+    }
+
+    [Test]
+    public async Task A_single_core_host_says_core()
+    {
+        HostTelemetry t = HostTelemetry.For(Report(new HostVitals(1, null, null, null, 1)), true, Now)!;
+
+        await Assert.That(t.CpuCoresText).IsEqualTo("1 core");
+        await Assert.That(t.LoadText).IsEqualTo(string.Empty);
+    }
+
+    [Test]
     public async Task A_report_a_minute_old_is_stale_but_keeps_its_values()
     {
         HostTelemetry t = HostTelemetry.For(
@@ -58,8 +80,11 @@ public class HostTelemetryTests
         await Assert.That(t.CpuPercent).IsNull();
         await Assert.That(t.MemoryUsedBytes).IsNull();
         await Assert.That(t.DiskUsedBytes).IsNull();
-        await Assert.That(t.MemoryText).IsEqualTo("—");
-        await Assert.That(t.DiskText).IsEqualTo("—");
+        await Assert.That(t.MemoryText).IsEqualTo(string.Empty);
+        await Assert.That(t.DiskText).IsEqualTo(string.Empty);
+        await Assert.That(t.CpuCoresText).IsEqualTo(string.Empty);
+        await Assert.That(t.MemoryAvailableText).IsEqualTo(string.Empty);
+        await Assert.That(t.DiskUsedText).IsEqualTo(string.Empty);
     }
 
     [Test]
@@ -68,7 +93,7 @@ public class HostTelemetryTests
         HostTelemetry t = HostTelemetry.For(null, true, Now)!;
 
         await Assert.That(t.CpuPercent).IsNull();
-        await Assert.That(t.MemoryText).IsEqualTo("—");
+        await Assert.That(t.MemoryText).IsEqualTo(string.Empty);
         await Assert.That(t.Age).IsEqualTo("no report yet");
         await Assert.That(t.Stale).IsFalse();
     }

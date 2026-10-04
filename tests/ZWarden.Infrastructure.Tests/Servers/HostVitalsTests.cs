@@ -54,6 +54,37 @@ public class HostVitalsTests
     }
 
     [Test]
+    public async Task Cores_and_load_averages_are_kept()
+    {
+        HostVitals? vitals = HostVitals.Observed(null, null, 32 * GiB, null, null, 8, 0.12, 0.2, 1.75);
+
+        await Assert.That(vitals).IsEqualTo(new HostVitals(null, null, null, null, 8, 0.12, 0.2, 1.75));
+    }
+
+    [Test]
+    [Arguments(0)]
+    [Arguments(5000)]
+    public async Task An_impossible_core_count_is_dropped(int cores)
+    {
+        HostVitals? vitals = HostVitals.Observed(10, null, 32 * GiB, null, null, cores, null, null, null);
+
+        await Assert.That(vitals!.CpuCores).IsNull();
+    }
+
+    [Test]
+    [Arguments(-0.5)]
+    [Arguments(double.NaN)]
+    [Arguments(double.PositiveInfinity)]
+    public async Task An_impossible_load_drops_all_three(double bad)
+    {
+        HostVitals? vitals = HostVitals.Observed(10, null, 32 * GiB, null, null, null, 0.1, bad, 0.3);
+
+        await Assert.That(vitals!.LoadAverage1).IsNull();
+        await Assert.That(vitals.LoadAverage5).IsNull();
+        await Assert.That(vitals.LoadAverage15).IsNull();
+    }
+
+    [Test]
     public async Task An_older_agent_with_no_vitals_has_none()
     {
         await Assert.That(HostVitals.Observed(null, null, 32 * GiB, null, null)).IsNull();

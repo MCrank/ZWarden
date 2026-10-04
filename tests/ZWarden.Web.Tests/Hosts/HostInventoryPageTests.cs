@@ -162,6 +162,13 @@ public sealed class HostInventoryPageTests
         await Assert.That(html).Contains("12.0 GiB / 32.0 GiB");
         await Assert.That(html).Contains("aria-label=\"Disk used: 56%\"");
         await Assert.That(html).Contains("212.0 GiB free of 480.0 GiB");
+        // The panels' second lines and the metric icons (B layout).
+        await Assert.That(html).Contains("4 cores");
+        await Assert.That(html).Contains("load 0.12 / 0.20 / 0.18");
+        await Assert.That(html).Contains("20.0 GiB available");
+        await Assert.That(html).Contains("268.0 GiB used");
+        await Assert.That(html).Contains("data-host-panel=\"disk\"");
+        await Assert.That(html).Contains("<rect width=\"6\" height=\"6\" x=\"9\" y=\"9\" rx=\"1\"");
         await Assert.That(html).Contains("as of just now");
         await Assert.That(html).DoesNotContain("No telemetry");
         client.Dispose();
@@ -178,7 +185,9 @@ public sealed class HostInventoryPageTests
         string html = await (await client.GetAsync(new Uri("/hosts", UriKind.Relative))).Content.ReadAsStringAsync();
 
         await Assert.That(html).Contains($"data-host-telemetry-for=\"{agentId}\"");
-        await Assert.That(Regex.IsMatch(html, "data-host-cell=\"memory-text\" hidden[^>]*>(—|&#x2014;)<")).IsTrue();
+        // Each metric keeps its meter slot (showing —) and hides its empty detail line.
+        await Assert.That(Regex.Count(html, "data-host-detail hidden")).IsEqualTo(3);
+        await Assert.That(html).Contains("data-host-cell=\"memory-text\"></span>");
         await Assert.That(html).Contains("no report yet");
         client.Dispose();
     }
@@ -240,7 +249,7 @@ public sealed class HostInventoryPageTests
         const long GiB = 1024L * 1024 * 1024;
         factory.Services.GetRequiredService<IHostCapacityCache>().Record(new HostCapacity(
             agentId, 32 * GiB, 0, 0, 4 * GiB, 0, DateTimeOffset.UtcNow,
-            new HostVitals(37.5, 12 * GiB, 212 * GiB, 480 * GiB)));
+            new HostVitals(37.5, 12 * GiB, 212 * GiB, 480 * GiB, 4, 0.12, 0.2, 0.18)));
     }
 
     private static async Task<AgentId> SeedHostAsync(ZWardenWebAppFactory factory)

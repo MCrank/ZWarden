@@ -239,6 +239,14 @@
   // arrive preformatted (server clock); everything is Agent-observed data, so textContent only. A Host that connects
   // or disconnects changes the card's layout, so that still shows on the next load.
   var AGE_TONES = ['text-status-busy', 'text-muted-foreground'];
+  var DETAIL_KEYS = {
+    'cpu-cores': 'cpuCoresText',
+    'load': 'loadText',
+    'memory-available': 'memoryAvailableText',
+    'memory-text': 'memoryText',
+    'disk-used': 'diskUsedText',
+    'disk-text': 'diskText'
+  };
 
   function applyHosts(root, byId) {
     root.querySelectorAll('[data-host-telemetry-for]').forEach(function (card) {
@@ -252,23 +260,29 @@
           case 'memory':
             applyMeter(cell, h.memoryUsedBytes, h.memoryTotalBytes);
             break;
-          case 'memory-text':
-            // Shown only with a value: the meter slot already says — when there is none.
-            setText(cell, h.memoryText ? String(h.memoryText) : DASH);
-            setHidden(cell, typeof h.memoryTotalBytes !== 'number');
-            break;
           case 'disk':
             applyMeter(cell, h.diskUsedBytes, h.diskTotalBytes);
             break;
+          case 'cpu-cores':
+          case 'load':
+          case 'memory-available':
+          case 'memory-text':
+          case 'disk-used':
           case 'disk-text':
-            setText(cell, h.diskText ? String(h.diskText) : DASH);
-            setHidden(cell, typeof h.diskTotalBytes !== 'number');
+            // The panels' detail lines: preformatted, empty when unknown (the meter slot already says —).
+            setText(cell, String(h[DETAIL_KEYS[cell.getAttribute('data-host-cell')]] || ''));
             break;
           case 'age':
             setText(cell, h.age ? String(h.age) : '');
             swapClass(cell, AGE_TONES, h.stale ? 'text-status-busy' : 'text-muted-foreground');
             break;
         }
+      });
+      // A detail line with nothing on either side is hidden, as on the first render.
+      card.querySelectorAll('[data-host-detail]').forEach(function (line) {
+        var empty = true;
+        line.querySelectorAll('[data-host-cell]').forEach(function (c) { empty = empty && !c.textContent; });
+        setHidden(line, empty);
       });
     });
   }
