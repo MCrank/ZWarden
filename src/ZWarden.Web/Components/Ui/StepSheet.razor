@@ -1,0 +1,111 @@
+@* A side sheet that walks numbered steps with Back / Next and a final action (#338): the Deploy server sheet, and the
+   Enroll host sheet after it (#342). Same sheet language as Add mods (#292). It owns only the chrome; the owner renders
+   the current step's fields and decides whether Next may advance (CanAdvance), so a step can't be left while invalid.
+   Interactive only: it renders through a BbPortalHost in the same interactive root. *@
+
+<BbSheet Open="Open" OpenChanged="OpenChanged">
+    <BbSheetContent Class="flex w-full flex-col overflow-y-auto sm:max-w-xl" @attributes="AdditionalAttributes">
+        <BbSheetHeader>
+            <BbSheetTitle>@Title</BbSheetTitle>
+            @if (Description is not null)
+            {
+                <BbSheetDescription>@Description</BbSheetDescription>
+            }
+        </BbSheetHeader>
+
+        <ol class="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs" data-step-strip>
+            @for (int i = 0; i < Steps.Count; i++)
+            {
+                int index = i;
+                bool current = index == Step;
+                bool done = index < Step;
+                <li class="flex items-center gap-2 @(current ? "font-semibold text-foreground" : "text-muted-foreground")"
+                    data-step="@index" aria-current="@(current ? "step" : null)">
+                    <span class="flex h-5 w-5 flex-none items-center justify-center rounded-full border text-[11px] tabular-nums
+                                 @(current ? "border-primary bg-primary text-primary-foreground" : done ? "border-primary text-primary" : "border-border")">@(index + 1)</span>
+                    @Steps[index]
+                </li>
+            }
+        </ol>
+
+        <div class="flex-1 space-y-4 pb-6" data-step-body="@Step">
+            @ChildContent
+        </div>
+
+        <BbSheetFooter Class="flex-row items-center">
+            @if (Step > 0)
+            {
+                <BbButton Variant="ButtonVariant.Outline" OnClick="BackAsync" Disabled="Busy" data-action="step-back">Back</BbButton>
+            }
+            <span class="mr-auto"></span>
+            @if (Step < Steps.Count - 1)
+            {
+                <BbButton OnClick="NextAsync" Disabled="Busy" data-action="step-next">Next</BbButton>
+            }
+            else
+            {
+                <BbButton OnClick="FinishAsync" Disabled="Busy" data-action="step-finish">@FinishLabel</BbButton>
+            }
+        </BbSheetFooter>
+    </BbSheetContent>
+</BbSheet>
+
+@code {
+    /// <summary>The sheet is open.</summary>
+    [Parameter]
+    public bool Open { get; set; }
+
+    /// <summary>Raised when the sheet opens or closes.</summary>
+    [Parameter]
+    public EventCallback<bool> OpenChanged { get; set; }
+
+    [Parameter, EditorRequired]
+    public string Title { get; set; } = string.Empty;
+
+    [Parameter]
+    public string? Description { get; set; }
+
+    /// <summary>The steps' names, in order.</summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyList<string> Steps { get; set; } = [];
+
+    /// <summary>The current step (zero-based).</summary>
+    [Parameter]
+    public int Step { get; set; }
+
+    [Parameter]
+    public EventCallback<int> StepChanged { get; set; }
+
+    /// <summary>Asked before Next leaves the given step; <c>false</c> keeps the sheet on it.</summary>
+    [Parameter]
+    public Func<int, Task<bool>>? CanAdvance { get; set; }
+
+    /// <summary>The last step's action (e.g. Deploy).</summary>
+    [Parameter]
+    public EventCallback OnFinish { get; set; }
+
+    [Parameter]
+    public string FinishLabel { get; set; } = "Finish";
+
+    /// <summary>An action is running: the footer buttons are disabled.</summary>
+    [Parameter]
+    public bool Busy { get; set; }
+
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private Task BackAsync() => StepChanged.InvokeAsync(Step - 1);
+
+    private async Task NextAsync()
+    {
+        if (CanAdvance is null || await CanAdvance(Step))
+        {
+            await StepChanged.InvokeAsync(Step + 1);
+        }
+    }
+
+    private Task FinishAsync() => OnFinish.InvokeAsync();
+}

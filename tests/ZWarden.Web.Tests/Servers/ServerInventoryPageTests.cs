@@ -324,298 +324,41 @@ public sealed class ServerInventoryPageTests
         await Assert.That(html).Contains("moderated");
         await Assert.That(html).DoesNotContain("nsfw-01");
         await Assert.That(Regex.IsMatch(html, $"data-fleet-host[^>]*>{Regex.Escape(HtmlEncoder.Default.Encode(HostNames.ShortId(agent)))}<")).IsTrue();
+        // #338: no Server.Register, no Deploy server button (the service re-checks on submit anyway).
+        await Assert.That(html).DoesNotContain("data-action=\"deploy-server-open\"");
         client.Dispose();
     }
 
+    // --- #338: the Deploy server sheet replaces the #230 inline form ---------------------------------------------
+
     [Test]
-    public async Task An_operator_sees_the_register_section()
+    public async Task An_operator_gets_the_deploy_server_button_and_no_inline_register_form()
     {
         await using ZWardenWebAppFactory factory = new();
         HttpClient client = await SignedInOperatorAsync(factory);
+        await SeedAgentAsync(factory);
 
         string html = await (await client.GetAsync(new Uri("/servers", UriKind.Relative))).Content.ReadAsStringAsync();
 
-        await Assert.That(html).Contains("Register a new server");
+        // The island prerenders its button; the sheet itself opens only in the circuit.
+        await Assert.That(html).Contains("data-deploy-server");
+        await Assert.That(html).Contains("data-action=\"deploy-server-open\"");
+        await Assert.That(html).DoesNotContain("Register a new server");
+        await Assert.That(html).DoesNotContain("data-new-server-wizard");
+        await Assert.That(html).DoesNotContain("_registerForm");
         client.Dispose();
     }
 
     [Test]
-    public async Task The_register_form_offers_an_optional_game_port_and_posts_it()
-    {
-        // #229: the operator may pick the host pair; blank leaves it to the Agent's next free stride.
-        await using ZWardenWebAppFactory factory = new();
-        HttpClient client = await SignedInOperatorAsync(factory);
-        AgentId agent = await SeedAgentAsync(factory);
-        factory.Services.GetRequiredService<IServerDiscoveryCache>().Record(agent, []);
-
-        string page = await (await client.GetAsync(new Uri("/servers", UriKind.Relative))).Content.ReadAsStringAsync();
-        await Assert.That(page).Contains("name=\"_registerForm.GamePort\"");
-
-        Dictionary<string, string> form = new(StringComparer.Ordinal)
-        {
-            ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
-            ["_handler"] = "register-server",
-            ["_registerForm.AgentId"] = agent.ToString(),
-            ["_registerForm.Name"] = "on-27015",
-            ["_registerForm.GamePort"] = "27015",
-        };
-        await client.PostAsync(new Uri("/servers", UriKind.Relative), new FormUrlEncodedContent(form));
-
-        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
-        ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
-        Operation provision = await db.Set<Operation>().SingleAsync(o => o.Kind == OperationKind.ProvisionServer);
-        await Assert.That(ServerContainerPayload.FromJson(provision.CommandPayload!).GamePort).IsEqualTo(27015);
-        client.Dispose();
-    }
-
-    [Test]
-    public async Task The_register_form_refuses_an_invalid_game_port_with_a_message()
+    public async Task The_deploy_deep_link_renders_the_fleet_page()
     {
         await using ZWardenWebAppFactory factory = new();
         HttpClient client = await SignedInOperatorAsync(factory);
-        AgentId agent = await SeedAgentAsync(factory);
-        factory.Services.GetRequiredService<IServerDiscoveryCache>().Record(agent, []);
 
-        string page = await (await client.GetAsync(new Uri("/servers", UriKind.Relative))).Content.ReadAsStringAsync();
-        Dictionary<string, string> form = new(StringComparer.Ordinal)
-        {
-            ["__RequestVerificationToken"] = ParseHiddenInputs(page)["__RequestVerificationToken"],
-            ["_handler"] = "register-server",
-            ["_registerForm.AgentId"] = agent.ToString(),
-            ["_registerForm.Name"] = "bad-port",
-            ["_registerForm.GamePort"] = "80",
-        };
-        HttpResponseMessage response = await client.PostAsync(new Uri("/servers", UriKind.Relative), new FormUrlEncodedContent(form));
-        string html = await response.Content.ReadAsStringAsync();
+        HttpResponseMessage response = await client.GetAsync(new Uri("/servers?deploy=1", UriKind.Relative));
 
-        await Assert.That(html).Contains("data-register-message");
-        await Assert.That(html).Contains("between 1024 and 65534");
-        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
-        await Assert.That(await scope.ServiceProvider.GetRequiredService<ZWardenDbContext>().Set<Server>().AnyAsync()).IsFalse();
-        client.Dispose();
-    }
-
-    // --- #230: the new-server wizard ----------------------------------------------------------------------------
-
-    private const long GiB = 1024L * 1024 * 1024;
-
-    private static async Task<(HttpClient Client, AgentId Agent, string Token)> WizardAsync(
-        ZWardenWebAppFactory factory, HostCapacity? capacity = null)
-    {
-        HttpClient client = await SignedInOperatorAsync(factory);
-        AgentId agent = await SeedAgentAsync(factory);
-        factory.Services.GetRequiredService<IServerDiscoveryCache>().Record(agent, []);
-        if (capacity is not null)
-        {
-            factory.Services.GetRequiredService<IHostCapacityCache>().Record(capacity with { AgentId = agent });
-        }
-
-        string page = await (await client.GetAsync(new Uri("/servers", UriKind.Relative))).Content.ReadAsStringAsync();
-        return (client, agent, ParseHiddenInputs(page)["__RequestVerificationToken"]);
-    }
-
-    private static Dictionary<string, string> WizardForm(string token, AgentId agent, string name) => new(StringComparer.Ordinal)
-    {
-        ["__RequestVerificationToken"] = token,
-        ["_handler"] = "register-server",
-        ["_registerForm.AgentId"] = agent.ToString(),
-        ["_registerForm.Name"] = name,
-    };
-
-    [Test]
-    public async Task The_wizard_posts_the_suggested_heap_and_the_initial_settings_with_the_password_encrypted()
-    {
-        await using ZWardenWebAppFactory factory = new();
-        (HttpClient client, AgentId agent, string token) = await WizardAsync(factory);
-        Dictionary<string, string> form = WizardForm(token, agent, "friends");
-        form["_registerForm.ExpectedPlayers"] = "8";
-        form["_registerForm.Public"] = "true";
-        form["_registerForm.PublicName"] = "Friends of Knox";
-        form["_registerForm.MaxPlayers"] = "12";
-        form["_registerForm.Password"] = "hunter2";
-        form["_registerForm.WelcomeMessage"] = "Be nice";
-
-        HttpResponseMessage response = await client.PostAsync(new Uri("/servers", UriKind.Relative), new FormUrlEncodedContent(form));
-
-        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.Redirect);
-        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
-        Operation provision = await scope.ServiceProvider.GetRequiredService<ZWardenDbContext>()
-            .Set<Operation>().SingleAsync(o => o.Kind == OperationKind.ProvisionServer);
-        await Assert.That(provision.CommandPayload!).DoesNotContain("hunter2");
-        ServerContainerPayload payload = ServerContainerPayload.FromJson(provision.CommandPayload!);
-        await Assert.That(payload.HeapSizeBytes).IsEqualTo(6 * GiB);
-        await Assert.That(payload.Settings!.Public!.Value).IsTrue();
-        await Assert.That(payload.Settings.PublicName).IsEqualTo("Friends of Knox");
-        await Assert.That(payload.Settings.MaxPlayers).IsEqualTo(12);
-        await Assert.That(payload.Settings.WelcomeMessage).IsEqualTo("Be nice");
-        await Assert.That(payload.Settings.ProtectedPassword).IsNotNull();
-        client.Dispose();
-    }
-
-    [Test]
-    public async Task The_wizard_shows_each_hosts_free_memory()
-    {
-        await using ZWardenWebAppFactory factory = new();
-        HttpClient client = await SignedInOperatorAsync(factory);
-        AgentId agent = await SeedAgentAsync(factory);
-        factory.Services.GetRequiredService<IServerDiscoveryCache>().Record(agent, []);
-        factory.Services.GetRequiredService<IHostCapacityCache>()
-            .Record(new HostCapacity(agent, 32 * GiB, 10 * GiB, 6 * GiB, 4 * GiB, 2 * GiB, DateTimeOffset.UtcNow));
-
-        string html = await (await client.GetAsync(new Uri("/servers", UriKind.Relative))).Content.ReadAsStringAsync();
-
-        await Assert.That(html).Contains("data-host-capacity");
-        await Assert.That(html).Contains("20 GiB free for new servers of 32 GiB");
-        await Assert.That(html).Contains("name=\"_registerForm.ExpectedPlayers\"");
-        await Assert.That(html).Contains("name=\"_registerForm.HeapGiB\"");
-        await Assert.That(SsrCheckbox.IsNative(html, "register-public", "_registerForm.Public")).IsTrue();
-        client.Dispose();
-    }
-
-    [Test]
-    public async Task Over_the_hosts_free_memory_the_wizard_warns_and_creates_only_once_acknowledged()
-    {
-        await using ZWardenWebAppFactory factory = new();
-        (HttpClient client, AgentId agent, string token) = await WizardAsync(
-            factory, new HostCapacity(AgentId.New(), 16 * GiB, 10 * GiB, 6 * GiB, 4 * GiB, 2 * GiB, DateTimeOffset.UtcNow));
-        Dictionary<string, string> form = WizardForm(token, agent, "big");
-        form["_registerForm.HeapGiB"] = "8";
-
-        string warned = await (await client.PostAsync(new Uri("/servers", UriKind.Relative), new FormUrlEncodedContent(form)))
-            .Content.ReadAsStringAsync();
-
-        await Assert.That(warned).Contains("data-overcommit-warning");
-        await Assert.That(SsrCheckbox.IsNative(warned, "register-acknowledge", "_registerForm.AcknowledgeOvercommit")).IsTrue();
-        using (AsyncServiceScope scope = factory.Services.CreateSystemScope())
-        {
-            await Assert.That(await scope.ServiceProvider.GetRequiredService<ZWardenDbContext>().Set<Server>().AnyAsync()).IsFalse();
-        }
-
-        form["__RequestVerificationToken"] = ParseHiddenInputs(warned)["__RequestVerificationToken"];
-        form["_registerForm.AcknowledgeOvercommit"] = "true";
-        HttpResponseMessage created = await client.PostAsync(new Uri("/servers", UriKind.Relative), new FormUrlEncodedContent(form));
-
-        await Assert.That(created.StatusCode).IsEqualTo(HttpStatusCode.Redirect);
-        client.Dispose();
-    }
-
-    [Test]
-    public async Task The_overcommit_re_render_keeps_the_chosen_branch_and_host_selected()
-    {
-        // Live pass on #258: the warning re-render showed each select's FIRST option, so "Create it anyway" silently
-        // submitted the public branch (and, on a multi-host install, the first host).
-        await using ZWardenWebAppFactory factory = new();
-        (HttpClient client, AgentId agent, string token) = await WizardAsync(
-            factory, new HostCapacity(AgentId.New(), 16 * GiB, 10 * GiB, 6 * GiB, 4 * GiB, 2 * GiB, DateTimeOffset.UtcNow));
-        AgentId second = await SeedAgentAsync(factory);
-        factory.Services.GetRequiredService<IServerDiscoveryCache>().Record(second, []);
-        factory.Services.GetRequiredService<IHostCapacityCache>()
-            .Record(new HostCapacity(second, 16 * GiB, 10 * GiB, 6 * GiB, 4 * GiB, 2 * GiB, DateTimeOffset.UtcNow));
-        Dictionary<string, string> form = WizardForm(token, second, "pinned-big");
-        form["_registerForm.HeapGiB"] = "8";
-        form["_registerForm.Branch"] = "42.19";
-
-        string warned = await (await client.PostAsync(new Uri("/servers", UriKind.Relative), new FormUrlEncodedContent(form)))
-            .Content.ReadAsStringAsync();
-
-        await Assert.That(warned).Contains("data-overcommit-warning");
-        await Assert.That(SsrSelect.SelectedValue(warned, "_registerForm.Branch")).IsEqualTo("42.19");
-        await Assert.That(SsrSelect.SelectedValue(warned, "_registerForm.AgentId")).IsEqualTo(second.ToString());
-        client.Dispose();
-    }
-
-
-    [Test]
-    public async Task The_wizard_refuses_a_setting_that_could_break_the_config_line()
-    {
-        await using ZWardenWebAppFactory factory = new();
-        (HttpClient client, AgentId agent, string token) = await WizardAsync(factory);
-        Dictionary<string, string> form = WizardForm(token, agent, "sneaky");
-        form["_registerForm.WelcomeMessage"] = "hi\nRCONPassword=x";
-
-        string html = await (await client.PostAsync(new Uri("/servers", UriKind.Relative), new FormUrlEncodedContent(form)))
-            .Content.ReadAsStringAsync();
-
-        await Assert.That(html).Contains("data-register-message");
-        await Assert.That(html).Contains("printable");
-        client.Dispose();
-    }
-
-    // --- #258: the Build 42 branch picker ------------------------------------------------------------------------
-
-    [Test]
-    public async Task The_wizard_offers_the_curated_branches_with_public_first_and_a_custom_field()
-    {
-        await using ZWardenWebAppFactory factory = new();
-        HttpClient client = await SignedInOperatorAsync(factory);
-        AgentId agent = await SeedAgentAsync(factory);
-        factory.Services.GetRequiredService<IServerDiscoveryCache>().Record(agent, []);
-
-        string html = await (await client.GetAsync(new Uri("/servers", UriKind.Relative))).Content.ReadAsStringAsync();
-
-        // Static SSR shows the first option, so the public default must lead.
-        await Assert.That(Regex.IsMatch(
-            html, "name=\"_registerForm.Branch\"[\\s\\S]*?<option value=\"\"[^>]*>Latest public[\\s\\S]*?value=\"unstable\"[\\s\\S]*?value=\"42.19\"[\\s\\S]*?value=\"custom\""))
-            .IsTrue();
-        await Assert.That(html).Contains("name=\"_registerForm.CustomBranch\"");
-        await Assert.That(html).Contains("data-branch-help");
-        client.Dispose();
-    }
-
-    [Test]
-    public async Task The_wizard_posts_a_pinned_branch_and_records_it_on_the_server()
-    {
-        await using ZWardenWebAppFactory factory = new();
-        (HttpClient client, AgentId agent, string token) = await WizardAsync(factory);
-        Dictionary<string, string> form = WizardForm(token, agent, "pinned");
-        form["_registerForm.Branch"] = "42.19";
-        form["_registerForm.CustomBranch"] = "ignored";
-
-        HttpResponseMessage response = await client.PostAsync(new Uri("/servers", UriKind.Relative), new FormUrlEncodedContent(form));
-
-        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.Redirect);
-        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
-        ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
-        Operation provision = await db.Set<Operation>().SingleAsync(o => o.Kind == OperationKind.ProvisionServer);
-        await Assert.That(ServerContainerPayload.FromJson(provision.CommandPayload!).Branch).IsEqualTo("42.19");
-        await Assert.That((await db.Set<Server>().SingleAsync()).Branch).IsEqualTo("42.19");
-        client.Dispose();
-    }
-
-    [Test]
-    public async Task The_wizard_posts_a_custom_branch()
-    {
-        await using ZWardenWebAppFactory factory = new();
-        (HttpClient client, AgentId agent, string token) = await WizardAsync(factory);
-        Dictionary<string, string> form = WizardForm(token, agent, "custom");
-        form["_registerForm.Branch"] = "custom";
-        form["_registerForm.CustomBranch"] = "my-test";
-
-        await client.PostAsync(new Uri("/servers", UriKind.Relative), new FormUrlEncodedContent(form));
-
-        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
-        Operation provision = await scope.ServiceProvider.GetRequiredService<ZWardenDbContext>()
-            .Set<Operation>().SingleAsync(o => o.Kind == OperationKind.ProvisionServer);
-        await Assert.That(ServerContainerPayload.FromJson(provision.CommandPayload!).Branch).IsEqualTo("my-test");
-        client.Dispose();
-    }
-
-    [Test]
-    public async Task The_wizard_refuses_build_41_as_a_custom_branch()
-    {
-        await using ZWardenWebAppFactory factory = new();
-        (HttpClient client, AgentId agent, string token) = await WizardAsync(factory);
-        Dictionary<string, string> form = WizardForm(token, agent, "old");
-        form["_registerForm.Branch"] = "custom";
-        form["_registerForm.CustomBranch"] = "legacy41";
-
-        string html = await (await client.PostAsync(new Uri("/servers", UriKind.Relative), new FormUrlEncodedContent(form)))
-            .Content.ReadAsStringAsync();
-
-        await Assert.That(html).Contains("data-register-message");
-        await Assert.That(html).Contains("Build 42 only");
-        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
-        await Assert.That(await scope.ServiceProvider.GetRequiredService<ZWardenDbContext>().Set<Server>().AnyAsync()).IsFalse();
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
+        await Assert.That(await response.Content.ReadAsStringAsync()).Contains("data-action=\"deploy-server-open\"");
         client.Dispose();
     }
 

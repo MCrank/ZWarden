@@ -1,0 +1,346 @@
+@using System.Security.Claims
+@using ZWarden.Application.Agents
+@using ZWarden.Domain.Ids
+@using ZWarden.Infrastructure.Tenancy
+@inject ActionScopeRunner Actions
+@inject UserManager<ApplicationUser> Users
+@inject IHostCapacityCache Capacity
+@inject IAgentConnectionRegistry Connections
+@inject ToastService Toasts
+@inject NavigationManager Nav
+
+@* The Fleet board's "Deploy server" button and sheet (#338; replaces the #230 inline Register form). An interactive
+   island on the static Fleet page (ADR 0040/0046): it lists the Hosts and registers the Server through
+   ActionScopeRunner, a scope per action carrying the circuit's tenant (#297). The page renders it only for a caller
+   holding Server.Register, and the service re-checks it on Deploy. Host names are untrusted, rendered as data. *@
+
+@* "on" once the circuit has rendered the island (browser tests wait for it); see ServerDetail. *@
+<span hidden data-circuit="@(_circuitReady ? "on" : "off")"></span>
+<BbButton OnClick="OpenAsync" data-action="deploy-server-open">+ Deploy server</BbButton>
+
+<StepSheet Open="_open" OpenChanged="OpenChangedAsync" Title="Deploy server"
+           Description="A fresh Project Zomboid container on one of your hosts. It starts once the host's Agent has built it."
+           Steps="DeployServerDraft.StepNames" Step="_step" StepChanged="StepChangedAsync" CanAdvance="CanAdvanceAsync"
+           OnFinish="DeployAsync" FinishLabel="Deploy" Busy="_busy" data-deploy-server-sheet>
+    @if (_message is not null)
+    {
+        <div data-deploy-message>
+            <BbAlert Variant="AlertVariant.Warning" AccentBorder>
+                <BbAlertDescription>@_message</BbAlertDescription>
+            </BbAlert>
+        </div>
+    }
+
+    @switch (_step)
+    {
+        case DeployServerDraft.Basics:
+            @BasicsStep
+            break;
+        case DeployServerDraft.GameVersion:
+            @GameVersionStep
+            break;
+        default:
+            @MemoryStep
+            break;
+    }
+</StepSheet>
+
+<BbPortalHost />
+<BbToastProvider />
+
+@code {
+    /// <summary>Open the sheet on the first interactive render (the <c>?deploy=1</c> deep link).</summary>
+    [Parameter]
+    public bool OpenOnLoad { get; set; }
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthState { get; set; }
+
+    private DeployServerDraft _draft = new();
+    private IReadOnlyList<HostOption>? _hosts;
+    private bool _circuitReady;
+    private bool _open;
+    private bool _busy;
+    private int _step;
+    private string? _message;
+    private string? _overcommitWarning;
+
+    private RenderFragment BasicsStep => @<div class="space-y-4" data-deploy-step="basics">
+        @if (_hosts is { Count: 0 })
+        {
+            <p class="text-sm text-muted-foreground" data-no-hosts>
+                No hosts yet. Enroll one on the Hosts page; it can take servers once its Agent connects.
+            </p>
+        }
+        <div class="grid gap-3 sm:grid-cols-2">
+            <div class="flex flex-col text-sm sm:col-span-2">
+                <BbLabel For="deploy-host" Class="mb-1 text-muted-foreground">Host</BbLabel>
+                <BbNativeSelect TValue="string" Id="deploy-host" Value="@_draft.HostId" ValueChanged="HostChanged" Placeholder="Select…">
+                    @foreach (HostOption host in _hosts ?? [])
+                    {
+                        <option value="@host.Id" disabled="@(!host.Connected)" data-host-option>@host.OptionLabel</option>
+                    }
+                </BbNativeSelect>
+            </div>
+            <div class="flex flex-col text-sm">
+                <BbLabel For="deploy-name" Class="mb-1 text-muted-foreground">Name</BbLabel>
+                <BbInput Id="deploy-name" UpdateTiming="UpdateTiming.Immediate" @bind-Value="_draft.Name" autocomplete="off" />
+            </div>
+            <div class="flex flex-col text-sm">
+                <BbLabel For="deploy-public-name" Class="mb-1 text-muted-foreground">Server browser name</BbLabel>
+                <BbInput Id="deploy-public-name" UpdateTiming="UpdateTiming.Immediate" @bind-Value="_draft.PublicName" Placeholder="PZ default" />
+            </div>
+            <div class="flex flex-col text-sm">
+                <BbLabel For="deploy-max-players" Class="mb-1 text-muted-foreground">Max players</BbLabel>
+                <BbInput Id="deploy-max-players" UpdateTiming="UpdateTiming.Immediate" @bind-Value="_draft.MaxPlayers" Placeholder="32" inputmode="numeric" />
+            </div>
+            <div class="flex flex-col text-sm">
+                <BbLabel For="deploy-password" Class="mb-1 text-muted-foreground">Join password</BbLabel>
+                @* Stored encrypted on the provisioning Operation (ADR 0015); seeded into servertest.ini. *@
+                <BbInput Id="deploy-password" Type="InputType.Password" UpdateTiming="UpdateTiming.Immediate" @bind-Value="_draft.Password"
+                         autocomplete="new-password" Placeholder="None" />
+            </div>
+            <div class="flex flex-col text-sm">
+                <BbLabel For="deploy-port" Class="mb-1 text-muted-foreground">Game port</BbLabel>
+                @* #229: the host UDP pair is this port and the one above; blank = the next free pair. *@
+                <BbInput Id="deploy-port" UpdateTiming="UpdateTiming.Immediate" @bind-Value="_draft.GamePort" Placeholder="Auto" inputmode="numeric" />
+            </div>
+            <div class="flex flex-col text-sm sm:col-span-2">
+                <BbLabel For="deploy-welcome" Class="mb-1 text-muted-foreground">Welcome message</BbLabel>
+                <BbInput Id="deploy-welcome" UpdateTiming="UpdateTiming.Immediate" @bind-Value="_draft.WelcomeMessage" Placeholder="PZ default" />
+            </div>
+        </div>
+        <div class="flex items-center gap-2 text-sm">
+            <BbCheckbox Id="deploy-public" @bind-Checked="_draft.Public" />
+            <BbLabel For="deploy-public">List it in the in-game public server browser</BbLabel>
+        </div>
+    </div>;
+
+    private RenderFragment GameVersionStep => @<div class="space-y-4" data-deploy-step="game-version">
+        <div class="grid gap-3 sm:grid-cols-2">
+            <div class="flex flex-col text-sm">
+                <BbLabel For="deploy-branch" Class="mb-1 text-muted-foreground">Build 42 branch</BbLabel>
+                <BbNativeSelect TValue="string" Id="deploy-branch" @bind-Value="_draft.Branch">
+                    @foreach (ServerBranchOption option in ServerBranchCatalog.Options)
+                    {
+                        <option value="@ServerBranchView.ChoiceValue(option)">@option.Label</option>
+                    }
+                    <option value="@ServerBranchView.CustomChoice">Custom…</option>
+                </BbNativeSelect>
+            </div>
+            @if (_draft.Branch == ServerBranchView.CustomChoice)
+            {
+                <div class="flex flex-col text-sm">
+                    <BbLabel For="deploy-custom-branch" Class="mb-1 text-muted-foreground">Custom branch</BbLabel>
+                    <BbInput Id="deploy-custom-branch" UpdateTiming="UpdateTiming.Immediate" @bind-Value="_draft.CustomBranch"
+                             Placeholder="Steam branch name" spellcheck="false" />
+                </div>
+            }
+        </div>
+        <ul class="space-y-1 text-xs text-muted-foreground" data-branch-help>
+            @foreach (ServerBranchOption option in ServerBranchCatalog.Options)
+            {
+                <li><span class="font-medium text-foreground">@option.Label</span>: @option.Description</li>
+            }
+            <li><span class="font-medium text-foreground">Custom…</span>: any other Steam branch by name. A name Steam doesn't know stops the install with a clear reason in the logs.</li>
+        </ul>
+        <p class="text-xs text-muted-foreground">
+            The branch is fixed once the server is created. Updates stay on it, so a pinned server doesn't move when a new
+            build ships.
+        </p>
+    </div>;
+
+    private RenderFragment MemoryStep => @<div class="space-y-4" data-deploy-step="memory">
+        <div class="grid gap-3 sm:grid-cols-2">
+            <div class="flex flex-col text-sm">
+                <BbLabel For="deploy-players" Class="mb-1 text-muted-foreground">Expected players</BbLabel>
+                <BbInput Id="deploy-players" UpdateTiming="UpdateTiming.Immediate" Value="@_draft.ExpectedPlayers" ValueChanged="ExpectedPlayersChanged"
+                         Placeholder="e.g. 8" inputmode="numeric" />
+            </div>
+            <div class="flex flex-col text-sm">
+                <BbLabel For="deploy-heap" Class="mb-1 text-muted-foreground">Heap (GiB)</BbLabel>
+                <BbInput Id="deploy-heap" UpdateTiming="UpdateTiming.Immediate" Value="@_draft.HeapGiB" ValueChanged="HeapChanged"
+                         Placeholder="Suggested" inputmode="decimal" />
+            </div>
+        </div>
+        <p class="text-xs text-muted-foreground">
+            Leave the heap blank to use the suggestion: 4 GiB plus 0.25 GiB per expected player (8 players → 6 GiB,
+            16 → 8 GiB, 32 → 12 GiB); with no player count the host's default applies. It is a starting point — mods and
+            map size matter more than headcount. The container's limit is the heap plus the host's overhead.
+        </p>
+        <ul class="space-y-1 text-xs text-muted-foreground" data-host-capacity>
+            @foreach (HostOption host in (_hosts ?? []).Where(h => h.Connected))
+            {
+                <li data-host-capacity-line="@host.Id"><span class="font-medium text-foreground">@host.Name</span>: @NewServerForm.CapacityLine(Capacity.GetLatest(host.Id))</li>
+            }
+        </ul>
+        @if (_overcommitWarning is not null)
+        {
+            <div class="space-y-2" data-overcommit-warning>
+                <BbAlert Variant="AlertVariant.Warning" AccentBorder>
+                    <BbAlertDescription>@_overcommitWarning</BbAlertDescription>
+                </BbAlert>
+                <div class="flex items-center gap-2 text-sm">
+                    <BbCheckbox Id="deploy-acknowledge" @bind-Checked="_draft.AcknowledgeOvercommit" />
+                    <BbLabel For="deploy-acknowledge">Create it anyway</BbLabel>
+                </div>
+            </div>
+        }
+    </div>;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || !RendererInfo.IsInteractive)
+        {
+            return;
+        }
+
+        _circuitReady = true;
+        if (OpenOnLoad)
+        {
+            await OpenAsync();
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task OpenAsync()
+    {
+        _open = true;
+        _message = null;
+        await LoadHostsAsync();
+    }
+
+    private Task OpenChangedAsync(bool open)
+    {
+        _open = open;
+        return Task.CompletedTask;
+    }
+
+    // Read when the sheet opens, so the connection state and free memory are current.
+    private async Task LoadHostsAsync()
+    {
+        UserId user = await CurrentUserAsync();
+        IReadOnlyList<DeployHost> hosts = await Actions.RunAsync<IServerInventory, IReadOnlyList<DeployHost>>(
+            (inventory, ct) => inventory.ListDeployHostsAsync(user, ct));
+        _hosts = [.. hosts
+            .Select(h => HostOption.Of(h, Connections.IsConnected(h.Id), Capacity.GetLatest(h.Id)))
+            .OrderByDescending(h => h.Connected)
+            .ThenBy(h => h.Name, StringComparer.OrdinalIgnoreCase)];
+
+        // One connected host: nothing to choose.
+        List<HostOption> connected = [.. _hosts.Where(h => h.Connected)];
+        if (_draft.HostId is null && connected.Count == 1)
+        {
+            _draft.HostId = connected[0].Id.ToString();
+        }
+    }
+
+    private Task<bool> CanAdvanceAsync(int step)
+    {
+        _message = _draft.Validate(step, Deployable());
+        return Task.FromResult(_message is null);
+    }
+
+    private Task StepChangedAsync(int step)
+    {
+        _step = step;
+        _message = null;
+        return Task.CompletedTask;
+    }
+
+    // A different host or heap is a different capacity question: drop the warning and its acknowledgement.
+    private void HostChanged(string? value)
+    {
+        _draft.HostId = value;
+        ResetOvercommit();
+    }
+
+    private void ExpectedPlayersChanged(string? value)
+    {
+        _draft.ExpectedPlayers = value;
+        ResetOvercommit();
+    }
+
+    private void HeapChanged(string? value)
+    {
+        _draft.HeapGiB = value;
+        ResetOvercommit();
+    }
+
+    private void ResetOvercommit()
+    {
+        _overcommitWarning = null;
+        _draft.AcknowledgeOvercommit = false;
+    }
+
+    private async Task DeployAsync()
+    {
+        if (_draft.FirstInvalid(Deployable()) is { } invalid)
+        {
+            (_step, _message) = invalid;
+            return;
+        }
+
+        _busy = true;
+        _message = null;
+        try
+        {
+            UserId user = await CurrentUserAsync();
+            NewServerRequest request = _draft.ToRequest();
+            ServerRegisterResult result = await Actions.RunAsync<IServerInventory, ServerRegisterResult>(
+                (inventory, ct) => inventory.RegisterAsync(user, request, ct));
+            if (result.Succeeded)
+            {
+                string host = _hosts?.FirstOrDefault(h => h.Id == request.AgentId)?.Name ?? HostNames.ShortId(request.AgentId);
+                Toasts.Success($"{request.Name} is deploying on {host}. It starts once its Agent has built the container.", "Server deployed");
+                _open = false;
+                _step = DeployServerDraft.Basics;
+                _draft = new DeployServerDraft();
+                _overcommitWarning = null;
+                _hosts = null;
+                // An enhanced refresh of the static page: the grid gains the new row, this island (and its toast) stays.
+                Nav.Refresh();
+                return;
+            }
+
+            if (result.Failure == ServerRegisterFailure.OverCapacity && Capacity.GetLatest(request.AgentId) is { } capacity)
+            {
+                // D1 as in #230: warn with the numbers and ask for the acknowledgement; the typed values stay.
+                _step = DeployServerDraft.Memory;
+                _overcommitWarning = NewServerForm.ShortfallWarning(capacity, request.HeapSizeBytes ?? capacity.DefaultHeapBytes);
+                return;
+            }
+
+            _step = result.Failure is { } failure ? DeployServerDraft.StepFor(failure) : DeployServerDraft.Basics;
+            _message = DeployServerDraft.FailureMessage(result.Failure);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private HashSet<AgentId> Deployable() => [.. (_hosts ?? []).Where(h => h.Connected).Select(h => h.Id)];
+
+    private async Task<UserId> CurrentUserAsync()
+    {
+        ClaimsPrincipal principal = (await AuthState!).User;
+        return Guid.TryParse(Users.GetUserId(principal), out Guid id)
+            ? UserId.FromGuid(id)
+            : throw new InvalidOperationException("Authenticated request carries no user id claim.");
+    }
+
+    // One host in the picker: its name (#336, or its short id), whether it is connected, and its free memory.
+    private sealed record HostOption(AgentId Id, string Name, bool Connected, string OptionLabel)
+    {
+        public static HostOption Of(DeployHost host, bool connected, HostCapacity? capacity)
+        {
+            string name = HostNames.Display(host.Id, host.Label, host.Hostname);
+            string label = !connected
+                ? $"{name} — offline"
+                : capacity is null ? name : $"{name} — {NewServerForm.FormatGiB(capacity.FreeBytes)} free";
+            return new HostOption(host.Id, name, connected, label);
+        }
+    }
+}

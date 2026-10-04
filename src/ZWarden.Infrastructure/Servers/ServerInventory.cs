@@ -146,6 +146,23 @@ public sealed class ServerInventory : IServerInventory
     }
 
     /// <inheritdoc />
+    public async Task<IReadOnlyList<DeployHost>> ListDeployHostsAsync(UserId user, CancellationToken cancellationToken = default)
+    {
+        IReadOnlySet<string> held = await _permissions.GetTenantWidePermissionsAsync(user, cancellationToken).ConfigureAwait(false);
+        if (!held.Contains(Permissions.ServerRegister.Name))
+        {
+            return [];
+        }
+
+        bool named = held.Contains(Permissions.AgentView.Name);
+        IReadOnlyList<Agent> agents = await _agents.ListAsync(cancellationToken).ConfigureAwait(false);
+        return agents
+            .Where(a => a.IsTrusted)
+            .Select(a => named ? new DeployHost(a.Id, a.Label, a.Hostname) : new DeployHost(a.Id, null, null))
+            .ToList();
+    }
+
+    /// <inheritdoc />
     public async Task<ServerImportResult> ImportAsync(
         UserId user,
         AgentId agentId,
