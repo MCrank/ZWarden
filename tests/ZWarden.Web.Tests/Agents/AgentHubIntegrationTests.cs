@@ -199,7 +199,12 @@ public class AgentHubIntegrationTests
         // #230: the payload names no Agent — the authenticated connection does, so a report can't be forged for another.
         await connection.InvokeAsync(
             AgentHubProtocol.HostCapacity,
-            Envelope.Create(new HostCapacityReport(32 * GiB, 10 * GiB, 6 * GiB, 4 * GiB, 2 * GiB), Now, agentId));
+            Envelope.Create(
+                new HostCapacityReport(
+                    32 * GiB, 10 * GiB, 6 * GiB, 4 * GiB, 2 * GiB,
+                    // #170: the host vitals; an impossible CPU share is dropped on its own.
+                    CpuPercent: 250, MemoryUsedBytes: 12 * GiB, DiskFreeBytes: 200 * GiB, DiskTotalBytes: 480 * GiB),
+                Now, agentId));
 
         IHostCapacityCache cache = factory.Services.GetRequiredService<IHostCapacityCache>();
         await WaitUntilAsync(() => Task.FromResult(cache.GetLatest(agentId) is not null));
@@ -207,6 +212,7 @@ public class AgentHubIntegrationTests
         Application.Servers.HostCapacity capacity = cache.GetLatest(agentId)!;
         await Assert.That(capacity.TotalBytes).IsEqualTo(32 * GiB);
         await Assert.That(capacity.FreeBytes).IsEqualTo(20 * GiB);
+        await Assert.That(capacity.Vitals).IsEqualTo(new Application.Servers.HostVitals(null, 12 * GiB, 200 * GiB, 480 * GiB));
 
         await connection.StopAsync();
     }

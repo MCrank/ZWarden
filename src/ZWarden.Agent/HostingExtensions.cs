@@ -99,6 +99,7 @@ public static class HostingExtensions
         services.AddSingleton<IServerGameVersions, ServerGameVersionReader>();
         services.AddSingleton<IServerMaxPlayers, ServerMaxPlayersReader>();
         services.AddSingleton<IServerMetricsSampler, ServerMetricsSampler>();
+        services.AddSingleton<IHostVitalsReader, HostVitalsReader>();
         services.AddSingleton<IHostCapacityReader, HostCapacityReader>();
 
         // SteamCMD lifecycle (F17): the host-side install paths and the update runner that drives an update via

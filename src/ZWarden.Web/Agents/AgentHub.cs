@@ -313,9 +313,13 @@ public sealed partial class AgentHub : Hub
             return Task.CompletedTask;
         }
 
+        // #170: the host vitals ride along; a figure that makes no sense is dropped on its own.
         _capacity.Record(new Application.Servers.HostCapacity(
             agentId, r.TotalMemoryBytes, r.CommittedMemoryBytes, r.MemoryOverheadBytes, r.DefaultHeapSizeBytes,
-            r.ReserveMemoryBytes, report.Timestamp));
+            r.ReserveMemoryBytes, report.Timestamp,
+            HostVitals.Observed(
+                r.CpuPercent, r.MemoryUsedBytes, r.TotalMemoryBytes, r.DiskFreeBytes, r.DiskTotalBytes,
+                r.CpuCores, r.LoadAverage1, r.LoadAverage5, r.LoadAverage15)));
         return Task.CompletedTask;
     }
 

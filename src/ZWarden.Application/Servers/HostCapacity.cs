@@ -14,6 +14,7 @@ namespace ZWarden.Application.Servers;
 /// <param name="DefaultHeapBytes">The heap the Agent uses when none is chosen.</param>
 /// <param name="ReserveBytes">RAM kept back for the host OS.</param>
 /// <param name="ReportedAt">When the Agent sent it.</param>
+/// <param name="Vitals">#170: the host's live CPU / memory / disk for the Hosts card; <c>null</c> from an older Agent.</param>
 public sealed record HostCapacity(
     AgentId AgentId,
     long TotalBytes,
@@ -21,7 +22,8 @@ public sealed record HostCapacity(
     long OverheadBytes,
     long DefaultHeapBytes,
     long ReserveBytes,
-    DateTimeOffset ReportedAt)
+    DateTimeOffset ReportedAt,
+    HostVitals? Vitals = null)
 {
     /// <summary>RAM free for new servers: total − committed − reserve, never below zero.</summary>
     public long FreeBytes => Math.Max(0, TotalBytes - CommittedBytes - ReserveBytes);

@@ -27,7 +27,8 @@ public class HostCapacityReaderTests
             HostMemoryReserveBytes = 4 * GiB,
         };
 
-        HostCapacityReport report = await new HostCapacityReader(runtime, Options.Create(options)).ReadAsync(CancellationToken.None);
+        HostCapacityReport report = await new HostCapacityReader(runtime, new FakeVitals(default), Options.Create(options))
+            .ReadAsync(CancellationToken.None);
 
         await Assert.That(report).IsEqualTo(new HostCapacityReport(
             TotalMemoryBytes: 32 * GiB,
@@ -35,5 +36,30 @@ public class HostCapacityReaderTests
             MemoryOverheadBytes: 3 * GiB,
             DefaultHeapSizeBytes: 5 * GiB,
             ReserveMemoryBytes: 4 * GiB));
+    }
+
+    [Test]
+    public async Task The_report_carries_the_host_vitals()
+    {
+        // #170: the Hosts card meters ride the same report.
+        var runtime = new FakeContainerRuntime { HostMemory = new HostMemory(32 * GiB, 0) };
+        var vitals = new FakeVitals(new HostVitals(42.5, 12 * GiB, 200 * GiB, 480 * GiB, 8, 0.5, 0.4, 0.3));
+
+        HostCapacityReport report = await new HostCapacityReader(runtime, vitals, Options.Create(new AgentOptions()))
+            .ReadAsync(CancellationToken.None);
+
+        await Assert.That(report.CpuPercent).IsEqualTo(42.5);
+        await Assert.That(report.MemoryUsedBytes).IsEqualTo(12 * GiB);
+        await Assert.That(report.DiskFreeBytes).IsEqualTo(200 * GiB);
+        await Assert.That(report.DiskTotalBytes).IsEqualTo(480 * GiB);
+        await Assert.That(report.CpuCores).IsEqualTo(8);
+        await Assert.That(report.LoadAverage1).IsEqualTo(0.5);
+        await Assert.That(report.LoadAverage5).IsEqualTo(0.4);
+        await Assert.That(report.LoadAverage15).IsEqualTo(0.3);
+    }
+
+    private sealed class FakeVitals(HostVitals vitals) : IHostVitalsReader
+    {
+        public HostVitals Read() => vitals;
     }
 }

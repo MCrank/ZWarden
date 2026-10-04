@@ -233,4 +233,84 @@
   }
 
   schedule(currentRoot());
+
+  // #170: the Hosts page's card telemetry. Polls [data-live-hosts="<url>"] (an array of { id, ... } for the connected
+  // Hosts) and moves each [data-host-telemetry-for="<agentId>"] card's meters and lines in place. The texts and the age
+  // arrive preformatted (server clock); everything is Agent-observed data, so textContent only. A Host that connects
+  // or disconnects changes the card's layout, so that still shows on the next load.
+  var AGE_TONES = ['text-status-busy', 'text-muted-foreground'];
+  var DETAIL_KEYS = {
+    'cpu-cores': 'cpuCoresText',
+    'load': 'loadText',
+    'memory-available': 'memoryAvailableText',
+    'memory-text': 'memoryText',
+    'disk-used': 'diskUsedText',
+    'disk-text': 'diskText'
+  };
+
+  function applyHosts(root, byId) {
+    root.querySelectorAll('[data-host-telemetry-for]').forEach(function (card) {
+      var h = byId[card.getAttribute('data-host-telemetry-for')];
+      if (!h) { return; }
+      card.querySelectorAll('[data-host-cell]').forEach(function (cell) {
+        switch (cell.getAttribute('data-host-cell')) {
+          case 'cpu':
+            applyMeter(cell, h.cpuPercent, 100);
+            break;
+          case 'memory':
+            applyMeter(cell, h.memoryUsedBytes, h.memoryTotalBytes);
+            break;
+          case 'disk':
+            applyMeter(cell, h.diskUsedBytes, h.diskTotalBytes);
+            break;
+          case 'cpu-cores':
+          case 'load':
+          case 'memory-available':
+          case 'memory-text':
+          case 'disk-used':
+          case 'disk-text':
+            // The panels' detail lines: preformatted, empty when unknown (the meter slot already says —).
+            setText(cell, String(h[DETAIL_KEYS[cell.getAttribute('data-host-cell')]] || ''));
+            break;
+          case 'age':
+            setText(cell, h.age ? String(h.age) : '');
+            swapClass(cell, AGE_TONES, h.stale ? 'text-status-busy' : 'text-muted-foreground');
+            break;
+        }
+      });
+      // A detail line with nothing on either side is hidden, as on the first render.
+      card.querySelectorAll('[data-host-detail]').forEach(function (line) {
+        var empty = true;
+        line.querySelectorAll('[data-host-cell]').forEach(function (c) { empty = empty && !c.textContent; });
+        setHidden(line, empty);
+      });
+    });
+  }
+
+  function hostsRoot() {
+    return doc.querySelector('[data-live-hosts]');
+  }
+
+  function scheduleHosts() {
+    window.setTimeout(hostsTick, IDLE_MS);
+  }
+
+  function hostsTick() {
+    var root = hostsRoot();
+    if (!root || doc.visibilityState === 'hidden' || !window.fetch) { scheduleHosts(); return; }
+    var url = root.getAttribute('data-live-hosts');
+    window.fetch(url, { credentials: 'same-origin', headers: { 'Accept': 'application/json' }, cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (list) {
+        var current = hostsRoot();
+        if (!Array.isArray(list) || !current || current.getAttribute('data-live-hosts') !== url) { return; }
+        var byId = {};
+        list.forEach(function (e) { if (e && typeof e.id === 'string') { byId[e.id] = e; } });
+        applyHosts(current, byId);
+      })
+      .catch(function () { /* transient: the next tick tries again */ })
+      .then(scheduleHosts);
+  }
+
+  scheduleHosts();
 })();
