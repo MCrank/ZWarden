@@ -1,5 +1,6 @@
 using System.Xml.Linq;
 using Microsoft.AspNetCore.DataProtection.XmlEncryption;
+using Microsoft.Extensions.DependencyInjection;
 using ZWarden.Domain.Security;
 
 namespace ZWarden.Web.Hosting;
@@ -42,12 +43,24 @@ public sealed class SecretProtectorXmlEncryptor : IXmlEncryptor
 
 /// <summary>
 /// #186 / ADR 0015: unwraps a Data Protection key element that <see cref="SecretProtectorXmlEncryptor"/>
-/// encrypted with the app's AES key ring. Activated by the Data Protection system via the container, so
-/// it receives the same <see cref="ISecretProtector"/> singleton the encryptor used.
+/// encrypted with the app's AES key ring. Data Protection builds it by type name (the name the encryptor
+/// writes into each key element) through its <c>IActivator</c>, which only passes an
+/// <see cref="IServiceProvider"/>. So the activation constructor takes the container and resolves the
+/// same <see cref="ISecretProtector"/> singleton the encryptor used (#306).
 /// </summary>
 public sealed class SecretProtectorXmlDecryptor : IXmlDecryptor
 {
     private readonly ISecretProtector _protector;
+
+    /// <summary>
+    /// The constructor Data Protection's activator calls when it reads a persisted key (#306). Without it,
+    /// every restart failed to decrypt the key ring and minted a new key, which signed everyone out.
+    /// </summary>
+    [ActivatorUtilitiesConstructor]
+    public SecretProtectorXmlDecryptor(IServiceProvider services)
+        : this(ResolveProtector(services))
+    {
+    }
 
     /// <summary>Creates the decryptor over the app's secret protector (the AES key ring, ADR 0015).</summary>
     public SecretProtectorXmlDecryptor(ISecretProtector protector)
@@ -67,5 +80,11 @@ public sealed class SecretProtectorXmlDecryptor : IXmlDecryptor
 
         string xml = _protector.UnprotectString(value.Value);
         return XElement.Parse(xml, LoadOptions.PreserveWhitespace);
+    }
+
+    private static ISecretProtector ResolveProtector(IServiceProvider services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        return services.GetRequiredService<ISecretProtector>();
     }
 }
