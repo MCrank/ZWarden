@@ -3,6 +3,7 @@
 @using ZWarden.Application.Agents
 @using ZWarden.Domain.Agents
 @using ZWarden.Domain.Ids
+@using ZWarden.Web.Components.Servers
 @attribute [Authorize(Policy = "Agent.View")]
 @inject IAgentInventory Inventory
 @inject IServerInventory Servers
@@ -60,7 +61,12 @@ else
                 <div class="flex flex-col gap-4 p-5">
                     <div class="flex items-start justify-between gap-3">
                         <div class="min-w-0">
-                            <div class="truncate font-medium text-foreground">@DisplayName(host)</div>
+                            <div class="truncate font-medium text-foreground" data-host-name>@HostNames.Display(host.Id, host.Label, host.Hostname)</div>
+                            @if (!string.IsNullOrWhiteSpace(host.Label) && !string.IsNullOrWhiteSpace(host.Hostname))
+                            {
+                                @* The label titles the card (#336 D1); the machine name stays visible beneath it. *@
+                                <div class="truncate text-xs text-muted-foreground" data-host-hostname>@host.Hostname</div>
+                            }
                             <div class="truncate font-mono text-xs text-muted-foreground">@host.Id</div>
                         </div>
                         <div class="flex shrink-0 flex-col items-end gap-1" data-host-status>
@@ -176,13 +182,6 @@ else
     // status-unknown ramp used by the badge and by StatusBadge for "agent unreachable, not down".
     private static string CardClass(bool degraded)
         => degraded ? "overflow-hidden border-status-unknown" : "overflow-hidden";
-
-    // The operator-facing name: the Agent's self-reported hostname, else the enrollment label, else "—".
-    // Both are untrusted, observed strings (trust-boundaries.md §3); the id below always disambiguates.
-    private static string DisplayName(HostSummary host)
-        => !string.IsNullOrWhiteSpace(host.Hostname) ? host.Hostname!
-            : !string.IsNullOrWhiteSpace(host.Label) ? host.Label!
-            : "—";
 
     private static string Dash(string? value) => string.IsNullOrWhiteSpace(value) ? "—" : value!;
 

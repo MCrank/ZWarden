@@ -55,7 +55,7 @@
             <BbAlertDescription>
                 @if (_offlineHosts.Count == 1)
                 {
-                    <text>ZWarden.Agent on <span class="font-mono">@_offlineHosts[0]</span> is unreachable — its servers show their last-known state while it reconnects.</text>
+                    <text>ZWarden.Agent on <span class="font-mono">@HostName(_offlineHosts[0])</span> is unreachable — its servers show their last-known state while it reconnects.</text>
                 }
                 else
                 {
@@ -293,7 +293,7 @@
                     <BbNativeSelect TValue="string" Id="import-target" Name="_form.Target" @bind-Value="_form!.Target" Placeholder="Select…">
                         @foreach (DiscoveredServerOnAgent d in _discovered)
                         {
-                            <option value="@($"{d.AgentId}|{d.ServerId}")" selected="@($"{d.AgentId}|{d.ServerId}" == _form.Target)">@d.ServerId (@d.RunState on @d.AgentId)</option>
+                            <option value="@($"{d.AgentId}|{d.ServerId}")" selected="@($"{d.AgentId}|{d.ServerId}" == _form.Target)">@d.ServerId (@d.RunState on @HostName(d.AgentId))</option>
                         }
                     </BbNativeSelect>
                 </div>
@@ -340,6 +340,14 @@
 
         _servers = await Inventory.ListVisibleAsync(user);
 
+        // #336: Hosts are named (Label, else Hostname) only for a caller who may view Hosts; anyone else sees each
+        // Host's short id — the fleet never widens authorization (D3).
+        if ((await PermissionChecker.EvaluateAsync(user, Permissions.AgentView)).IsAllowed)
+        {
+            _hostNames = (await AgentInventory.ListHostsAsync(user))
+                .ToDictionary(h => h.Id, h => HostNames.Display(h.Id, h.Label, h.Hostname));
+        }
+
         // Project each Server into a serializable row, overlaying the ownership-guarded metrics cache (keyed by the
         // Server's owning Agent, which this authorized load knows). A missing sample renders as — in the island.
         // Each row's Status is resolved against the in-flight mutating Operations — one read for the whole fleet
@@ -366,7 +374,7 @@
                 server.Id.ToString(),
                 server.Name,
                 server.Description,
-                server.AgentId.ToString(),
+                HostName(server.AgentId),
                 server.LastRunState,
                 status.Label,
                 status.Tone,
@@ -400,12 +408,6 @@
         {
             _discovered = await Inventory.ListAllDiscoveredUnregisteredAsync();
             _knownAgents = [.. Discovery.KnownAgents()];
-            if ((await PermissionChecker.EvaluateAsync(user, Permissions.AgentView)).IsAllowed)
-            {
-                _hostNames = (await AgentInventory.ListHostsAsync(user))
-                    .Where(h => !string.IsNullOrWhiteSpace(h.Hostname) || !string.IsNullOrWhiteSpace(h.Label))
-                    .ToDictionary(h => h.Id, h => !string.IsNullOrWhiteSpace(h.Hostname) ? h.Hostname! : h.Label!);
-            }
         }
     }
 
@@ -535,10 +537,10 @@
 
     private static string? Blank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
-    // The host picker names a host by its self-reported hostname when the caller may view Hosts, else by its id, and
-    // shows its free memory so the choice is informed. Hostnames are untrusted, observed strings (rendered as data).
+    // A Host's operator-facing name (#336): its Label or Hostname when the caller may view Hosts, else its short id.
+    // Both names are untrusted, observed strings (rendered as data). The host picker also shows free memory.
     private string HostName(AgentId agent) =>
-        _hostNames.TryGetValue(agent, out string? name) ? name : agent.ToString();
+        _hostNames.TryGetValue(agent, out string? name) ? name : HostNames.ShortId(agent);
 
     private string HostOptionLabel(AgentId agent) => Capacity.GetLatest(agent) is { } capacity
         ? $"{HostName(agent)} — {NewServerForm.FormatGiB(capacity.FreeBytes)} free"

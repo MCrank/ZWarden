@@ -86,7 +86,9 @@ public sealed class HostInventoryPageTests
         string html = await (await client.GetAsync(new Uri("/hosts", UriKind.Relative))).Content.ReadAsStringAsync();
 
         await Assert.That(html).Contains("data-host-card");
-        await Assert.That(html).Contains("pz-remote-1");   // self-reported hostname
+        // #336 D1: the operator's label titles the card; the self-reported hostname still shows beneath it.
+        await Assert.That(Regex.IsMatch(html, "data-host-name[^>]*>remote-alpha<")).IsTrue();
+        await Assert.That(Regex.IsMatch(html, "data-host-hostname[^>]*>pz-remote-1<")).IsTrue();
         await Assert.That(html).Contains("1.4.2");         // self-reported agent version
         await Assert.That(html).Contains("Linux");         // self-reported OS platform
         client.Dispose();
