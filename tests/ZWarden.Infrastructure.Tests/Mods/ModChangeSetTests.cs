@@ -152,6 +152,69 @@ public class ModChangeSetTests
         await Assert.That(overview.Items.Any(i => i.NeedsParts)).IsFalse();
     }
 
+    [Test]
+    public async Task An_active_item_whose_steam_version_is_newer_than_the_copy_on_disk_is_update_ready()
+    {
+        // #275 D3: Steam time_updated > the .acf timeupdated of the copy on disk ⇒ a restart would pull an update.
+        ServerModState state = Booted(workshop: ["100", "200"], mods: ["A", "B"]);
+        ServerWorkshopItem[] items =
+        [
+            Versions(OnDisk("100", "A"), steam: Boot.AddDays(1), installed: Boot.AddDays(-1)),
+            Versions(OnDisk("200", "B"), steam: Boot.AddDays(-1), installed: Boot.AddDays(-1)),
+        ];
+
+        ServerModOverview overview = ModChangeSet.Derive(Server, state, items);
+
+        await Assert.That(UpdateReady(overview)).IsEqualTo("100");
+        await Assert.That(overview.UpdatesReady).IsEqualTo(1);
+        await Assert.That(overview.PendingChanges).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task Update_ready_needs_both_versions_known()
+    {
+        ServerModState state = Booted(workshop: ["100", "200"], mods: ["A", "B"]);
+        ServerWorkshopItem[] items =
+        [
+            Versions(OnDisk("100", "A"), steam: Boot.AddDays(1), installed: null),
+            Versions(OnDisk("200", "B"), steam: null, installed: Boot.AddDays(-1)),
+        ];
+
+        ServerModOverview overview = ModChangeSet.Derive(Server, state, items);
+
+        await Assert.That(overview.UpdatesReady).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task Only_active_items_are_update_ready_never_pending_or_leftover_ones()
+    {
+        // D8: the update flag only ever replaces Active. An item installing on restart is pulled anyway; a removed or
+        // leftover one isn't in WorkshopItems=, so a restart doesn't update it.
+        ServerModState state = Booted(workshop: ["100", "200"], mods: ["A", "B"]);
+        state.ObserveConfig(["300"], ["C"], Boot.AddMinutes(5));
+        ServerWorkshopItem[] items =
+        [
+            Versions(OnDisk("100", "A"), steam: Boot.AddDays(1), installed: Boot.AddDays(-1)),
+            Versions(OnDisk("300", "C"), steam: Boot.AddDays(1), installed: Boot.AddDays(-1)),
+            Versions(OnDisk("400", "D"), steam: Boot.AddDays(1), installed: Boot.AddDays(-1)),
+        ];
+
+        ServerModOverview overview = ModChangeSet.Derive(Server, state, items);
+
+        await Assert.That(Statuses(overview)).IsEqualTo("300=InstallsOnRestart|100=RemovedOnRestart|200=RemovedOnRestart|400=Leftover");
+        await Assert.That(overview.UpdatesReady).IsEqualTo(0);
+    }
+
+    private static ServerWorkshopItem Versions(ServerWorkshopItem item, DateTimeOffset? steam, DateTimeOffset? installed)
+    {
+        item.ApplyMetadata("t", null, null, steam, [], [], Boot);
+        item.ObserveDisk(onDisk: true, [.. item.ObservedModIds.Select(Id)], Boot, installed);
+        return item;
+    }
+
+    private static string UpdateReady(ServerModOverview overview) =>
+        string.Join("|", overview.Items.Where(i => i.UpdateReady).Select(i => i.WorkshopId));
+
     private static ServerWorkshopItem Guessed(ServerWorkshopItem item, params string[] guesses)
     {
         item.ApplyMetadata("t", null, null, null, [], [.. guesses.Select(Id)], Boot);

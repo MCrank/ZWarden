@@ -7,6 +7,7 @@ using ZWarden.Application.Servers;
 using ZWarden.Domain.Agents;
 using ZWarden.Domain.Enrollments;
 using ZWarden.Domain.Ids;
+using ZWarden.Domain.Mods;
 using ZWarden.Domain.Operations;
 using ZWarden.Domain.Servers;
 using ZWarden.Infrastructure.Authorization;
@@ -563,6 +564,44 @@ public sealed class ServerInventoryPageTests
         await Assert.That(Regex.IsMatch(html, "data-fleet-branch[^>]*>\\s*unstable \\(preview\\)")).IsTrue();
         client.Dispose();
     }
+    [Test]
+    public async Task The_fleet_board_hints_at_mod_updates_on_running_servers_only()
+    {
+        // #275 D5/D7: a running server's players are turned away until it restarts; a stopped one pulls them on start.
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        using (AsyncServiceScope scope = factory.Services.CreateSystemScope())
+        {
+            ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
+            DateTimeOffset now = DateTimeOffset.UtcNow;
+            foreach ((string name, ServerRunState state) in new[] { ("running", ServerRunState.Running), ("stopped", ServerRunState.Stopped) })
+            {
+                Server server = Server.Register(AgentId.New(), name, now);
+                server.RecordObservedState(state, now);
+                db.Set<Server>().Add(server);
+                ServerModState mods = ServerModState.For(server.Id);
+                mods.MarkBooted(now.AddHours(-2));
+                mods.ObserveConfig(["100", "200"], ["A", "B"], now.AddHours(-2));
+                db.Set<ServerModState>().Add(mods);
+                foreach (string workshopId in new[] { "100", "200" })
+                {
+                    ServerWorkshopItem item = ServerWorkshopItem.Track(server.Id, workshopId);
+                    item.ApplyMetadata("t", null, null, now.AddHours(-1), [], [], now);
+                    item.ObserveDisk(onDisk: true, [], now, installedUpdatedAt: now.AddDays(workshopId == "100" ? -1 : 0));
+                    db.Set<ServerWorkshopItem>().Add(item);
+                }
+            }
+
+            await db.SaveChangesAsync();
+        }
+
+        string html = await (await client.GetAsync(new Uri("/servers", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        await Assert.That(Regex.Count(html, "data-fleet-mod-updates")).IsEqualTo(1);
+        await Assert.That(Regex.IsMatch(html, "data-fleet-mod-updates[^>]*>\\s*1 mod update<")).IsTrue();
+        client.Dispose();
+    }
+
     private static async Task<HttpClient> SignedInOperatorAsync(ZWardenWebAppFactory factory)
     {
         await factory.CreateConfirmedUserAsync("op@zwarden.test", StrongPassword);

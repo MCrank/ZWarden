@@ -548,6 +548,10 @@ public class OperationDispatchIntegrationTests
                     : WorkshopItemMetadata.NotFound(id)),
             ]);
 
+        public Task<IReadOnlyList<WorkshopItemMetadata>> RefreshItemsAsync(
+            IReadOnlyList<string> workshopIds, CancellationToken cancellationToken = default) =>
+            GetItemsAsync(workshopIds, cancellationToken);
+
         public Task<IReadOnlyList<string>> GetCollectionItemIdsAsync(
             string collectionId, CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<string>>([]);

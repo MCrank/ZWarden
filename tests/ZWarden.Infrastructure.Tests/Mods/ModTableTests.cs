@@ -203,6 +203,28 @@ public class ModTableTests
         await Assert.That(table.Leftovers).IsEmpty();
     }
 
+    [Test]
+    public async Task Update_rows_are_the_update_ready_rows_without_a_pending_change()
+    {
+        // #275 D6: updates are listed apart from the operator's own changes; a row already pending restarts anyway.
+        ServerModOverview overview = Overview(
+            [
+                Item("100", observed: ["A"]) with { UpdateReady = true },
+                Item("200", observed: ["B"]),
+                Item("300", observed: ["P1", "P2"]) with { UpdateReady = true },
+            ],
+            [
+                new ModIdView("A", ModChangeStatus.Active),
+                new ModIdView("B", ModChangeStatus.Active),
+                new ModIdView("P1", ModChangeStatus.Active),
+                new ModIdView("P2", ModChangeStatus.InstallsOnRestart),
+            ]);
+
+        ModTableView table = ModTable.Build(overview);
+
+        await Assert.That(string.Join("|", table.UpdateRows.Select(r => r.Key))).IsEqualTo("item:100");
+    }
+
     private static ServerModOverview Overview(IReadOnlyList<ModItemView> items, IReadOnlyList<string> activeMods) =>
         Overview(items, [.. activeMods.Select(m => new ModIdView(m, ModChangeStatus.Active))]);
 

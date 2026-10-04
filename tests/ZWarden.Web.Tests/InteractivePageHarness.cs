@@ -128,6 +128,23 @@ internal sealed class InteractivePageHarness : IAsyncDisposable
         static PzModId ModId(string id) => PzModId.TryCreate(id, out PzModId valid) ? valid : throw new ArgumentException(id);
     }
 
+    /// <summary>Makes Steam's version of a tracked item newer than its copy on disk (#275), with fresh Steam details so
+    /// no refresh is due.</summary>
+    public async Task SeedWorkshopUpdateAsync(ServerId serverId, string workshopId)
+    {
+        await using AsyncServiceScope scope = Factory.Services.CreateSystemScope();
+        ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
+        ServerWorkshopItem item = await db.Set<ServerWorkshopItem>()
+            .SingleAsync(i => i.ServerId == serverId && i.WorkshopId == workshopId);
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        item.ApplyMetadata(item.Title, item.PreviewUrl, item.SizeBytes, now.AddHours(-1), item.Tags,
+            [.. item.GuessedModIds.Select(ModId)], now);
+        item.ObserveDisk(item.OnDisk, [.. item.ObservedModIds.Select(ModId)], now, installedUpdatedAt: now.AddDays(-1));
+        await db.SaveChangesAsync();
+
+        static PzModId ModId(string id) => PzModId.TryCreate(id, out PzModId valid) ? valid : throw new ArgumentException(id);
+    }
+
     /// <summary>Records newly observed configured lists for <paramref name="serverId"/>, as the discovery that follows
     /// a finished config apply does (#292).</summary>
     public async Task ObserveModConfigAsync(ServerId serverId, string[] workshop, string[] mods)

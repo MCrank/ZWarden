@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Net;
 using System.Text.Json;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
@@ -29,6 +30,8 @@ public sealed partial class WorkshopMetadataClient : IWorkshopMetadataClient
     private const int MaxTagLength = 64;
     private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(30);
     private static readonly TimeSpan NotFoundCacheTtl = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan ThrottleBackOff = TimeSpan.FromHours(1);
+    private const string ThrottleBackOffKey = "wsmeta:throttled";
 
     private const string DetailsPath = "ISteamRemoteStorage/GetPublishedFileDetails/v1/";
     private const string CollectionPath = "ISteamRemoteStorage/GetCollectionDetails/v1/";
@@ -48,8 +51,17 @@ public sealed partial class WorkshopMetadataClient : IWorkshopMetadataClient
     }
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<WorkshopItemMetadata>> GetItemsAsync(
-        IReadOnlyList<string> workshopIds, CancellationToken cancellationToken = default)
+    public Task<IReadOnlyList<WorkshopItemMetadata>> GetItemsAsync(
+        IReadOnlyList<string> workshopIds, CancellationToken cancellationToken = default) =>
+        GetItemsCoreAsync(workshopIds, useCache: true, cancellationToken);
+
+    /// <inheritdoc />
+    public Task<IReadOnlyList<WorkshopItemMetadata>> RefreshItemsAsync(
+        IReadOnlyList<string> workshopIds, CancellationToken cancellationToken = default) =>
+        GetItemsCoreAsync(workshopIds, useCache: false, cancellationToken);
+
+    private async Task<IReadOnlyList<WorkshopItemMetadata>> GetItemsCoreAsync(
+        IReadOnlyList<string> workshopIds, bool useCache, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(workshopIds);
 
@@ -74,7 +86,7 @@ public sealed partial class WorkshopMetadataClient : IWorkshopMetadataClient
         List<string> toFetch = [];
         foreach (string id in ids)
         {
-            if (_cache.TryGetValue(CacheKey(id), out WorkshopItemMetadata? cached) && cached is not null)
+            if (useCache && _cache.TryGetValue(CacheKey(id), out WorkshopItemMetadata? cached) && cached is not null)
             {
                 results.Add(cached);
             }
@@ -222,10 +234,24 @@ public sealed partial class WorkshopMetadataClient : IWorkshopMetadataClient
     private async Task<JsonDocument?> PostAsync(
         string path, Dictionary<string, string> form, CancellationToken cancellationToken)
     {
+        if (_cache.TryGetValue(ThrottleBackOffKey, out _))
+        {
+            return null;
+        }
+
         try
         {
             using var content = new FormUrlEncodedContent(form);
             using HttpResponseMessage response = await _http.PostAsync(path, content, cancellationToken).ConfigureAwait(false);
+            if (response.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.Forbidden)
+            {
+                // #275 D4: a per-IP throttle (research open item 14). Retrying makes it stricter, so every keyless
+                // call stops until the window passes; callers degrade as for any failure.
+                _cache.Set(ThrottleBackOffKey, true, ThrottleBackOff);
+                LogThrottled(path, (int)response.StatusCode, ThrottleBackOff);
+                return null;
+            }
+
             if (!response.IsSuccessStatusCode)
             {
                 LogHttpFailure(path, (int)response.StatusCode);
@@ -307,6 +333,10 @@ public sealed partial class WorkshopMetadataClient : IWorkshopMetadataClient
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Steam Workshop metadata request to {Path} returned HTTP {Status}.")]
     private partial void LogHttpFailure(string path, int status);
+
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "Steam throttled the Workshop metadata request to {Path} (HTTP {Status}); backing off for {BackOff}.")]
+    private partial void LogThrottled(string path, int status, TimeSpan backOff);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Steam Workshop metadata request to {Path} failed: {Reason}")]
     private partial void LogRequestFailed(string path, string reason);

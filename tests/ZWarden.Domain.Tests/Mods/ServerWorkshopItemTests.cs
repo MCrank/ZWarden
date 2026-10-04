@@ -60,6 +60,20 @@ public class ServerWorkshopItemTests
     }
 
     [Test]
+    public async Task Observing_disk_records_the_installed_copys_steam_timeupdated_and_clears_it_when_gone()
+    {
+        // #275: the .acf timeupdated of the copy on disk, compared with SteamUpdatedAt for "Update ready".
+        ServerWorkshopItem item = ServerWorkshopItem.Track(ServerId.New(), "100");
+        DateTimeOffset installed = At.AddDays(-2);
+
+        item.ObserveDisk(onDisk: true, [Id("A")], At, installed);
+        await Assert.That(item.InstalledUpdatedAt).IsEqualTo(installed);
+
+        item.ObserveDisk(onDisk: false, [], At.AddMinutes(1), installed);
+        await Assert.That(item.InstalledUpdatedAt).IsNull();
+    }
+
+    [Test]
     public async Task Applying_metadata_records_steam_details_and_the_guessed_ids()
     {
         ServerWorkshopItem item = ServerWorkshopItem.Track(ServerId.New(), "100");

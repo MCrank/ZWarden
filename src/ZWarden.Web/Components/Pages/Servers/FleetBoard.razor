@@ -43,7 +43,15 @@
 
             <BbDataGridTemplateColumn TData="FleetRow" Title="Status" Sortable="true" SortBy="@(r => (object)(int)r.RunState)">
                 @* #253: data-live-row keys the badge by Server id so live-status.js re-tones this row in place. *@
-                <ChildContent Context="r"><span data-live-row="@r.Id"><StatusBadge State="r.StatusTone" Text="@r.StatusLabel" /></span></ChildContent>
+                <ChildContent Context="r">
+                    <span data-live-row="@r.Id"><StatusBadge State="r.StatusTone" Text="@r.StatusLabel" /></span>
+                    @* #275: Workshop updates the running server doesn't have yet; outside the live-rewritten badge. *@
+                    @if (r.ModUpdates > 0)
+                    {
+                        <a href="@($"/servers/{r.Id}?section=mods")" class="mt-1 block text-xs text-status-busy hover:underline"
+                           data-fleet-mod-updates>@r.ModUpdates mod update@(r.ModUpdates == 1 ? "" : "s")</a>
+                    }
+                </ChildContent>
             </BbDataGridTemplateColumn>
 
             @* #257: players from the Agent's slow RCON sample; the tooltip says how old it is. *@

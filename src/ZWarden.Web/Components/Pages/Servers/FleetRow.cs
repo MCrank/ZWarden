@@ -28,6 +28,8 @@ namespace ZWarden.Web.Components.Pages.Servers;
 /// <param name="VersionTitle">The Version cell's tooltip — the Steam build id behind the game version — or <c>null</c>.</param>
 /// <param name="Branch">The Build 42 Steam branch (#258), tagged next to the Version when not public; <c>null</c> for public.
 /// Fixed at create, so it is not part of the live poll.</param>
+/// <param name="ModUpdates">How many Workshop mods a restart would update (#275), counted at load for running servers
+/// only; 0 hides the hint. Not part of the live poll.</param>
 public sealed record FleetRow(
     string Id,
     string Name,
@@ -44,4 +46,5 @@ public sealed record FleetRow(
     string? PlayersAge = null,
     string Uptime = "—",
     string? VersionTitle = null,
-    string? Branch = null);
+    string? Branch = null,
+    int ModUpdates = 0);

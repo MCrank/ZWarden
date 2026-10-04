@@ -2,7 +2,8 @@
 
 @* A Mods-table row's status (#292), in the StatusBadge idiom: squared, dot + uppercase label, the dot carrying the
    status-token hue and the label ink staying --foreground. A part that needs choosing wins over the item's own
-   status. Class strings are full literals so the Tailwind content scan emits them. *@
+   status, then a pending parts change, then (#275) a newer Workshop version, which only ever replaces Active.
+   Class strings are full literals so the Tailwind content scan emits them. *@
 <span class="inline-flex items-center gap-1.5 whitespace-nowrap rounded-sm border px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-foreground @Border"
       data-mod-status="@Key">
     <span class="inline-block h-2 w-2 rounded-full @Dot"></span>@Label
@@ -21,16 +22,28 @@
     [Parameter]
     public bool PartsPending { get; set; }
 
+    /// <summary>Steam has a newer version than the copy on disk (#275); a restart (or start) pulls it.</summary>
+    [Parameter]
+    public bool UpdateReady { get; set; }
+
+    /// <summary>Whether the server is running: an update is "ready" for a restart, or pulled "on start" when stopped.</summary>
+    [Parameter]
+    public bool ServerRunning { get; set; }
+
     private bool PickParts => NeedsParts && Status is not ModChangeStatus.RemovedOnRestart;
 
     private bool PartsChange => !PickParts && PartsPending && Status is ModChangeStatus.Active;
 
-    private string Key => PickParts ? "PickParts" : PartsChange ? "PartsOnRestart" : Status.ToString();
+    private bool Update => !PickParts && !PartsChange && UpdateReady && Status is ModChangeStatus.Active;
+
+    private string Key => PickParts ? "PickParts" : PartsChange ? "PartsOnRestart" : Update ? "UpdateReady" : Status.ToString();
 
     private string Label => PickParts
         ? "Pick parts"
         : PartsChange
         ? "Changes on restart"
+        : Update
+        ? (ServerRunning ? "Update ready" : "Updates on start")
         : Status switch
         {
             ModChangeStatus.Active => "Active",
@@ -41,7 +54,7 @@
 
     private string Border => PickParts
         ? "border-status-unknown"
-        : PartsChange
+        : PartsChange || Update
         ? "border-status-busy"
         : Status switch
         {
@@ -53,7 +66,7 @@
 
     private string Dot => PickParts
         ? "bg-status-unknown"
-        : PartsChange
+        : PartsChange || Update
         ? "bg-status-busy"
         : Status switch
         {

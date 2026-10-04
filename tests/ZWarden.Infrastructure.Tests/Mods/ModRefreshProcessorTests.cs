@@ -141,6 +141,38 @@ public class ModRefreshProcessorTests
         });
     }
 
+    [Test]
+    public async Task A_refresh_with_a_shorter_max_age_asks_steam_for_items_the_default_would_skip()
+    {
+        // #275 D4: the hourly update check and the Mods-page open pass a shorter max age than the 6 h default, and
+        // always ask Steam (never the in-memory cache), so a new time_updated shows within the hour.
+        await WithSqlite(async options =>
+        {
+            AgentId agent = AgentId.New();
+            ServerId server = await SeedServerAsync(options, agent);
+            await using (ZWardenDbContext seed = new(options, new TestTenantContext(Tenant)))
+            {
+                ServerWorkshopItem item = ServerWorkshopItem.Track(server, "100");
+                item.ApplyMetadata("Old", null, null, Now.AddDays(-9), [], [], Now.AddHours(-2));
+                seed.Add(item);
+                await seed.SaveChangesAsync();
+            }
+
+            StubMetadata metadata = new(new WorkshopItemMetadata("100", Found: true, Title: "New", UpdatedAt: Now.AddMinutes(-20)));
+            await using (ZWardenDbContext db = new(options, new TestTenantContext(Tenant)))
+            {
+                await Processor(db, new RecordingCoordinator(), metadata).ProcessAsync(
+                    new ModRefreshRequest(Tenant, ModRefreshKind.RefreshMetadata, Server: server, MaxAge: TimeSpan.FromHours(1)),
+                    CancellationToken.None);
+            }
+
+            await Assert.That(metadata.Refreshes).IsEqualTo(1);
+            await using ZWardenDbContext read = new(options, new TestTenantContext(Tenant));
+            ServerWorkshopItem refreshed = (await new ServerWorkshopItemRepository(read).ListForServerAsync(server)).Single();
+            await Assert.That(refreshed.SteamUpdatedAt).IsEqualTo(Now.AddMinutes(-20));
+        });
+    }
+
     private static ModRefreshProcessor Processor(ZWardenDbContext db, RecordingCoordinator coordinator, StubMetadata metadata) =>
         new(
             new ServerRepository(db),
@@ -235,6 +267,15 @@ public class ModRefreshProcessorTests
             Calls++;
             LastIds = workshopIds;
             return Task.FromResult<IReadOnlyList<WorkshopItemMetadata>>([.. items.Where(i => workshopIds.Contains(i.WorkshopId))]);
+        }
+
+        public int Refreshes { get; private set; }
+
+        public Task<IReadOnlyList<WorkshopItemMetadata>> RefreshItemsAsync(
+            IReadOnlyList<string> workshopIds, CancellationToken cancellationToken = default)
+        {
+            Refreshes++;
+            return GetItemsAsync(workshopIds, cancellationToken);
         }
 
         public Task<IReadOnlyList<string>> GetCollectionItemIdsAsync(string collectionId, CancellationToken cancellationToken = default)

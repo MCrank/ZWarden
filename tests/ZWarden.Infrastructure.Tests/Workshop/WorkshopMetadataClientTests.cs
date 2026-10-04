@@ -142,6 +142,55 @@ public class WorkshopMetadataClientTests
     }
 
     [Test]
+    public async Task A_refresh_skips_the_cache_and_updates_it()
+    {
+        // #275: the Update-ready check must see Steam's current time_updated, not a copy cached up to 30 minutes ago.
+        const string json = """
+        {"response":{"publishedfiledetails":[{"publishedfileid":"111","result":1,"title":"Fresh"}]}}
+        """;
+        StubHandler handler = new(HttpStatusCode.OK, json);
+        WorkshopMetadataClient client = NewClient(handler);
+
+        await client.GetItemsAsync(["111"]);
+        IReadOnlyList<WorkshopItemMetadata> refreshed = await client.RefreshItemsAsync(["111"]);
+        await client.GetItemsAsync(["111"]);
+
+        await Assert.That(handler.Calls).IsEqualTo(2);
+        await Assert.That(refreshed.Single().Title).IsEqualTo("Fresh");
+    }
+
+    [Test]
+    [Arguments(HttpStatusCode.TooManyRequests)]
+    [Arguments(HttpStatusCode.Forbidden)]
+    public async Task A_throttle_response_backs_off_further_calls(HttpStatusCode status)
+    {
+        // #275 D4: Steam answers a per-IP throttle with 429/403 and punishes retries, so the client stops calling for
+        // a while (research open item 14). Every id degrades to not-found meanwhile, as for any failure.
+        StubHandler handler = new(status, null);
+        WorkshopMetadataClient client = NewClient(handler);
+
+        await client.GetItemsAsync(["111"]);
+        IReadOnlyList<WorkshopItemMetadata> during = await client.RefreshItemsAsync(["222"]);
+        IReadOnlyList<string> collection = await client.GetCollectionItemIdsAsync("333");
+
+        await Assert.That(handler.Calls).IsEqualTo(1);
+        await Assert.That(during.Single().Found).IsFalse();
+        await Assert.That(collection).IsEmpty();
+    }
+
+    [Test]
+    public async Task A_server_error_does_not_back_off()
+    {
+        StubHandler handler = new(HttpStatusCode.InternalServerError, null);
+        WorkshopMetadataClient client = NewClient(handler);
+
+        await client.GetItemsAsync(["111"]);
+        await client.GetItemsAsync(["222"]);
+
+        await Assert.That(handler.Calls).IsEqualTo(2);
+    }
+
+    [Test]
     public async Task Expands_a_collection_into_member_ids_in_order()
     {
         const string json = """

@@ -47,7 +47,8 @@
 
             <BbDataGridTemplateColumn TData="ModTableRow" Title="Status" Resizable="false" Reorderable="false">
                 <ChildContent Context="r">
-                    <ModStatusChip Status="r.Status" NeedsParts="@(r.Item?.NeedsParts ?? false)" PartsPending="r.HasPendingChange" />
+                    <ModStatusChip Status="r.Status" NeedsParts="@(r.Item?.NeedsParts ?? false)" PartsPending="r.HasPendingChange"
+                                   UpdateReady="@(r.Item?.UpdateReady ?? false)" ServerRunning="ServerRunning" />
                 </ChildContent>
             </BbDataGridTemplateColumn>
 
@@ -97,6 +98,10 @@
     /// <summary>The operator's display time zone, for the Updated column.</summary>
     [Parameter]
     public TimeZoneInfo Zone { get; set; } = TimeZoneInfo.Utc;
+
+    /// <summary>Whether the server is running: picks "Update ready" or "Updates on start" (#275 D7).</summary>
+    [Parameter]
+    public bool ServerRunning { get; set; }
 
     /// <summary>Raised for every row action.</summary>
     [Parameter]

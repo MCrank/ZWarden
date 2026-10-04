@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using ZWarden.Application.Mods;
 using ZWarden.Domain.Authorization;
 using ZWarden.Domain.Ids;
@@ -73,12 +74,84 @@ public class ServerModOverviewServiceTests
         });
     }
 
-    private static ServerModOverviewService Service(ZWardenDbContext db) =>
+    [Test]
+    public async Task Opening_the_mods_page_queues_a_short_max_age_refresh_for_a_mod_viewer()
+    {
+        // #275 D4: the page asks once on open; the processor only calls Steam when details are older than 30 min.
+        await WithSqlite(async options =>
+        {
+            UserId viewer = UserId.New();
+            UserId stranger = UserId.New();
+            ServerId server = await SeedServerAsync(options);
+            await SeedAssignmentAsync(options, viewer, server, Permissions.ModView);
+            await SeedAssignmentAsync(options, stranger, server, Permissions.ServerView);
+            ModStateRecorderTests.RecordingQueue queue = new();
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            await Service(db, queue).RequestUpdateCheckAsync(stranger, server);
+            await Assert.That(queue.Requests).IsEmpty();
+
+            await Service(db, queue).RequestUpdateCheckAsync(viewer, server);
+            await Assert.That(queue.Requests).IsEquivalentTo(
+                [new ModRefreshRequest(Tenant, ModRefreshKind.RefreshMetadata, Server: server, MaxAge: new ModRefreshOptions().UpdateCheckMaxAge)]);
+        });
+    }
+
+    [Test]
+    public async Task The_fleet_gets_each_viewable_servers_count_of_updates_ready()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            ServerId updatable = await SeedServerAsync(options);
+            ServerId current = await SeedServerAsync(options);
+            ServerId hidden = await SeedServerAsync(options);
+            await SeedAssignmentAsync(options, user, updatable, Permissions.ModView);
+            await SeedAssignmentAsync(options, user, current, Permissions.ModView);
+            await SeedAssignmentAsync(options, user, hidden, Permissions.ServerView);
+            await using (ZWardenDbContext seed = new(options, new TestTenantContext(Tenant)))
+            {
+                foreach (ServerId server in new[] { updatable, current, hidden })
+                {
+                    ServerModState state = ServerModState.For(server);
+                    state.MarkBooted(Now);
+                    state.ObserveConfig(["100", "200"], ["A", "B"], Now.AddSeconds(5));
+                    seed.Add(state);
+                    seed.Add(Versions(server, "100", steam: server == current ? Now.AddDays(-5) : Now.AddDays(-1)));
+                    seed.Add(Versions(server, "200", steam: Now.AddDays(-5)));
+                }
+
+                await seed.SaveChangesAsync();
+            }
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            IReadOnlyDictionary<ServerId, int> counts =
+                await Service(db).CountUpdatesReadyAsync(user, [updatable, current, hidden]);
+
+            await Assert.That(counts[updatable]).IsEqualTo(1);
+            await Assert.That(counts[current]).IsEqualTo(0);
+            await Assert.That(counts.ContainsKey(hidden)).IsFalse();
+        });
+    }
+
+    // On disk since Now - 5 days; Steam's version is `steam`.
+    private static ServerWorkshopItem Versions(ServerId server, string workshopId, DateTimeOffset steam)
+    {
+        ServerWorkshopItem item = ServerWorkshopItem.Track(server, workshopId);
+        item.ApplyMetadata("t", null, null, steam, [], [], Now);
+        item.ObserveDisk(onDisk: true, [], Now, installedUpdatedAt: Now.AddDays(-5));
+        return item;
+    }
+
+    private static ServerModOverviewService Service(ZWardenDbContext db, IModRefreshScheduler? scheduler = null) =>
         new(
             new ServerRepository(db),
             new PermissionChecker(db, new TestTenantContext(Tenant)),
             new ServerModStateRepository(db),
-            new ServerWorkshopItemRepository(db));
+            new ServerWorkshopItemRepository(db),
+            scheduler ?? new ModStateRecorderTests.RecordingQueue(),
+            new TestTenantContext(Tenant),
+            Options.Create(new ModRefreshOptions()));
 
     private static async Task<ServerId> SeedServerAsync(DbContextOptions options)
     {

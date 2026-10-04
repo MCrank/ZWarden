@@ -52,6 +52,29 @@ public class ModStateRecorderTests
     }
 
     [Test]
+    public async Task Discovery_records_each_items_installed_timeupdated()
+    {
+        // #275: the .acf timeupdated the Agent reports for the copy on disk is stored for the Update-ready compare.
+        await WithSqlite(async options =>
+        {
+            AgentId agent = AgentId.New();
+            ServerId server = await SeedServerAsync(options, agent);
+            DateTimeOffset installed = Now.AddDays(-4);
+
+            await using (ZWardenDbContext db = new(options, new TestTenantContext(Tenant)))
+            {
+                await Recorder(db, new RecordingQueue()).RecordAsync(Inventory(server, agent, ["100", "200"], ["A", "B"],
+                    [Item("100", "A") with { InstalledUpdatedAt = installed }, Item("200", "B")]));
+            }
+
+            await using ZWardenDbContext read = new(options, new TestTenantContext(Tenant));
+            IReadOnlyList<ServerWorkshopItem> items = await new ServerWorkshopItemRepository(read).ListForServerAsync(server);
+            await Assert.That(items.Single(i => i.WorkshopId == "100").InstalledUpdatedAt).IsEqualTo(installed);
+            await Assert.That(items.Single(i => i.WorkshopId == "200").InstalledUpdatedAt).IsNull();
+        });
+    }
+
+    [Test]
     public async Task Items_lacking_steam_details_queue_one_metadata_refresh_for_the_server()
     {
         await WithSqlite(async options =>

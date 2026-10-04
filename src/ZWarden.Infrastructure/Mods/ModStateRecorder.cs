@@ -171,7 +171,7 @@ public sealed partial class ModStateRecorder : IModStateRecorder
                     }
                 }
 
-                row.ObserveDisk(onDisk: true, modIds, now);
+                row.ObserveDisk(onDisk: true, modIds, now, disk.InstalledUpdatedAt);
             }
             else
             {

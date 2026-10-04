@@ -1,6 +1,6 @@
 # Feature #275 Mini-Plan — Show when a Workshop mod update is ready
 
-**Status:** PR-A in progress (Contracts + Agent done, floors Agent 685 / Contracts 162). D1–D10 accepted in grilling (2026-10-03). Slice 0 spike done. v1.0, epic
+**Status:** implemented — PR-A #327 (Contracts + Agent, floors Agent 685 / Contracts 162); PR-B (control plane + Web, closes #275; floors Domain 396 / Infra 670 / Web 560). Awaiting the DMZ live pass. D1–D10 accepted in grilling (2026-10-03). Slice 0 spike done. v1.0, epic
 [#289](https://github.com/MCrank/ZWarden/issues/289). The game half (a new build on the server's branch) was split
 out to [#326](https://github.com/MCrank/ZWarden/issues/326) (v1.1).
 

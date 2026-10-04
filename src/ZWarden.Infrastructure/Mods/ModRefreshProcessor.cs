@@ -80,7 +80,8 @@ public sealed class ModRefreshProcessor
                 break;
 
             case { Kind: ModRefreshKind.RefreshMetadata, Server: { } server }:
-                await RefreshMetadataAsync(server, cancellationToken).ConfigureAwait(false);
+                await RefreshMetadataAsync(server, request.MaxAge ?? _options.MetadataMaxAge, cancellationToken)
+                    .ConfigureAwait(false);
                 break;
         }
     }
@@ -94,18 +95,20 @@ public sealed class ModRefreshProcessor
             actor: null,
             cancellationToken);
 
-    private async Task RefreshMetadataAsync(ServerId server, CancellationToken cancellationToken)
+    // Asks Steam directly (never the client's in-memory cache): the stored refresh time is the freshness that counts,
+    // and the Update-ready check (#275) needs the current time_updated.
+    private async Task RefreshMetadataAsync(ServerId server, TimeSpan maxAge, CancellationToken cancellationToken)
     {
         DateTimeOffset now = _clock.GetUtcNow();
         List<ServerWorkshopItem> due = [.. (await _items.ListForServerAsync(server, cancellationToken).ConfigureAwait(false))
-            .Where(i => i.MetadataRefreshedAt is not { } refreshed || now - refreshed >= _options.MetadataMaxAge)];
+            .Where(i => i.MetadataRefreshedAt is not { } refreshed || now - refreshed >= maxAge)];
         if (due.Count == 0)
         {
             return;
         }
 
         IReadOnlyList<WorkshopItemMetadata> fetched = await _metadata
-            .GetItemsAsync([.. due.Select(i => i.WorkshopId)], cancellationToken).ConfigureAwait(false);
+            .RefreshItemsAsync([.. due.Select(i => i.WorkshopId)], cancellationToken).ConfigureAwait(false);
         Dictionary<string, WorkshopItemMetadata> byId = fetched
             .Where(m => m.Found)
             .GroupBy(m => m.WorkshopId, StringComparer.Ordinal)

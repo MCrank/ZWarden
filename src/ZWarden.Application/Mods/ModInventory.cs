@@ -28,7 +28,10 @@ public sealed record ModInventory(
 /// <summary>A Workshop item present on disk and the mods it provides (the one-to-many Workshop→Mod mapping).</summary>
 /// <param name="WorkshopId">The Steam Workshop item id (numeric, as a string).</param>
 /// <param name="Mods">The mods this item provides (may be empty).</param>
-public sealed record InstalledWorkshopItem(string WorkshopId, IReadOnlyList<InstalledMod> Mods);
+/// <param name="InstalledUpdatedAt">(#275) The Steam <c>timeupdated</c> of the copy on disk, or <c>null</c> when
+/// unknown.</param>
+public sealed record InstalledWorkshopItem(
+    string WorkshopId, IReadOnlyList<InstalledMod> Mods, DateTimeOffset? InstalledUpdatedAt = null);
 
 /// <summary>A mod declared by a <c>mod.info</c>: its Mod id, optional display name, and (#110) the optional version,
 /// dependency, and compatibility metadata the file declares. All fields are untrusted PZ output carried verbatim for

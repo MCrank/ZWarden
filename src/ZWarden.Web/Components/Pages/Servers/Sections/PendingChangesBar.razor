@@ -2,21 +2,35 @@
 
 @* The sticky pending-changes bar (#292): how many Mods-table rows change on the next restart, a +/− summary, and the
    one "Restart to apply" with a countdown (D3 — the #114/#213 presets, default five minutes). Shown only while
-   something is pending. The restart is raised to ModsSection, which runs UpdateModsAsync (Mod.Update or
-   Server.Restart, re-checked by the service). Titles are untrusted Steam text, rendered as data. *@
+   something is pending, or (#275 D6/D7) while the running server has Workshop updates ready, which get a line of
+   their own: they are Steam's changes, not the operator's. The restart is raised to ModsSection, which runs
+   UpdateModsAsync (Mod.Update or Server.Restart, re-checked by the service). Titles are untrusted Steam text,
+   rendered as data. *@
 
-@if (Pending.Count > 0)
+@if (Pending.Count > 0 || ShownUpdates.Count > 0)
 {
     <div class="sticky bottom-4 z-10 mt-4 flex flex-wrap items-center gap-3 rounded-md border border-status-busy bg-card p-3 shadow-lg"
          data-mod-pending-bar>
         <span class="inline-block h-2 w-2 flex-none rounded-full bg-status-busy"></span>
         <div class="min-w-0 flex-1">
-            <div class="text-sm font-medium" data-mod-pending-count>
-                @Pending.Count change@(Pending.Count == 1 ? "" : "s") waiting for a restart
-            </div>
-            <div class="truncate text-xs text-muted-foreground" data-mod-pending-summary>
-                @string.Join(" · ", Pending.Select(Summary))
-            </div>
+            @if (Pending.Count > 0)
+            {
+                <div class="text-sm font-medium" data-mod-pending-count>
+                    @Pending.Count change@(Pending.Count == 1 ? "" : "s") waiting for a restart
+                </div>
+                <div class="truncate text-xs text-muted-foreground" data-mod-pending-summary>
+                    @string.Join(" · ", Pending.Select(Summary))
+                </div>
+            }
+            @if (ShownUpdates.Count > 0)
+            {
+                <div class="@(Pending.Count > 0 ? "text-xs text-foreground" : "text-sm font-medium")" data-mod-updates-count>
+                    @ShownUpdates.Count mod update@(ShownUpdates.Count == 1 ? "" : "s") ready on the Workshop
+                </div>
+                <div class="truncate text-xs text-muted-foreground" data-mod-updates-summary>
+                    @string.Join(" · ", ShownUpdates.Select(r => $"↑ {Name(r)}"))
+                </div>
+            }
         </div>
         @if (CanRestart)
         {
@@ -47,6 +61,14 @@ else if (CanRestart)
     [Parameter, EditorRequired]
     public IReadOnlyList<ModTableRow> Pending { get; set; } = [];
 
+    /// <summary>The rows whose Workshop version is newer than the copy on disk (#275).</summary>
+    [Parameter]
+    public IReadOnlyList<ModTableRow> Updates { get; set; } = [];
+
+    /// <summary>Whether the server is running. Updates only need a restart then; a start pulls them anyway (D7).</summary>
+    [Parameter]
+    public bool ServerRunning { get; set; }
+
     /// <summary>The caller may restart to apply (Mod.Update or Server.Restart).</summary>
     [Parameter]
     public bool CanRestart { get; set; }
@@ -61,14 +83,15 @@ else if (CanRestart)
 
     private string _countdown = "5m";
 
-    private static string Summary(ModTableRow row)
+    private IReadOnlyList<ModTableRow> ShownUpdates => ServerRunning ? Updates : [];
+
+    private static string Name(ModTableRow row) =>
+        row.Item?.Title is { Length: > 0 } title ? title : row.Item?.WorkshopId ?? row.Mods[0].ModId;
+
+    private static string Summary(ModTableRow row) => row.Status switch
     {
-        string name = row.Item?.Title is { Length: > 0 } title ? title : row.Item?.WorkshopId ?? row.Mods[0].ModId;
-        return row.Status switch
-        {
-            ModChangeStatus.InstallsOnRestart => $"+ {name}",
-            ModChangeStatus.RemovedOnRestart => $"− {name}",
-            _ => $"± {name} (parts)",
-        };
-    }
+        ModChangeStatus.InstallsOnRestart => $"+ {Name(row)}",
+        ModChangeStatus.RemovedOnRestart => $"− {Name(row)}",
+        _ => $"± {Name(row)} (parts)",
+    };
 }
