@@ -85,6 +85,41 @@ public sealed class DataProtectionExtensionsTests
         await Assert.That(encrypted.EncryptedElement.ToString()).DoesNotContain("top-secret-key-material");
     }
 
+    [Test]
+    public async Task A_second_boot_reads_the_persisted_key_ring_written_by_the_first()
+    {
+        // #306: a restart must decrypt the keys the previous boot persisted, so existing cookies,
+        // antiforgery tokens and Identity tokens stay valid. Two providers over one directory = two boots.
+        using TempDirectory keys = new();
+        string protectedPayload;
+        await using (ServiceProvider firstBoot = BuildProvider(keys.Path))
+        {
+            protectedPayload = firstBoot.GetDataProtector("zw-306").Protect("session-payload");
+        }
+
+        await using ServiceProvider secondBoot = BuildProvider(keys.Path);
+        string unprotected = secondBoot.GetDataProtector("zw-306").Unprotect(protectedPayload);
+
+        await Assert.That(unprotected).IsEqualTo("session-payload");
+    }
+
+    [Test]
+    public async Task A_second_boot_reuses_the_persisted_key_instead_of_minting_a_new_one()
+    {
+        using TempDirectory keys = new();
+        await using (ServiceProvider firstBoot = BuildProvider(keys.Path))
+        {
+            _ = firstBoot.GetDataProtector("zw-306").Protect("first");
+        }
+
+        await using (ServiceProvider secondBoot = BuildProvider(keys.Path))
+        {
+            _ = secondBoot.GetDataProtector("zw-306").Protect("second");
+        }
+
+        await Assert.That(Directory.GetFiles(keys.Path, "key-*.xml")).Count().IsEqualTo(1);
+    }
+
     private static ServiceProvider BuildProvider(string keyRingPath)
     {
         IConfiguration configuration = new ConfigurationBuilder()
