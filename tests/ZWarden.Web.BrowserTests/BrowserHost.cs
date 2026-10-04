@@ -99,6 +99,7 @@ public sealed class BrowserHost : IAsyncInitializer, IAsyncDisposable
             BaseURL = BaseAddress.ToString(),
             StorageState = _storageState,
         });
+        await context.AddInitScriptAsync(BrowserSession.ListeningMarkerScript);
         IPage page = await context.NewPageAsync();
         var session = new BrowserSession(context, page);
         await session.GotoAsync(relativeUrl);

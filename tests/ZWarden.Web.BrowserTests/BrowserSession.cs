@@ -68,12 +68,32 @@ public sealed class BrowserSession : IAsyncDisposable
     }
 
     /// <summary>
-    /// Types into a field the way a person does. A <c>BbInput</c> with <c>UpdateTiming.Immediate</c> sends its value
-    /// to the circuit on the next animation frame, so a click in the same frame (which only automation manages) would
-    /// reach the circuit first. Waiting two frames lets the value go out before the next action.
+    /// Marks each input or textarea as <c>data-zw-listening</c> once something attaches an <c>input</c> listener to it.
+    /// A <c>BbInput</c> reports its value only through the listener its JS module attaches after the input first
+    /// renders, an interop round-trip later; Blazor's own events are delegated to the document, so this is BbInput's.
+    /// </summary>
+    internal const string ListeningMarkerScript = """
+        (() => {
+          const add = EventTarget.prototype.addEventListener;
+          EventTarget.prototype.addEventListener = function (type, listener, options) {
+            if (type === 'input' && (this instanceof HTMLInputElement || this instanceof HTMLTextAreaElement)) {
+              this.setAttribute('data-zw-listening', '');
+            }
+            return add.call(this, type, listener, options);
+          };
+        })();
+        """;
+
+    /// <summary>
+    /// Types into a <c>BbInput</c> the way a person does. It waits until the input's JS module listens (a value typed
+    /// before that is never reported: an input that has just appeared, e.g. in a sheet that just opened, races it).
+    /// A <c>BbInput</c> with <c>UpdateTiming.Immediate</c> then sends its value to the circuit on the next animation
+    /// frame, so a click in the same frame (which only automation manages) would reach the circuit first. Waiting two
+    /// frames lets the value go out before the next action.
     /// </summary>
     public async Task FillAsync(string selector, string value)
     {
+        await Assertions.Expect(Page.Locator(selector)).ToHaveAttributeAsync("data-zw-listening", string.Empty);
         await Page.FillAsync(selector, value);
         await Page.EvaluateAsync("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))");
     }
