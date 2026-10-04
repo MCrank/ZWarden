@@ -35,8 +35,8 @@ public class LiveServerDiagnosticsPanelTests
 
         using BunitContext ctx = Context(cache);
         var cut = ctx.Render<LiveServerDiagnosticsPanel>(p => p
-            .Add(c => c.ServerId, server.ToString())
-            .Add(c => c.AgentId, agent.ToString()));
+            .Add(c => c.ServerId, server)
+            .Add(c => c.AgentId, agent));
 
         string markup = cut.Markup;
         await Assert.That(markup).Contains("data-diagnostics-check");
@@ -49,8 +49,8 @@ public class LiveServerDiagnosticsPanelTests
     {
         using BunitContext ctx = Context(new DiagnosticsResultCache());
         var cut = ctx.Render<LiveServerDiagnosticsPanel>(p => p
-            .Add(c => c.ServerId, ServerId.New().ToString())
-            .Add(c => c.AgentId, AgentId.New().ToString()));
+            .Add(c => c.ServerId, ServerId.New())
+            .Add(c => c.AgentId, AgentId.New()));
 
         await Assert.That(cut.Markup).Contains("data-diagnostics-empty");
     }
@@ -67,8 +67,8 @@ public class LiveServerDiagnosticsPanelTests
         using BunitContext ctx = Context(cache);
         // The panel names a different Agent than the one that reported the bundle — the ownership guard hides it.
         var cut = ctx.Render<LiveServerDiagnosticsPanel>(p => p
-            .Add(c => c.ServerId, server.ToString())
-            .Add(c => c.AgentId, AgentId.New().ToString()));
+            .Add(c => c.ServerId, server)
+            .Add(c => c.AgentId, AgentId.New()));
 
         string markup = cut.Markup;
         await Assert.That(markup).Contains("data-diagnostics-empty");
@@ -86,8 +86,8 @@ public class LiveServerDiagnosticsPanelTests
 
         using BunitContext ctx = Context(cache);
         var cut = ctx.Render<LiveServerDiagnosticsPanel>(p => p
-            .Add(c => c.ServerId, server.ToString())
-            .Add(c => c.AgentId, agent.ToString()));
+            .Add(c => c.ServerId, server)
+            .Add(c => c.AgentId, agent));
 
         string markup = cut.Markup;
         await Assert.That(markup).Contains("&lt;script&gt;");

@@ -3,18 +3,17 @@
 @implements IDisposable
 @inject IDiagnosticsResultCache Diagnostics
 
-@* The live per-server diagnostics island (F29): an interactive island embedded in the static server-detail page,
-   mirroring LiveConsoleOutputPanel. The parent did the Diagnostics.View gate and knows the Server's owning Agent;
-   this child carries no tenant context — which a circuit lacks — and only reads the process-local,
-   ownership-guarded gather cache (server bundle keyed by ServerId + owning AgentId, host bundle keyed by the Agent)
-   once per second. Every check's detail is untrusted, bounded at the Agent, and rendered here as data
-   (trust-boundaries §8). Checks are shown worst-first so problems surface at the top. Ids arrive as strings so they
-   cross the static→interactive boundary cleanly. *@
+@* The live per-server diagnostics panel (F29), a child of the interactive Server Detail page's Diagnostics section
+   (#299), mirroring LiveConsoleOutputPanel. The page did the Diagnostics.View gate and knows the Server's owning
+   Agent; this child carries no tenant context and only reads the process-local, ownership-guarded gather cache
+   (server bundle keyed by ServerId + owning AgentId, host bundle keyed by the Agent) once per second. Every check's
+   detail is untrusted, bounded at the Agent, and rendered here as data (trust-boundaries §8). Checks are shown
+   worst-first so problems surface at the top. *@
 
 <div data-diagnostics-panel>
     @if (_checks.Count == 0)
     {
-        <p class="text-xs text-muted-foreground" data-diagnostics-empty>@EmptyText</p>
+        <p class="text-xs text-muted-foreground" data-diagnostics-empty>No diagnostics yet — run a gather to check this server.</p>
     }
     else
     {
@@ -42,19 +41,16 @@
 </div>
 
 @code {
-    /// <summary>The Server, as its canonical string id (crosses the static→interactive boundary as a string).</summary>
+    /// <summary>The Server.</summary>
     [Parameter]
     [EditorRequired]
-    public string ServerId { get; set; } = string.Empty;
+    public ServerId ServerId { get; set; }
 
-    /// <summary>The Server's owning Agent, as its canonical string id (the cache ownership-guard key).</summary>
+    /// <summary>The Server's owning Agent (the cache ownership-guard key).</summary>
     [Parameter]
     [EditorRequired]
-    public string AgentId { get; set; } = string.Empty;
+    public AgentId AgentId { get; set; }
 
-    private ZWarden.Domain.Ids.ServerId _server;
-    private ZWarden.Domain.Ids.AgentId _agent;
-    private bool _parsed;
     private readonly List<DiagnosticCheck> _checks = [];
     private DateTimeOffset _reportedAt;
     private PeriodicTimer? _timer;
@@ -62,8 +58,6 @@
 
     protected override void OnInitialized()
     {
-        _parsed = ZWarden.Domain.Ids.ServerId.TryParse(ServerId, out _server)
-            & ZWarden.Domain.Ids.AgentId.TryParse(AgentId, out _agent);
         Refresh();
         _timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
         _loop = RunAsync();
@@ -87,20 +81,15 @@
 
     private void Refresh()
     {
-        if (!_parsed)
-        {
-            return;
-        }
-
         List<DiagnosticCheck> combined = [];
         DateTimeOffset reported = default;
-        if (Diagnostics.GetServer(_server, _agent) is { } serverBundle)
+        if (Diagnostics.GetServer(ServerId, AgentId) is { } serverBundle)
         {
             combined.AddRange(serverBundle.Checks);
             reported = serverBundle.ReportedAt;
         }
 
-        if (Diagnostics.GetHost(_agent) is { } hostBundle)
+        if (Diagnostics.GetHost(AgentId) is { } hostBundle)
         {
             combined.AddRange(hostBundle.Checks);
             if (hostBundle.ReportedAt > reported)
@@ -122,10 +111,6 @@
         DiagnosticStatus.Pass => 1,
         _ => 0,
     };
-
-    private string EmptyText => _parsed
-        ? "No diagnostics yet — run a gather to check this server."
-        : "Diagnostics are unavailable for this server.";
 
     private static string Domain(DiagnosticDomain domain) => domain switch
     {
