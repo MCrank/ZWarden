@@ -16,6 +16,7 @@
 @inject IJSRuntime JS
 @inject NavigationManager Navigation
 @inject ILogger<ServerDetail> Logger
+@inject ConfigDraftStore ConfigDrafts
 
 @* The server-detail page (F16/F19). Interactive (#299, ADR 0046): it runs in a circuit, so forms and buttons are
    circuit handlers and the header updates in place. The first paint is prerendered on the request, and the load it
@@ -236,6 +237,13 @@ else
                 }
             }
         </nav>
+
+        @* #331: Config edits kept while another section is open still warn before a reload or leaving the page; the
+           Config section renders its own guard. *@
+        @if (_activeSection != "config")
+        {
+            <UnsavedConfigGuard ServerId="_server.Id" Active="@ConfigDrafts.HasUnsaved(_server.Id)" />
+        }
 
         <div class="zw-secbody" data-section="@_activeSection">
             @* Only the selected section renders (and so only its data loads); ResolveSection has already failed an

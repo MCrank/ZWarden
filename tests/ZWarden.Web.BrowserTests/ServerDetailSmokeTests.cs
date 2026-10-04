@@ -127,6 +127,67 @@ public sealed partial class ServerDetailSmokeTests(BrowserHost host)
     }
 
     [Test]
+    public async Task Unsaved_config_edits_warn_before_a_reload_or_leaving_the_page()
+    {
+        // #331: the shell's links and a reload would drop the circuit's kept edits, so both ask first: a link in the app
+        // with a Blueprint dialog, a reload with the browser's own prompt (the only one a browser allows there).
+        await using BrowserSession session = await OpenSectionAsync("smoke-unsaved", "config", "&file=SandboxVars");
+        ILocator row = session.Page.Locator("[data-cfg-row]", new() { HasText = "Population" });
+        ILocator dialog = session.Page.Locator("[data-unsaved-dialog]");
+        await row.Locator("select[data-cfg-value]").SelectOptionAsync("1");
+        await Expect(row).ToHaveClassAsync(ChangedRow());
+        TaskCompletionSource beforeUnload = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        int nativeDialogs = 0;
+        session.Page.Dialog += (_, native) =>
+        {
+            Interlocked.Increment(ref nativeDialogs);
+            if (native.Type == "beforeunload")
+            {
+                beforeUnload.TrySetResult();
+            }
+
+            _ = native.DismissAsync();
+        };
+
+        // Leaving for the fleet list asks; Stay keeps the page and the edit.
+        await session.Page.ClickAsync("[data-nav=fleet]");
+        await Expect(dialog).ToBeVisibleAsync();
+        await session.Page.ClickAsync("[data-action=unsaved-stay]");
+        await Expect(dialog).ToBeHiddenAsync();
+        await Expect(session.Page).ToHaveURLAsync(SandboxVarsUrl());
+        await Expect(row).ToHaveClassAsync(ChangedRow());
+
+        // Moving to another section and back never asks: the circuit keeps the edit.
+        await session.Page.ClickAsync("[data-rail-item=logs]");
+        await Expect(session.Page.Locator("[data-live-logs]")).ToBeVisibleAsync();
+        await Expect(dialog).ToHaveCountAsync(0);
+        await session.Page.ClickAsync("[data-rail-item=config]");
+        await session.Page.ClickAsync("[data-config-tab=SandboxVars]");
+        await Expect(row).ToHaveClassAsync(ChangedRow());
+        await Assert.That(Volatile.Read(ref nativeDialogs)).IsEqualTo(0);
+
+        // A reload gets the browser's own "Leave site?" prompt; dismissing it cancels the reload.
+        try
+        {
+            await session.Page.ReloadAsync(new() { Timeout = 3000 });
+        }
+        catch (Exception ex) when (ex is PlaywrightException or TimeoutException)
+        {
+            // The dismissed prompt cancels the reload, so it never completes.
+        }
+
+        await beforeUnload.Task.WaitAsync(TimeSpan.FromSeconds(15));
+        await Expect(row).ToHaveClassAsync(ChangedRow());
+
+        // Discard and leave goes, with no second (browser) prompt on the way out.
+        await session.Page.ClickAsync("[data-nav=fleet]");
+        await session.Page.ClickAsync("[data-action=unsaved-leave]");
+        await Expect(session.Page).ToHaveURLAsync(FleetUrl());
+        await Assert.That(Volatile.Read(ref nativeDialogs)).IsEqualTo(1);
+        await session.AssertNoErrorsAsync();
+    }
+
+    [Test]
     public async Task Mods_starts_a_discovery()
     {
         await using BrowserSession session = await OpenSectionAsync("smoke-mods", "mods");
@@ -189,4 +250,7 @@ public sealed partial class ServerDetailSmokeTests(BrowserHost host)
 
     [GeneratedRegex(@"\?section=config&file=SandboxVars$")]
     private static partial Regex SandboxVarsUrl();
+
+    [GeneratedRegex(@"/servers/?$")]
+    private static partial Regex FleetUrl();
 }

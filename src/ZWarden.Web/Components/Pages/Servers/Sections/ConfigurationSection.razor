@@ -14,6 +14,9 @@
    edits are a draft (D1) in circuit memory only — the values include secrets. A paused or evicted circuit persists
    just those edits, never the prerender (#322). *@
 
+@* #331: warn before a reload or a navigation away loses unsaved edits (not those of a write in flight). *@
+<UnsavedConfigGuard ServerId="Server.Id" Active="@(Drafts.HasUnsaved(Server.Id, _tracking ? _selectedFile : null))" />
+
 <BbCard Class="p-5" data-config-card>
     <h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Configuration</h2>
     <p class="mt-1 text-xs text-muted-foreground">
@@ -455,8 +458,22 @@
     [Inject]
     private ConfigDraftStore Drafts { get; set; } = default!;
 
-    // The editor state (D1), in circuit memory. Only its snapshot is ever persisted (#322).
-    private ConfigEditorDraft? Draft { get; set; }
+    // The editor state (D1), in circuit memory and tracked in the circuit's store, so the page knows whether anything
+    // is unsaved (#331). Only its snapshot is ever persisted (#322).
+    private ConfigEditorDraft? Draft
+    {
+        get => _draft;
+        set
+        {
+            _draft = value;
+            if (value is not null)
+            {
+                Drafts.Track(Server.Id, value);
+            }
+        }
+    }
+
+    private ConfigEditorDraft? _draft;
 
     // The unsaved edits a paused or evicted circuit kept, waiting for this file's fresh read.
     private ConfigDraftSnapshot? _restored;
@@ -519,8 +536,8 @@
         _configForm.File = file.ToString();
         if (fileChanged)
         {
-            // The file being left keeps its unsaved edits until the operator comes back to it.
-            KeepDraft();
+            // The file being left keeps its unsaved edits (in the store) until the operator comes back to it.
+            LeaveDraft();
 
             _configMessage = null;
             _configDrift = false;
@@ -538,7 +555,7 @@
         // or file open. Anything else is a fresh read, with the edits a paused or evicted circuit kept carried on top.
         if (Draft is null || Draft.File != file)
         {
-            if (Drafts.Take(Server.Id, file) is { } kept)
+            if (Drafts.Find(Server.Id, file) is { } kept)
             {
                 Draft = kept;
             }
@@ -955,20 +972,20 @@
     {
         _persisting.Dispose();
 
-        // Leaving for another rail section: keep the unsaved edits for when the operator comes back (#322).
-        KeepDraft();
+        // Leaving for another rail section: the store keeps the unsaved edits for when the operator comes back (#322).
+        LeaveDraft();
 
         _trackingCts?.Cancel();
         _trackingCts?.Dispose();
     }
 
-    // Hands the on-screen draft to the circuit's store as the operator leaves it (#322). Not while a write is in
-    // flight: its edits are already on their way to the host, so coming back reads the file fresh.
-    private void KeepDraft()
+    // As the operator leaves the on-screen draft, the store keeps it (#322), unless a write is in flight: its edits are
+    // already on their way to the host, so coming back reads the file fresh.
+    private void LeaveDraft()
     {
-        if (Draft is { } draft && !_tracking)
+        if (Draft is { } draft && _tracking)
         {
-            Drafts.Keep(Server.Id, draft);
+            Drafts.Forget(Server.Id, draft.File);
         }
     }
 

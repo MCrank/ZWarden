@@ -106,8 +106,14 @@ Use them and don't write static workarounds. The rules:
     so it survives a dropped connection or an evicted circuit, not a process restart. The Config section persists
     only a `ConfigDraftSnapshot` (the changed settings), only from a live circuit, and re-reads the file on restore.
     While the circuit lives, `ConfigDraftStore` (scoped) keeps unsaved edits across rail-section and file-tab switches.
+    `UnsavedConfigGuard` (#331) warns before a reload or a tab close (the browser's own prompt, the only one allowed)
+    or a link to another page (a `BbAlertDialog`) would lose them.
 
   Everything else reloads from the database when a circuit is rebuilt.
+- **`NavigationLock` does not see link clicks on these pages.** The router is static, so enhanced navigation
+  handles a link before the circuit hears of it, and `OnBeforeInternalNavigation` never runs. A "leave this page?"
+  guard has to check clicks in JS, in the capture phase, and hand the held link to .NET to ask: see
+  `wwwroot/js/unsaved-guard.js`.
 - **Keep persisted state small: well under 32 KB.** A prerender's state rides in the page, and every enhanced
   navigation (a rail or tab click) posts it to the circuit as one hub message. Past the Blazor hub's 32 KB
   `MaximumReceiveMessageSize`, the hub drops the connection: the reconnect overlay flashes. That was #322: the
