@@ -21,6 +21,15 @@ public sealed class ConfigDraftStore
         _drafts[(server, draft.File)] = draft;
     }
 
+    /// <summary>Drops every draft of <paramref name="server"/> (the operator chose to discard them, #331).</summary>
+    public void DiscardAll(ServerId server)
+    {
+        foreach ((ServerId Server, PzConfigFile File) key in _drafts.Keys.Where(k => k.Server == server).ToList())
+        {
+            _drafts.Remove(key);
+        }
+    }
+
     /// <summary>Drops the draft of <paramref name="file"/> on <paramref name="server"/> (its edits were applied).</summary>
     public void Forget(ServerId server, PzConfigFile file) => _drafts.Remove((server, file));
 

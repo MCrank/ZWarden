@@ -610,6 +610,46 @@ public sealed class ConfigurationSectionTests
         await Assert.That(guard.Invocations["set"].All(i => i.Arguments[0] is null)).IsTrue();
     }
 
+    [Test]
+    public async Task A_held_link_asks_in_a_dialog_and_stay_keeps_the_page_and_the_edits()
+    {
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(Reader(SampleView(), out _));
+        harness.Context.JSInterop.SetupModule(UnsavedConfigGuard.ModulePath);
+        ServerId serverId = await harness.SeedServerAsync("guard-stay");
+        IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "config", "&file=SandboxVars");
+        await cut.Find("[data-cfg-path=Zombies] select").ChangeAsync(new() { Value = "1" });
+        string here = harness.Context.Services.GetRequiredService<NavigationManager>().Uri;
+
+        await HoldLinkAsync(cut, "http://localhost/servers");
+        cut.WaitForState(() => cut.FindAll("[data-unsaved-dialog]").Count == 1);
+        await cut.Find("[data-action=unsaved-stay]").ClickAsync(new());
+
+        cut.WaitForState(() => cut.FindAll("[data-unsaved-dialog]").Count == 0);
+        await Assert.That(harness.Context.Services.GetRequiredService<NavigationManager>().Uri).IsEqualTo(here);
+        await Assert.That(cut.Find("[data-cfg-path=Zombies]").ClassList).Contains("zw-cfg-changed");
+    }
+
+    [Test]
+    public async Task Discard_and_leave_turns_the_warning_off_and_follows_the_link()
+    {
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(Reader(SampleView(), out _));
+        BunitJSModuleInterop guard = harness.Context.JSInterop.SetupModule(UnsavedConfigGuard.ModulePath);
+        ServerId serverId = await harness.SeedServerAsync("guard-leave");
+        IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "config", "&file=SandboxVars");
+        await cut.Find("[data-cfg-path=Zombies] select").ChangeAsync(new() { Value = "1" });
+
+        await HoldLinkAsync(cut, "http://localhost/servers");
+        cut.WaitForState(() => cut.FindAll("[data-unsaved-dialog]").Count == 1);
+        await cut.Find("[data-action=unsaved-leave]").ClickAsync(new());
+
+        await Assert.That(harness.Context.Services.GetRequiredService<NavigationManager>().Uri).IsEqualTo("http://localhost/servers");
+        await Assert.That(GuardPath(guard)).IsNull();
+    }
+
+    // What unsaved-guard.js does with a link to another page: hands it to the page's guard.
+    private static Task HoldLinkAsync(IRenderedComponent<ServerDetail> cut, string href) =>
+        ((IRenderedComponent<IComponent>)cut).FindComponents<UnsavedConfigGuard>().Single().Instance.AskToLeave(href);
+
     // The Server page the browser-side warning was last turned on for, or null when it is off.
     private static string? GuardPath(BunitJSModuleInterop guard) =>
         guard.Invocations["set"] is { Count: > 0 } calls ? calls[^1].Arguments[0] as string : null;
