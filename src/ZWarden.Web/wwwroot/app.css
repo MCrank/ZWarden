@@ -938,6 +938,56 @@ html:not(.dark) .zw-ico-moon {
     transition: none;
   }
 }
+.zw-status {
+  --zw-sc: var(--status-unknown);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 9px;
+  border: 1px solid var(--zw-sc);
+  @supports (color: color-mix(in lab, red, red)) {
+    border: 1px solid color-mix(in oklab, var(--zw-sc) 35%, transparent);
+  }
+  border-radius: var(--radius);
+  background: var(--zw-sc);
+  @supports (color: color-mix(in lab, red, red)) {
+    background: color-mix(in oklab, var(--zw-sc) 15%, var(--card));
+  }
+  color: var(--zw-sc);
+  @supports (color: color-mix(in lab, red, red)) {
+    color: color-mix(in oklab, var(--zw-sc) 80%, var(--foreground));
+  }
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.25rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.zw-status-dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 999px;
+  background: var(--zw-sc);
+  box-shadow: 0 0 7px -1px var(--zw-sc);
+}
+.zw-status-running {
+  --zw-sc: var(--status-running);
+}
+.zw-status-stopped {
+  --zw-sc: var(--status-stopped);
+}
+.zw-status-busy {
+  --zw-sc: var(--status-busy);
+}
+.zw-status-unhealthy {
+  --zw-sc: var(--status-unhealthy);
+}
+.zw-status-unknown {
+  --zw-sc: var(--status-unknown);
+}
 .zw-reconnect {
   margin: auto;
   width: min(26rem, calc(100vw - 2rem));
@@ -1429,6 +1479,9 @@ html:not(.dark) .zw-ico-moon {
   }
   .w-\[108px\] {
     width: 108px;
+  }
+  .w-\[112px\] {
+    width: 112px;
   }
   .w-\[160px\] {
     width: 160px;

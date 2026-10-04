@@ -1,0 +1,46 @@
+/* ============================================================================
+ * ZWarden status chip — StatusBadge's tinted fill (#335), ported from the Signal
+ * prototype's `.stat` chip.
+ *
+ * One tone class (zw-status-running|stopped|busy|unhealthy|unknown) sets --zw-sc;
+ * the fill, border, label ink and the dot's glow all derive from it, so
+ * live-status.js re-tones a fleet row with a single class swap and light/dark
+ * follow the --status-* ramp in zwarden.css. The label is the status hue pulled
+ * 20% toward --foreground: it still reads as the status colour but clears 4.5:1
+ * in every state and theme (a pure-hue label does not on the light ramp).
+ * Unlayered like shell.css; built into wwwroot/app.css by `npm run build:css`.
+ * ========================================================================== */
+
+.zw-status {
+  --zw-sc: var(--status-unknown);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 9px;
+  border: 1px solid color-mix(in oklab, var(--zw-sc) 35%, transparent);
+  border-radius: var(--radius);
+  background: color-mix(in oklab, var(--zw-sc) 15%, var(--card));
+  color: color-mix(in oklab, var(--zw-sc) 80%, var(--foreground));
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.25rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.zw-status-dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 999px;
+  background: var(--zw-sc);
+  box-shadow: 0 0 7px -1px var(--zw-sc);
+}
+
+.zw-status-running   { --zw-sc: var(--status-running); }
+.zw-status-stopped   { --zw-sc: var(--status-stopped); }
+.zw-status-busy      { --zw-sc: var(--status-busy); }
+.zw-status-unhealthy { --zw-sc: var(--status-unhealthy); }
+.zw-status-unknown   { --zw-sc: var(--status-unknown); }

@@ -16,6 +16,9 @@
    Imported here so the same build emits it into wwwroot/app.css. */
 @import "./shell.css";
 
+/* StatusBadge's tinted chip (#335) - one zw-status-<tone> class, swapped in place by live-status.js. */
+@import "./status.css";
+
 /* The circuit reconnect dialog (#299) for the interactive pages, in the same Signal style. */
 @import "./reconnect.css";
 

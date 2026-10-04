@@ -40,8 +40,8 @@
   }
 
   function applyBadge(scope, s) {
-    retone(scope.querySelector('[data-status-badge]'), 'border-status-', s.tone);
-    retone(scope.querySelector('[data-status-dot]'), 'bg-status-', s.tone);
+    // One tone class tints the whole chip and its dot (#335, status.css).
+    retone(scope.querySelector('[data-status-badge]'), 'zw-status-', s.tone);
     var label = scope.querySelector('[data-status-label]');
     var text = String(s.label || '');
     if (label && label.textContent !== text) { label.textContent = text; }
