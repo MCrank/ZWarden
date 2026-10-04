@@ -82,6 +82,29 @@ public class ModMessagesTests
     }
 
     [Test]
+    public async Task DiscoveredWorkshopItem_round_trips_its_optional_installed_updated_at()
+    {
+        // #275: the .acf timeupdated of the copy on disk rides the discovery result as additive-optional data, so an
+        // item without one (no .acf entry) stays null and ProtocolVersion stays 1.
+        DateTimeOffset installed = DateTimeOffset.FromUnixTimeSeconds(1789036314);
+        ModDiscoveryResult result = new(
+            InstalledItems:
+            [
+                new DiscoveredWorkshopItem("2553809727", [new DiscoveredMod("KillCount", null)], installed),
+                new DiscoveredWorkshopItem("111", []),
+            ],
+            ConfiguredWorkshopIds: ["2553809727"],
+            EnabledModIds: ["KillCount"],
+            Findings: []);
+
+        Envelope<OperationCompleted> back = ProtocolJson.Deserialize<OperationCompleted>(ProtocolJson.Serialize(
+            Envelope.Create(new OperationCompleted(OperationOutcome.Succeeded, Mods: result), At, operationId: OperationId.New())));
+
+        await Assert.That(back.Payload.Mods!.InstalledItems[0].InstalledUpdatedAt).IsEqualTo(installed);
+        await Assert.That(back.Payload.Mods!.InstalledItems[1].InstalledUpdatedAt).IsNull();
+    }
+
+    [Test]
     public async Task DiscoveredMod_round_trips_its_optional_workshop_metadata()
     {
         // #110: mod.info's version/dependency/compat fields (research §6 — pzversion, versionMin, version, require,

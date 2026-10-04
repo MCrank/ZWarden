@@ -150,6 +150,8 @@ public class ServerMetricsSamplerTests
         public string? ReadInstalledBuildId(ServerId serverId) => buildId;
 
         public string GetWorkshopContentRoot(ServerId serverId) => throw new NotSupportedException();
+
+        public IReadOnlyDictionary<string, DateTimeOffset> ReadWorkshopInstalledTimes(ServerId serverId) => throw new NotSupportedException();
     }
 
     private sealed class FakeListRuntime(IReadOnlyList<ManagedContainer> managed) : IContainerRuntime

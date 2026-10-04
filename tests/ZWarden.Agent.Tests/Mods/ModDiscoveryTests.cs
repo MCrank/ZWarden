@@ -45,6 +45,68 @@ public class ModDiscoveryTests
         File.WriteAllBytes(Path.Combine(dir, "servertest.ini"), Encoding.UTF8.GetBytes(content));
     }
 
+    private static void WriteWorkshopManifest(string root, ServerId serverId, string content)
+    {
+        string dir = Path.Combine(root, $"{serverId}.server", "steamapps", "workshop");
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, "appworkshop_108600.acf"), content);
+    }
+
+    [Test]
+    public async Task Reports_each_items_installed_timeupdated_from_the_workshop_manifest()
+    {
+        (ModDiscovery discovery, string root, ServerId serverId) = NewDiscovery();
+        try
+        {
+            WriteMod(root, serverId, "2553809727", "KillCount", "id=KillCount\n");
+            WriteMod(root, serverId, "111", "NoEntry", "id=NoEntry\n");
+            // 2392709985 is listed but its folder is gone (F293 delete leaves the .acf entry behind): not reported.
+            WriteWorkshopManifest(root, serverId, """
+                "AppWorkshop"
+                {
+                	"WorkshopItemsInstalled"
+                	{
+                		"2553809727" { "size" "450255" "timeupdated" "1789036314" }
+                		"2392709985" { "size" "9609530" "timeupdated" "1687374018" }
+                	}
+                }
+                """);
+
+            ModDiscoveryResult result = await discovery.DiscoverAsync(serverId, CancellationToken.None);
+
+            await Assert.That(result.InstalledItems.Select(i => i.WorkshopId)).IsEquivalentTo(["111", "2553809727"]);
+            await Assert.That(result.InstalledItems.Single(i => i.WorkshopId == "2553809727").InstalledUpdatedAt)
+                .IsEqualTo(DateTimeOffset.FromUnixTimeSeconds(1789036314));
+            await Assert.That(result.InstalledItems.Single(i => i.WorkshopId == "111").InstalledUpdatedAt).IsNull();
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task A_missing_or_unparseable_workshop_manifest_leaves_installed_times_unknown()
+    {
+        (ModDiscovery discovery, string root, ServerId serverId) = NewDiscovery();
+        try
+        {
+            WriteMod(root, serverId, "2553809727", "KillCount", "id=KillCount\n");
+
+            ModDiscoveryResult missing = await discovery.DiscoverAsync(serverId, CancellationToken.None);
+            WriteWorkshopManifest(root, serverId, "\"AppWorkshop\" { \"WorkshopItemsInstalled\" {");
+            ModDiscoveryResult garbled = await discovery.DiscoverAsync(serverId, CancellationToken.None);
+
+            await Assert.That(missing.InstalledItems.Single().InstalledUpdatedAt).IsNull();
+            await Assert.That(garbled.InstalledItems.Single().InstalledUpdatedAt).IsNull();
+            await Assert.That(garbled.InstalledItems.Single().Mods.Single().ModId).IsEqualTo("KillCount");
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     [Test]
     public async Task Discovers_installed_items_and_maps_workshop_to_mods()
     {

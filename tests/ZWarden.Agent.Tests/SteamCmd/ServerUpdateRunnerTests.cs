@@ -218,6 +218,8 @@ public class ServerUpdateRunnerTests
         }
 
         public string GetWorkshopContentRoot(ServerId serverId) => throw new NotSupportedException();
+
+        public IReadOnlyDictionary<string, DateTimeOffset> ReadWorkshopInstalledTimes(ServerId serverId) => throw new NotSupportedException();
     }
 
     // A minimal IContainerRuntime: only restart + read-logs are exercised; the rest is loud if the runner drifts.
