@@ -165,6 +165,58 @@ public class LiveConsoleOutputPanelTests
     }
 
     [Test]
+    public async Task A_command_run_after_the_panel_opened_waits_for_its_own_reply()
+    {
+        // The Console section stays mounted in the circuit (#299), so a command hands the SAME panel a new
+        // OperationId; the panel must switch to waiting for that reply, as a freshly rendered one would.
+        AgentId agent = AgentId.New();
+        ServerId server = ServerId.New();
+        OperationId justRun = OperationId.New();
+        ConsoleOutputCache cache = new();
+        cache.Record(server, agent, OperationId.New(), "older reply", truncated: false, At);
+
+        using BunitContext ctx = new();
+        var cut = RenderPanel(ctx, cache, server, agent);
+        await Assert.That(cut.Markup).Contains("older reply");
+
+        cut.Render(p => p
+            .Add(c => c.OperationId, justRun)
+            .Add(c => c.Command, "showoptions"));
+
+        await Assert.That(cut.Markup).Contains("data-console-waiting");
+        await Assert.That(cut.Markup).Contains("showoptions");
+        await Assert.That(cut.Markup).DoesNotContain("older reply");
+
+        cache.Record(server, agent, justRun, "Options: MaxPlayers=16", truncated: false, At);
+        cut.WaitForState(() => cut.Markup.Contains("Options: MaxPlayers=16"), TimeSpan.FromSeconds(5));
+        await Assert.That(cut.Markup).Contains("data-console-command");
+    }
+
+    [Test]
+    public async Task A_reply_that_arrived_before_its_operation_id_is_still_shown_as_that_commands()
+    {
+        // The reply can land (and be polled as the latest) while the section is still awaiting the enqueue result;
+        // handing the panel that OperationId afterwards must not leave it waiting for a reply it already read.
+        AgentId agent = AgentId.New();
+        ServerId server = ServerId.New();
+        OperationId justRun = OperationId.New();
+        ConsoleOutputCache cache = new();
+
+        using BunitContext ctx = new();
+        var cut = RenderPanel(ctx, cache, server, agent);
+        cache.Record(server, agent, justRun, "Options: MaxPlayers=16", truncated: false, At);
+        cut.WaitForState(() => cut.Markup.Contains("Options: MaxPlayers=16"), TimeSpan.FromSeconds(5));
+
+        cut.Render(p => p
+            .Add(c => c.OperationId, justRun)
+            .Add(c => c.Command, "showoptions"));
+
+        await Assert.That(cut.Markup).Contains("Options: MaxPlayers=16");
+        await Assert.That(cut.Markup).Contains("data-console-command");
+        await Assert.That(cut.Markup).DoesNotContain("data-console-waiting");
+    }
+
+    [Test]
     public async Task The_reply_time_uses_the_operators_time_zone()
     {
         AgentId agent = AgentId.New();

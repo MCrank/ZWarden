@@ -89,11 +89,24 @@
 
     protected override void OnInitialized()
     {
-        _focus = OperationId;
-        _awaiting = _focus is not null;
-        Refresh();
         _timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
         _loop = RunAsync();
+    }
+
+    // The Console section stays mounted in the circuit (#299), so each command run hands this same panel a new
+    // OperationId. Re-read the bounded cache from the start for it — its reply may already have been polled as
+    // "the latest" while the section awaited the enqueue — exactly as a freshly rendered panel would.
+    protected override void OnParametersSet()
+    {
+        if (OperationId != _focus)
+        {
+            _focus = OperationId;
+            _awaiting = _focus is not null;
+            _cursor = 0;
+            _entry = null;
+        }
+
+        Refresh();
     }
 
     private async Task RunAsync()

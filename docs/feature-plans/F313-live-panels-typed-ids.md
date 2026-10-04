@@ -28,8 +28,15 @@ round-trip.
 - **D2 — the "unavailable" states go.** The console and diagnostics panels' "unavailable for this server" text was only
   reachable with a malformed id; it goes with the guard. The logs panel keeps its subscribe-based empty text (it is about
   the subscription, not the parse).
-- **D3 — tests.** The existing bUnit tests switch to typed values; behaviour is unchanged, so the test count and the
-  Web.Tests floor stay as they are.
+- **D3 — tests.** The existing bUnit tests switch to typed values; behaviour is unchanged.
+- **D4 — the console panel follows a new OperationId (regression from #299, found here).** Before #299 each command
+  was a form post that re-rendered the page, so the console panel was always rendered fresh with the new
+  `OperationId`. Since #299 the Console section stays mounted and hands the *same* panel a new `OperationId`, but the
+  panel only read it in `OnInitialized`: after the first command it no longer waited for that command's reply or showed
+  the command above it (#242). The panel now takes a changed `OperationId` in `OnParametersSet` and re-reads the
+  bounded output cache from the start, which is what a freshly rendered panel did. It reads from the start because the
+  reply can already have been polled as "the latest" while the section awaited the enqueue. Two bUnit tests cover this
+  (a command after open waits for its reply; a reply that arrived first is still shown as that command's).
 
 ## Slices
 
@@ -38,3 +45,10 @@ round-trip.
 3. `LiveServerDiagnosticsPanel` + `DiagnosticsSection`.
 4. `LiveServerLogPanel` + `LogsSection` (zone).
 5. `LiveConsoleOutputPanel` + `ConsoleSection` (operation id, zone).
+6. D4: the console panel follows a new `OperationId` (red tests first).
+
+## Result
+
+- No `Live*` panel takes an id or zone as a string; the parse-and-guard code is gone (and with it the console and
+  diagnostics "unavailable for this server" text, which only a malformed id could reach).
+- Floors: Web 592 (+2, the D4 tests).
