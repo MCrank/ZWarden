@@ -30,8 +30,8 @@ public class LivePlayerRosterPanelTests
         ctx.Services.AddSingleton<IPlayerRosterCache>(cache);
 
         var cut = ctx.Render<LivePlayerRosterPanel>(p => p
-            .Add(c => c.ServerId, server.ToString())
-            .Add(c => c.AgentId, agent.ToString()));
+            .Add(c => c.ServerId, server)
+            .Add(c => c.AgentId, agent));
 
         string markup = cut.Markup;
         await Assert.That(markup).Contains("2 connected");
@@ -52,8 +52,8 @@ public class LivePlayerRosterPanelTests
         ctx.Services.AddSingleton<IPlayerRosterCache>(cache);
 
         var cut = ctx.Render<LivePlayerRosterPanel>(p => p
-            .Add(c => c.ServerId, server.ToString())
-            .Add(c => c.AgentId, agent.ToString()));
+            .Add(c => c.ServerId, server)
+            .Add(c => c.AgentId, agent));
 
         string markup = cut.Markup;
         // BbItemGroup renders role="list"; each player keeps its data-roster-* hooks (data-roster-player on the BbItem).
@@ -71,8 +71,8 @@ public class LivePlayerRosterPanelTests
         ctx.Services.AddSingleton<IPlayerRosterCache>(new PlayerRosterCache());
 
         var cut = ctx.Render<LivePlayerRosterPanel>(p => p
-            .Add(c => c.ServerId, ServerId.New().ToString())
-            .Add(c => c.AgentId, AgentId.New().ToString()));
+            .Add(c => c.ServerId, ServerId.New())
+            .Add(c => c.AgentId, AgentId.New()));
 
         await Assert.That(cut.Markup).Contains("data-roster-awaiting");
     }
@@ -91,8 +91,8 @@ public class LivePlayerRosterPanelTests
         ctx.Services.AddSingleton<IPlayerRosterCache>(cache);
 
         var cut = ctx.Render<LivePlayerRosterPanel>(p => p
-            .Add(c => c.ServerId, server.ToString())
-            .Add(c => c.AgentId, agent.ToString()));
+            .Add(c => c.ServerId, server)
+            .Add(c => c.AgentId, agent));
 
         string markup = cut.Markup;
         // The username is present as escaped text, never as a live <script> element.

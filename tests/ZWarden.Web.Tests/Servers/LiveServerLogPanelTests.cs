@@ -41,8 +41,8 @@ public class LiveServerLogPanelTests
         buffer.Append(agent, server, [Line(1, isStderr: false, "world loaded"), Line(2, isStderr: true, "<b>boom</b>")], dropped: false);
 
         var cut = ctx.Render<LiveServerLogPanel>(p => p
-            .Add(c => c.ServerId, server.ToString())
-            .Add(c => c.AgentId, agent.ToString()));
+            .Add(c => c.ServerId, server)
+            .Add(c => c.AgentId, agent));
 
         string markup = cut.Markup;
         await Assert.That(coordinator.Subscribed).Contains(server);
@@ -70,14 +70,14 @@ public class LiveServerLogPanelTests
         ServerId server = ServerId.New();
         buffer.Append(agent, server, [Line(1, isStderr: false, "world loaded")], dropped: false);
 
-        var cut = ctx.Render<LiveServerLogPanel>(p => p
-            .Add(c => c.ServerId, server.ToString())
-            .Add(c => c.AgentId, agent.ToString())
-            .Add(c => c.TimeZoneId, "America/New_York"));
-
         // The panel formats the line's timestamp in the supplied zone (#211), not a hardcoded UTC — assert it
         // matches the same helper the panel uses, so the test is robust to the platform's tz database.
         TimeZoneInfo zone = ZWarden.Web.Time.OperatorTimeZone.Resolve("America/New_York");
+        var cut = ctx.Render<LiveServerLogPanel>(p => p
+            .Add(c => c.ServerId, server)
+            .Add(c => c.AgentId, agent)
+            .Add(c => c.Zone, zone));
+
         string expected = ZWarden.Web.Time.OperatorTimeZone.Format(At, zone, "HH:mm:ss");
         await Assert.That(cut.Markup).Contains(expected);
         if (zone != TimeZoneInfo.Utc)
@@ -93,8 +93,8 @@ public class LiveServerLogPanelTests
         Register(ctx, new RecordingCoordinator());
 
         var cut = ctx.Render<LiveServerLogPanel>(p => p
-            .Add(c => c.ServerId, ServerId.New().ToString())
-            .Add(c => c.AgentId, AgentId.New().ToString()));
+            .Add(c => c.ServerId, ServerId.New())
+            .Add(c => c.AgentId, AgentId.New()));
 
         await Assert.That(cut.Markup).Contains("data-log-empty");
     }
@@ -109,8 +109,8 @@ public class LiveServerLogPanelTests
         buffer.Append(agent, server, [Line(1, isStderr: false, "kept")], dropped: true);
 
         var cut = ctx.Render<LiveServerLogPanel>(p => p
-            .Add(c => c.ServerId, server.ToString())
-            .Add(c => c.AgentId, agent.ToString()));
+            .Add(c => c.ServerId, server)
+            .Add(c => c.AgentId, agent));
 
         await Assert.That(cut.Markup).Contains("data-log-dropped");
     }
@@ -125,8 +125,8 @@ public class LiveServerLogPanelTests
         ServerId server = ServerId.New();
 
         var cut = ctx.Render<LiveServerLogPanel>(p => p
-            .Add(c => c.ServerId, server.ToString())
-            .Add(c => c.AgentId, agent.ToString()));
+            .Add(c => c.ServerId, server)
+            .Add(c => c.AgentId, agent));
 
         await cut.Instance.DisposeAsync();
 

@@ -37,8 +37,8 @@ public class LiveServerPanelTests
         ctx.Services.AddSingleton<IServerHealthCache>(health);
 
         var cut = ctx.Render<LiveServerPanel>(p => p
-            .Add(c => c.ServerId, server.ToString())
-            .Add(c => c.AgentId, agent.ToString()));
+            .Add(c => c.ServerId, server)
+            .Add(c => c.AgentId, agent));
 
         string markup = cut.Markup;
         await Assert.That(markup).Contains("Degraded");
@@ -66,8 +66,8 @@ public class LiveServerPanelTests
         ctx.Services.AddSingleton<IServerHealthCache>(health);
 
         var cut = ctx.Render<LiveServerPanel>(p => p
-            .Add(c => c.ServerId, server.ToString())
-            .Add(c => c.AgentId, agent.ToString()));
+            .Add(c => c.ServerId, server)
+            .Add(c => c.AgentId, agent));
 
         string markup = cut.Markup;
         // One row per probe, keyed for the marker, each showing its status label.
@@ -91,8 +91,8 @@ public class LiveServerPanelTests
         ctx.Services.AddSingleton<IServerHealthCache>(new ServerHealthCache());
 
         var cut = ctx.Render<LiveServerPanel>(p => p
-            .Add(c => c.ServerId, ServerId.New().ToString())
-            .Add(c => c.AgentId, AgentId.New().ToString())
+            .Add(c => c.ServerId, ServerId.New())
+            .Add(c => c.AgentId, AgentId.New())
             .Add(c => c.InitialHealth, "Stopped"));
 
         await Assert.That(cut.Markup).DoesNotContain("data-live-probes");
@@ -106,8 +106,8 @@ public class LiveServerPanelTests
         ctx.Services.AddSingleton<IServerHealthCache>(new ServerHealthCache());
 
         var cut = ctx.Render<LiveServerPanel>(p => p
-            .Add(c => c.ServerId, ServerId.New().ToString())
-            .Add(c => c.AgentId, AgentId.New().ToString())
+            .Add(c => c.ServerId, ServerId.New())
+            .Add(c => c.AgentId, AgentId.New())
             .Add(c => c.InitialHealth, "Stopped"));
 
         string markup = cut.Markup;

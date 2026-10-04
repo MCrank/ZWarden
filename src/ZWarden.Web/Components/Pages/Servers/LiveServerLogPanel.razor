@@ -6,14 +6,12 @@
 @inject IServerLogSubscriptionCoordinator Coordinator
 @inject IJSRuntime JS
 
-@* The live-logs island (F27): an interactive island embedded in the static server-detail page, mirroring
+@* The live-logs panel (F27), a child of the interactive Server Detail page's Logs section (#299), mirroring
    LiveServerPanel / LivePlayerRosterPanel. On open it subscribes through the coordinator (which ref-counts viewers
    and tells the owning Agent to start following); on dispose it unsubscribes (the last viewer stops the follow).
    It then polls the process-local, ownership-guarded log buffer (keyed by ServerId + owning AgentId) by a
    monotonic sequence cursor once per second, appending new lines and holding a bounded on-screen tail. The parent
-   page did the authorized, tenant-filtered load and the Console.View gate; this child carries no tenant context —
-   which a circuit lacks. Ids arrive as strings so they cross the static→interactive boundary cleanly. Every line
-   is untrusted Agent output, sanitized on the Agent and rendered here as data (trust-boundaries.md §8). Built from
+   page did the authorized, tenant-filtered load and the Console.View gate; this child carries no tenant context. Every line is untrusted Agent output, sanitized on the Agent and rendered here as data (trust-boundaries.md §8). Built from
    Blueprint wrappers (ADR 0003): BbScrollArea for the tail, BbCheckbox for the stream toggles, BbInput to filter.
    Log text is Chivo Mono (the style guide's data face); stderr carries the semantic destructive ink. *@
 
@@ -64,26 +62,25 @@
 </div>
 
 @code {
-    /// <summary>The Server, as its canonical string id (crosses the static→interactive boundary as a string).</summary>
+    /// <summary>The Server.</summary>
     [Parameter]
     [EditorRequired]
-    public string ServerId { get; set; } = string.Empty;
+    public ServerId ServerId { get; set; }
 
-    /// <summary>The Server's owning Agent, as its canonical string id (the buffer/coordinator ownership key).</summary>
+    /// <summary>The Server's owning Agent (the buffer/coordinator ownership key).</summary>
     [Parameter]
     [EditorRequired]
-    public string AgentId { get; set; } = string.Empty;
+    public AgentId AgentId { get; set; }
 
-    /// <summary>The operator's display time-zone id, resolved by the static parent from the cookie (#211). A circuit
-    /// has no <c>HttpContext</c>, so the zone is handed in as a string; null/blank ⇒ UTC.</summary>
+    /// <summary>The operator's display time zone (#211); UTC when not given.</summary>
     [Parameter]
-    public string? TimeZoneId { get; set; }
+    public TimeZoneInfo Zone { get; set; } = TimeZoneInfo.Utc;
 
     private const int DisplayCap = 500;
 
+    // The pair subscribed at open, so the unsubscribe at dispose matches it.
     private ServerId _server;
     private AgentId _agent;
-    private bool _parsed;
     private bool _subscribed;
     private long _cursor;
     private bool _dropped;
@@ -95,18 +92,11 @@
     private Task? _loop;
     private ElementReference _root;
     private bool _jsReady;
-    private TimeZoneInfo _zone = TimeZoneInfo.Utc;
 
     protected override async Task OnInitializedAsync()
     {
-        _zone = OperatorTimeZone.Resolve(TimeZoneId);
-        _parsed = Domain.Ids.ServerId.TryParse(ServerId, out _server)
-            & Domain.Ids.AgentId.TryParse(AgentId, out _agent);
-        if (!_parsed)
-        {
-            return;
-        }
-
+        _server = ServerId;
+        _agent = AgentId;
         await Coordinator.SubscribeAsync(_server, _agent, CancellationToken.None).ConfigureAwait(false);
         _subscribed = true;
         Refresh();
@@ -140,11 +130,6 @@
     // Appends any new buffered lines; returns whether anything changed (new lines or a flipped dropped flag).
     private bool Refresh()
     {
-        if (!_parsed)
-        {
-            return false;
-        }
-
         ServerLogSlice slice = LogBuffer.Read(_server, _agent, _cursor);
         bool hadNew = slice.Lines.Count > 0;
         if (hadNew)
@@ -208,7 +193,7 @@
         ? "Waiting for log output…"
         : "Live logs are unavailable for this server.";
 
-    private string Time(DateTimeOffset at) => OperatorTimeZone.Format(at, _zone, "HH:mm:ss");
+    private string Time(DateTimeOffset at) => OperatorTimeZone.Format(at, Zone, "HH:mm:ss");
 
     public async ValueTask DisposeAsync()
     {

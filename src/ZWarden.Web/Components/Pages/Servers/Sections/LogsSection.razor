@@ -10,8 +10,6 @@
         open. Lines are shown as-is and are not stored — a live tail, not a searchable history.
     </p>
     <div class="mt-4">
-        <LiveServerLogPanel ServerId="@Server.Id.ToString()"
-                            AgentId="@Server.AgentId.ToString()"
-                            TimeZoneId="@OperatorZone.Id" />
+        <LiveServerLogPanel ServerId="@Server.Id" AgentId="@Server.AgentId" Zone="@OperatorZone" />
     </div>
 </BbCard>

@@ -26,7 +26,7 @@
                           OnClick="@(() => ActionAsync("refresh"))" data-action="refresh">Refresh</BbButton>
             </div>
             <div class="mt-3">
-                <LivePlayerRosterPanel ServerId="@Server.Id.ToString()" AgentId="@Server.AgentId.ToString()" />
+                <LivePlayerRosterPanel ServerId="@Server.Id" AgentId="@Server.AgentId" />
             </div>
         }
 

@@ -29,8 +29,8 @@ public class LiveConsoleOutputPanelTests
         ctx.Services.AddSingleton<IConsoleOutputCache>(cache);
 
         var cut = ctx.Render<LiveConsoleOutputPanel>(p => p
-            .Add(c => c.ServerId, server.ToString())
-            .Add(c => c.AgentId, agent.ToString()));
+            .Add(c => c.ServerId, server)
+            .Add(c => c.AgentId, agent));
 
         string markup = cut.Markup;
         await Assert.That(markup).Contains("data-console-entry");
@@ -45,8 +45,8 @@ public class LiveConsoleOutputPanelTests
         ctx.Services.AddSingleton<IConsoleOutputCache>(new ConsoleOutputCache());
 
         var cut = ctx.Render<LiveConsoleOutputPanel>(p => p
-            .Add(c => c.ServerId, ServerId.New().ToString())
-            .Add(c => c.AgentId, AgentId.New().ToString()));
+            .Add(c => c.ServerId, ServerId.New())
+            .Add(c => c.AgentId, AgentId.New()));
 
         await Assert.That(cut.Markup).Contains("data-console-empty");
     }
@@ -65,8 +65,8 @@ public class LiveConsoleOutputPanelTests
 
         // The panel names a different Agent than the one that reported the output — the ownership guard hides it.
         var cut = ctx.Render<LiveConsoleOutputPanel>(p => p
-            .Add(c => c.ServerId, server.ToString())
-            .Add(c => c.AgentId, AgentId.New().ToString()));
+            .Add(c => c.ServerId, server)
+            .Add(c => c.AgentId, AgentId.New()));
 
         string markup = cut.Markup;
         await Assert.That(markup).Contains("data-console-empty");
@@ -86,8 +86,8 @@ public class LiveConsoleOutputPanelTests
         ctx.Services.AddSingleton<IConsoleOutputCache>(cache);
 
         var cut = ctx.Render<LiveConsoleOutputPanel>(p => p
-            .Add(c => c.ServerId, server.ToString())
-            .Add(c => c.AgentId, agent.ToString()));
+            .Add(c => c.ServerId, server)
+            .Add(c => c.AgentId, agent));
 
         string markup = cut.Markup;
         await Assert.That(markup).Contains("&lt;script&gt;");
@@ -96,16 +96,16 @@ public class LiveConsoleOutputPanelTests
 
     private static IRenderedComponent<LiveConsoleOutputPanel> RenderPanel(
         BunitContext ctx, ConsoleOutputCache cache, ServerId server, AgentId agent,
-        string? operationId = null, string? command = null, string? timeZoneId = null)
+        OperationId? operationId = null, string? command = null, TimeZoneInfo? zone = null)
     {
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddSingleton<IConsoleOutputCache>(cache);
         return ctx.Render<LiveConsoleOutputPanel>(p => p
-            .Add(c => c.ServerId, server.ToString())
-            .Add(c => c.AgentId, agent.ToString())
+            .Add(c => c.ServerId, server)
+            .Add(c => c.AgentId, agent)
             .Add(c => c.OperationId, operationId)
             .Add(c => c.Command, command)
-            .Add(c => c.TimeZoneId, timeZoneId));
+            .Add(c => c.Zone, zone ?? TimeZoneInfo.Utc));
     }
 
     [Test]
@@ -135,7 +135,7 @@ public class LiveConsoleOutputPanelTests
         cache.Record(server, agent, OperationId.New(), "older reply", truncated: false, At);
 
         using BunitContext ctx = new();
-        var cut = RenderPanel(ctx, cache, server, agent, justRun.ToString(), "showoptions");
+        var cut = RenderPanel(ctx, cache, server, agent, justRun, "showoptions");
 
         await Assert.That(cut.Markup).Contains("data-console-waiting");
         await Assert.That(cut.Markup).Contains("showoptions");
@@ -165,6 +165,58 @@ public class LiveConsoleOutputPanelTests
     }
 
     [Test]
+    public async Task A_command_run_after_the_panel_opened_waits_for_its_own_reply()
+    {
+        // The Console section stays mounted in the circuit (#299), so a command hands the SAME panel a new
+        // OperationId; the panel must switch to waiting for that reply, as a freshly rendered one would.
+        AgentId agent = AgentId.New();
+        ServerId server = ServerId.New();
+        OperationId justRun = OperationId.New();
+        ConsoleOutputCache cache = new();
+        cache.Record(server, agent, OperationId.New(), "older reply", truncated: false, At);
+
+        using BunitContext ctx = new();
+        var cut = RenderPanel(ctx, cache, server, agent);
+        await Assert.That(cut.Markup).Contains("older reply");
+
+        cut.Render(p => p
+            .Add(c => c.OperationId, justRun)
+            .Add(c => c.Command, "showoptions"));
+
+        await Assert.That(cut.Markup).Contains("data-console-waiting");
+        await Assert.That(cut.Markup).Contains("showoptions");
+        await Assert.That(cut.Markup).DoesNotContain("older reply");
+
+        cache.Record(server, agent, justRun, "Options: MaxPlayers=16", truncated: false, At);
+        cut.WaitForState(() => cut.Markup.Contains("Options: MaxPlayers=16"), TimeSpan.FromSeconds(5));
+        await Assert.That(cut.Markup).Contains("data-console-command");
+    }
+
+    [Test]
+    public async Task A_reply_that_arrived_before_its_operation_id_is_still_shown_as_that_commands()
+    {
+        // The reply can land (and be polled as the latest) while the section is still awaiting the enqueue result;
+        // handing the panel that OperationId afterwards must not leave it waiting for a reply it already read.
+        AgentId agent = AgentId.New();
+        ServerId server = ServerId.New();
+        OperationId justRun = OperationId.New();
+        ConsoleOutputCache cache = new();
+
+        using BunitContext ctx = new();
+        var cut = RenderPanel(ctx, cache, server, agent);
+        cache.Record(server, agent, justRun, "Options: MaxPlayers=16", truncated: false, At);
+        cut.WaitForState(() => cut.Markup.Contains("Options: MaxPlayers=16"), TimeSpan.FromSeconds(5));
+
+        cut.Render(p => p
+            .Add(c => c.OperationId, justRun)
+            .Add(c => c.Command, "showoptions"));
+
+        await Assert.That(cut.Markup).Contains("Options: MaxPlayers=16");
+        await Assert.That(cut.Markup).Contains("data-console-command");
+        await Assert.That(cut.Markup).DoesNotContain("data-console-waiting");
+    }
+
+    [Test]
     public async Task The_reply_time_uses_the_operators_time_zone()
     {
         AgentId agent = AgentId.New();
@@ -172,10 +224,10 @@ public class LiveConsoleOutputPanelTests
         ConsoleOutputCache cache = new();
         cache.Record(server, agent, OperationId.New(), "reply", truncated: false, At);
 
-        using BunitContext ctx = new();
-        var cut = RenderPanel(ctx, cache, server, agent, timeZoneId: "America/New_York");
-
         TimeZoneInfo zone = ZWarden.Web.Time.OperatorTimeZone.Resolve("America/New_York");
+        using BunitContext ctx = new();
+        var cut = RenderPanel(ctx, cache, server, agent, zone: zone);
+
         await Assert.That(cut.Markup).Contains(ZWarden.Web.Time.OperatorTimeZone.Format(At, zone, "HH:mm:ss"));
     }
 
@@ -192,8 +244,8 @@ public class LiveConsoleOutputPanelTests
         ctx.Services.AddSingleton<IConsoleOutputCache>(cache);
 
         var cut = ctx.Render<LiveConsoleOutputPanel>(p => p
-            .Add(c => c.ServerId, server.ToString())
-            .Add(c => c.AgentId, agent.ToString()));
+            .Add(c => c.ServerId, server)
+            .Add(c => c.AgentId, agent));
 
         await Assert.That(cut.Markup).Contains("data-console-truncated");
     }
