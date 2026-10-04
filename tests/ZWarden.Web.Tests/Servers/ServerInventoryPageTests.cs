@@ -25,9 +25,9 @@ namespace ZWarden.Web.Tests.Servers;
 /// <summary>
 /// The <c>/servers</c> Fleet board (#158): the redesigned landing/fleet view. It is authenticated (not gated by
 /// a server-scoped Server.View policy, which would deny at the page level), renders on the static server, and
-/// self-filters to the Servers the caller may view (ADR 0018). The KPI strip, degraded banner and Register/
-/// Import forms are static SSR; the fleet table is an interactive island (FleetBoard) that prerenders with the
-/// rows. Exercised over the real host.
+/// self-filters to the Servers the caller may view (ADR 0018). The KPI strip and degraded banner are static SSR; the
+/// fleet table, the Deploy server sheet and the adopt callout are interactive islands that prerender with the page
+/// (#338/#339). Exercised over the real host.
 /// </summary>
 public sealed class ServerInventoryPageTests
 {
@@ -100,40 +100,87 @@ public sealed class ServerInventoryPageTests
         client.Dispose();
     }
 
+    // --- #339: the adopt callout replaces the inline Import form ------------------------------------------------
+
     [Test]
-    public async Task The_import_form_posts_through_the_blueprint_components()
+    public async Task With_nothing_discovered_there_is_no_adopt_banner_and_no_import_form()
     {
-        // The exemplar guarantee (issue #84): the Blueprint form primitives (BbNativeSelect/BbInput/BbButton)
-        // render real named controls that bind on a static-SSR EditForm POST — no circuit.
         await using ZWardenWebAppFactory factory = new();
         HttpClient client = await SignedInOperatorAsync(factory);
         AgentId agent = await SeedAgentAsync(factory);
-        ServerId discovered = ServerId.New();
+        factory.Services.GetRequiredService<IServerDiscoveryCache>().Record(agent, []);
+
+        string html = await (await client.GetAsync(new Uri("/servers", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        await Assert.That(html).DoesNotContain("data-unmanaged-banner");
+        await Assert.That(html).DoesNotContain("Import a discovered container");
+        await Assert.That(html).DoesNotContain("_form.Target");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task A_discovered_container_shows_the_adopt_banner_naming_its_host()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        AgentId agent = await SeedAgentAsync(factory);
         factory.Services.GetRequiredService<IServerDiscoveryCache>()
-            .Record(agent, [new DiscoveredServer(discovered, ServerRunState.Stopped)]);
+            .Record(agent, [new DiscoveredServer(ServerId.New(), ServerRunState.Running)]);
 
-        string page = await (await client.GetAsync(new Uri("/servers", UriKind.Relative))).Content.ReadAsStringAsync();
-        string token = ParseHiddenInputs(page)["__RequestVerificationToken"];
+        string html = await (await client.GetAsync(new Uri("/servers", UriKind.Relative))).Content.ReadAsStringAsync();
 
-        // The Blueprint controls must render the full model-path field names for the static POST to bind.
-        // BbInput derives it; BbNativeSelect needs the explicit Name (its auto-derived name drops the prefix).
-        await Assert.That(page).Contains("name=\"_form.Target\"");
-        await Assert.That(page).Contains("name=\"_form.Name\"");
+        await Assert.That(html).Contains("data-unmanaged-banner");
+        await Assert.That(html).Contains("1 unmanaged server found on host-alpha.");
+        await Assert.That(html).Contains("data-action=\"adopt-open\"");
+        client.Dispose();
+    }
 
-        // Submit the import EditForm exactly as the browser would (its rendered field names).
-        Dictionary<string, string> form = new(StringComparer.Ordinal)
+    [Test]
+    public async Task The_adopt_banner_counts_across_hosts_and_leaves_out_registered_and_foreign_containers()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        AgentId first = await SeedAgentAsync(factory);
+        AgentId second = await SeedAgentAsync(factory);
+        (ServerId registered, _) = await SeedServerWithAgentAsync(factory, "managed");
+        IServerDiscoveryCache discovery = factory.Services.GetRequiredService<IServerDiscoveryCache>();
+        discovery.Record(first, [new DiscoveredServer(ServerId.New(), ServerRunState.Running), new DiscoveredServer(registered, ServerRunState.Running)]);
+        discovery.Record(second, [new DiscoveredServer(ServerId.New(), ServerRunState.Stopped)]);
+        // An Agent this tenant doesn't own (another tenant's, in a hosted deployment) is never counted.
+        discovery.Record(AgentId.New(), [new DiscoveredServer(ServerId.New(), ServerRunState.Stopped)]);
+
+        string html = await (await client.GetAsync(new Uri("/servers", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        await Assert.That(html).Contains("2 unmanaged servers found on 2 hosts.");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task A_caller_without_server_register_gets_no_adopt_banner()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        await factory.CreateConfirmedUserAsync("owner@zwarden.test", StrongPassword);
+        await AuthorizationBootstrapper.EnsureSeededAsync(factory.Services, "owner@zwarden.test");
+        await factory.CreateConfirmedUserAsync("mod@zwarden.test", StrongPassword);
+        using (AsyncServiceScope scope = factory.Services.CreateSystemScope())
         {
-            ["__RequestVerificationToken"] = token,
-            ["_handler"] = "import-server",
-            ["_form.Target"] = $"{agent}|{discovered}",
-            ["_form.Name"] = "via-form",
-        };
-        await client.PostAsync(new Uri("/servers", UriKind.Relative), new FormUrlEncodedContent(form));
+            ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
+            ApplicationUser user = (await scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>()
+                .FindByEmailAsync("mod@zwarden.test"))!;
+            Role moderator = await db.Set<Role>().SingleAsync(r => r.BuiltIn == BuiltInRoleKind.Moderator);
+            db.Set<RoleAssignment>().Add(RoleAssignment.TenantWide(moderator.TenantId, UserId.FromGuid(user.Id), moderator.Id));
+            await db.SaveChangesAsync();
+        }
 
-        // The adopted server (named from the form) now shows on the board — the POST bound end to end.
-        string after = await (await client.GetAsync(new Uri("/servers", UriKind.Relative))).Content.ReadAsStringAsync();
-        await Assert.That(after).Contains("via-form");
-        await Assert.That(after).Contains("data-server-link");
+        AgentId agent = await SeedAgentAsync(factory);
+        factory.Services.GetRequiredService<IServerDiscoveryCache>()
+            .Record(agent, [new DiscoveredServer(ServerId.New(), ServerRunState.Running)]);
+        HttpClient client = factory.CreateWebClient();
+        await LoginAsync(client, "mod@zwarden.test", StrongPassword);
+
+        string html = await (await client.GetAsync(new Uri("/servers", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        await Assert.That(html).DoesNotContain("data-unmanaged-banner");
         client.Dispose();
     }
 

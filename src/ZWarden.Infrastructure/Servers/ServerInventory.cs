@@ -138,7 +138,10 @@ public sealed class ServerInventory : IServerInventory
     {
         HashSet<ServerId> registeredIds = [.. (await _servers.ListAsync(cancellationToken).ConfigureAwait(false))
             .Select(s => s.Id)];
+        // #339: the discovery cache holds every connected Agent's report; keep only this tenant's Agents.
+        HashSet<AgentId> tenantAgents = [.. (await _agents.ListAsync(cancellationToken).ConfigureAwait(false)).Select(a => a.Id)];
         return _discovery.KnownAgents()
+            .Where(tenantAgents.Contains)
             .SelectMany(agentId => _discovery.GetDiscovered(agentId)
                 .Where(d => !registeredIds.Contains(d.ServerId))
                 .Select(d => new DiscoveredServerOnAgent(agentId, d.ServerId, d.RunState)))
@@ -185,7 +188,8 @@ public sealed class ServerInventory : IServerInventory
 
         // The target must be something this Agent actually discovered (trust-boundaries.md §3): a caller
         // cannot register an arbitrary id, only adopt an observed orphan.
-        if (!_discovery.GetDiscovered(agentId).Any(d => d.ServerId == serverId))
+        DiscoveredServer? observed = _discovery.GetDiscovered(agentId).FirstOrDefault(d => d.ServerId == serverId);
+        if (observed is null)
         {
             return ServerImportResult.Denied(ServerImportFailure.NotDiscovered);
         }
@@ -197,7 +201,16 @@ public sealed class ServerInventory : IServerInventory
             return ServerImportResult.Success(existing.Id);
         }
 
-        Server server = Server.Import(agentId, serverId, name, _clock.GetUtcNow());
+        DateTimeOffset now = _clock.GetUtcNow();
+        Server server = Server.Import(agentId, serverId, name, now);
+        // #339: the Agent sends run state on connect and on a change only, so a container that was already running
+        // would stay Unknown until something changed. Start from what the Agent last reported for it.
+        server.RecordObservedState(observed.RunState, now);
+        if (observed.Health is { } health)
+        {
+            server.RecordObservedHealth(health, now);
+        }
+
         _servers.Add(server);
         await _context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         await _audit.WriteAsync(

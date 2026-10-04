@@ -23,8 +23,8 @@ public interface IServerInventory
         AgentId agentId,
         CancellationToken cancellationToken = default);
 
-    /// <summary>Every discovered-but-unregistered container across all Agents that have reported a snapshot —
-    /// the inventory dashboard's import picker.</summary>
+    /// <summary>Every discovered-but-unregistered container across this tenant's Agents that have reported a snapshot —
+    /// the Fleet adopt callout and first-run setup's import picker (#339: another tenant's Agents are left out).</summary>
     Task<IReadOnlyList<DiscoveredServerOnAgent>> ListAllDiscoveredUnregisteredAsync(
         CancellationToken cancellationToken = default);
 

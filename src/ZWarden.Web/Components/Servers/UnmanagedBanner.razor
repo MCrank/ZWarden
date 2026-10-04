@@ -1,0 +1,37 @@
+@inject DeploySheetRequests Requests
+
+@* The Fleet board's adopt callout (#339; replaces the inline "Import a discovered container" form). The page renders it
+   only for a caller holding Server.Register, and only while a Host reports PZ containers with no Server record (after
+   a database restore, say). Adopt opens the Deploy sheet's "Adopt existing" tab: the sheet is another interactive island
+   in this circuit, reached through DeploySheetRequests. Host names are untrusted, rendered as data. *@
+
+<div data-unmanaged-banner>
+    <BbAlert Variant="AlertVariant.Info" AccentBorder>
+        <BbAlertDescription>
+            <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+                <span class="flex-1" data-unmanaged-text>@Text</span>
+                <BbButton Size="ButtonSize.Small" Variant="ButtonVariant.Outline" OnClick="AdoptAsync" data-action="adopt-open">Adopt</BbButton>
+            </div>
+        </BbAlertDescription>
+    </BbAlert>
+</div>
+
+@code {
+    /// <summary>How many unmanaged containers each Host reports, by the Host's operator-facing name.</summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyList<UnmanagedHost> Hosts { get; set; } = [];
+
+    private string Text
+    {
+        get
+        {
+            int total = Hosts.Sum(h => h.Count);
+            string servers = total == 1 ? "1 unmanaged server" : $"{total} unmanaged servers";
+            return Hosts.Count == 1
+                ? $"{servers} found on {Hosts[0].Name}."
+                : $"{servers} found on {Hosts.Count} hosts.";
+        }
+    }
+
+    private Task AdoptAsync() => Requests.RequestOpenAsync(DeploySheetTab.Adopt);
+}

@@ -6,6 +6,7 @@ using Microsoft.Playwright;
 using TUnit.Core.Interfaces;
 using ZWarden.Application.Agents;
 using ZWarden.Application.Configuration;
+using ZWarden.Application.Servers;
 using ZWarden.Domain.Agents;
 using ZWarden.Domain.Configuration;
 using ZWarden.Domain.Enrollments;
@@ -89,6 +90,11 @@ public sealed class BrowserHost : IAsyncInitializer, IAsyncDisposable
         _factory.Services.GetRequiredService<IAgentConnectionRegistry>().Register(agent.Id, Guid.NewGuid().ToString(), () => { });
         return agent.Id;
     }
+
+    /// <summary>Records <paramref name="server"/> as a container <paramref name="agent"/> reports with no Server record
+    /// (#339: what the adopt callout offers).</summary>
+    public void Discover(AgentId agent, ServerId server, ServerRunState state) =>
+        _factory!.Services.GetRequiredService<IServerDiscoveryCache>().Record(agent, [new DiscoveredServer(server, state)]);
 
     /// <summary>Opens <paramref name="relativeUrl"/> as the signed-in owner in a new browser context, recording every
     /// console error and uncaught page error from the first byte.</summary>
