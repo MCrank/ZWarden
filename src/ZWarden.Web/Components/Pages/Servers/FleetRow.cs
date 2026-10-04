@@ -31,6 +31,8 @@ namespace ZWarden.Web.Components.Pages.Servers;
 /// Fixed at create, so it is not part of the live poll.</param>
 /// <param name="ModUpdates">How many Workshop mods a restart would update (#275), counted at load for running servers
 /// only; 0 hides the hint. Not part of the live poll.</param>
+/// <param name="MaxPlayers">The configured player cap from the live ini (#337) — the Players cell reads
+/// <c>current / max</c> — or <c>null</c>.</param>
 public sealed record FleetRow(
     string Id,
     string Name,
@@ -48,4 +50,5 @@ public sealed record FleetRow(
     string Uptime = "—",
     string? VersionTitle = null,
     string? Branch = null,
-    int ModUpdates = 0);
+    int ModUpdates = 0,
+    int? MaxPlayers = null);

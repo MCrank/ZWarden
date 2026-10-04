@@ -115,7 +115,8 @@
       switch (cell.getAttribute('data-fleet-cell')) {
         case 'players':
           var known = typeof s.players === 'number';
-          setText(cell, known ? String(s.players) : DASH);
+          // #337: "2 / 16", preformatted by the server (FleetFacts.FormatPlayers); the bare count from an older Web.
+          setText(cell, typeof s.playersText === 'string' ? s.playersText : known ? String(s.players) : DASH);
           setAttr(cell, 'title', known && s.playersAge ? String(s.playersAge) : null);
           swapClass(cell, ['text-foreground', 'text-muted-foreground'], known ? 'text-foreground' : 'text-muted-foreground');
           break;

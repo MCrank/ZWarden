@@ -77,6 +77,37 @@ public class FleetFactsTests
     }
 
     [Test]
+    public async Task The_configured_cap_rides_along_even_while_the_agent_is_offline()
+    {
+        // #337 D3: MaxPlayers is config, not live state, so the last sample's cap still holds.
+        ServerSummary s = Summary();
+        ServerMetrics sample = Sample(s, players: 4) with { MaxPlayers = 16 };
+
+        await Assert.That(FleetFacts.For(s, sample, agentOnline: true).MaxPlayers).IsEqualTo(16);
+        await Assert.That(FleetFacts.For(s, sample, agentOnline: false).MaxPlayers).IsEqualTo(16);
+    }
+
+    [Test]
+    public async Task A_stopped_server_on_a_connected_agent_has_no_players()
+    {
+        ServerSummary stopped = Summary(ServerRunState.Stopped);
+        ServerMetrics sample = Sample(stopped) with { MaxPlayers = 16 };
+
+        await Assert.That(FleetFacts.For(stopped, sample, agentOnline: true).Players).IsEqualTo(0);
+        // An Agent we can't hear from: the run-state is only last-known, so the count stays unknown.
+        await Assert.That(FleetFacts.For(stopped, sample, agentOnline: false).Players).IsNull();
+    }
+
+    [Test]
+    [Arguments(2, 16, "2 / 16")]
+    [Arguments(0, 16, "0 / 16")]
+    [Arguments(null, 16, "— / 16")]
+    [Arguments(7, null, "7")]
+    [Arguments(null, null, "—")]
+    public async Task Players_read_as_current_over_max(int? players, int? max, string expected)
+        => await Assert.That(FleetFacts.FormatPlayers(players, max)).IsEqualTo(expected);
+
+    [Test]
     public async Task An_offline_agent_blanks_players_and_uptime()
     {
         ServerSummary s = Summary();
@@ -112,7 +143,8 @@ public class FleetFactsTests
         await Assert.That(kpis.Running).IsEqualTo(1);
         await Assert.That(kpis.NeedsAttention).IsEqualTo(1);
         await Assert.That(kpis.AttentionName).IsEqualTo("bravo");
-        await Assert.That(kpis.PlayersOnline).IsEqualTo(5);
+        // #337: a stopped server on a connected Agent counts 0, whatever its last RCON sample said.
+        await Assert.That(kpis.PlayersOnline).IsEqualTo(3);
     }
 
     [Test]

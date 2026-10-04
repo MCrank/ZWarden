@@ -212,6 +212,31 @@ public class AgentHubIntegrationTests
     }
 
     [Test]
+    public async Task A_max_players_outside_pzs_bounds_is_dropped_on_ingest()
+    {
+        // #337 D2: the cap is untrusted Agent data; anything PZ itself would refuse is not shown.
+        await using ZWardenWebAppFactory factory = new();
+        (AgentId agentId, string credential) = await SeedTrustedAgentAsync(factory);
+        ServerId serverId = await SeedServerAsync(factory, agentId);
+        await using HubConnection connection = BuildConnection(factory, credential);
+
+        await connection.StartAsync();
+        await connection.InvokeAsync<ProtocolNegotiationResult>(
+            AgentHubProtocol.Hello, Hello(agentId, ProtocolVersion.Current));
+        await connection.InvokeAsync(
+            AgentHubProtocol.MetricsReport,
+            Envelope.Create(
+                new ServerMetricsReport([new ServerMetricsSample(serverId, 5, 1, 2, null, null, null, Now, MaxPlayers: 9_999)]),
+                Now, agentId));
+
+        IServerMetricsCache cache = factory.Services.GetRequiredService<IServerMetricsCache>();
+        await WaitUntilAsync(() => Task.FromResult(cache.GetLatest(serverId, agentId) is not null));
+        await Assert.That(cache.GetLatest(serverId, agentId)!.MaxPlayers).IsNull();
+
+        await connection.StopAsync();
+    }
+
+    [Test]
     public async Task A_metrics_report_carries_the_fleet_facts_and_records_the_build_on_the_server()
     {
         await using ZWardenWebAppFactory factory = new();
@@ -229,7 +254,7 @@ public class AgentHubIntegrationTests
             AgentHubProtocol.MetricsReport,
             Envelope.Create(
                 new ServerMetricsReport(
-                    [new ServerMetricsSample(serverId, 5, 1, 2, null, null, 6, Now, counted, started, "24909836", "42.20.4")]),
+                    [new ServerMetricsSample(serverId, 5, 1, 2, null, null, 6, Now, counted, started, "24909836", "42.20.4", 16)]),
                 Now, agentId));
 
         // #257: players, sample time and start time are cache-only; the manifest build is persisted on the Server.
@@ -241,6 +266,7 @@ public class AgentHubIntegrationTests
         await Assert.That(latest.PlayerCount).IsEqualTo(6);
         await Assert.That(latest.PlayerCountSampledAt).IsEqualTo(counted);
         await Assert.That(latest.StartedAt).IsEqualTo(started);
+        await Assert.That(latest.MaxPlayers).IsEqualTo(16); // #337, cache-only
         await Assert.That((await LoadServerAsync(factory, serverId)).InstalledBuildId).IsEqualTo("24909836");
         await Assert.That((await LoadServerAsync(factory, serverId)).GameVersion).IsEqualTo("42.20.4");
 

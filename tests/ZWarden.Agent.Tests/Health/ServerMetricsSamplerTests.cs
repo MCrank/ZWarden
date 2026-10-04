@@ -3,6 +3,7 @@ using ZWarden.Agent.Configuration;
 using ZWarden.Agent.Docker;
 using ZWarden.Agent.Health;
 using ZWarden.Agent.Players;
+using ZWarden.Agent.ServerConfig;
 using ZWarden.Agent.Servers;
 using ZWarden.Agent.SteamCmd;
 using ZWarden.Agent.Tests.Docker;
@@ -38,6 +39,7 @@ public class ServerMetricsSamplerTests
             players ?? new StubPlayerCounts(),
             new StubInstallPaths(buildId),
             new ServerGameVersionReader(engine, TimeProvider.System),
+            new StubMaxPlayers(),
             Options.Create(new AgentOptions { DataMountRoot = Path.GetTempPath() }),
             TimeProvider.System);
     }
@@ -130,10 +132,23 @@ public class ServerMetricsSamplerTests
         await Assert.That(stopped.PlayerCountSampledAt).IsNull();
         await Assert.That(stopped.StartedAt).IsNull();
         await Assert.That(stopped.InstalledBuildId).IsEqualTo("19876543");
+        // #337 D1: the configured cap is config, not live state — a stopped server keeps its denominator.
+        await Assert.That(stopped.MaxPlayers).IsEqualTo(StubMaxPlayers.Cap);
     }
 
     private static EngineContainer Inspected(DateTimeOffset? startedAt) =>
         new("run1", new Dictionary<string, string>(), "running", [], StartedAt: startedAt);
+
+    private sealed class StubMaxPlayers : IServerMaxPlayers
+    {
+        public const int Cap = 16;
+
+        public int? Read(ServerId serverId) => Cap;
+
+        public void Retain(IEnumerable<ServerId> managed)
+        {
+        }
+    }
 
     private sealed class StubPlayerCounts : IServerPlayerCounts
     {

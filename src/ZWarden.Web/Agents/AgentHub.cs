@@ -341,7 +341,9 @@ public sealed partial class AgentHub : Hub
                 s.PlayerCountSampledAt,
                 s.StartedAt,
                 s.InstalledBuildId,
-                s.GameVersion))
+                s.GameVersion,
+                // #337: untrusted — a cap PZ itself would refuse is dropped rather than shown.
+                s.MaxPlayers is { } cap && Domain.Servers.InitialSettingsRules.ValidateMaxPlayers(cap) is null ? cap : null))
             .ToList();
 
         List<(ServerId ServerId, string BuildId)> changedBuilds = mapped

@@ -448,6 +448,8 @@ public static class ServerEndpoints
         running = facts.IsRunning,
         attention = facts.NeedsAttention,
         players = facts.Players,
+        maxPlayers = facts.MaxPlayers,
+        playersText = FleetFacts.FormatPlayers(facts.Players, facts.MaxPlayers),
         playersAge = facts.PlayersSampledAt is { } counted ? FleetFacts.FormatSampleAge(counted, now) : null,
         uptime = FleetFacts.FormatUptime(facts.StartedAt, now),
         version = facts.Version ?? FleetFacts.Dash,
