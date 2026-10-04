@@ -102,10 +102,16 @@ Use them and don't write static workarounds. The rules:
   - **The prerender's first load**, so the circuit doesn't load it again: one plain record from a page query
     (`ServerDetailQuery`, `SettingsQuery`), plus anything only the request knows, such as the operator's time zone
     from its cookie.
-  - **Drafts worth keeping**, starting with unsaved config-editor edits (`ConfigEditorDraft`, #299 D1). A draft
-    lives in server memory, so it survives a dropped connection or an evicted circuit, not a process restart.
+  - **Drafts worth keeping**, starting with unsaved config-editor edits (#299 D1). A draft lives in server memory,
+    so it survives a dropped connection or an evicted circuit, not a process restart. The Config section persists
+    only a `ConfigDraftSnapshot` (the changed settings), only from a live circuit, and re-reads the file on restore.
 
   Everything else reloads from the database when a circuit is rebuilt.
+- **Keep persisted state small: well under 32 KB.** A prerender's state rides in the page, and every enhanced
+  navigation (a rail or tab click) posts it to the circuit as one hub message. Past the Blazor hub's 32 KB
+  `MaximumReceiveMessageSize`, the hub drops the connection: the reconnect overlay flashes. That was #322: the
+  whole config editor was persisted. Don't raise the limit. Persist ids or deltas, and let the circuit load the rest.
+  `HubCloseReasonLogging` logs such a close as a Warning.
 - **No `AuthorizeView` policies on an interactive page.** They evaluate in the circuit's own scope, and several
   can run at once against one `DbContext`. Load the gating flags through the page query instead. The service
   re-checks every action regardless.
