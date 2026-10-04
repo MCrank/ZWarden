@@ -1,6 +1,6 @@
 # Issue #312 Mini-Plan — Switch Server Detail sections and config files in the circuit (no prerender)
 
-**Status:** one PR (branch `feat/312-in-place-section-switch`, closes #312). Follow-up from #299.
+**Status:** one PR (branch `feat/312-in-place-section-switch`, closes #312), all slices done. Follow-up from #299.
 
 **Written against:** issue #312;
 [ADR 0046](../adr/0046-pages-may-opt-into-interactive-rendering-the-shell-stays-static.md) (interactive pages, static
@@ -67,3 +67,17 @@ still bookmarkable, back/forward still working.
 
 - Scroll position on a switch (an in-place switch keeps it, as a tab switch should).
 - Other interactive pages (Settings has no query-driven tabs).
+
+## Result (2026-10-04)
+
+- `in-place-nav.js` became a **classic script loaded before `blazor.web.js`**, not an ES module. As a module it
+  loaded after Blazor, and a capture listener on `window` still ran after Blazor's `popstate` listener (same target,
+  so registration order wins). Back/forward then did four enhanced loads. The page calls `zwInPlaceNav.*` globals.
+- A file switch reads the file exactly once, including a file seen before. The circuit keeps only *unsaved* drafts
+  (#322), so a clean file is read again.
+- Tests: `ServerDetailLocationTests` (5), `InPlaceNavigationTests` (7, bUnit), and in the browser the rail/tab test
+  now asserts no request for the page plus one read per file switch. A new back/forward + reload test was added.
+  Floors: Web 590, Browser 18.
+- Seen locally on `development` as well, so not caused by this change: `Settings_saves_then_clears_the_workshop_search_key`
+  and `Unsaved_config_edits_warn_before_a_reload_or_leaving_the_page` are flaky in a full local browser run. The
+  unsaved test clicks a link before the guard's JS has been armed.
