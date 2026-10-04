@@ -1,16 +1,20 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Encodings.Web;
 using System.Text.RegularExpressions;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using ZWarden.Application.Servers;
 using ZWarden.Domain.Agents;
+using ZWarden.Domain.Authorization;
 using ZWarden.Domain.Enrollments;
 using ZWarden.Domain.Ids;
 using ZWarden.Domain.Mods;
 using ZWarden.Domain.Operations;
 using ZWarden.Domain.Servers;
 using ZWarden.Infrastructure.Authorization;
+using ZWarden.Infrastructure.Identity;
 using ZWarden.Infrastructure.Persistence;
 using ZWarden.Web.Components.Servers;
 using ZWarden.Web.Tests.Account;
@@ -248,6 +252,78 @@ public sealed class ServerInventoryPageTests
         string html = await (await client.GetAsync(new Uri("/servers", UriKind.Relative))).Content.ReadAsStringAsync();
 
         await Assert.That(html).Contains("data-degraded-banner");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task The_fleet_row_and_the_banner_name_the_host_by_its_reported_hostname()
+    {
+        // #336: the Host's name, not agt-…, under the server name and in the one-host unreachable banner.
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        await SeedServerOnHostAsync(factory, "named", label: null, hostname: "nsfw-01");
+
+        string html = await (await client.GetAsync(new Uri("/servers", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        await Assert.That(Regex.IsMatch(html, "data-fleet-host[^>]*>nsfw-01<")).IsTrue();
+        await Assert.That(Regex.IsMatch(html, "data-degraded-banner[\\s\\S]*?>nsfw-01<")).IsTrue();
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task The_operators_label_wins_over_the_reported_hostname()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        await SeedServerOnHostAsync(factory, "labelled", label: "Basement box", hostname: "nsfw-01");
+
+        string html = await (await client.GetAsync(new Uri("/servers", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        await Assert.That(Regex.IsMatch(html, "data-fleet-host[^>]*>Basement box<")).IsTrue();
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task A_host_with_no_name_yet_shows_its_short_id()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        AgentId agent = await SeedServerOnHostAsync(factory, "nameless", label: null, hostname: null);
+
+        string html = await (await client.GetAsync(new Uri("/servers", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        await Assert.That(Regex.IsMatch(html, $"data-fleet-host[^>]*>{Regex.Escape(HtmlEncoder.Default.Encode(HostNames.ShortId(agent)))}<")).IsTrue();
+        await Assert.That(html).DoesNotContain(agent.ToString());
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task A_caller_without_agent_view_sees_the_short_id_not_the_hostname()
+    {
+        // #336 D3: no new authorization — a Moderator may view the Server but not its Host, so no hostname.
+        await using ZWardenWebAppFactory factory = new();
+        await factory.CreateConfirmedUserAsync("owner@zwarden.test", StrongPassword);
+        await AuthorizationBootstrapper.EnsureSeededAsync(factory.Services, "owner@zwarden.test");
+        await factory.CreateConfirmedUserAsync("mod@zwarden.test", StrongPassword);
+        using (AsyncServiceScope scope = factory.Services.CreateSystemScope())
+        {
+            ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
+            ApplicationUser user = (await scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>()
+                .FindByEmailAsync("mod@zwarden.test"))!;
+            Role moderator = await db.Set<Role>().SingleAsync(r => r.BuiltIn == BuiltInRoleKind.Moderator);
+            db.Set<RoleAssignment>().Add(RoleAssignment.TenantWide(moderator.TenantId, UserId.FromGuid(user.Id), moderator.Id));
+            await db.SaveChangesAsync();
+        }
+
+        AgentId agent = await SeedServerOnHostAsync(factory, "moderated", label: null, hostname: "nsfw-01");
+        HttpClient client = factory.CreateWebClient();
+        await LoginAsync(client, "mod@zwarden.test", StrongPassword);
+
+        string html = await (await client.GetAsync(new Uri("/servers", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        await Assert.That(html).Contains("moderated");
+        await Assert.That(html).DoesNotContain("nsfw-01");
+        await Assert.That(Regex.IsMatch(html, $"data-fleet-host[^>]*>{Regex.Escape(HtmlEncoder.Default.Encode(HostNames.ShortId(agent)))}<")).IsTrue();
         client.Dispose();
     }
 
@@ -626,6 +702,23 @@ public sealed class ServerInventoryPageTests
         db.Set<Server>().Add(server);
         await db.SaveChangesAsync();
         return (server.Id, agentId);
+    }
+
+    private static async Task<AgentId> SeedServerOnHostAsync(
+        ZWardenWebAppFactory factory, string name, string? label, string? hostname)
+    {
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
+        ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
+        Agent agent = Agent.Enroll(AgentHash, EnrollmentId.New(), DateTimeOffset.UtcNow, label);
+        if (hostname is not null)
+        {
+            agent.RecordHostDescriptor(hostname, "1.0.0", "Linux");
+        }
+
+        db.Set<Agent>().Add(agent);
+        db.Set<Server>().Add(Server.Import(agent.Id, ServerId.New(), name, DateTimeOffset.UtcNow));
+        await db.SaveChangesAsync();
+        return agent.Id;
     }
 
     private static async Task<AgentId> SeedAgentAsync(ZWardenWebAppFactory factory)

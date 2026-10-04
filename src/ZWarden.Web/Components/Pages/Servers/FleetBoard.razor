@@ -33,7 +33,7 @@
             <BbDataGridTemplateColumn TData="FleetRow" Title="Server" Sortable="true" SortBy="@(r => (object)r.Name)">
                 <ChildContent Context="r">
                     <a href="@($"/servers/{r.Id}")" class="font-medium text-foreground hover:underline" data-server-link>@r.Name</a>
-                    <span class="block font-mono text-xs text-muted-foreground">@r.Host</span>
+                    <span class="block font-mono text-xs text-muted-foreground" data-fleet-host>@r.Host</span>
                     @if (!string.IsNullOrWhiteSpace(r.Description))
                     {
                         <span class="block text-xs text-muted-foreground">@r.Description</span>

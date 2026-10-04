@@ -13,7 +13,8 @@ namespace ZWarden.Web.Components.Pages.Servers;
 /// <param name="Id">The Server's canonical id (<c>srv-</c>) as a string — the row-click target and cache key.</param>
 /// <param name="Name">The operator-set Server name.</param>
 /// <param name="Description">The optional Server description.</param>
-/// <param name="Host">The owning Agent's id (<c>agt-</c>) as a string.</param>
+/// <param name="Host">The owning Host's display name (#336): its Label or Hostname for a caller with <c>Agent.View</c>, else its
+/// short id. Untrusted, observed text.</param>
 /// <param name="RunState">The last-reported coarse run-state (the Status column's sort key).</param>
 /// <param name="StatusLabel">The badge label at load, resolved against the in-flight Operation (#253), e.g.
 /// <c>RESTARTING</c>; live-status.js keeps it current.</param>
