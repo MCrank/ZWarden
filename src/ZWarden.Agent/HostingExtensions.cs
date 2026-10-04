@@ -97,6 +97,7 @@ public static class HostingExtensions
         services.AddSingleton<IServerDiskUsageReader, ServerDiskUsageReader>();
         // #262: the game version from each start's boot log, carried in the metrics report.
         services.AddSingleton<IServerGameVersions, ServerGameVersionReader>();
+        services.AddSingleton<IServerMaxPlayers, ServerMaxPlayersReader>();
         services.AddSingleton<IServerMetricsSampler, ServerMetricsSampler>();
         services.AddSingleton<IHostCapacityReader, HostCapacityReader>();
 

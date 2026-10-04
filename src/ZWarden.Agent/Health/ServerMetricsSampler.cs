@@ -3,6 +3,7 @@ using Microsoft.Extensions.Options;
 using ZWarden.Agent.Configuration;
 using ZWarden.Agent.Docker;
 using ZWarden.Agent.Players;
+using ZWarden.Agent.ServerConfig;
 using ZWarden.Agent.Servers;
 using ZWarden.Agent.SteamCmd;
 using ZWarden.Contracts.Protocol.Messages;
@@ -15,7 +16,8 @@ namespace ZWarden.Agent.Health;
 /// <see cref="ContainerStatsCalculator"/>, and disk from the Server's bind-mount directory under
 /// <see cref="AgentOptions.DataMountRoot"/>. The fleet facts (#257) ride along: the last RCON player count from
 /// <see cref="IServerPlayerCounts"/> and the container's start time from inspect (both running only), and the build
-/// id from the install volume's Steam manifest, and the game version from the boot log (#262). The
+/// id from the install volume's Steam manifest, the game version from the boot log (#262), and the configured player cap
+/// from the live ini (#337, running or not). The
 /// stats/inspect/log id comes from the owned-container list, so no foreign container is ever sampled.
 /// </summary>
 public sealed class ServerMetricsSampler : IServerMetricsSampler
@@ -26,6 +28,7 @@ public sealed class ServerMetricsSampler : IServerMetricsSampler
     private readonly IServerPlayerCounts _players;
     private readonly IServerInstallPaths _installPaths;
     private readonly IServerGameVersions _gameVersions;
+    private readonly IServerMaxPlayers _maxPlayers;
     private readonly AgentOptions _options;
     private readonly TimeProvider _clock;
 
@@ -36,6 +39,7 @@ public sealed class ServerMetricsSampler : IServerMetricsSampler
         IServerPlayerCounts players,
         IServerInstallPaths installPaths,
         IServerGameVersions gameVersions,
+        IServerMaxPlayers maxPlayers,
         IOptions<AgentOptions> options,
         TimeProvider clock)
     {
@@ -45,6 +49,7 @@ public sealed class ServerMetricsSampler : IServerMetricsSampler
         ArgumentNullException.ThrowIfNull(players);
         ArgumentNullException.ThrowIfNull(installPaths);
         ArgumentNullException.ThrowIfNull(gameVersions);
+        ArgumentNullException.ThrowIfNull(maxPlayers);
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(clock);
         _runtime = runtime;
@@ -53,6 +58,7 @@ public sealed class ServerMetricsSampler : IServerMetricsSampler
         _players = players;
         _installPaths = installPaths;
         _gameVersions = gameVersions;
+        _maxPlayers = maxPlayers;
         _options = options.Value;
         _clock = clock;
     }
@@ -89,10 +95,12 @@ public sealed class ServerMetricsSampler : IServerMetricsSampler
                 players?.SampledAt,
                 startedAt,
                 _installPaths.ReadInstalledBuildId(container.ServerId),
-                gameVersion));
+                gameVersion,
+                _maxPlayers.Read(container.ServerId)));
         }
 
         _gameVersions.Retain(managed.Select(c => c.ServerId));
+        _maxPlayers.Retain(managed.Select(c => c.ServerId));
         return samples;
     }
 

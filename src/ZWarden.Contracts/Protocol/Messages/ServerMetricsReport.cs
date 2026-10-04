@@ -37,6 +37,9 @@ public sealed record ServerMetricsReport(IReadOnlyList<ServerMetricsSample> Samp
 /// untrusted), or <c>null</c> when the manifest is absent or unreadable.</param>
 /// <param name="GameVersion">The Project Zomboid game version (e.g. <c>42.20.4</c>) the server printed at boot (#262;
 /// observed, untrusted), or <c>null</c> when it has not been read yet.</param>
+/// <param name="MaxPlayers">The player cap (<c>MaxPlayers</c>) the live <c>servertest.ini</c> holds (#337; observed,
+/// untrusted, 1–254), read whether or not the Server is running, or <c>null</c> when there is no ini yet or it is
+/// unreadable. Trailing and nullable, so additive under ADR 0020.</param>
 public sealed record ServerMetricsSample(
     ServerId ServerId,
     double CpuPercent,
@@ -49,4 +52,5 @@ public sealed record ServerMetricsSample(
     DateTimeOffset? PlayerCountSampledAt = null,
     DateTimeOffset? StartedAt = null,
     string? InstalledBuildId = null,
-    string? GameVersion = null);
+    string? GameVersion = null,
+    int? MaxPlayers = null);
