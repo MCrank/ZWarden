@@ -105,6 +105,7 @@ Use them and don't write static workarounds. The rules:
   - **Drafts worth keeping**, starting with unsaved config-editor edits (#299 D1). A draft lives in server memory,
     so it survives a dropped connection or an evicted circuit, not a process restart. The Config section persists
     only a `ConfigDraftSnapshot` (the changed settings), only from a live circuit, and re-reads the file on restore.
+    While the circuit lives, `ConfigDraftStore` (scoped) keeps unsaved edits across rail-section and file-tab switches.
 
   Everything else reloads from the database when a circuit is rebuilt.
 - **Keep persisted state small: well under 32 KB.** A prerender's state rides in the page, and every enhanced

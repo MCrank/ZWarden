@@ -500,6 +500,65 @@ public sealed class ConfigurationSectionTests
         await Assert.That(cut.Find("[data-cfg-path=Zombies]").ClassList).DoesNotContain("zw-cfg-changed");
     }
 
+    // ---- unsaved edits across sections and files (#322 live pass) -------------------------------------------------
+
+    [Test]
+    public async Task An_unsaved_edit_is_still_there_after_opening_another_section_and_coming_back()
+    {
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(Reader(IniView(), out SwitchableReader reader));
+        ServerId serverId = await harness.SeedServerAsync("draft-keep-section");
+        IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "config");
+        await cut.Find("[data-cfg-path=PVP] input[type=checkbox]").ChangeAsync(new() { Value = false });
+
+        await NavigateAsync(harness, cut, $"/servers/{serverId}?section=logs");
+        cut.WaitForState(() => cut.FindAll("[data-cfg-form]").Count == 0);
+        await NavigateAsync(harness, cut, $"/servers/{serverId}?section=config");
+        cut.WaitForState(() => cut.FindAll("[data-cfg-path=PVP]").Count == 1);
+
+        await Assert.That(cut.Find("[data-cfg-path=PVP]").ClassList).Contains("zw-cfg-changed");
+        await Assert.That(cut.Find("[data-cfg-path=PVP] input[type=checkbox]").HasAttribute("checked")).IsFalse();
+        await cut.Find("[data-action=config-apply-batch]").ClickAsync(new());
+        cut.WaitForState(() => harness.Payload(serverId, OperationKind.ConfigApply) is not null);
+        await Assert.That(harness.Payload(serverId, OperationKind.ConfigApply)!).Contains("PVP");
+    }
+
+    [Test]
+    public async Task An_unsaved_edit_is_still_there_after_switching_file_tabs_and_back()
+    {
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(Reader(SampleView(), out _));
+        ServerId serverId = await harness.SeedServerAsync("draft-keep-tab");
+        IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "config", "&file=SandboxVars");
+        await cut.Find("[data-cfg-path=Zombies] select").ChangeAsync(new() { Value = "1" });
+
+        await NavigateAsync(harness, cut, $"/servers/{serverId}?section=config&file=Ini");
+        cut.WaitForState(() => cut.Find("[data-config-tab=Ini]").ClassList.Contains("active"));
+        await Assert.That(cut.Find("[data-cfg-path=Zombies]").ClassList).DoesNotContain("zw-cfg-changed");
+        await NavigateAsync(harness, cut, $"/servers/{serverId}?section=config&file=SandboxVars");
+        cut.WaitForState(() => cut.Find("[data-config-tab=SandboxVars]").ClassList.Contains("active"));
+
+        await Assert.That(cut.Find("[data-cfg-path=Zombies]").ClassList).Contains("zw-cfg-changed");
+    }
+
+    [Test]
+    public async Task An_applied_edit_is_not_shown_as_unsaved_on_coming_back()
+    {
+        // Once applied, the edit is on its way to the host: coming back reads the file fresh, not the old draft.
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync(Reader(SampleView(), out _));
+        ServerId serverId = await harness.SeedServerAsync("draft-applied");
+        IRenderedComponent<ServerDetail> cut = await ApplyZombiesChangeAsync(harness, serverId);
+
+        await NavigateAsync(harness, cut, $"/servers/{serverId}?section=logs");
+        cut.WaitForState(() => cut.FindAll("[data-cfg-form]").Count == 0);
+        await NavigateAsync(harness, cut, $"/servers/{serverId}?section=config&file=SandboxVars");
+        cut.WaitForState(() => cut.FindAll("[data-cfg-path=Zombies]").Count == 1);
+
+        await Assert.That(cut.Find("[data-cfg-path=Zombies]").ClassList).DoesNotContain("zw-cfg-changed");
+    }
+
+    // A rail or tab click: an enhanced navigation the page sees as a query change.
+    private static Task NavigateAsync(InteractivePageHarness harness, IRenderedComponent<ServerDetail> cut, string url) =>
+        cut.InvokeAsync(() => harness.Context.Services.GetRequiredService<NavigationManager>().NavigateTo(url));
+
     // The persisted-state key the Config section keeps its unsaved edits under.
     private const string DraftStateKey = "zw-config-draft";
 
