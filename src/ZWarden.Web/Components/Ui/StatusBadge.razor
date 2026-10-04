@@ -1,53 +1,59 @@
 @using ZWarden.Domain.Servers
 @* ZWarden owns the status badge outright (ADR 0003): Blueprint's BbBadge hard-codes
    `rounded-full` with no semantic status variant, and on an ops console the status
-   colour IS the signal. Squared, fixed-width, dot + uppercase label - the Signal
-   identity. F14 finishes the F0 placeholder against the --status-* token ramp
-   (style-guide.md): the dot carries the pure status hue, the border tints to it, and
-   the label ink stays --foreground so it clears 4.5:1 in both themes. Driven by the
-   Domain's last-reported ServerRunState. The class strings are full literals so the
-   Tailwind content scan emits them (ADR 0003 condition 2). *@
+   colour IS the signal. Squared, dot + uppercase label - the Signal identity. #335 fills
+   it in its status colour (the prototype's tinted chip): one zw-status-<tone> class sets
+   the hue and status.css derives the tint, border, label ink (kept at 4.5:1) and the
+   dot's glow from it, in both themes. Server chips are fixed-width so the fleet column
+   lines up; host chips size to their label. *@
 
-@* data-status-* hooks let live-status.js re-tone and re-label the header badge in place (#249). *@
-<span class="inline-flex w-[108px] items-center gap-1.5 rounded-sm border px-2 py-0.5 text-xs font-medium text-foreground @BorderClass"
-      data-status-badge>
-    <span class="inline-block h-2 w-2 rounded-full @DotClass" data-status-dot></span>
+@* data-status-* hooks let live-status.js re-tone and re-label the fleet badge in place (#249, #335). *@
+<span @attributes="AdditionalAttributes" class="zw-status @ToneClass @WidthClass" data-status-badge>
+    <span class="zw-status-dot" data-status-dot></span>
     <span data-status-label>@Label</span>
 </span>
 
 @code {
     /// <summary>The Server's last-reported run-state (F14) — the badge's colour. The hierarchical health model is
-    /// F16's.</summary>
+    /// F16's. Set this or <see cref="Host"/>.</summary>
     [Parameter]
-    [EditorRequired]
-    public ServerRunState State { get; set; }
+    public ServerRunState? State { get; set; }
+
+    /// <summary>A Host's connection or trust state (#335), for the Hosts page. Set this or <see cref="State"/>.</summary>
+    [Parameter]
+    public HostStatus? Host { get; set; }
 
     /// <summary>An override for the label, e.g. a transitional <c>RESTARTING</c> worn in the busy tone (#249);
     /// null ⇒ the state's own name.</summary>
     [Parameter]
     public string? Text { get; set; }
 
-    private string Label => Text ?? State.ToString().ToUpperInvariant();
+    /// <summary>Extra attributes for the chip, e.g. a page's own <c>data-*</c> hook.</summary>
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private string Label => Text
+        ?? (Host is { } host ? host.ToString() : (State ?? ServerRunState.Unknown).ToString().ToUpperInvariant());
+
+    private string WidthClass => Host is null ? "w-[112px]" : "";
 
     // running -> green, stopped -> grey, starting/stopping -> amber ("busy"), failed -> red,
-    // unknown -> violet ("agent unreachable, not down"). The ramp is tuned per theme in zwarden.css.
-    private string BorderClass => State switch
+    // unknown -> violet ("agent unreachable, not down"). A host maps onto the same ramp: online -> running,
+    // unreachable -> unknown, revoked -> unhealthy, disabled -> stopped. The tones are tuned per theme in zwarden.css.
+    private string ToneClass => Host switch
     {
-        ServerRunState.Running => "border-status-running",
-        ServerRunState.Stopped => "border-status-stopped",
-        ServerRunState.Starting => "border-status-busy",
-        ServerRunState.Stopping => "border-status-busy",
-        ServerRunState.Failed => "border-status-unhealthy",
-        _ => "border-status-unknown",
-    };
-
-    private string DotClass => State switch
-    {
-        ServerRunState.Running => "bg-status-running",
-        ServerRunState.Stopped => "bg-status-stopped",
-        ServerRunState.Starting => "bg-status-busy",
-        ServerRunState.Stopping => "bg-status-busy",
-        ServerRunState.Failed => "bg-status-unhealthy",
-        _ => "bg-status-unknown",
+        HostStatus.Online => "zw-status-running",
+        HostStatus.Unreachable => "zw-status-unknown",
+        HostStatus.Revoked => "zw-status-unhealthy",
+        HostStatus.Disabled => "zw-status-stopped",
+        _ => State switch
+        {
+            ServerRunState.Running => "zw-status-running",
+            ServerRunState.Stopped => "zw-status-stopped",
+            ServerRunState.Starting => "zw-status-busy",
+            ServerRunState.Stopping => "zw-status-busy",
+            ServerRunState.Failed => "zw-status-unhealthy",
+            _ => "zw-status-unknown",
+        },
     };
 }

@@ -64,21 +64,10 @@ else
                             <div class="truncate font-mono text-xs text-muted-foreground">@host.Id</div>
                         </div>
                         <div class="flex shrink-0 flex-col items-end gap-1" data-host-status>
-                            @if (host.IsConnected)
-                            {
-                                <span class="inline-flex items-center gap-1.5 rounded-sm border border-status-running px-2 py-0.5 text-xs font-medium text-foreground">
-                                    <span class="h-2 w-2 rounded-full bg-status-running"></span>Online
-                                </span>
-                            }
-                            else
-                            {
-                                <span class="inline-flex items-center gap-1.5 rounded-sm border border-status-unknown px-2 py-0.5 text-xs font-medium text-foreground">
-                                    <span class="h-2 w-2 rounded-full bg-status-unknown"></span>Unreachable
-                                </span>
-                            }
+                            <StatusBadge Host="@(host.IsConnected ? HostStatus.Online : HostStatus.Unreachable)" />
                             @if (TrustChip(host) is { } chip)
                             {
-                                <span class="inline-flex items-center rounded-sm border border-status-unhealthy px-2 py-0.5 text-xs font-medium text-muted-foreground" data-host-trust>@chip</span>
+                                <StatusBadge Host="chip" data-host-trust />
                             }
                         </div>
                     </div>
@@ -201,8 +190,8 @@ else
         => host.LastSeenAt?.UtcDateTime.ToString("yyyy-MM-dd HH:mm") ?? "never";
 
     // A secondary trust chip only when the credential state is not plain "trusted".
-    private static string? TrustChip(HostSummary host)
-        => !host.HasCredential ? "Revoked" : !host.IsEnabled ? "Disabled" : null;
+    private static HostStatus? TrustChip(HostSummary host)
+        => !host.HasCredential ? HostStatus.Revoked : !host.IsEnabled ? HostStatus.Disabled : null;
 
     // Server run-state dot, matching the StatusBadge ramp (running→green, stopped→grey, busy→amber,
     // failed→red, unknown→violet).
