@@ -15,7 +15,7 @@
    (#365: a re-enrolled Agent can't see the previous Agent's containers). *@
 
 <span hidden data-circuit="@(_circuitReady ? "on" : "off")"></span>
-<BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="Open" data-action="remove-host-open">Remove host…</BbButton>
+<BbButton Variant="ButtonVariant.Destructive" Size="ButtonSize.Small" OnClick="Open" data-action="remove-host-open">Remove host…</BbButton>
 
 <BbAlertDialog @bind-Open="_open">
     <BbAlertDialogContent data-remove-host-dialog>
