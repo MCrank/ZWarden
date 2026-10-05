@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using System.Text.Encodings.Web;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Identity;
@@ -181,6 +182,7 @@ public sealed class ServerInventoryPageTests
         string html = await (await client.GetAsync(new Uri("/servers", UriKind.Relative))).Content.ReadAsStringAsync();
 
         await Assert.That(html).DoesNotContain("data-unmanaged-banner");
+        await Assert.That(html).DoesNotContain("data-unmanaged-live"); // #357: no island polling for it either
         client.Dispose();
     }
 
@@ -383,6 +385,142 @@ public sealed class ServerInventoryPageTests
         client.Dispose();
     }
 
+    // --- #357: the banners and the Hosts tile follow the Agents without a reload -----------------------------------
+
+    [Test]
+    public async Task With_every_host_connected_the_degraded_banner_is_in_the_page_but_hidden()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        AgentId agent = await SeedServerOnHostAsync(factory, "online", label: null, hostname: "nsfw-01");
+        factory.Services.GetRequiredService<Application.Agents.IAgentConnectionRegistry>().Register(agent, "conn-357", () => { });
+
+        string html = await (await client.GetAsync(new Uri("/servers", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        await Assert.That(Regex.IsMatch(html, "data-degraded-banner hidden")).IsTrue();
+        await Assert.That(html).Contains("data-live-fleet-hosts=\"/api/fleet/hosts\"");
+        await Assert.That(Regex.IsMatch(html, "data-kpi=\"hosts\"[\\s\\S]*?data-kpi-sub>all connected<")).IsTrue();
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task Several_unreachable_hosts_are_counted_and_named_in_the_title()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        await SeedServerOnHostAsync(factory, "one", label: null, hostname: "nsfw-01");
+        await SeedServerOnHostAsync(factory, "two", label: null, hostname: "nsfw-02");
+
+        string html = await (await client.GetAsync(new Uri("/servers", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        await Assert.That(Regex.IsMatch(html, "data-degraded-banner hidden")).IsFalse();
+        await Assert.That(Regex.IsMatch(html, "data-degraded-one hidden")).IsTrue();
+        await Assert.That(Regex.IsMatch(html, "data-degraded-many title=\"nsfw-0[12], nsfw-0[12]\"><span data-degraded-count>2<")).IsTrue();
+        await Assert.That(Regex.IsMatch(html, "data-kpi=\"hosts\"[\\s\\S]*?data-kpi-sub>2 unreachable<")).IsTrue();
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task A_register_caller_gets_the_adopt_island_even_with_nothing_to_adopt()
+    {
+        // The island re-reads the counts itself, so it must be on the page before there is anything to show.
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        await SeedAgentAsync(factory);
+
+        string html = await (await client.GetAsync(new Uri("/servers", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        await Assert.That(html).Contains("data-unmanaged-live");
+        await Assert.That(html).DoesNotContain("data-unmanaged-banner");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task The_fleet_hosts_feed_reports_totals_and_names_the_unreachable_hosts()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        AgentId online = await SeedServerOnHostAsync(factory, "up", label: null, hostname: "nsfw-01");
+        await SeedServerOnHostAsync(factory, "down", label: "Basement box", hostname: "nsfw-02");
+        await SeedAgentAsync(factory); // a Host with no Servers yet, never connected (#342: it still counts)
+        factory.Services.GetRequiredService<Application.Agents.IAgentConnectionRegistry>().Register(online, "conn-357", () => { });
+
+        HttpResponseMessage response = await client.GetAsync(new Uri("/api/fleet/hosts", UriKind.Relative));
+
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
+        await Assert.That(response.Headers.CacheControl?.NoStore).IsTrue();
+        using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        await Assert.That(body.RootElement.GetProperty("total").GetInt32()).IsEqualTo(3);
+        await Assert.That(body.RootElement.GetProperty("online").GetInt32()).IsEqualTo(1);
+        string[] unreachable = [.. body.RootElement.GetProperty("unreachable").EnumerateArray().Select(e => e.GetString()!)];
+        await Assert.That(unreachable).Contains("Basement box");
+        await Assert.That(unreachable).Contains("host-alpha");
+        await Assert.That(unreachable.Length).IsEqualTo(2);
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task The_fleet_hosts_feed_names_hosts_by_short_id_without_agent_view()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        await factory.CreateConfirmedUserAsync("owner@zwarden.test", StrongPassword);
+        await AuthorizationBootstrapper.EnsureSeededAsync(factory.Services, "owner@zwarden.test");
+        await factory.CreateConfirmedUserAsync("mod@zwarden.test", StrongPassword);
+        using (AsyncServiceScope scope = factory.Services.CreateSystemScope())
+        {
+            ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
+            ApplicationUser user = (await scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>()
+                .FindByEmailAsync("mod@zwarden.test"))!;
+            Role moderator = await db.Set<Role>().SingleAsync(r => r.BuiltIn == BuiltInRoleKind.Moderator);
+            db.Set<RoleAssignment>().Add(RoleAssignment.TenantWide(moderator.TenantId, UserId.FromGuid(user.Id), moderator.Id));
+            await db.SaveChangesAsync();
+        }
+
+        AgentId agent = await SeedServerOnHostAsync(factory, "moderated", label: null, hostname: "nsfw-01");
+        await SeedAgentAsync(factory); // no Servers: invisible without Agent.View
+        HttpClient client = factory.CreateWebClient();
+        await LoginAsync(client, "mod@zwarden.test", StrongPassword);
+
+        string json = await (await client.GetAsync(new Uri("/api/fleet/hosts", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        using JsonDocument body = JsonDocument.Parse(json);
+        await Assert.That(body.RootElement.GetProperty("total").GetInt32()).IsEqualTo(1);
+        await Assert.That(body.RootElement.GetProperty("unreachable")[0].GetString()).IsEqualTo(HostNames.ShortId(agent));
+        await Assert.That(json).DoesNotContain("nsfw-01");
+        await Assert.That(json).DoesNotContain("host-alpha");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task The_fleet_hosts_feed_shows_nothing_to_a_caller_who_may_view_nothing()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        await SeedServerOnHostAsync(factory, "hidden", label: null, hostname: "nsfw-01");
+        await factory.CreateConfirmedUserAsync("nobody@zwarden.test", StrongPassword);
+        HttpClient client = factory.CreateWebClient();
+        await LoginAsync(client, "nobody@zwarden.test", StrongPassword);
+
+        string json = await (await client.GetAsync(new Uri("/api/fleet/hosts", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        using JsonDocument body = JsonDocument.Parse(json);
+        await Assert.That(body.RootElement.GetProperty("total").GetInt32()).IsEqualTo(0);
+        await Assert.That(body.RootElement.GetProperty("unreachable").GetArrayLength()).IsEqualTo(0);
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task Anonymous_cannot_read_the_fleet_hosts_feed()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        await SeedServerOnHostAsync(factory, "hidden", label: null, hostname: "nsfw-01");
+        using HttpClient client = factory.CreateWebClient();
+
+        HttpResponseMessage response = await client.GetAsync(new Uri("/api/fleet/hosts", UriKind.Relative));
+
+        await Assert.That(response.StatusCode).IsNotEqualTo(HttpStatusCode.OK);
+        await Assert.That(await response.Content.ReadAsStringAsync()).DoesNotContain("nsfw-01");
+    }
+
     // --- #340: the hierarchical grid, Servers under Host rollup rows ---------------------------------------------
 
     [Test]
@@ -401,8 +539,8 @@ public sealed class ServerInventoryPageTests
         await Assert.That(html).Contains($"data-fleet-host-row=\"{busy}\"");
         await Assert.That(html).Contains($"data-fleet-host-row=\"{empty}\"");
         await Assert.That(Regex.IsMatch(html, "data-fleet-host-count[^>]*>0 servers<")).IsTrue();
-        await Assert.That(html).Contains("1 server · 2 hosts");
-        await Assert.That(Regex.IsMatch(html, "data-kpi=\"hosts\"[\\s\\S]*?>1<span[^>]*>/2</span>")).IsTrue();
+        await Assert.That(html).Contains("1 server · <span data-fleet-hosts-count>2 hosts</span>");
+        await Assert.That(Regex.IsMatch(html, "data-kpi=\"hosts\"[\\s\\S]*?data-hosts-online>1<[\\s\\S]*?data-hosts-total>2<")).IsTrue();
         client.Dispose();
     }
 

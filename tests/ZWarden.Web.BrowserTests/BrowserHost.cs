@@ -91,6 +91,24 @@ public sealed class BrowserHost : IAsyncInitializer, IAsyncDisposable
         return agent.Id;
     }
 
+    /// <summary>Enrolls a Host labelled <paramref name="label"/> with one Server on it, its Agent NOT connected (#357: the
+    /// Fleet's unreachable banner names it until <see cref="Connect"/>).</summary>
+    public async Task<AgentId> SeedHostWithServerAsync(string label, string serverName)
+    {
+        await using AsyncServiceScope scope = _factory!.Services.CreateSystemScope();
+        ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
+        Agent agent = Agent.Enroll(
+            "agenthashaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", EnrollmentId.New(), DateTimeOffset.UtcNow, label);
+        db.Set<Agent>().Add(agent);
+        db.Set<Server>().Add(Server.Import(agent.Id, ServerId.New(), serverName, DateTimeOffset.UtcNow));
+        await db.SaveChangesAsync();
+        return agent.Id;
+    }
+
+    /// <summary>Marks <paramref name="agent"/>'s Agent connected, as its hub connection would.</summary>
+    public void Connect(AgentId agent) =>
+        _factory!.Services.GetRequiredService<IAgentConnectionRegistry>().Register(agent, Guid.NewGuid().ToString(), () => { });
+
     /// <summary>Records <paramref name="server"/> as a container <paramref name="agent"/> reports with no Server record
     /// (#339: what the adopt callout offers).</summary>
     public void Discover(AgentId agent, ServerId server, ServerRunState state) =>

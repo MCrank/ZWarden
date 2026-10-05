@@ -28,6 +28,11 @@ public interface IServerInventory
     Task<IReadOnlyList<DiscoveredServerOnAgent>> ListAllDiscoveredUnregisteredAsync(
         CancellationToken cancellationToken = default);
 
+    /// <summary>Per Host of this tenant, how many discovered containers have no Server record (#357: the Fleet adopt
+    /// banner, re-read while the page is open), named only for a caller who also holds <c>Agent.View</c>. Empty
+    /// without <c>Server.Register</c> (fail-closed).</summary>
+    Task<IReadOnlyList<UnmanagedHostCount>> ListUnmanagedHostsAsync(UserId user, CancellationToken cancellationToken = default);
+
     /// <summary>The Hosts the caller may deploy a new Server on (#338): every trusted Agent in the tenant, named only
     /// for a caller who also holds <c>Agent.View</c>. Empty without <c>Server.Register</c> (fail-closed).</summary>
     Task<IReadOnlyList<DeployHost>> ListDeployHostsAsync(UserId user, CancellationToken cancellationToken = default);

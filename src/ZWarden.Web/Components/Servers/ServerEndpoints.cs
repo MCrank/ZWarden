@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Identity;
 using ZWarden.Application.Agents;
+using ZWarden.Application.Authorization;
 using ZWarden.Application.Backups;
 using ZWarden.Application.Operations;
 using ZWarden.Application.Servers;
@@ -145,6 +146,27 @@ public static class ServerEndpoints
                 FleetFacts.For(s, metrics.GetLatest(s.Id, s.AgentId), connections.IsConnected(s.AgentId)),
                 now)));
         });
+
+        // The Fleet's Hosts (#357): total / online and the unreachable Hosts' names, polled by live-status.js on /servers
+        // so the degraded banner and the Hosts tile follow an Agent (re)connecting. The same FleetHosts projection as the
+        // first render: the visible fleet's owning Agents (Server.View-filtered), plus every Host and their names only
+        // for a caller who may view Hosts — nothing new is authorized (ADR 0018, #336 D3). Kept apart from /status so
+        // that endpoint stays an array of Servers. Read from memory and the inventory; never cached.
+        endpoints.MapGet("/api/fleet/hosts", async (ClaimsPrincipal principal, UserManager<ApplicationUser> users,
+            IServerInventory inventory, IAgentInventory agents, IPermissionChecker permissions,
+            IAgentConnectionRegistry connections, HttpContext http, CancellationToken ct) =>
+        {
+            UserId user = Actor(principal, users);
+            IReadOnlyList<ServerSummary> servers = await inventory.ListVisibleAsync(user, ct).ConfigureAwait(false);
+            Dictionary<AgentId, string> names = (await permissions.EvaluateAsync(user, Permissions.AgentView, cancellationToken: ct).ConfigureAwait(false)).IsAllowed
+                ? (await agents.ListHostsAsync(user, ct).ConfigureAwait(false)).ToDictionary(h => h.Id, h => HostNames.Display(h.Id, h.Label, h.Hostname))
+                : [];
+            FleetHostsSummary summary = FleetHosts.Summarize(
+                servers, names.Keys, a => names.TryGetValue(a, out string? name) ? name : HostNames.ShortId(a), connections.IsConnected);
+
+            http.Response.Headers.CacheControl = "no-store";
+            return Results.Ok(new { total = summary.Total, online = summary.Online, unreachable = summary.Unreachable });
+        }).RequireAuthorization();
 
         // The live header status (#249): the observed run-state resolved against the Server's in-flight mutating
         // Operation, polled by live-status.js on the server-detail page. Fail-closed on Server.View (the inventory's

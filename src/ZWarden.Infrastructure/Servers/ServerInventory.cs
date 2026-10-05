@@ -149,6 +149,34 @@ public sealed class ServerInventory : IServerInventory
     }
 
     /// <inheritdoc />
+    public async Task<IReadOnlyList<UnmanagedHostCount>> ListUnmanagedHostsAsync(
+        UserId user, CancellationToken cancellationToken = default)
+    {
+        IReadOnlySet<string> held = await _permissions.GetTenantWidePermissionsAsync(user, cancellationToken).ConfigureAwait(false);
+        if (!held.Contains(Permissions.ServerRegister.Name))
+        {
+            return [];
+        }
+
+        IReadOnlyList<DiscoveredServerOnAgent> discovered =
+            await ListAllDiscoveredUnregisteredAsync(cancellationToken).ConfigureAwait(false);
+        if (discovered.Count == 0)
+        {
+            return [];
+        }
+
+        Dictionary<AgentId, Agent> named = held.Contains(Permissions.AgentView.Name)
+            ? (await _agents.ListAsync(cancellationToken).ConfigureAwait(false)).ToDictionary(a => a.Id)
+            : [];
+        return discovered
+            .GroupBy(d => d.AgentId)
+            .Select(g => named.TryGetValue(g.Key, out Agent? agent)
+                ? new UnmanagedHostCount(g.Key, agent.Label, agent.Hostname, g.Count())
+                : new UnmanagedHostCount(g.Key, null, null, g.Count()))
+            .ToList();
+    }
+
+    /// <inheritdoc />
     public async Task<IReadOnlyList<DeployHost>> ListDeployHostsAsync(UserId user, CancellationToken cancellationToken = default)
     {
         IReadOnlySet<string> held = await _permissions.GetTenantWidePermissionsAsync(user, cancellationToken).ConfigureAwait(false);
