@@ -68,6 +68,46 @@ public sealed class EnrollmentPageTests
         client.Dispose();
     }
 
+    [Test]
+    public async Task An_owner_gets_a_remove_host_action_on_each_card_and_one_portal_host()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOwnerAsync(factory, "owner@zwarden.test");
+        await SeedHostAsync(factory);
+        await SeedHostAsync(factory);
+
+        string html = await (await client.GetAsync(new Uri("/hosts", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        // #363: one Remove island per card; the dialog itself only opens interactively.
+        await Assert.That(Regex.Count(html, "data-action=\"remove-host-open\"")).IsEqualTo(2);
+        await Assert.That(html).DoesNotContain("data-remove-host-dialog");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task An_administrator_gets_no_remove_host_action()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInWithRoleAsync(factory, "admin@zwarden.test", BuiltInRoleKind.Administrator);
+        await SeedHostAsync(factory);
+
+        string html = await (await client.GetAsync(new Uri("/hosts", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        await Assert.That(html).Contains("data-host-card");
+        await Assert.That(html).DoesNotContain("remove-host-open");
+        await Assert.That(html).DoesNotContain("data-host-remove");
+        client.Dispose();
+    }
+
+    private static async Task SeedHostAsync(ZWardenWebAppFactory factory)
+    {
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
+        ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
+        db.Add(Domain.Agents.Agent.Enroll(
+            "agenthashaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", EnrollmentId.New(), DateTimeOffset.UtcNow, "host-x"));
+        await db.SaveChangesAsync();
+    }
+
     private static async Task<HttpClient> SignedInOwnerAsync(ZWardenWebAppFactory factory, string email)
     {
         await factory.CreateConfirmedUserAsync(email, StrongPassword);

@@ -1,0 +1,142 @@
+@using System.Security.Claims
+@using ZWarden.Application.Agents
+@using ZWarden.Application.Authorization
+@using ZWarden.Domain.Ids
+@using ZWarden.Infrastructure.Tenancy
+@inject ActionScopeRunner Actions
+@inject UserManager<ApplicationUser> Users
+@inject NavigationManager Nav
+
+@* A Host card's "Remove host" action (#363): an interactive island on the static Hosts page (ADR 0040/0046), one per
+   card, rendering its alert dialog through the page's single BbPortalHost. The page renders it only for a caller
+   holding Tenant.Enrollment.Manage (Owner-only); IAgentTrustService re-checks, refuses while the Host has Servers,
+   and audits. A Host with Servers gets the blocked message and no Remove button (the service refuses it anyway).
+   Nothing on the machine is touched, and the dialog doesn't promise that re-enrolling brings old servers back
+   (#365: a re-enrolled Agent can't see the previous Agent's containers). *@
+
+<span hidden data-circuit="@(_circuitReady ? "on" : "off")"></span>
+<BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="Open" data-action="remove-host-open">Remove host…</BbButton>
+
+<BbAlertDialog @bind-Open="_open">
+    <BbAlertDialogContent data-remove-host-dialog>
+        <BbAlertDialogHeader>
+            <BbAlertDialogTitle>Remove @HostName?</BbAlertDialogTitle>
+        </BbAlertDialogHeader>
+        @if (_blockedServers > 0)
+        {
+            <p class="mt-3 text-sm" data-remove-host-blocked>
+                @HostName still has @_blockedServers @(_blockedServers == 1 ? "server" : "servers"). Delete
+                @(_blockedServers == 1 ? "it" : "them") first, then remove the host.
+            </p>
+        }
+        else
+        {
+            <ul class="mt-3 list-disc space-y-1 pl-5 text-sm" data-remove-host-effects>
+                <li>Its Agent is disconnected and its credential revoked, so it can't reconnect.</li>
+                <li>The host leaves Hosts and Fleet. The audit log keeps its history.</li>
+                <li>
+                    Nothing on the machine is touched: containers, volumes and Project Zomboid data stay there. Clean them
+                    up on the machine itself if you no longer need them.
+                </li>
+                <li>Bringing the machine back needs a new enrollment token, and it shows up as a new host.</li>
+            </ul>
+        }
+        @if (_message is not null)
+        {
+            <div class="mt-3" data-remove-host-message>
+                <BbAlert Variant="AlertVariant.Warning" AccentBorder>
+                    <BbAlertDescription>@_message</BbAlertDescription>
+                </BbAlert>
+            </div>
+        }
+        <BbAlertDialogFooter Class="mt-4">
+            <BbAlertDialogCancel>
+                <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" data-action="remove-host-cancel">
+                    @(_blockedServers > 0 ? "Close" : "Cancel")
+                </BbButton>
+            </BbAlertDialogCancel>
+            @if (_blockedServers == 0)
+            {
+                <BbButton Variant="ButtonVariant.Destructive" Size="ButtonSize.Small" Disabled="_busy" OnClick="RemoveAsync"
+                          data-action="remove-host">Remove host</BbButton>
+            }
+        </BbAlertDialogFooter>
+    </BbAlertDialogContent>
+</BbAlertDialog>
+
+@code {
+    /// <summary>The Host's Agent.</summary>
+    [Parameter, EditorRequired]
+    public AgentId AgentId { get; set; }
+
+    /// <summary>The Host's display name (<c>HostNames.Display</c>), shown in the dialog.</summary>
+    [Parameter, EditorRequired]
+    public string HostName { get; set; } = string.Empty;
+
+    /// <summary>The Servers on the Host as the page saw them; any blocks removal.</summary>
+    [Parameter]
+    public int ServerCount { get; set; }
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthState { get; set; }
+
+    private bool _circuitReady;
+    private bool _open;
+    private bool _busy;
+    private int _blockedServers;
+    private string? _message;
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender && RendererInfo.IsInteractive)
+        {
+            _circuitReady = true;
+            StateHasChanged();
+        }
+    }
+
+    // Each opening starts from what the page saw; a refusal from the service (a Server deployed meanwhile) replaces it.
+    private void Open()
+    {
+        _blockedServers = ServerCount;
+        _message = null;
+        _open = true;
+    }
+
+    private async Task RemoveAsync()
+    {
+        _busy = true;
+        _message = null;
+        try
+        {
+            UserId user = await CurrentUserAsync();
+            AgentId agentId = AgentId;
+            HostRemovalResult result = await Actions.RunAsync<IAgentTrustService, HostRemovalResult>(
+                (service, ct) => service.RemoveAsync(user, agentId, ct));
+            if (result.Removed)
+            {
+                _open = false;
+                Nav.Refresh();
+                return;
+            }
+
+            _blockedServers = result.ServerCount;
+        }
+        catch (AuthorizationDeniedException)
+        {
+            _message = "You are not permitted to remove hosts, or the host no longer exists.";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task<UserId> CurrentUserAsync()
+    {
+        ClaimsPrincipal principal = (await AuthState!).User;
+        return Guid.TryParse(Users.GetUserId(principal), out Guid id)
+            ? UserId.FromGuid(id)
+            : throw new InvalidOperationException("Authenticated request carries no user id claim.");
+    }
+}

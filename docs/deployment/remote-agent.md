@@ -94,12 +94,25 @@ example by bind-mounting the CA file and pointing the container's CA bundle at i
 - **Provisioning a server fails with "no such image".** Set `ZWARDEN_PZ_IMAGE` to the pinned PZ image digest
   and re-run — the socket-proxy denies image pulls by design (ADR 0008), so the image must be present/pinned.
 
+## Removing a host
+
+To retire a machine, or clean up the stale card a re-enrolled one leaves behind, the Owner clicks **Remove host…**
+on its card in **`/hosts`**. A host that still has servers can't be removed: delete them first. Removing it drops
+the Agent's live connection, deletes its credential (so it can't reconnect) and records who removed it in the
+audit log. Nothing on the machine is touched — the Agent container, volumes and Project Zomboid data stay until
+you clean them up there (`docker compose down`, adding `-v` to drop the volumes too). To bring the machine back,
+enroll it again with a fresh token; it shows up as a new host.
+
+A re-enrolled Agent can't yet see PZ containers the previous Agent created on that machine
+([#365](https://github.com/MCrank/ZWarden/issues/365)), so delete a host's servers in ZWarden before you wipe
+and re-enroll its Agent.
+
 ## Security notes
 
 - **No inbound port.** The remote host exposes nothing for ZWarden; all traffic is Agent-initiated outbound
   WSS (criterion 14).
 - **Trust is a bearer credential** (ADR 0007), not mutual TLS in v1.0. Revoke or rotate a host's credential from
   the control plane at any time — revocation drops the live connection immediately. mTLS + an Agent CA arrive in
-  v1.1.
+  v1.1. **Remove host** (above) deletes the Agent's trust record outright.
 - **Self-reported host facts are display-only.** The hostname/version/OS shown in `/hosts` are what the Agent
   reports; they are never used to authorize anything. The `agt-` id and the credential are the real identity.

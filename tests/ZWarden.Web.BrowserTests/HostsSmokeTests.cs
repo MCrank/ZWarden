@@ -1,11 +1,12 @@
 using Microsoft.Playwright;
+using ZWarden.Domain.Ids;
 using static Microsoft.Playwright.Assertions;
 
 namespace ZWarden.Web.BrowserTests;
 
 /// <summary>
 /// The Hosts smoke test (#342): the Enroll host island on the static Hosts page mints a one-time token in a real
-/// browser, and the old /enrollment URL lands on the open sheet.
+/// browser, the old /enrollment URL lands on the open sheet, and Remove host (#363) takes an empty Host off the page.
 /// </summary>
 [ClassDataSource<BrowserHost>(Shared = SharedType.PerTestSession)]
 public sealed class HostsSmokeTests(BrowserHost host)
@@ -28,6 +29,24 @@ public sealed class HostsSmokeTests(BrowserHost host)
 
         await session.Page.ClickAsync("[data-action=step-finish]");
         await Expect(sheet).ToHaveCountAsync(0);
+        await session.AssertNoErrorsAsync();
+    }
+
+    [Test]
+    public async Task Remove_host_takes_an_empty_host_off_the_page()
+    {
+        AgentId agentId = await host.SeedConnectedHostAsync("smoke-remove");
+        await using BrowserSession session = await host.OpenAsync("/hosts");
+        ILocator card = session.Page.Locator($"#host-{agentId}");
+        await Expect(card.Locator("[data-circuit=on]")).ToHaveCountAsync(1); // the card's island is interactive
+
+        await card.Locator("[data-action=remove-host-open]").ClickAsync();
+        ILocator dialog = session.Page.Locator("[data-remove-host-dialog]");
+        await Expect(dialog).ToHaveCountAsync(1); // one portal host on the page, so one dialog (#363)
+        await Expect(dialog).ToContainTextAsync("Remove smoke-remove?");
+        await dialog.Locator("[data-action=remove-host]").ClickAsync();
+
+        await Expect(card).ToHaveCountAsync(0);
         await session.AssertNoErrorsAsync();
     }
 
