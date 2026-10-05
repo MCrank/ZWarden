@@ -1,0 +1,292 @@
+@using System.Security.Claims
+@using ZWarden.Application.Agents
+@using ZWarden.Application.Authorization
+@using ZWarden.Domain.Enrollments
+@using ZWarden.Domain.Ids
+@using ZWarden.Infrastructure.Tenancy
+@using ZWarden.Web.Components.Servers
+@inject ActionScopeRunner Actions
+@inject UserManager<ApplicationUser> Users
+@inject IAgentConnectionRegistry Connections
+@inject NavigationManager Nav
+@inject TimeProvider Clock
+@implements IDisposable
+
+@* The Hosts page's "Enroll host" button and sheet (#342; replaces the /enrollment page). An interactive island on the
+   static Hosts page (ADR 0040/0046), in the Deploy server sheet's language (StepSheet, one step). It mints the
+   one-time token through ActionScopeRunner (a scope per action carrying the circuit's tenant, #297); the page renders
+   it only for a caller holding Tenant.Enrollment.Manage, and IEnrollmentService re-checks and audits every call.
+   While the token is shown it checks every few seconds whether the new host's Agent has used it and connected.
+   The secret lives in this circuit only for as long as the sheet shows it — never stored raw, never logged. *@
+
+@* "on" once the circuit has rendered the island (browser tests wait for it); see DeployServerSheet. *@
+<span hidden data-circuit="@(_circuitReady ? "on" : "off")"></span>
+<BbButton OnClick="OpenAsync" data-action="enroll-host-open" data-hosts-enroll>Enroll host</BbButton>
+
+<StepSheet Open="_open" OpenChanged="OpenChangedAsync" Title="Enroll host"
+           Description="Generate a one-time enrollment token, then start the ZWarden Agent on the host with it. The host appears on this page once its Agent connects."
+           Steps="Steps" OnFinish="FinishAsync" FinishLabel="@(_issued is null ? "Generate token" : "Done")" Busy="_busy"
+           data-enroll-host-sheet>
+    @if (_message is not null)
+    {
+        <div data-enroll-message>
+            <BbAlert Variant="AlertVariant.Warning" AccentBorder>
+                <BbAlertDescription>@_message</BbAlertDescription>
+            </BbAlert>
+        </div>
+    }
+
+    @if (_issued is { } issued)
+    {
+        <EnrollmentTokenPanel Secret="@issued.Secret" ExpiresAt="@issued.ExpiresAt" />
+        @if (_connectedHost is not null)
+        {
+            <p class="text-sm font-medium text-status-running" data-enrollment-connected>
+                @_connectedHost connected ✓
+            </p>
+        }
+        else
+        {
+            <p class="text-sm text-muted-foreground" data-enrollment-waiting>Waiting for the Agent to connect…</p>
+        }
+    }
+    else
+    {
+        <div class="flex flex-col text-sm">
+            <BbLabel For="enroll-label" Class="mb-1 text-muted-foreground">Label (optional)</BbLabel>
+            <BbInput Id="enroll-label" UpdateTiming="UpdateTiming.Immediate" @bind-Value="_label" Placeholder="e.g. host-alpha" autocomplete="off" />
+            <p class="mt-1 text-xs text-muted-foreground">Names the host until its Agent reports a hostname.</p>
+        </div>
+    }
+
+    @if (_enrollments.Count > 0)
+    {
+        <div class="border-t border-border pt-4" data-enrollment-recent>
+            <p class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Recent tokens</p>
+            <ul class="mt-2 space-y-1 text-sm">
+                @foreach (EnrollmentSummary e in _enrollments.Take(RecentCount))
+                {
+                    <li class="flex items-center gap-3" data-enrollment-row>
+                        <span class="min-w-0 flex-1 truncate text-foreground">@(string.IsNullOrWhiteSpace(e.Label) ? "—" : e.Label)</span>
+                        <span class="text-xs text-muted-foreground">@e.Status</span>
+                        <span class="font-mono text-xs tabular-nums text-muted-foreground">@e.ExpiresAt.UtcDateTime.ToString("yyyy-MM-dd HH:mm") UTC</span>
+                    </li>
+                }
+            </ul>
+        </div>
+    }
+</StepSheet>
+
+<BbPortalHost />
+
+@code {
+    // How often a shown token is checked for its Agent connecting; one tenant-scoped list per tick, only while open.
+    private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(3);
+    private static readonly IReadOnlyList<string> Steps = ["Enroll"];
+    private const int RecentCount = 8;
+
+    /// <summary>Open the sheet on the first interactive render (the <c>?enroll=1</c> deep link).</summary>
+    [Parameter]
+    public bool OpenOnLoad { get; set; }
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthState { get; set; }
+
+    private IReadOnlyList<EnrollmentSummary> _enrollments = [];
+    private IssuedToken? _issued;
+    private string? _connectedHost;
+    private string? _label;
+    private string? _message;
+    private bool _circuitReady;
+    private bool _open;
+    private bool _busy;
+    private CancellationTokenSource? _poll;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || !RendererInfo.IsInteractive)
+        {
+            return;
+        }
+
+        _circuitReady = true;
+        if (OpenOnLoad)
+        {
+            await OpenAsync();
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task OpenAsync()
+    {
+        _open = true;
+        _message = null;
+        await LoadEnrollmentsAsync();
+    }
+
+    private Task OpenChangedAsync(bool open)
+    {
+        if (!open)
+        {
+            Close(refresh: _issued is not null);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private Task FinishAsync() => _issued is null ? IssueAsync() : DoneAsync();
+
+    private async Task IssueAsync()
+    {
+        _busy = true;
+        _message = null;
+        try
+        {
+            UserId user = await CurrentUserAsync();
+            string? label = string.IsNullOrWhiteSpace(_label) ? null : _label.Trim();
+            EnrollmentTokenResult result = await Actions.RunAsync<IEnrollmentService, EnrollmentTokenResult>(
+                (service, ct) => service.IssueAsync(user, lifetime: null, label, ct));
+            _issued = new IssuedToken(result.EnrollmentId, result.Secret.Reveal(), result.ExpiresAt);
+            await LoadEnrollmentsAsync();
+            StartPolling();
+        }
+        catch (AuthorizationDeniedException)
+        {
+            _message = "You are not permitted to enroll hosts.";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private Task DoneAsync()
+    {
+        Close(refresh: true);
+        return Task.CompletedTask;
+    }
+
+    // Closing forgets the secret (it is shown once). A host that enrolled meanwhile needs the page re-rendered to get
+    // its card, so a close after issuing refreshes the static page (as the Deploy sheet does).
+    private void Close(bool refresh)
+    {
+        StopPolling();
+        _open = false;
+        _issued = null;
+        _connectedHost = null;
+        _label = null;
+        _message = null;
+        if (refresh)
+        {
+            RefreshPage();
+        }
+    }
+
+    private async Task LoadEnrollmentsAsync()
+    {
+        UserId user = await CurrentUserAsync();
+        IReadOnlyList<EnrollmentSummary> list = await Actions.RunAsync<IEnrollmentService, IReadOnlyList<EnrollmentSummary>>(
+            (service, ct) => service.ListAsync(user, ct));
+        _enrollments = [.. list.OrderByDescending(e => e.CreatedAt)];
+    }
+
+    private void StartPolling()
+    {
+        StopPolling();
+        _poll = new CancellationTokenSource();
+        _ = PollAsync(_poll.Token);
+    }
+
+    private void StopPolling()
+    {
+        _poll?.Cancel();
+        _poll?.Dispose();
+        _poll = null;
+    }
+
+    private async Task PollAsync(CancellationToken cancellationToken)
+    {
+        using PeriodicTimer timer = new(PollInterval, Clock);
+        try
+        {
+            while (await timer.WaitForNextTickAsync(cancellationToken))
+            {
+                if (await ConnectedHostAsync() is { } host)
+                {
+                    // The token is consumed now: re-read the list so Recent tokens says so.
+                    await LoadEnrollmentsAsync();
+                    await InvokeAsync(() =>
+                    {
+                        _connectedHost = host;
+                        StateHasChanged();
+                    });
+                    return;
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // The sheet closed.
+        }
+    }
+
+    // The issued token's Agent, named, once it has enrolled and is live on this control plane; null until then.
+    private async Task<string?> ConnectedHostAsync()
+    {
+        if (_issued is not { } issued)
+        {
+            return null;
+        }
+
+        UserId user = await CurrentUserAsync();
+        IReadOnlyList<EnrollmentSummary> list = await Actions.RunAsync<IEnrollmentService, IReadOnlyList<EnrollmentSummary>>(
+            (service, ct) => service.ListAsync(user, ct));
+        if (list.FirstOrDefault(e => e.Id == issued.EnrollmentId)?.ConsumedByAgent is not { } agentId
+            || !Connections.IsConnected(agentId))
+        {
+            return null;
+        }
+
+        try
+        {
+            IReadOnlyList<HostSummary> hosts = await Actions.RunAsync<IAgentInventory, IReadOnlyList<HostSummary>>(
+                (inventory, ct) => inventory.ListHostsAsync(user, ct));
+            if (hosts.FirstOrDefault(h => h.Id == agentId) is { } host)
+            {
+                return HostNames.Display(host.Id, host.Label, host.Hostname);
+            }
+        }
+        catch (AuthorizationDeniedException)
+        {
+            // Enrollment without Agent.View (a custom role): no hostname, so the short id.
+        }
+
+        return HostNames.ShortId(agentId);
+    }
+
+    private void RefreshPage()
+    {
+        Uri current = new(Nav.Uri);
+        if (current.Query.Length > 0)
+        {
+            Nav.NavigateTo(current.GetLeftPart(UriPartial.Path), replace: true);
+        }
+        else
+        {
+            Nav.Refresh();
+        }
+    }
+
+    private async Task<UserId> CurrentUserAsync()
+    {
+        ClaimsPrincipal principal = (await AuthState!).User;
+        return Guid.TryParse(Users.GetUserId(principal), out Guid id)
+            ? UserId.FromGuid(id)
+            : throw new InvalidOperationException("Authenticated request carries no user id claim.");
+    }
+
+    public void Dispose() => StopPolling();
+
+    private sealed record IssuedToken(EnrollmentId EnrollmentId, string Secret, DateTimeOffset ExpiresAt);
+}

@@ -21,6 +21,10 @@ public static class HostEndpoints
     {
         ArgumentNullException.ThrowIfNull(endpoints);
 
+        // #342: the /enrollment page became the Hosts page's Enroll host sheet; old links and bookmarks open it there
+        // (the target does the authorization).
+        endpoints.MapGet("/enrollment", () => Results.Redirect("/hosts?enroll=1"));
+
         endpoints.MapGet("/api/hosts/telemetry", async (ClaimsPrincipal principal, UserManager<ApplicationUser> users,
             IAgentInventory inventory, IHostCapacityCache capacity, TimeProvider clock, HttpContext http,
             CancellationToken ct) =>

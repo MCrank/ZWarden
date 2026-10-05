@@ -36,6 +36,22 @@ public class FleetTreeTests
     }
 
     [Test]
+    public async Task A_known_host_with_no_servers_gets_an_empty_row_in_name_order()
+    {
+        AgentId busy = AgentId.New(), idle = AgentId.New();
+        Dictionary<AgentId, FleetHostInfo> hosts = new() { [busy] = Online("zulu"), [idle] = Online("alpha") };
+
+        List<FleetNode> tree = FleetTree.Build([(busy, Row("a"))], hosts.GetValueOrDefault, knownHosts: [busy, idle]);
+
+        await Assert.That(tree.Select(n => n.Name)).IsEquivalentTo(["alpha", "zulu"], TUnit.Assertions.Enums.CollectionOrdering.Matching);
+        await Assert.That(tree[0].Key).IsEqualTo(idle.ToString());
+        await Assert.That(tree[0].Host!.ServerCount).IsEqualTo(0);
+        await Assert.That(tree[0].Host!.Unassigned).IsFalse();
+        await Assert.That(tree[0].Children!).IsEmpty();
+        await Assert.That(tree[1].Host!.ServerCount).IsEqualTo(1);
+    }
+
+    [Test]
     public async Task One_host_is_still_a_hierarchy()
     {
         AgentId agent = AgentId.New();

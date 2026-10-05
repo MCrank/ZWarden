@@ -66,6 +66,10 @@ public sealed class SetupGuidedStepsTests
         await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
         await Assert.That(html).Contains("data-enrollment-secret");
         await Assert.That(html).Contains("data-enrollment-row");
+        // #342: the shared token panel — copy, and the Agent's .env lines for this site.
+        await Assert.That(html).Contains("data-shell-copy=\"[data-enrollment-token]\"");
+        await Assert.That(html).Contains("ZWARDEN_DOMAIN=localhost");
+        await Assert.That(html).Contains("ZWARDEN_ENROLLMENT_SECRET=zwe_");
         // #343: the step speaks of hosts; "Agent" stays only in the technical help text.
         await Assert.That(html).Contains("Enroll your first host");
         await Assert.That(html).Contains("<title>Set up ZWarden · Enroll host</title>");

@@ -75,7 +75,7 @@ public sealed class HostInventoryPageTests
         string html = await (await client.GetAsync(new Uri("/hosts", UriKind.Relative))).Content.ReadAsStringAsync();
 
         await Assert.That(html).Contains("data-hosts-enroll");
-        await Assert.That(html).Contains("/enrollment");
+        await Assert.That(html).Contains("enroll-host-open"); // #342: the sheet island, not a link to /enrollment
         client.Dispose();
     }
 

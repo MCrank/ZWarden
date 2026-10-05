@@ -126,7 +126,7 @@
             </BbCardContent>
         </BbCard>
 
-        @* Host enrollment — Owner-only (Tenant.Enrollment.Manage). Links to the existing enrollment surface
+        @* Host enrollment — Owner-only (Tenant.Enrollment.Manage). Opens the Enroll host sheet on Hosts (#342)
            rather than duplicating token issuance here. *@
         @if (State is { CanManageEnrollment: true })
         {
@@ -139,7 +139,7 @@
                     <p class="text-sm text-muted-foreground">
                         Generate a one-time enrollment token, then run the ZWarden Agent on the host with it.
                     </p>
-                    <a href="/enrollment"
+                    <a href="/hosts?enroll=1"
                        class="mt-4 inline-flex items-center gap-1.5 rounded bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90"
                        data-settings-enrollment-link>
                         Enroll host

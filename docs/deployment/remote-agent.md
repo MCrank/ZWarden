@@ -37,9 +37,10 @@ relaxed host. An offline test pins all copies together so they cannot drift.
 
 ### 1. Get a one-time enrollment secret from the control plane
 
-On the control plane, sign in and open the **Enroll** flow (the First-Run wizard's enroll step, or mint one as
-an operator). It issues a **single-use, short-lived** enrollment secret. Copy it — you will paste it on the
-remote host next.
+On the control plane, sign in as the Owner and click **Enroll host** on **Hosts** (or use the First-Run
+wizard's enroll step). It issues a **single-use, short-lived** enrollment secret and shows the two `.env` lines
+for the remote host (`ZWARDEN_DOMAIN` and `ZWARDEN_ENROLLMENT_SECRET`). Copy them — you will paste them on the
+remote host next. Keep the sheet open: it says when the new host connects.
 
 ### 2. Scaffold the environment on the remote host
 

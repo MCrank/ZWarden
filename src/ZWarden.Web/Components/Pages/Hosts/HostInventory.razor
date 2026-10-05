@@ -1,6 +1,8 @@
 @page "/hosts"
 @using System.Security.Claims
 @using ZWarden.Application.Agents
+@using ZWarden.Application.Authorization
+@using ZWarden.Domain.Authorization
 @using ZWarden.Domain.Agents
 @using ZWarden.Domain.Ids
 @using ZWarden.Web.Components.Hosts
@@ -11,6 +13,7 @@
 @inject AuthenticationStateProvider AuthProvider
 @inject UserManager<ApplicationUser> Users
 @inject IHostCapacityCache Capacity
+@inject IPermissionChecker PermissionChecker
 @inject TimeProvider Clock
 
 @* The Hosts inventory (#159), re-skinned from the F35 table into the Signal card grid: Hosts are few and rich,
@@ -35,13 +38,14 @@
             @_hosts.Count @(_hosts.Count == 1 ? "host" : "hosts") · @_connected online · @(_hosts.Count - _connected) unreachable
         </p>
     </div>
-    @* Enroll host → the standalone enrollment surface (/enrollment), which works post-setup. The target
-       enforces Tenant.Enrollment.Manage (Owner-only), so a non-owner viewer following it is denied server-side. *@
-    <a href="/enrollment"
-       class="inline-flex items-center gap-1.5 rounded bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90"
-       data-hosts-enroll>
-        Enroll host
-    </a>
+    @* #342: the Enroll host button + sheet, an interactive island, only for a caller holding Tenant.Enrollment.Manage
+       (Owner-only; IEnrollmentService re-checks). ?enroll=1 opens it (Settings and the old /enrollment URL link here). *@
+    @if (_canEnroll)
+    {
+        <div class="ml-auto" data-enroll-host>
+            <EnrollHostSheet @rendermode="InteractiveServer" OpenOnLoad="@(Enroll == "1")" />
+        </div>
+    }
 </div>
 <p class="mt-1 text-sm text-muted-foreground">
     The Agents managing your servers, one per Host. State is what each Agent last reported; "Connected" is
@@ -203,6 +207,11 @@ else
 }
 
 @code {
+    /// <summary><c>?enroll=1</c> opens the Enroll host sheet (#342).</summary>
+    [SupplyParameterFromQuery(Name = "enroll")]
+    private string? Enroll { get; set; }
+
+    private bool _canEnroll;
     private IReadOnlyList<HostSummary> _hosts = [];
     private IReadOnlyList<ServerSummary> _servers = [];
     private int _connected;
@@ -220,6 +229,7 @@ else
         _hosts = await Inventory.ListHostsAsync(user);
         _servers = await Servers.ListVisibleAsync(user);
         _connected = _hosts.Count(h => h.IsConnected);
+        _canEnroll = (await PermissionChecker.EvaluateAsync(user, Permissions.TenantEnrollmentManage)).IsAllowed;
         _now = Clock.GetUtcNow();
     }
 
