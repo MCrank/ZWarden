@@ -100,6 +100,11 @@ public sealed class SettingsPageTests
 
         await Assert.That(html).Contains("data-settings-enrollment-link");
         await Assert.That(html).Contains("/enrollment");
+        // #343: "Host enrollment" section, "Enroll host" action.
+        await Assert.That(html).Contains("Host enrollment");
+        await Assert.That(Regex.IsMatch(html, "data-settings-enrollment-link[^>]*>\\s*Enroll host\\s*<")).IsTrue();
+        await Assert.That(html).DoesNotContain("Agent enrollment");
+        await Assert.That(html).DoesNotContain("Manage enrollment");
         client.Dispose();
     }
 

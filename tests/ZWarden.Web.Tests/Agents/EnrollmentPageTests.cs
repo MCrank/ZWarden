@@ -75,6 +75,10 @@ public sealed class EnrollmentPageTests
 
         await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
         await Assert.That(html).Contains("data-enrollment-page");
+        // #343: the page is titled for the operator action, not the Agent.
+        await Assert.That(html).Contains(">Enroll host</h1>");
+        await Assert.That(html).Contains("<title>Enroll host — ZWarden</title>");
+        await Assert.That(html).DoesNotContain("Agent enrollment");
         await Assert.That(html).Contains("data-enrollment-generate"); // the token-issuing form is present
         client.Dispose();
     }

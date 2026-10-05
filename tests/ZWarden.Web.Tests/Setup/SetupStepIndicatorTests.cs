@@ -22,7 +22,7 @@ public class SetupStepIndicatorTests
         await Assert.That(markup).Contains("data-setup-steps");
         await Assert.That(markup).Contains("Administrator");
         await Assert.That(markup).Contains("TLS mode");
-        await Assert.That(markup).Contains("Enroll Agent");
+        await Assert.That(markup).Contains("Enroll host"); // #343: operator wording is "Enroll host"
         await Assert.That(Regex.Count(markup, "data-setup-step=")).IsEqualTo(5);
     }
 

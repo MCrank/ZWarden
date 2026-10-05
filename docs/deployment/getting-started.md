@@ -138,10 +138,10 @@ up). ZWarden just records your choice; Caddy does the actual TLS work.
 > *(The "you're viewing this over plain HTTP" banner only appears if you opened the wizard over `http://`.
 > When you reach it via your `https://` domain — as you should — it won't show.)*
 
-From here you can click **Finish setup** and stop, or **Set up an Agent & servers →** to continue into the
+From here you can click **Finish setup** and stop, or **Enroll a host & add servers →** to continue into the
 next (optional) steps in the browser. To connect the co-located Agent, continue to the enroll step.
 
-**3. Enroll your first Agent.** Click **Generate token**. Copy the one-time enrollment token — it's shown
+**3. Enroll your first host.** Click **Generate token**. Copy the one-time enrollment token — it's shown
 **only once**.
 
 ![The wizard's enroll step showing a generated one-time token](images/03-enroll-agent.png)

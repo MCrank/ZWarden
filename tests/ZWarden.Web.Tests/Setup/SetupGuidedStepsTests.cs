@@ -9,7 +9,7 @@ using ZWarden.Infrastructure.Tenancy;
 namespace ZWarden.Web.Tests.Setup;
 
 /// <summary>
-/// F33 PR-B: the guided-but-skippable setup steps (enroll an Agent, add servers, run a health check) and the
+/// F33 PR-B: the guided-but-skippable setup steps (enroll a host, add servers, run a health check) and the
 /// optional "continue" path off the TLS step. Only administrator + TLS mode are mandatory, so setup can be
 /// finished from any guided step, and each is reachable on an un-set-up install and redirects away once
 /// complete. Exercised over the real host (ADR 0036).
@@ -25,6 +25,7 @@ public sealed class SetupGuidedStepsTests
         HttpClient client = await SignedInAdminAsync(factory);
 
         string tlsPage = await (await client.GetAsync(new Uri("/setup/tls", UriKind.Relative))).Content.ReadAsStringAsync();
+        await Assert.That(tlsPage).Contains("Enroll a host &amp; add servers"); // #343
         Dictionary<string, string> form = ParseHiddenInputs(tlsPage);
         form["Input.Mode"] = nameof(TlsMode.Private);
         form["Input.Action"] = "continue";
@@ -65,6 +66,10 @@ public sealed class SetupGuidedStepsTests
         await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
         await Assert.That(html).Contains("data-enrollment-secret");
         await Assert.That(html).Contains("data-enrollment-row");
+        // #343: the step speaks of hosts; "Agent" stays only in the technical help text.
+        await Assert.That(html).Contains("Enroll your first host");
+        await Assert.That(html).Contains("<title>Set up ZWarden · Enroll host</title>");
+        await Assert.That(html).DoesNotContain("Enroll your first Agent");
         client.Dispose();
     }
 
@@ -103,6 +108,8 @@ public sealed class SetupGuidedStepsTests
 
         await Assert.That(html).Contains("Add a server");
         await Assert.That(html).Contains("data-no-hosts");
+        await Assert.That(html).Contains("Enroll a host and start its Agent"); // #343
+        await Assert.That(html).DoesNotContain("Enroll an Agent");
         client.Dispose();
     }
 

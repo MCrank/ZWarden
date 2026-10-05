@@ -61,7 +61,7 @@ cd deploy/compose
 docker compose up -d
 
 # 4. Open https://zwarden.example.com and complete the First-Run setup wizard
-#    (first administrator → TLS mode → optionally enroll the Agent). See "Enrolling the Agent" below.
+#    (first administrator → TLS mode → optionally enroll a host). See "Enrolling a host" below.
 ```
 
 That is the whole happy path: `bootstrap-secrets` → set the domain → `docker compose up -d` → finish in the
@@ -148,7 +148,7 @@ Until the Agent trusts the CA, enrollment's TLS handshake fails — but the Agen
 single actionable warning pointing here and retries enrollment in the background with capped backoff. Once you
 apply the trust fix above (or switch to Public mode), the Agent enrols on the next retry with **no restart**.
 
-## Enrolling the Agent
+## Enrolling a host
 
 Agent enrollment is operator-driven (D-4): the stack does not bake a shared enrollment secret.
 
