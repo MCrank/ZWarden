@@ -203,7 +203,8 @@
 
         // #340: every Server under its Host's rollup row; a Server whose Agent the caller may view but which is gone
         // from the Host list (deleted) goes in the Unassigned group.
-        _nodes = FleetTree.Build(rows, agent => HostInfo(agent, now));
+        // #342 live pass: a Host with no Servers yet (just enrolled) still gets its row, for a caller who may view Hosts.
+        _nodes = FleetTree.Build(rows, agent => HostInfo(agent, now), _hostNames.Keys);
 
         // Running / Needs attention (a fatal or impaired health rollup, or a failed run-state) / Players online —
         // live-status.js recomputes the same tiles from the poll (#257). The attention name is untrusted data.
@@ -211,7 +212,8 @@
 
         // Hosts (online/total): the distinct owning Agents of the visible fleet, "online" per the live F10
         // registry. Deriving from visible Servers keeps this fail-closed and needs no Agent.View (ADR 0018).
-        List<AgentId> agents = _servers.Select(s => s.AgentId).Distinct().ToList();
+        // A caller who may view Hosts also counts the Hosts with no Servers yet (#342), as /hosts does.
+        List<AgentId> agents = _servers.Select(s => s.AgentId).Concat(_hostNames.Keys).Distinct().ToList();
         _hostsTotal = agents.Count;
         _offlineHosts = agents.Where(a => !Connections.IsConnected(a)).ToList();
         _hostsOnline = _hostsTotal - _offlineHosts.Count;

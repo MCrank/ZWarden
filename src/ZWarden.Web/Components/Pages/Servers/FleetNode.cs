@@ -65,18 +65,22 @@ public static class FleetTree
     /// <summary>
     /// Groups the projected Server rows under their Host, hosts by name and the "Unassigned" group last.
     /// <paramref name="hostOf"/> returns <c>null</c> for an Agent that is deleted or unknown to the caller.
-    /// Servers sort by name within each Host.
+    /// Servers sort by name within each Host. Each of <paramref name="knownHosts"/> with no Server still gets an empty
+    /// row (a freshly enrolled Host belongs on the Fleet before anything is deployed to it).
     /// </summary>
     public static List<FleetNode> Build(
-        IEnumerable<(AgentId Agent, FleetRow Row)> servers, Func<AgentId, FleetHostInfo?> hostOf)
+        IEnumerable<(AgentId Agent, FleetRow Row)> servers, Func<AgentId, FleetHostInfo?> hostOf,
+        IEnumerable<AgentId>? knownHosts = null)
     {
         ArgumentNullException.ThrowIfNull(servers);
         ArgumentNullException.ThrowIfNull(hostOf);
 
         List<FleetNode> hosts = [];
         List<FleetRow> unassigned = [];
+        HashSet<AgentId> grouped = [];
         foreach (IGrouping<AgentId, FleetRow> group in servers.GroupBy(s => s.Agent, s => s.Row))
         {
+            grouped.Add(group.Key);
             if (hostOf(group.Key) is { } info)
             {
                 string? agentId = info.Identified ? group.Key.ToString() : null;
@@ -85,6 +89,15 @@ public static class FleetTree
             else
             {
                 unassigned.AddRange(group);
+            }
+        }
+
+        foreach (AgentId idle in (knownHosts ?? []).Where(grouped.Add))
+        {
+            if (hostOf(idle) is { } info)
+            {
+                string? agentId = info.Identified ? idle.ToString() : null;
+                hosts.Add(Group(agentId ?? info.Name, info.Name, [], agentId, info));
             }
         }
 

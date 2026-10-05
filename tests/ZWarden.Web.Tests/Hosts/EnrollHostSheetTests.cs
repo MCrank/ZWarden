@@ -115,6 +115,8 @@ public sealed class EnrollHostSheetTests
         cut.WaitForState(() => cut.FindAll("[data-enrollment-connected]").Count == 1, TimeSpan.FromSeconds(15));
         await Assert.That(cut.Find("[data-enrollment-connected]").TextContent).Contains("host-charlie connected");
         await Assert.That(cut.FindAll("[data-enrollment-waiting]")).IsEmpty();
+        // Live pass: Recent tokens no longer says the used token is Pending.
+        await Assert.That(cut.Find("[data-enrollment-row]").TextContent).Contains("Consumed");
     }
 
     private static async Task<IRenderedComponent<EnrollHostSheet>> OpenAsync(InteractivePageHarness harness)

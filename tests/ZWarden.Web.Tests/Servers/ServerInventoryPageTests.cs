@@ -386,6 +386,27 @@ public sealed class ServerInventoryPageTests
     // --- #340: the hierarchical grid, Servers under Host rollup rows ---------------------------------------------
 
     [Test]
+    public async Task A_host_with_no_servers_still_gets_a_row_and_counts_as_a_host()
+    {
+        // #342 live pass: a freshly enrolled Host has no Servers yet, and the Fleet hid it (rows and counts came from
+        // the Servers only).
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        AgentId busy = await SeedServerOnHostAsync(factory, "NSFW", label: "NSFW-1", hostname: null);
+        AgentId empty = await SeedAgentAsync(factory);
+        factory.Services.GetRequiredService<Application.Agents.IAgentConnectionRegistry>().Register(empty, "conn-empty", () => { });
+
+        string html = await (await client.GetAsync(new Uri("/servers", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        await Assert.That(html).Contains($"data-fleet-host-row=\"{busy}\"");
+        await Assert.That(html).Contains($"data-fleet-host-row=\"{empty}\"");
+        await Assert.That(Regex.IsMatch(html, "data-fleet-host-count[^>]*>0 servers<")).IsTrue();
+        await Assert.That(html).Contains("1 server · 2 hosts");
+        await Assert.That(Regex.IsMatch(html, "data-kpi=\"hosts\"[\\s\\S]*?>1<span[^>]*>/2</span>")).IsTrue();
+        client.Dispose();
+    }
+
+    [Test]
     public async Task A_server_sits_under_its_host_row_with_the_count_and_the_unreachable_chip()
     {
         await using ZWardenWebAppFactory factory = new();

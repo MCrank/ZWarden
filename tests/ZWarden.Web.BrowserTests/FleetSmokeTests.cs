@@ -35,6 +35,21 @@ public sealed class FleetSmokeTests(BrowserHost host)
     }
 
     [Test]
+    public async Task A_host_with_no_servers_shows_as_an_empty_host_row()
+    {
+        // #342 live pass: a freshly enrolled Host belongs on the Fleet before anything is deployed to it.
+        AgentId agent = await host.SeedConnectedHostAsync("idle-host");
+        await using BrowserSession session = await host.OpenAsync("/servers");
+        ILocator board = session.Page.Locator("[data-fleet-board]");
+        await Expect(board).ToHaveAttributeAsync("data-fleet-ready", "on");
+
+        ILocator row = board.Locator($"[data-fleet-host-row='{agent}']");
+        await Expect(row).ToBeVisibleAsync();
+        await Expect(row.Locator("[data-fleet-host-count]")).ToHaveTextAsync("0 servers");
+        await session.AssertNoErrorsAsync();
+    }
+
+    [Test]
     public async Task Collapse_all_hides_the_servers_and_survives_a_reload_until_expand_all()
     {
         // #340: Servers sit under Host rows; collapse state is remembered per browser (local-prefs.js).

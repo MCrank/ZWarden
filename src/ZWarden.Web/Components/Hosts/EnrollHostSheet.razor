@@ -214,6 +214,8 @@
             {
                 if (await ConnectedHostAsync() is { } host)
                 {
+                    // The token is consumed now: re-read the list so Recent tokens says so.
+                    await LoadEnrollmentsAsync();
                     await InvokeAsync(() =>
                     {
                         _connectedHost = host;
