@@ -232,6 +232,78 @@ public class ServerInventoryTests
         });
     }
 
+    // --- #357: the adopt banner's per-Host counts ------------------------------------------------------------------
+
+    [Test]
+    public async Task Unmanaged_hosts_count_per_host_named_with_agent_view()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            await SeedAssignmentAsync(options, user, server: null, Permissions.ServerRegister);
+            await SeedAssignmentAsync(options, user, server: null, Permissions.AgentView);
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            Agent named = Agent.Enroll(AgentHash, EnrollmentId.New(), Now, "host-alpha");
+            named.RecordHostDescriptor("nsfw-01", "1.0.0", "Linux");
+            db.Set<Agent>().Add(named);
+            ServerId registered = ServerId.New();
+            db.Set<Server>().Add(Server.Import(named.Id, registered, "managed", Now));
+            await db.SaveChangesAsync();
+            ServerDiscoveryCache cache = new();
+            cache.Record(named.Id,
+            [
+                new DiscoveredServer(ServerId.New(), ServerRunState.Running),
+                new DiscoveredServer(ServerId.New(), ServerRunState.Stopped),
+                new DiscoveredServer(registered, ServerRunState.Running),
+            ]);
+            cache.Record(AgentId.New(), [new DiscoveredServer(ServerId.New(), ServerRunState.Stopped)]);
+
+            IReadOnlyList<UnmanagedHostCount> hosts = await Inventory(db, cache, new CapturingAuditWriter())
+                .ListUnmanagedHostsAsync(user);
+
+            await Assert.That(hosts.Count).IsEqualTo(1);
+            await Assert.That(hosts[0]).IsEqualTo(new UnmanagedHostCount(named.Id, "host-alpha", "nsfw-01", 2));
+        });
+    }
+
+    [Test]
+    public async Task Unmanaged_hosts_withhold_the_names_without_agent_view()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            await SeedAssignmentAsync(options, user, server: null, Permissions.ServerRegister);
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            AgentId agent = await PersistAgentAsync(db);
+            ServerDiscoveryCache cache = new();
+            cache.Record(agent, [new DiscoveredServer(ServerId.New(), ServerRunState.Running)]);
+
+            IReadOnlyList<UnmanagedHostCount> hosts = await Inventory(db, cache, new CapturingAuditWriter())
+                .ListUnmanagedHostsAsync(user);
+
+            await Assert.That(hosts.Single()).IsEqualTo(new UnmanagedHostCount(agent, null, null, 1));
+        });
+    }
+
+    [Test]
+    public async Task Unmanaged_hosts_are_empty_without_server_register()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            await SeedAssignmentAsync(options, user, server: null, Permissions.AgentView);
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            AgentId agent = await PersistAgentAsync(db);
+            ServerDiscoveryCache cache = new();
+            cache.Record(agent, [new DiscoveredServer(ServerId.New(), ServerRunState.Running)]);
+
+            IReadOnlyList<UnmanagedHostCount> hosts = await Inventory(db, cache, new CapturingAuditWriter())
+                .ListUnmanagedHostsAsync(user);
+
+            await Assert.That(hosts).IsEmpty();
+        });
+    }
+
     // --- #338: the Deploy sheet's host picker ---------------------------------------------------------------------
 
     [Test]
