@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using ZWarden.Application.Agents;
 using ZWarden.Application.Audit;
 using ZWarden.Application.Authorization;
@@ -6,6 +7,7 @@ using ZWarden.Domain.Audit;
 using ZWarden.Domain.Authorization;
 using ZWarden.Domain.Ids;
 using ZWarden.Domain.Security;
+using ZWarden.Domain.Servers;
 using ZWarden.Infrastructure.Persistence;
 
 namespace ZWarden.Infrastructure.Agents;
@@ -112,6 +114,30 @@ public sealed class AgentTrustService : IAgentTrustService
         await _context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
         await AuditAsync(EnrollmentAuditActions.AgentEnabled, actor, agent.Id, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<HostRemovalResult> RemoveAsync(UserId actor, AgentId agentId, CancellationToken cancellationToken = default)
+    {
+        await RequireEnrollmentManageAsync(actor, cancellationToken).ConfigureAwait(false);
+        Agent agent = await RequireAgentAsync(agentId, cancellationToken).ConfigureAwait(false);
+
+        // Servers carry an AgentId with no FK (D1): refuse rather than leave them on an Agent that no longer exists.
+        int servers = await _context.Set<Server>()
+            .CountAsync(s => s.AgentId == agent.Id, cancellationToken).ConfigureAwait(false);
+        if (servers > 0)
+        {
+            return HostRemovalResult.Blocked(servers);
+        }
+
+        // Delete before the abort, so a reconnect racing it already finds no credential to match.
+        agent.RevokeCredential(_clock.GetUtcNow());
+        _context.Remove(agent);
+        await _context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+        await AuditAsync(EnrollmentAuditActions.AgentRemoved, actor, agent.Id, cancellationToken).ConfigureAwait(false);
+        await DropLiveConnectionAsync(actor, agent.Id, cancellationToken).ConfigureAwait(false);
+        return HostRemovalResult.Done;
     }
 
     /// <summary>
