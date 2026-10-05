@@ -2,22 +2,48 @@
 @using ZWarden.Web.Components.Ui
 @using ZWarden.Web.Components.Servers
 @inject NavigationManager Nav
+@inject IJSRuntime JS
+@implements IAsyncDisposable
 
 @* The Fleet board table (#158) — the one interactive island on the otherwise static-SSR /servers page. The
-   parent does the authorized, tenant-filtered load and hands the already-projected rows in (a static snapshot;
-   this island adds sort + row-click, not live refresh). It touches no tenant-scoped service — safe in a circuit,
-   which has no HttpContext (ADR 0040 posture) — it only renders the rows it was given. Row-click navigates to
-   Server Detail; the Server cell is also a real <a> so it works without JS and the URL is in the prerendered
-   HTML. Bb-over-raw-HTML (ADR 0003): BbDataGrid is the sanctioned fleet table. All row text is untrusted
-   Agent-reported data, rendered as data (trust-boundaries §3/§8). The rows are the first render; the live parts
-   are the Status badge (#253) and the fleet facts (#257): the static parent names the batched status endpoint and
-   live-status.js updates each [data-fleet-server] cell (players, CPU, memory, uptime, version) in place by Server
-   id — no tenant work in this circuit. A meter cell renders both the MeterBar and its — so the script can show
-   whichever applies; Tick was dropped (#257: no data source). *@
+   parent does the authorized, tenant-filtered load and hands the already-projected tree in (a static snapshot;
+   this island adds sort, expand/collapse and row-click, not live refresh). It touches no tenant-scoped service — safe
+   in a circuit, which has no HttpContext (ADR 0040 posture) — it only renders the rows it was given. #340: a BbDataGrid
+   hierarchy, every Server under its Host rollup row (always, even with one Host), expanded by default; the collapsed
+   Hosts are remembered per browser (local-prefs.js). Row-click navigates to Server Detail, or a Host's card on /hosts;
+   the Server cell is also a real <a> so it works without JS and the URL is in the prerendered HTML. Bb-over-raw-HTML
+   (ADR 0003): BbDataGrid is the sanctioned fleet table. All row text is untrusted Agent-reported data, rendered as data
+   (trust-boundaries §3/§8). The rows are the first render; the live parts are the Status badge (#253), the fleet facts
+   (#257) and the Host rollups (#340): live-status.js updates each [data-fleet-server] cell (players, CPU, memory, uptime,
+   version) in place by Server id, re-sums each Host's [data-fleet-rollup] players from its members (collapsed or not),
+   and moves each Host's [data-host-telemetry-for] meters — no tenant work in this circuit. A collapse/expand or sort
+   re-renders rows with their snapshot values; the script's observer puts the live ones back. A meter cell renders both
+   the MeterBar and its — so the script can show whichever applies. *@
 
-<div data-fleet-board>
-    <BbDataGrid TData="FleetRow"
-                Items="Rows"
+@* data-fleet-ready: the circuit is live and the remembered collapses are applied (browser tests wait on it). *@
+<div data-fleet-board data-fleet-ready="@(_ready ? "on" : "off")">
+    @if (Nodes.Count > 0)
+    {
+        @* #340: Expand all / Collapse all, small Lucide icon buttons above the grid. *@
+        <div class="mb-2 flex justify-end gap-1" data-fleet-toolbar>
+            <BbButton Variant="ButtonVariant.Ghost" Size="ButtonSize.Icon" Class="size-7" OnClick="ExpandAllAsync"
+                      AriaLabel="Expand all hosts" title="Expand all hosts" data-fleet-expand="all">
+                <ShellIcon Name="chevrons-up-down" />
+            </BbButton>
+            <BbButton Variant="ButtonVariant.Ghost" Size="ButtonSize.Icon" Class="size-7" OnClick="CollapseAllAsync"
+                      AriaLabel="Collapse all hosts" title="Collapse all hosts" data-fleet-expand="none">
+                <ShellIcon Name="chevrons-down-up" />
+            </BbButton>
+        </div>
+    }
+    <BbDataGrid @ref="_grid"
+                TData="FleetNode"
+                Items="Nodes"
+                ChildrenSelector="@(n => n.Children)"
+                ItemValueSelector="@(n => n.Key)"
+                ExpandedNodes="_expanded"
+                ExpandedNodesChanged="OnExpandedChangedAsync"
+                RowClass="@(n => n.Host is null ? null : "bg-muted/40")"
                 ShowPagination="false"
                 StickyHeader="true"
                 OnRowClick="Navigate"
@@ -29,68 +55,118 @@
             </div>
         </EmptyTemplate>
         <Columns>
-            <BbDataGridTemplateColumn TData="FleetRow" Title="Server" Sortable="true" SortBy="@(r => (object)r.Name)">
-                <ChildContent Context="r">
-                    <a href="@($"/servers/{r.Id}")" class="font-medium text-foreground hover:underline" data-server-link>@r.Name</a>
-                    <span class="block font-mono text-xs text-muted-foreground" data-fleet-host>@r.Host</span>
-                    @if (!string.IsNullOrWhiteSpace(r.Description))
+            @* Hosts sort by name; every other column's sort key is the Host's name too, so a sort only reorders the Servers
+               within each Host. *@
+            <BbDataGridHierarchyColumn TData="FleetNode" TProp="string" Property="@(n => n.Name)" Title="Server" Sortable="true">
+                <CellTemplate Context="c">
+                    @if (c.Item.Host is { } host)
                     {
-                        <span class="block text-xs text-muted-foreground">@r.Description</span>
+                        <span class="inline-flex min-w-0 items-center gap-2 align-middle" data-fleet-host-row="@c.Item.Key">
+                            <span class="@IconTileClass(host)" data-host-icon><ShellIcon Name="server" /></span>
+                            <span class="min-w-0">
+                                <span class="block truncate font-medium @(host.Unassigned ? "text-muted-foreground" : "text-foreground")" data-fleet-host>@c.Item.Name</span>
+                                <span class="block text-xs text-muted-foreground" data-fleet-host-count>@host.ServerCount @(host.ServerCount == 1 ? "server" : "servers")</span>
+                            </span>
+                        </span>
                     }
-                </ChildContent>
-            </BbDataGridTemplateColumn>
+                    else if (c.Item.Server is { } r)
+                    {
+                        <a href="@($"/servers/{r.Id}")" class="font-medium text-foreground hover:underline" data-server-link>@r.Name</a>
+                        @if (!string.IsNullOrWhiteSpace(r.Description))
+                        {
+                            <span class="block text-xs text-muted-foreground">@r.Description</span>
+                        }
+                    }
+                </CellTemplate>
+            </BbDataGridHierarchyColumn>
 
-            <BbDataGridTemplateColumn TData="FleetRow" Title="Status" Sortable="true" SortBy="@(r => (object)(int)r.RunState)">
+            <BbDataGridTemplateColumn TData="FleetNode" Title="Status" Sortable="true" SortBy="@(n => n.Server != null ? (object)(int)n.Server.RunState : n.Name)">
                 @* #253: data-live-row keys the badge by Server id so live-status.js re-tones this row in place. *@
-                <ChildContent Context="r">
-                    <span data-live-row="@r.Id"><StatusBadge State="r.StatusTone" Text="@r.StatusLabel" /></span>
-                    @* #275: Workshop updates the running server doesn't have yet; outside the live-rewritten badge. *@
-                    @if (r.ModUpdates > 0)
+                <ChildContent Context="n">
+                    @if (n.Host is { Unassigned: false } host)
                     {
-                        <a href="@($"/servers/{r.Id}?section=mods")" class="mt-1 block text-xs text-status-busy hover:underline"
-                           data-fleet-mod-updates>@r.ModUpdates mod update@(r.ModUpdates == 1 ? "" : "s")</a>
+                        <span data-fleet-host-status><StatusBadge Host="@(host.Connected ? HostStatus.Online : HostStatus.Unreachable)" /></span>
+                    }
+                    else if (n.Server is { } r)
+                    {
+                        <span data-live-row="@r.Id"><StatusBadge State="r.StatusTone" Text="@r.StatusLabel" /></span>
+                        @* #275: Workshop updates the running server doesn't have yet; outside the live-rewritten badge. *@
+                        @if (r.ModUpdates > 0)
+                        {
+                            <a href="@($"/servers/{r.Id}?section=mods")" class="mt-1 block text-xs text-status-busy hover:underline"
+                               data-fleet-mod-updates>@r.ModUpdates mod update@(r.ModUpdates == 1 ? "" : "s")</a>
+                        }
                     }
                 </ChildContent>
             </BbDataGridTemplateColumn>
 
-            @* #257: players from the Agent's slow RCON sample; the tooltip says how old it is. #337: over the ini's MaxPlayers. *@
-            <BbDataGridTemplateColumn TData="FleetRow" Title="Players" Sortable="true" SortBy="@(r => (object)(r.Players ?? -1))">
-                <ChildContent Context="r">
-                    <span class="font-mono text-xs tabular-nums @(r.Players is null ? "text-muted-foreground" : "text-foreground")"
-                          data-fleet-server="@r.Id" data-fleet-cell="players" title="@r.PlayersAge">@FleetFacts.FormatPlayers(r.Players, r.MaxPlayers)</span>
+            @* #257: players from the Agent's slow RCON sample; the tooltip says how old it is. #337: over the ini's MaxPlayers.
+               #340: a Host sums its Servers' (data-fleet-members lets the poll re-sum them while the Host is collapsed). *@
+            <BbDataGridTemplateColumn TData="FleetNode" Title="Players" Sortable="true" SortBy="@(n => n.Server != null ? (object)(n.Server.Players ?? -1) : n.Name)">
+                <ChildContent Context="n">
+                    @if (n.Host is { } host)
+                    {
+                        <span class="font-mono text-xs tabular-nums @(host.PlayersKnown ? "text-foreground" : "text-muted-foreground")"
+                              data-fleet-rollup="@n.Key" data-fleet-members="@host.MemberIds">@host.PlayersText</span>
+                    }
+                    else if (n.Server is { } r)
+                    {
+                        <span class="font-mono text-xs tabular-nums @(r.Players is null ? "text-muted-foreground" : "text-foreground")"
+                              data-fleet-server="@r.Id" data-fleet-cell="players" title="@r.PlayersAge">@FleetFacts.FormatPlayers(r.Players, r.MaxPlayers)</span>
+                    }
                 </ChildContent>
             </BbDataGridTemplateColumn>
 
-            <BbDataGridTemplateColumn TData="FleetRow" Title="CPU">
-                <ChildContent Context="r">
-                    <span data-fleet-server="@r.Id" data-fleet-cell="cpu">
-                        <span data-meter-slot hidden="@(r.CpuPercent is null)"><MeterBar Value="@(r.CpuPercent ?? 0)" Max="100" Label="CPU" /></span>
-                        <span data-meter-empty hidden="@(r.CpuPercent is not null)" class="font-mono text-xs text-muted-foreground">—</span>
-                    </span>
+            <BbDataGridTemplateColumn TData="FleetNode" Title="CPU">
+                <ChildContent Context="n">
+                    @if (n.Host is { Telemetry: true } host)
+                    {
+                        @* #340: the Host-wide CPU from the host telemetry feed (#170), moved by the /hosts poll. *@
+                        <span data-host-telemetry-for="@host.AgentId">
+                            <span data-host-cell="cpu">@Meter(host.CpuPercent, 100, "Host CPU")</span>
+                        </span>
+                    }
+                    else if (n.Server is { } r)
+                    {
+                        <span data-fleet-server="@r.Id" data-fleet-cell="cpu">@Meter(r.CpuPercent, 100, "CPU")</span>
+                    }
                 </ChildContent>
             </BbDataGridTemplateColumn>
 
-            <BbDataGridTemplateColumn TData="FleetRow" Title="Memory">
-                <ChildContent Context="r">
-                    @{ bool hasMemory = r.MemoryUsedBytes is not null && r.MemoryLimitBytes is > 0; }
-                    <span data-fleet-server="@r.Id" data-fleet-cell="memory">
-                        <span data-meter-slot hidden="@(!hasMemory)"><MeterBar Value="@(r.MemoryUsedBytes ?? 0)" Max="@(r.MemoryLimitBytes ?? 0)" Label="Memory" /></span>
-                        <span data-meter-empty hidden="@hasMemory" class="font-mono text-xs text-muted-foreground">—</span>
-                    </span>
+            <BbDataGridTemplateColumn TData="FleetNode" Title="Memory">
+                <ChildContent Context="n">
+                    @if (n.Host is { Telemetry: true } host)
+                    {
+                        <span data-host-telemetry-for="@host.AgentId">
+                            <span data-host-cell="memory">@Meter(host.MemoryUsedBytes, host.MemoryTotalBytes, "Host memory")</span>
+                        </span>
+                    }
+                    else if (n.Server is { } r)
+                    {
+                        <span data-fleet-server="@r.Id" data-fleet-cell="memory">@Meter(r.MemoryUsedBytes, r.MemoryLimitBytes, "Memory")</span>
+                    }
                 </ChildContent>
             </BbDataGridTemplateColumn>
 
             @* #257: container uptime (Docker StartedAt), so it includes PZ boot time and resets on a restart. *@
-            <BbDataGridTemplateColumn TData="FleetRow" Title="Uptime">
-                <ChildContent Context="r"><span class="font-mono text-xs tabular-nums text-muted-foreground" data-fleet-server="@r.Id" data-fleet-cell="uptime">@r.Uptime</span></ChildContent>
+            <BbDataGridTemplateColumn TData="FleetNode" Title="Uptime">
+                <ChildContent Context="n">
+                    @if (n.Server is { } r)
+                    {
+                        <span class="font-mono text-xs tabular-nums text-muted-foreground" data-fleet-server="@r.Id" data-fleet-cell="uptime">@r.Uptime</span>
+                    }
+                </ChildContent>
             </BbDataGridTemplateColumn>
 
-            <BbDataGridTemplateColumn TData="FleetRow" Title="Version" Sortable="true" SortBy="@(r => (object)r.Version)">
-                @* #258: the Build 42 branch is a second muted line, like the host under the Server name. It sits outside the
-                   version span, which live-status.js rewrites. *@
-                <ChildContent Context="r">
-                    <span class="font-mono text-xs tabular-nums text-muted-foreground" data-fleet-server="@r.Id" data-fleet-cell="version" title="@r.VersionTitle">@r.Version</span>
-                    <span class="block font-mono text-xs text-muted-foreground" title="@ServerBranchView.Note(r.Branch)" data-fleet-branch>@ServerBranchView.Label(r.Branch)</span>
+            <BbDataGridTemplateColumn TData="FleetNode" Title="Version" Sortable="true" SortBy="@(n => n.Server != null ? n.Server.Version : n.Name)">
+                @* #258: the Build 42 branch is a second muted line. It sits outside the version span, which live-status.js
+                   rewrites. *@
+                <ChildContent Context="n">
+                    @if (n.Server is { } r)
+                    {
+                        <span class="font-mono text-xs tabular-nums text-muted-foreground" data-fleet-server="@r.Id" data-fleet-cell="version" title="@r.VersionTitle">@r.Version</span>
+                        <span class="block font-mono text-xs text-muted-foreground" title="@ServerBranchView.Note(r.Branch)" data-fleet-branch>@ServerBranchView.Label(r.Branch)</span>
+                    }
                 </ChildContent>
             </BbDataGridTemplateColumn>
         </Columns>
@@ -98,10 +174,132 @@
 </div>
 
 @code {
-    /// <summary>The projected rows to show — the caller has already authorized and tenant-filtered them.</summary>
+    // The collapsed Hosts' node keys, a JSON array (so a Host that appears later starts expanded).
+    private const string CollapsedPrefKey = "zw-fleet-collapsed";
+
+    /// <summary>The Host → Server tree to show — the caller has already authorized and tenant-filtered it.</summary>
     [Parameter]
     [EditorRequired]
-    public IReadOnlyList<FleetRow> Rows { get; set; } = [];
+    public List<FleetNode> Nodes { get; set; } = [];
 
-    private void Navigate(FleetRow row) => Nav.NavigateTo($"/servers/{row.Id}");
+    private HashSet<string> _expanded = [];
+    private List<FleetNode>? _expandedFor;
+    private IJSObjectReference? _prefs;
+    private bool _ready;
+    private BbDataGrid<FleetNode>? _grid;
+
+    protected override void OnParametersSet()
+    {
+        // Expanded by default — the prerender shows every Server; the browser's remembered collapses apply on connect.
+        if (!ReferenceEquals(_expandedFor, Nodes))
+        {
+            _expandedFor = Nodes;
+            _expanded = [.. Nodes.Select(n => n.Key)];
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        _prefs = await JS.InvokeAsync<IJSObjectReference>("import", "./js/local-prefs.js");
+        HashSet<string> collapsed = ReadCollapsed(await _prefs.InvokeAsync<string?>("get", CollapsedPrefKey));
+        // BbDataGrid re-flattens its rows only on a data refresh, not on a new ExpandedNodes set: it holds this very set,
+        // so edit it in place and refresh.
+        if (_expanded.RemoveWhere(collapsed.Contains) > 0 && _grid is not null)
+        {
+            await _grid.RefreshDataAsync();
+        }
+
+        _ready = true;
+        StateHasChanged();
+    }
+
+    // The grid's own expand/collapse-all re-flatten its rows and report the new set to OnExpandedChangedAsync.
+    private Task ExpandAllAsync() => _grid?.ExpandAllAsync() ?? Task.CompletedTask;
+
+    private Task CollapseAllAsync() => _grid?.CollapseAllAsync() ?? Task.CompletedTask;
+
+    private async Task OnExpandedChangedAsync(HashSet<string> expanded)
+    {
+        _expanded = expanded;
+        if (_prefs is not null)
+        {
+            // Remember what is collapsed among the Hosts shown; other remembered Hosts (not visible now) are kept.
+            HashSet<string> collapsed = ReadCollapsed(await _prefs.InvokeAsync<string?>("get", CollapsedPrefKey));
+            foreach (FleetNode node in Nodes)
+            {
+                if (expanded.Contains(node.Key))
+                {
+                    collapsed.Remove(node.Key);
+                }
+                else
+                {
+                    collapsed.Add(node.Key);
+                }
+            }
+
+            await _prefs.InvokeVoidAsync("set", CollapsedPrefKey, System.Text.Json.JsonSerializer.Serialize(collapsed));
+        }
+    }
+
+    // A preference is a browser convenience: anything unreadable means nothing is collapsed.
+    private static HashSet<string> ReadCollapsed(string? json)
+    {
+        if (string.IsNullOrEmpty(json))
+        {
+            return [];
+        }
+
+        try
+        {
+            return System.Text.Json.JsonSerializer.Deserialize<HashSet<string>>(json) ?? [];
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return [];
+        }
+    }
+
+    private void Navigate(FleetNode node)
+    {
+        if (node.Server is { } r)
+        {
+            Nav.NavigateTo($"/servers/{r.Id}");
+        }
+        else if (node.Host is { AgentId: { } agent })
+        {
+            Nav.NavigateTo($"/hosts#host-{agent}");
+        }
+    }
+
+    private static string IconTileClass(FleetHostRow host)
+        => "grid h-[30px] w-[30px] shrink-0 place-items-center rounded "
+            + (host.Connected || host.Unassigned ? "bg-secondary text-secondary-foreground" : "bg-status-unknown/20 text-status-unknown");
+
+    // Both the MeterBar and its — render, so live-status.js can show whichever applies.
+    private static RenderFragment Meter(double? value, double? max, string label) => __builder =>
+    {
+        bool has = value is not null && max is > 0;
+        <span data-meter-slot hidden="@(!has)"><MeterBar Value="@(value ?? 0)" Max="@(max ?? 0)" Label="@label" /></span>
+        <span data-meter-empty hidden="@has" class="font-mono text-xs text-muted-foreground">—</span>
+    };
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_prefs is not null)
+        {
+            try
+            {
+                await _prefs.DisposeAsync();
+            }
+            catch (JSDisconnectedException)
+            {
+                // The circuit is already gone.
+            }
+        }
+    }
 }

@@ -197,6 +197,8 @@ public sealed class HostInventoryPageTests
         // #170: the meters, the lines and the age, under the card the poll keys by Agent id.
         await Assert.That(html).Contains("data-live-hosts=\"/api/hosts/telemetry\"");
         await Assert.That(html).Contains($"data-host-telemetry-for=\"{agentId}\"");
+        // #340: the Fleet grid's Host rows link to the card by this anchor.
+        await Assert.That(html).Contains($"id=\"host-{agentId}\"");
         await Assert.That(html).Contains("aria-label=\"CPU: 38%\"");
         await Assert.That(html).Contains("aria-label=\"Memory: 38%\"");
         await Assert.That(html).Contains("12.0 GiB / 32.0 GiB");

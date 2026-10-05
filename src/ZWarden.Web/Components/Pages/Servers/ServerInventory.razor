@@ -8,8 +8,10 @@
 @using ZWarden.Domain.Authorization
 @using ZWarden.Domain.Ids
 @using ZWarden.Domain.Operations
+@using ZWarden.Web.Components.Hosts
 @using ZWarden.Web.Components.Servers
 @inject IServerInventory Inventory
+@inject IHostCapacityCache HostCapacity
 @inject IOperationStore OperationStore
 @inject IServerMetricsCache Metrics
 @inject IAgentConnectionRegistry Connections
@@ -110,9 +112,12 @@
 @* The fleet table is the page's one interactive island (sort + row-click), reading only the rows projected
    above — no tenant-scoped service in the circuit (ADR 0040). Prerenders with the rows so the URLs and first
    paint are server-rendered. #253: data-live-fleet names the batched, Server.View-filtered status endpoint
-   live-status.js polls to re-tone each row's badge in place (a stop, a restart, a boot) — no reload. *@
-<div class="mt-6" data-live-fleet="/api/servers/status" data-status-busy="@(_anyBusy ? "true" : "false")">
-    <FleetBoard @rendermode="InteractiveServer" Rows="_rows" />
+   live-status.js polls to re-tone each row's badge in place (a stop, a restart, a boot) — no reload. #340: for a caller
+   who may view Hosts, data-live-hosts names the Agent.View-gated host telemetry endpoint that moves each Host row's
+   CPU / Memory meters (the /hosts cards' feed). *@
+<div class="mt-6" data-live-fleet="/api/servers/status" data-live-hosts="@(_canViewHosts ? "/api/hosts/telemetry" : null)"
+     data-status-busy="@(_anyBusy ? "true" : "false")">
+    <FleetBoard @rendermode="InteractiveServer" Nodes="_nodes" />
 </div>
 
 @code {
@@ -128,7 +133,7 @@
     private string? Adopt { get; set; }
 
     private IReadOnlyList<ServerSummary> _servers = [];
-    private IReadOnlyList<FleetRow> _rows = [];
+    private List<FleetNode> _nodes = [];
     private List<UnmanagedHost> _unmanaged = [];
     private IReadOnlyList<AgentId> _offlineHosts = [];
     private bool _canRegister;
@@ -137,6 +142,7 @@
     private int _hostsTotal;
     private int _hostsOnline;
     private IReadOnlyDictionary<AgentId, string> _hostNames = new Dictionary<AgentId, string>();
+    private bool _canViewHosts;
 
     protected override async Task OnInitializedAsync()
     {
@@ -146,7 +152,8 @@
 
         // #336: Hosts are named (Label, else Hostname) only for a caller who may view Hosts; anyone else sees each
         // Host's short id — the fleet never widens authorization (D3).
-        if ((await PermissionChecker.EvaluateAsync(user, Permissions.AgentView)).IsAllowed)
+        _canViewHosts = (await PermissionChecker.EvaluateAsync(user, Permissions.AgentView)).IsAllowed;
+        if (_canViewHosts)
         {
             _hostNames = (await AgentInventory.ListHostsAsync(user))
                 .ToDictionary(h => h.Id, h => HostNames.Display(h.Id, h.Label, h.Hostname));
@@ -165,7 +172,7 @@
         // at load from the persisted mod state; Mod.View is re-checked per Server by the service.
         IReadOnlyDictionary<ServerId, int> modUpdates = await ModOverview.CountUpdatesReadyAsync(
             user, [.. _servers.Where(s => s.LastRunState == ServerRunState.Running).Select(s => s.Id)]);
-        List<FleetRow> rows = new(_servers.Count);
+        List<(AgentId, FleetRow)> rows = new(_servers.Count);
         List<(ServerSummary, FleetServerFacts)> fleet = new(_servers.Count);
         foreach (ServerSummary server in _servers)
         {
@@ -174,11 +181,10 @@
             fleet.Add((server, facts));
             ServerStatusView status = ServerLiveStatus.Resolve(server.LastRunState, server.Id, activeByServer);
             _anyBusy |= status.Busy;
-            rows.Add(new FleetRow(
+            rows.Add((server.AgentId, new FleetRow(
                 server.Id.ToString(),
                 server.Name,
                 server.Description,
-                HostName(server.AgentId),
                 server.LastRunState,
                 status.Label,
                 status.Tone,
@@ -192,10 +198,12 @@
                 FleetFacts.FormatVersionTitle(facts),
                 server.Branch,
                 modUpdates.GetValueOrDefault(server.Id),
-                facts.MaxPlayers));
+                facts.MaxPlayers)));
         }
 
-        _rows = rows;
+        // #340: every Server under its Host's rollup row; a Server whose Agent the caller may view but which is gone
+        // from the Host list (deleted) goes in the Unassigned group.
+        _nodes = FleetTree.Build(rows, agent => HostInfo(agent, now));
 
         // Running / Needs attention (a fatal or impaired health rollup, or a failed run-state) / Players online —
         // live-status.js recomputes the same tiles from the poll (#257). The attention name is untrusted data.
@@ -223,6 +231,21 @@
     // Both names are untrusted, observed strings (rendered as data).
     private string HostName(AgentId agent) =>
         _hostNames.TryGetValue(agent, out string? name) ? name : HostNames.ShortId(agent);
+
+    // A Host row's facts (#340). Without Agent.View every Agent is named by its short id and shows no telemetry — the
+    // fleet never widens authorization (#336 D3); with it, an Agent not in the caller's Host list is unknown (null).
+    private FleetHostInfo? HostInfo(AgentId agent, DateTimeOffset now)
+    {
+        bool connected = Connections.IsConnected(agent);
+        if (!_canViewHosts)
+        {
+            return new FleetHostInfo(HostNames.ShortId(agent), connected, null, Identified: false);
+        }
+
+        return _hostNames.TryGetValue(agent, out string? name)
+            ? new FleetHostInfo(name, connected, HostTelemetry.For(HostCapacity.GetLatest(agent), connected, now))
+            : null;
+    }
 
     private async Task<UserId> CurrentUserAsync()
     {
