@@ -61,6 +61,8 @@ public sealed class HostInventoryPageTests
         await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
         await Assert.That(html).Contains("Hosts");
         await Assert.That(html).Contains("data-hosts-empty");
+        await Assert.That(html).Contains("No hosts yet — enroll a host to get started."); // #343
+        await Assert.That(html).DoesNotContain("Enrol an Agent");
         client.Dispose();
     }
 

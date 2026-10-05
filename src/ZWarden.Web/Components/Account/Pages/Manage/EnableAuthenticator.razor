@@ -84,7 +84,7 @@ else if (_user is not null)
             return;
         }
 
-        // Enrolment succeeded - issue and reveal the recovery codes exactly once.
+        // Setup succeeded - issue and reveal the recovery codes exactly once.
         IEnumerable<string>? codes = await Mfa.GenerateRecoveryCodesAsync(_user);
         _recoveryCodes = codes?.ToArray() ?? [];
     }
