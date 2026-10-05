@@ -128,6 +128,44 @@ public sealed class HostInventoryPageTests
     }
 
     [Test]
+    public async Task The_subtitle_counts_hosts_online_and_unreachable()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        AgentId online = await SeedHostAsync(factory);
+        await SeedHostAsync(factory);
+        factory.Services.GetRequiredService<IAgentConnectionRegistry>().Register(online, "conn-online", () => { });
+
+        string html = await (await client.GetAsync(new Uri("/hosts", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        // #341: the prototype's "N hosts · N online · N unreachable".
+        Match summary = Regex.Match(html, "data-hosts-summary[^>]*>([^<]*)<");
+        await Assert.That(summary.Success).IsTrue();
+        await Assert.That(Regex.Replace(summary.Groups[1].Value, "\\s+", " ").Trim())
+            .IsEqualTo("2 hosts · 1 online · 1 unreachable");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task Each_host_card_carries_a_server_icon_tile_tinted_when_unreachable()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        AgentId online = await SeedHostAsync(factory);
+        await SeedHostAsync(factory);
+        factory.Services.GetRequiredService<IAgentConnectionRegistry>().Register(online, "conn-online", () => { });
+
+        string html = await (await client.GetAsync(new Uri("/hosts", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        // #341: a Lucide `server` tile per card — secondary normally, violet (unknown) on the unreachable one.
+        MatchCollection tiles = Regex.Matches(html, "<span[^>]*data-host-icon[^>]*>\\s*<svg[^>]*>\\s*<rect width=\"20\" height=\"8\" x=\"2\" y=\"2\"");
+        await Assert.That(tiles.Count).IsEqualTo(2);
+        await Assert.That(Regex.Count(html, "data-host-icon-tone=\"unknown\"")).IsEqualTo(1);
+        await Assert.That(Regex.Count(html, "data-host-icon-tone=\"neutral\"")).IsEqualTo(1);
+        client.Dispose();
+    }
+
+    [Test]
     public async Task The_servers_running_on_a_host_link_to_their_detail_page()
     {
         await using ZWardenWebAppFactory factory = new();
