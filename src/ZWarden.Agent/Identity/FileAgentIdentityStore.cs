@@ -85,9 +85,9 @@ public sealed partial class FileAgentIdentityStore : IAgentIdentityStore
         return created;
     }
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "Loaded Agent identity {AgentId} from {IdentityFilePath}.")]
+    [LoggerMessage(Level = LogLevel.Information, Message = "Loaded local Agent identity {AgentId} from {IdentityFilePath}.")]
     private partial void LogLoaded(AgentId agentId, string identityFilePath);
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "Generated new Agent identity {AgentId} and persisted it to {IdentityFilePath}.")]
+    [LoggerMessage(Level = LogLevel.Information, Message = "Generated new local Agent identity {AgentId} and persisted it to {IdentityFilePath}.")]
     private partial void LogCreated(AgentId agentId, string identityFilePath);
 }

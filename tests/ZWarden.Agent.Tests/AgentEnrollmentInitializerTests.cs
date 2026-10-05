@@ -2,6 +2,7 @@ using System.Net.Sockets;
 using System.Security.Authentication;
 using Microsoft.Extensions.Options;
 using ZWarden.Agent.Configuration;
+using ZWarden.Agent.Identity;
 using ZWarden.Agent.Trust;
 using ZWarden.Domain.Ids;
 using ZWarden.Domain.Security;
@@ -25,11 +26,13 @@ public class AgentEnrollmentInitializerTests
         IEnrollmentClient client,
         string trustPath,
         string? secret,
-        AgentEnrollmentSignal? signal = null)
+        AgentEnrollmentSignal? signal = null,
+        AgentIdentityHolder? identity = null)
         => new(
             store,
             client,
             signal ?? new AgentEnrollmentSignal(),
+            identity ?? new AgentIdentityHolder(),
             Options.Create(new AgentOptions
             {
                 TrustFilePath = trustPath,
@@ -56,6 +59,82 @@ public class AgentEnrollmentInitializerTests
         AgentTrustMaterial? stored = await store.TryLoadAsync();
         await Assert.That(stored!.AgentId).IsEqualTo(material.AgentId);
         await Assert.That(stored.Credential.Reveal()).IsEqualTo("zwa_credential");
+    }
+
+    // #365: whichever way the Agent learns its enrolled id, it becomes the operational id.
+    private static AgentIdentityHolder LocalIdentity(out AgentId local)
+    {
+        local = AgentId.New();
+        AgentIdentityHolder holder = new();
+        holder.Set(local);
+        return holder;
+    }
+
+    [Test]
+    public async Task An_already_enrolled_agent_operates_under_its_enrolled_id()
+    {
+        using var temp = new TempDirectory();
+        string path = temp.File("agent-trust.json");
+        FileAgentTrustStore store = new(path);
+        AgentTrustMaterial existing = SomeMaterial();
+        await store.SaveAsync(existing);
+        AgentIdentityHolder identity = LocalIdentity(out AgentId local);
+
+        await Initializer(store, new StubEnrollmentClient(null), path, secret: null, identity: identity)
+            .StartAsync(CancellationToken.None);
+
+        await Assert.That(identity.AgentId).IsEqualTo(existing.AgentId);
+        await Assert.That(identity.Owns(local)).IsTrue();
+    }
+
+    [Test]
+    public async Task A_successful_exchange_makes_the_enrolled_id_operational()
+    {
+        using var temp = new TempDirectory();
+        string path = temp.File("agent-trust.json");
+        AgentTrustMaterial material = SomeMaterial();
+        AgentIdentityHolder identity = LocalIdentity(out _);
+
+        await Initializer(new FileAgentTrustStore(path), new StubEnrollmentClient(material), path, "zwe_secret", identity: identity)
+            .StartAsync(CancellationToken.None);
+
+        await Assert.That(identity.AgentId).IsEqualTo(material.AgentId);
+    }
+
+    [Test]
+    public async Task A_background_enrollment_makes_the_enrolled_id_operational()
+    {
+        using var temp = new TempDirectory();
+        string path = temp.File("agent-trust.json");
+        AgentTrustMaterial material = SomeMaterial();
+        ScriptedEnrollmentClient client = new(_ => material, () => throw Unreachable());
+        AgentIdentityHolder identity = LocalIdentity(out AgentId local);
+        AgentEnrollmentInitializer initializer =
+            Initializer(new FileAgentTrustStore(path), client, path, "zwe_secret", identity: identity);
+
+        await initializer.StartAsync(CancellationToken.None);
+        await Assert.That(identity.AgentId).IsEqualTo(local); // the first attempt failed: still the local id
+        await WaitUntilAsync(() => identity.AgentId == material.AgentId);
+        await initializer.StopAsync(CancellationToken.None);
+
+        await Assert.That(identity.AgentId).IsEqualTo(material.AgentId);
+    }
+
+    [Test]
+    public async Task A_refused_or_unconfigured_agent_keeps_its_local_id()
+    {
+        using var temp = new TempDirectory();
+        string path = temp.File("agent-trust.json");
+        AgentIdentityHolder refused = LocalIdentity(out AgentId refusedLocal);
+        AgentIdentityHolder unconfigured = LocalIdentity(out AgentId unconfiguredLocal);
+
+        await Initializer(new FileAgentTrustStore(path), new StubEnrollmentClient(null), path, "zwe_secret", identity: refused)
+            .StartAsync(CancellationToken.None);
+        await Initializer(new FileAgentTrustStore(path), new StubEnrollmentClient(null), path, secret: null, identity: unconfigured)
+            .StartAsync(CancellationToken.None);
+
+        await Assert.That(refused.AgentId).IsEqualTo(refusedLocal);
+        await Assert.That(unconfigured.AgentId).IsEqualTo(unconfiguredLocal);
     }
 
     [Test]
@@ -112,6 +191,7 @@ public class AgentEnrollmentInitializerTests
             new FileAgentTrustStore(path),
             client,
             new AgentEnrollmentSignal(),
+            new AgentIdentityHolder(),
             Options.Create(new AgentOptions
             {
                 TrustFilePath = path,
@@ -180,6 +260,7 @@ public class AgentEnrollmentInitializerTests
             new FileAgentTrustStore(path),
             client,
             new AgentEnrollmentSignal(),
+            new AgentIdentityHolder(),
             Options.Create(new AgentOptions
             {
                 TrustFilePath = path,

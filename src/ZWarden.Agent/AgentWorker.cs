@@ -59,6 +59,13 @@ public sealed partial class AgentWorker : BackgroundService
             _options.ControlPlaneUri,
             _options.HeartbeatInterval,
             _options.HealthReportInterval);
+        // #365: once enrolled the Agent runs under its enrolled id; name the local id once so log lines written
+        // under it, and containers stamped with it, stay traceable.
+        if (_identity.AgentId != _identity.LocalId)
+        {
+            LogLocalIdentity(_identity.AgentId, _identity.LocalId);
+        }
+
         return base.StartAsync(cancellationToken);
     }
 
@@ -98,6 +105,10 @@ public sealed partial class AgentWorker : BackgroundService
         string controlPlaneUri,
         TimeSpan heartbeatInterval,
         TimeSpan healthReportInterval);
+
+    [LoggerMessage(Level = LogLevel.Information,
+        Message = "Agent {AgentId} also owns containers stamped with its local id {LocalId} (created before it ran under its enrolled id).")]
+    private partial void LogLocalIdentity(AgentId agentId, AgentId localId);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "ZWarden.Agent stopping. AgentId={AgentId}")]
     private partial void LogStopping(AgentId agentId);
