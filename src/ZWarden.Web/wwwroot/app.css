@@ -1441,6 +1441,9 @@ html:not(.dark) .zw-ico-moon {
   .h-16 {
     height: calc(var(--spacing) * 16);
   }
+  .h-\[30px\] {
+    height: 30px;
+  }
   .h-auto {
     height: auto;
   }
@@ -1476,6 +1479,9 @@ html:not(.dark) .zw-ico-moon {
   }
   .w-40 {
     width: calc(var(--spacing) * 40);
+  }
+  .w-\[30px\] {
+    width: 30px;
   }
   .w-\[108px\] {
     width: 108px;
@@ -1551,6 +1557,9 @@ html:not(.dark) .zw-ico-moon {
   }
   .flex-wrap {
     flex-wrap: wrap;
+  }
+  .place-items-center {
+    place-items: center;
   }
   .items-baseline {
     align-items: baseline;
@@ -1735,6 +1744,12 @@ html:not(.dark) .zw-ico-moon {
   .border-status-unknown {
     border-color: var(--status-unknown);
   }
+  .border-status-unknown\/40 {
+    border-color: var(--status-unknown);
+    @supports (color: color-mix(in lab, red, red)) {
+      border-color: color-mix(in oklab, var(--status-unknown) 40%, transparent);
+    }
+  }
   .border-l-destructive {
     border-left-color: var(--destructive);
   }
@@ -1792,6 +1807,9 @@ html:not(.dark) .zw-ico-moon {
       background-color: color-mix(in oklab, var(--primary) 5%, transparent);
     }
   }
+  .bg-secondary {
+    background-color: var(--secondary);
+  }
   .bg-status-busy {
     background-color: var(--status-busy);
   }
@@ -1806,6 +1824,12 @@ html:not(.dark) .zw-ico-moon {
   }
   .bg-status-unknown {
     background-color: var(--status-unknown);
+  }
+  .bg-status-unknown\/20 {
+    background-color: var(--status-unknown);
+    @supports (color: color-mix(in lab, red, red)) {
+      background-color: color-mix(in oklab, var(--status-unknown) 20%, transparent);
+    }
   }
   .bg-white {
     background-color: var(--color-white);
@@ -2010,6 +2034,9 @@ html:not(.dark) .zw-ico-moon {
   .text-primary-foreground {
     color: var(--primary-foreground);
   }
+  .text-secondary-foreground {
+    color: var(--secondary-foreground);
+  }
   .text-status-busy {
     color: var(--status-busy);
   }
@@ -2018,6 +2045,9 @@ html:not(.dark) .zw-ico-moon {
   }
   .text-status-unhealthy {
     color: var(--status-unhealthy);
+  }
+  .text-status-unknown {
+    color: var(--status-unknown);
   }
   .text-white {
     color: var(--color-white);

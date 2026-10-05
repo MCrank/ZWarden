@@ -30,8 +30,9 @@
 <div class="flex flex-wrap items-center justify-between gap-3">
     <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <h1 class="text-2xl font-semibold tracking-tight">Hosts</h1>
-        <p class="text-sm text-muted-foreground">
-            @_hosts.Count @(_hosts.Count == 1 ? "host" : "hosts") · @_connected connected
+        @* #341: the prototype's "N hosts · N online · N unreachable" — unreachable = enrolled, no live connection. *@
+        <p class="text-sm text-muted-foreground" data-hosts-summary>
+            @_hosts.Count @(_hosts.Count == 1 ? "host" : "hosts") · @_connected online · @(_hosts.Count - _connected) unreachable
         </p>
     </div>
     @* Enroll host → the standalone enrollment surface (/enrollment), which works post-setup. The target
@@ -63,8 +64,10 @@ else
             bool degraded = !host.IsConnected;
             <BbCard Class="@CardClass(degraded)" data-host-card data-host-degraded="@degraded">
                 <div class="flex flex-col gap-4 p-5">
-                    <div class="flex items-start justify-between gap-3">
-                        <div class="min-w-0">
+                    <div class="flex items-start gap-3">
+                        @* #341: the prototype's server-rack tile — secondary normally, violet (unknown) when unreachable. *@
+                        <span class="@IconTileClass(degraded)" data-host-icon data-host-icon-tone="@(degraded ? "unknown" : "neutral")"><ShellIcon Name="server" /></span>
+                        <div class="min-w-0 flex-1">
                             <div class="truncate font-medium text-foreground" data-host-name>@HostNames.Display(host.Id, host.Label, host.Hostname)</div>
                             @if (!string.IsNullOrWhiteSpace(host.Label) && !string.IsNullOrWhiteSpace(host.Hostname))
                             {
@@ -226,9 +229,15 @@ else
         => _servers.Where(s => s.AgentId == host).ToList();
 
     // A degraded (unreachable) Host is visually distinct: a violet (unknown-state) border, matching the
-    // status-unknown ramp used by the badge and by StatusBadge for "agent unreachable, not down".
+    // status-unknown ramp used by the badge and by StatusBadge for "agent unreachable, not down". The prototype
+    // softens it to 40% (#341).
     private static string CardClass(bool degraded)
-        => degraded ? "overflow-hidden border-status-unknown" : "overflow-hidden";
+        => degraded ? "overflow-hidden border-status-unknown/40" : "overflow-hidden";
+
+    // The icon tile tints the same way: a 20% violet wash over the card with violet ink (#341).
+    private static string IconTileClass(bool degraded)
+        => "grid h-[30px] w-[30px] shrink-0 place-items-center rounded "
+            + (degraded ? "bg-status-unknown/20 text-status-unknown" : "bg-secondary text-secondary-foreground");
 
     private static string Dash(string? value) => string.IsNullOrWhiteSpace(value) ? "—" : value!;
 
