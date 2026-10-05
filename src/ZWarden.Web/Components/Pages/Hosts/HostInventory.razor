@@ -40,13 +40,19 @@
     </div>
     @* #342: the Enroll host button + sheet, an interactive island, only for a caller holding Tenant.Enrollment.Manage
        (Owner-only; IEnrollmentService re-checks). ?enroll=1 opens it (Settings and the old /enrollment URL link here). *@
-    @if (_canEnroll)
+    @if (_canManage)
     {
         <div class="ml-auto" data-enroll-host>
             <EnrollHostSheet @rendermode="InteractiveServer" OpenOnLoad="@(Enroll == "1")" />
         </div>
     }
 </div>
+@if (_canManage)
+{
+    @* The page's one portal host for the Enroll host sheet and every card's Remove host dialog (#363): the islands share
+       this circuit, and so its portal service, so a host per island would render each overlay twice. *@
+    <BbPortalHost @rendermode="InteractiveServer" />
+}
 <p class="mt-1 text-sm text-muted-foreground">
     The Agents managing your servers, one per Host. State is what each Agent last reported; "Connected" is
     live from this control-plane instance.
@@ -200,6 +206,17 @@ else
                             </ul>
                         }
                     </div>
+
+                    @* #363: Remove host, Owner-only (Tenant.Enrollment.Manage; IAgentTrustService re-checks). The Owner
+                       sees every Server, so onHost.Count is the Host's full count; the dialog blocks removal while it has any. *@
+                    @if (_canManage)
+                    {
+                        <div class="flex justify-end border-t border-border pt-3" data-host-remove>
+                            <RemoveHostDialog @rendermode="InteractiveServer" AgentId="@host.Id"
+                                              HostName="@HostNames.Display(host.Id, host.Label, host.Hostname)"
+                                              ServerCount="@onHost.Count" />
+                        </div>
+                    }
                 </div>
             </BbCard>
         }
@@ -211,7 +228,7 @@ else
     [SupplyParameterFromQuery(Name = "enroll")]
     private string? Enroll { get; set; }
 
-    private bool _canEnroll;
+    private bool _canManage;
     private IReadOnlyList<HostSummary> _hosts = [];
     private IReadOnlyList<ServerSummary> _servers = [];
     private int _connected;
@@ -229,7 +246,7 @@ else
         _hosts = await Inventory.ListHostsAsync(user);
         _servers = await Servers.ListVisibleAsync(user);
         _connected = _hosts.Count(h => h.IsConnected);
-        _canEnroll = (await PermissionChecker.EvaluateAsync(user, Permissions.TenantEnrollmentManage)).IsAllowed;
+        _canManage = (await PermissionChecker.EvaluateAsync(user, Permissions.TenantEnrollmentManage)).IsAllowed;
         _now = Clock.GetUtcNow();
     }
 

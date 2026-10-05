@@ -1,4 +1,6 @@
+using BlazorBlueprint.Primitives;
 using Bunit;
+using Bunit.Rendering;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using ZWarden.Application.Agents;
@@ -23,7 +25,7 @@ public sealed class EnrollHostSheetTests
     public async Task The_button_opens_the_sheet_with_the_label_field_and_generate()
     {
         await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
-        IRenderedComponent<EnrollHostSheet> cut = harness.Context.Render<EnrollHostSheet>();
+        IRenderedComponent<ContainerFragment> cut = RenderWithPortal(harness);
         await Assert.That(cut.FindAll("[data-enroll-host-sheet]")).IsEmpty();
 
         await cut.Find("[data-action=enroll-host-open]").ClickAsync(new());
@@ -40,7 +42,7 @@ public sealed class EnrollHostSheetTests
     {
         await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
 
-        IRenderedComponent<EnrollHostSheet> cut = harness.Context.Render<EnrollHostSheet>(p => p.Add(c => c.OpenOnLoad, true));
+        IRenderedComponent<ContainerFragment> cut = RenderWithPortal(harness, openOnLoad: true);
 
         cut.WaitForState(() => cut.FindAll("[data-enroll-host-sheet]").Count == 1);
     }
@@ -49,7 +51,7 @@ public sealed class EnrollHostSheetTests
     public async Task Generate_shows_the_one_time_token_with_copy_expiry_and_the_env_lines()
     {
         await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
-        IRenderedComponent<EnrollHostSheet> cut = await OpenAsync(harness);
+        IRenderedComponent<ContainerFragment> cut = await OpenAsync(harness);
         await InteractivePageHarness.TypeAsync(cut, "enroll-label", "host-alpha");
 
         await cut.Find("[data-action=step-finish]").ClickAsync(new());
@@ -74,7 +76,7 @@ public sealed class EnrollHostSheetTests
     public async Task The_issued_token_is_saved_with_its_label()
     {
         await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
-        IRenderedComponent<EnrollHostSheet> cut = await OpenAsync(harness);
+        IRenderedComponent<ContainerFragment> cut = await OpenAsync(harness);
         await InteractivePageHarness.TypeAsync(cut, "enroll-label", "  host-bravo  ");
 
         await cut.Find("[data-action=step-finish]").ClickAsync(new());
@@ -89,7 +91,7 @@ public sealed class EnrollHostSheetTests
     public async Task Done_closes_the_sheet_and_a_reopen_starts_fresh()
     {
         await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
-        IRenderedComponent<EnrollHostSheet> cut = await OpenAsync(harness);
+        IRenderedComponent<ContainerFragment> cut = await OpenAsync(harness);
         await cut.Find("[data-action=step-finish]").ClickAsync(new());
         cut.WaitForState(() => cut.FindAll("[data-enrollment-secret]").Count == 1);
 
@@ -106,7 +108,7 @@ public sealed class EnrollHostSheetTests
     public async Task The_sheet_says_when_the_new_host_connects()
     {
         await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
-        IRenderedComponent<EnrollHostSheet> cut = await OpenAsync(harness);
+        IRenderedComponent<ContainerFragment> cut = await OpenAsync(harness);
         await cut.Find("[data-action=step-finish]").ClickAsync(new());
         cut.WaitForState(() => cut.FindAll("[data-enrollment-secret]").Count == 1);
 
@@ -119,9 +121,20 @@ public sealed class EnrollHostSheetTests
         await Assert.That(cut.Find("[data-enrollment-row]").TextContent).Contains("Consumed");
     }
 
-    private static async Task<IRenderedComponent<EnrollHostSheet>> OpenAsync(InteractivePageHarness harness)
+    // The sheet renders through the Hosts page's single BbPortalHost (#363), so the test renders one beside it.
+    private static IRenderedComponent<ContainerFragment> RenderWithPortal(InteractivePageHarness harness, bool openOnLoad = false)
+        => harness.Context.Render(builder =>
+        {
+            builder.OpenComponent<EnrollHostSheet>(0);
+            builder.AddComponentParameter(1, nameof(EnrollHostSheet.OpenOnLoad), openOnLoad);
+            builder.CloseComponent();
+            builder.OpenComponent<BbPortalHost>(2);
+            builder.CloseComponent();
+        });
+
+    private static async Task<IRenderedComponent<ContainerFragment>> OpenAsync(InteractivePageHarness harness)
     {
-        IRenderedComponent<EnrollHostSheet> cut = harness.Context.Render<EnrollHostSheet>();
+        IRenderedComponent<ContainerFragment> cut = RenderWithPortal(harness);
         await cut.Find("[data-action=enroll-host-open]").ClickAsync(new());
         cut.WaitForState(() => cut.FindAll("[data-enroll-host-sheet]").Count == 1);
         return cut;

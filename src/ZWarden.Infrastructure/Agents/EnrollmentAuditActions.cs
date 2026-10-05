@@ -33,4 +33,7 @@ public static class EnrollmentAuditActions
 
     /// <summary>An operator re-enabled an Agent.</summary>
     public const string AgentEnabled = "Agent.Enabled";
+
+    /// <summary>An operator removed a Host: its Agent record was deleted (#363).</summary>
+    public const string AgentRemoved = "Agent.Removed";
 }

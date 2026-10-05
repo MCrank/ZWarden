@@ -77,7 +77,8 @@
     }
 </StepSheet>
 
-<BbPortalHost />
+@* No BbPortalHost here: the Hosts page renders one island for every overlay on it (#363), since the portal service is
+   circuit-scoped and a second host would render each overlay twice. *@
 
 @code {
     // How often a shown token is checked for its Agent connecting; one tenant-scoped list per tick, only while open.

@@ -40,4 +40,12 @@ public interface IAgentTrustService
         UserId actor,
         AgentId agentId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>Removes the Host (#363): deletes the Agent record (so its credential no longer verifies) and drops its
+    /// live connection. Refused, with nothing changed, while the Host still has Servers. Nothing is done on the
+    /// machine itself; bringing it back takes a new enrollment, which creates a new Host.</summary>
+    Task<HostRemovalResult> RemoveAsync(
+        UserId actor,
+        AgentId agentId,
+        CancellationToken cancellationToken = default);
 }
