@@ -99,6 +99,45 @@ public sealed class FleetSmokeTests(BrowserHost host)
     }
 
     [Test]
+    public async Task An_agent_connecting_clears_it_from_the_unreachable_banner_without_a_reload()
+    {
+        // #357: the banner was worked out once per render. Other tests leave Servers on never-connected Agents in this
+        // shared host, so the banner may name several; the one-Host wording shows the name, the many-Hosts one its title.
+        AgentId agent = await host.SeedHostWithServerAsync("flip-host", "flip-server");
+        await using BrowserSession session = await host.OpenAsync("/servers");
+        ILocator banner = session.Page.Locator("[data-degraded-banner]");
+        await Expect(banner).ToBeVisibleAsync();
+        await Assert.That(await UnreachableNamesAsync(session)).Contains("flip-host");
+
+        host.Connect(agent);
+
+        await session.Page.WaitForFunctionAsync(
+            """
+            () => {
+              const b = document.querySelector('[data-degraded-banner]');
+              const names = b.hidden ? '' : (b.querySelector('[data-degraded-one]').hidden
+                ? b.querySelector('[data-degraded-many]').title
+                : b.querySelector('[data-degraded-host]').textContent);
+              return !names.split(', ').includes('flip-host');
+            }
+            """,
+            null,
+            new() { Timeout = 15000 });
+        await session.AssertNoErrorsAsync();
+    }
+
+    private static async Task<string> UnreachableNamesAsync(BrowserSession session) =>
+        await session.Page.EvaluateAsync<string>(
+            """
+            () => {
+              const b = document.querySelector('[data-degraded-banner]');
+              return b.querySelector('[data-degraded-one]').hidden
+                ? b.querySelector('[data-degraded-many]').title
+                : b.querySelector('[data-degraded-host]').textContent;
+            }
+            """);
+
+    [Test]
     public async Task The_deploy_deep_link_opens_the_sheet()
     {
         await using BrowserSession session = await host.OpenAsync("/servers?deploy=1");

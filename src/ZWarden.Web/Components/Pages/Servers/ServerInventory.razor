@@ -39,7 +39,7 @@
     <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <h1 class="text-2xl font-semibold tracking-tight">Fleet</h1>
         <p class="text-sm text-muted-foreground">
-            @_servers.Count @(_servers.Count == 1 ? "server" : "servers") · @_hostsTotal @(_hostsTotal == 1 ? "host" : "hosts")
+            @_servers.Count @(_servers.Count == 1 ? "server" : "servers") · <span data-fleet-hosts-count>@_hosts.Total @(_hosts.Total == 1 ? "host" : "hosts")</span>
         </p>
     </div>
     @if (_canRegister)
@@ -55,37 +55,30 @@
     Agent reported.
 </p>
 
-@if (_unmanaged.Count > 0)
+@if (_canRegister)
 {
-    @* #339: the adopt callout, only while a Host reports containers with no Server record (Server.Register only). *@
-    <div class="mt-4">
-        <UnmanagedBanner @rendermode="InteractiveServer" Hosts="_unmanaged" />
-    </div>
+    @* #339: the adopt callout, shown while a Host reports containers with no Server record (Server.Register only). #357:
+       always rendered for such a caller — empty at zero — because it re-reads the counts itself, so containers an Agent
+       reports on reconnect show up without a reload. *@
+    <UnmanagedBanner @rendermode="InteractiveServer" Hosts="_unmanaged" />
 }
 
-@if (_offlineHosts.Count > 0)
-{
-    @* Degraded banner — driven by the live F10 connection registry over the owning Agents of the visible fleet
-       (no Agent.View needed; derived from Servers the caller can already see). *@
-    <div class="mt-4" data-degraded-banner>
-        <BbAlert Variant="AlertVariant.Warning" AccentBorder>
-            <BbAlertDescription>
-                @if (_offlineHosts.Count == 1)
-                {
-                    <text>ZWarden.Agent on <span class="font-mono">@HostName(_offlineHosts[0])</span> is unreachable — its servers show their last-known state while it reconnects.</text>
-                }
-                else
-                {
-                    <text>@_offlineHosts.Count Agents are unreachable — their servers show their last-known state while they reconnect.</text>
-                }
-            </BbAlertDescription>
-        </BbAlert>
-    </div>
-}
+@* Degraded banner — driven by the live F10 connection registry over the owning Agents of the visible fleet (no
+   Agent.View needed; derived from Servers the caller can already see). #357: always in the page, hidden while every
+   Host is connected; live-status.js polls data-live-fleet-hosts and switches it between the one-Host and the
+   many-Hosts wording (names and counts by textContent — they are untrusted, observed strings). *@
+<div class="mt-4" data-degraded-banner hidden="@(_hosts.Unreachable.Count == 0)">
+    <BbAlert Variant="AlertVariant.Warning" AccentBorder>
+        <BbAlertDescription>
+            <span data-degraded-one hidden="@(_hosts.Unreachable.Count != 1)">ZWarden.Agent on <span class="font-mono" data-degraded-host>@(_hosts.Unreachable.Count == 1 ? _hosts.Unreachable[0] : "")</span> is unreachable — its servers show their last-known state while it reconnects.</span>
+            <span data-degraded-many hidden="@(_hosts.Unreachable.Count < 2)" title="@string.Join(", ", _hosts.Unreachable)"><span data-degraded-count>@_hosts.Unreachable.Count</span> Agents are unreachable — their servers show their last-known state while they reconnect.</span>
+        </BbAlertDescription>
+    </BbAlert>
+</div>
 
 @* KPI strip on the Blueprint BbCard surface (ADR 0003 seam): the card chrome (border, radius, bg-card) comes
    from the component; only the compact stat layout is ZWarden's. Reflows 2-up on narrow, 4-up from sm. *@
-<div class="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4" data-kpi-strip>
+<div class="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4" data-kpi-strip data-live-fleet-hosts="/api/fleet/hosts">
     <BbCard Class="p-4" data-kpi="running">
         <div class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Running</div>
         <div class="mt-1 font-mono text-2xl tabular-nums text-status-running" data-kpi-value>@_kpis.Running</div>
@@ -104,8 +97,9 @@
     </BbCard>
     <BbCard Class="p-4" data-kpi="hosts">
         <div class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Hosts</div>
-        <div class="mt-1 font-mono text-2xl tabular-nums text-foreground">@_hostsOnline<span class="text-muted-foreground">/@_hostsTotal</span></div>
-        <div class="mt-0.5 text-xs text-muted-foreground">@(_offlineHosts.Count == 0 ? "all connected" : $"{_offlineHosts.Count} unreachable")</div>
+        <div class="mt-1 font-mono text-2xl tabular-nums text-foreground"><span data-hosts-online>@_hosts.Online</span><span class="text-muted-foreground">/<span data-hosts-total>@_hosts.Total</span></span></div>
+        @* live-status.js rebuilds this line with the same two phrasings (#357). *@
+        <div class="mt-0.5 text-xs text-muted-foreground" data-kpi-sub>@(_hosts.Unreachable.Count == 0 ? "all connected" : $"{_hosts.Unreachable.Count} unreachable")</div>
     </BbCard>
 </div>
 
@@ -135,12 +129,10 @@
     private IReadOnlyList<ServerSummary> _servers = [];
     private List<FleetNode> _nodes = [];
     private List<UnmanagedHost> _unmanaged = [];
-    private IReadOnlyList<AgentId> _offlineHosts = [];
+    private FleetHostsSummary _hosts = new(0, 0, []);
     private bool _canRegister;
     private bool _anyBusy;
     private FleetKpis _kpis = new(0, 0, null, null);
-    private int _hostsTotal;
-    private int _hostsOnline;
     private IReadOnlyDictionary<AgentId, string> _hostNames = new Dictionary<AgentId, string>();
     private bool _canViewHosts;
 
@@ -212,20 +204,16 @@
 
         // Hosts (online/total): the distinct owning Agents of the visible fleet, "online" per the live F10
         // registry. Deriving from visible Servers keeps this fail-closed and needs no Agent.View (ADR 0018).
-        // A caller who may view Hosts also counts the Hosts with no Servers yet (#342), as /hosts does.
-        List<AgentId> agents = _servers.Select(s => s.AgentId).Concat(_hostNames.Keys).Distinct().ToList();
-        _hostsTotal = agents.Count;
-        _offlineHosts = agents.Where(a => !Connections.IsConnected(a)).ToList();
-        _hostsOnline = _hostsTotal - _offlineHosts.Count;
+        // A caller who may view Hosts also counts the Hosts with no Servers yet (#342), as /hosts does. #357: the same
+        // projection as /api/fleet/hosts, which live-status.js polls to keep the banner and the tile current.
+        _hosts = FleetHosts.Summarize(_servers, _hostNames.Keys, HostName, Connections.IsConnected);
 
         _canRegister = (await PermissionChecker.EvaluateAsync(user, Permissions.ServerRegister)).IsAllowed;
         if (_canRegister)
         {
-            // #339: per-host counts for the adopt callout (this tenant's Hosts only), by the Host's name (#336).
-            _unmanaged = [.. (await Inventory.ListAllDiscoveredUnregisteredAsync())
-                .GroupBy(d => d.AgentId)
-                .Select(g => new UnmanagedHost(HostName(g.Key), g.Count()))
-                .OrderBy(h => h.Name, StringComparer.OrdinalIgnoreCase)];
+            // #339: per-host counts for the adopt callout (this tenant's Hosts only), by the Host's name (#336); the
+            // island re-reads them while the page is open (#357).
+            _unmanaged = UnmanagedHost.From(await Inventory.ListUnmanagedHostsAsync(user));
         }
     }
 

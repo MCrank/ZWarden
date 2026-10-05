@@ -248,6 +248,62 @@
 
   schedule(currentRoot());
 
+  // #357: the Fleet's Hosts — the degraded banner, the Hosts tile and the subtitle's host count. Polls
+  // [data-live-fleet-hosts="<url>"] ({ total, online, unreachable: [names] }) so an Agent (re)connecting clears the
+  // banner without a reload. The wording lives in the page (a one-Host and a many-Hosts variant); only names and numbers
+  // are written here, with textContent — the names are untrusted, observed strings.
+  function applyFleetHosts(h) {
+    var unreachable = Array.isArray(h.unreachable) ? h.unreachable.map(String) : [];
+    var total = typeof h.total === 'number' ? h.total : 0;
+    var online = typeof h.online === 'number' ? h.online : 0;
+
+    var banner = doc.querySelector('[data-degraded-banner]');
+    if (banner) {
+      setHidden(banner, unreachable.length === 0);
+      setHidden(banner.querySelector('[data-degraded-one]'), unreachable.length !== 1);
+      setText(banner.querySelector('[data-degraded-host]'), unreachable.length === 1 ? unreachable[0] : '');
+      var many = banner.querySelector('[data-degraded-many]');
+      setHidden(many, unreachable.length < 2);
+      setAttr(many, 'title', unreachable.join(', '));
+      setText(banner.querySelector('[data-degraded-count]'), String(unreachable.length));
+    }
+
+    var strip = doc.querySelector('[data-kpi-strip]');
+    var tile = strip ? kpiTile(strip, 'hosts') : null;
+    if (tile) {
+      setText(tile.querySelector('[data-hosts-online]'), String(online));
+      setText(tile.querySelector('[data-hosts-total]'), String(total));
+      setText(tile.querySelector('[data-kpi-sub]'), unreachable.length === 0 ? 'all connected' : unreachable.length + ' unreachable');
+    }
+
+    setText(doc.querySelector('[data-fleet-hosts-count]'), total + (total === 1 ? ' host' : ' hosts'));
+  }
+
+  function fleetHostsRoot() {
+    return doc.querySelector('[data-live-fleet-hosts]');
+  }
+
+  function scheduleFleetHosts() {
+    window.setTimeout(fleetHostsTick, IDLE_MS);
+  }
+
+  function fleetHostsTick() {
+    var root = fleetHostsRoot();
+    if (!root || doc.visibilityState === 'hidden' || !window.fetch) { scheduleFleetHosts(); return; }
+    var url = root.getAttribute('data-live-fleet-hosts');
+    window.fetch(url, { credentials: 'same-origin', headers: { 'Accept': 'application/json' }, cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (h) {
+        var current = fleetHostsRoot();
+        if (!h || typeof h !== 'object' || !current || current.getAttribute('data-live-fleet-hosts') !== url) { return; }
+        applyFleetHosts(h);
+      })
+      .catch(function () { /* transient: the next tick tries again */ })
+      .then(scheduleFleetHosts);
+  }
+
+  scheduleFleetHosts();
+
   // #170: the Hosts page's card telemetry. Polls [data-live-hosts="<url>"] (an array of { id, ... } for the connected
   // Hosts) and moves each [data-host-telemetry-for="<agentId>"] card's meters and lines in place. The texts and the age
   // arrive preformatted (server clock); everything is Agent-observed data, so textContent only. A Host that connects

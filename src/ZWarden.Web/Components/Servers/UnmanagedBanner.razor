@@ -1,37 +1,116 @@
+@using System.Security.Claims
+@using ZWarden.Application.Servers
+@using ZWarden.Domain.Ids
+@using ZWarden.Infrastructure.Tenancy
 @inject DeploySheetRequests Requests
+@inject ActionScopeRunner Actions
+@inject UserManager<ApplicationUser> Users
+@inject TimeProvider Clock
+@implements IDisposable
 
 @* The Fleet board's adopt callout (#339; replaces the inline "Import a discovered container" form). The page renders it
-   only for a caller holding Server.Register, and only while a Host reports PZ containers with no Server record (after
-   a database restore, say). Adopt opens the Deploy sheet's "Adopt existing" tab: the sheet is another interactive island
-   in this circuit, reached through DeploySheetRequests. Host names are untrusted, rendered as data. *@
+   only for a caller holding Server.Register; it shows while a Host reports PZ containers with no Server record (after
+   a database restore, say). #357: an Agent sends its container list only on (re)connect, so once interactive the island
+   re-reads the counts every few seconds (a tenant scope per read, ActionScopeRunner; the service re-checks
+   Server.Register) and appears, changes or clears without a reload. Adopt opens the Deploy sheet's "Adopt existing"
+   tab: the sheet is another interactive island in this circuit, reached through DeploySheetRequests. Host names are
+   untrusted, rendered as data. *@
 
-<div data-unmanaged-banner>
-    <BbAlert Variant="AlertVariant.Info" AccentBorder>
-        <BbAlertDescription>
-            <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
-                <span class="flex-1" data-unmanaged-text>@Text</span>
-                <BbButton Size="ButtonSize.Small" Variant="ButtonVariant.Outline" OnClick="AdoptAsync" data-action="adopt-open">Adopt</BbButton>
-            </div>
-        </BbAlertDescription>
-    </BbAlert>
+<div data-unmanaged-live>
+    @if (_hosts.Count > 0)
+    {
+        <div class="mt-4" data-unmanaged-banner>
+            <BbAlert Variant="AlertVariant.Info" AccentBorder>
+                <BbAlertDescription>
+                    <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+                        <span class="flex-1" data-unmanaged-text title="@(_hosts.Count > 1 ? string.Join(", ", _hosts.Select(h => h.Name)) : null)">@Text</span>
+                        <BbButton Size="ButtonSize.Small" Variant="ButtonVariant.Outline" OnClick="AdoptAsync" data-action="adopt-open">Adopt</BbButton>
+                    </div>
+                </BbAlertDescription>
+            </BbAlert>
+        </div>
+    }
 </div>
 
 @code {
-    /// <summary>How many unmanaged containers each Host reports, by the Host's operator-facing name.</summary>
+    /// <summary>How many unmanaged containers each Host reports, by the Host's operator-facing name — the page's read.</summary>
     [Parameter, EditorRequired]
     public IReadOnlyList<UnmanagedHost> Hosts { get; set; } = [];
+
+    /// <summary>How often the island re-reads the counts once interactive (tests shorten it).</summary>
+    [Parameter]
+    public TimeSpan PollInterval { get; set; } = TimeSpan.FromSeconds(5);
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthState { get; set; }
+
+    private IReadOnlyList<UnmanagedHost> _hosts = [];
+    private CancellationTokenSource? _poll;
+
+    // A new value from the page (its enhanced refresh after an adopt) wins over the island's own last read.
+    protected override void OnParametersSet() => _hosts = Hosts;
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender && RendererInfo.IsInteractive)
+        {
+            _poll = new CancellationTokenSource();
+            _ = PollAsync(_poll.Token);
+        }
+    }
 
     private string Text
     {
         get
         {
-            int total = Hosts.Sum(h => h.Count);
+            int total = _hosts.Sum(h => h.Count);
             string servers = total == 1 ? "1 unmanaged server" : $"{total} unmanaged servers";
-            return Hosts.Count == 1
-                ? $"{servers} found on {Hosts[0].Name}."
-                : $"{servers} found on {Hosts.Count} hosts.";
+            return _hosts.Count == 1
+                ? $"{servers} found on {_hosts[0].Name}."
+                : $"{servers} found on {_hosts.Count} hosts.";
+        }
+    }
+
+    private async Task PollAsync(CancellationToken cancellationToken)
+    {
+        using PeriodicTimer timer = new(PollInterval, Clock);
+        try
+        {
+            while (await timer.WaitForNextTickAsync(cancellationToken))
+            {
+                UserId user = await CurrentUserAsync();
+                List<UnmanagedHost> latest = UnmanagedHost.From(
+                    await Actions.RunAsync<IServerInventory, IReadOnlyList<UnmanagedHostCount>>(
+                        (inventory, ct) => inventory.ListUnmanagedHostsAsync(user, ct), cancellationToken));
+                if (!latest.SequenceEqual(_hosts))
+                {
+                    await InvokeAsync(() =>
+                    {
+                        _hosts = latest;
+                        StateHasChanged();
+                    });
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // The page went away.
         }
     }
 
     private Task AdoptAsync() => Requests.RequestOpenAsync(DeploySheetTab.Adopt);
+
+    private async Task<UserId> CurrentUserAsync()
+    {
+        ClaimsPrincipal principal = (await AuthState!).User;
+        return Guid.TryParse(Users.GetUserId(principal), out Guid id)
+            ? UserId.FromGuid(id)
+            : throw new InvalidOperationException("Authenticated request carries no user id claim.");
+    }
+
+    public void Dispose()
+    {
+        _poll?.Cancel();
+        _poll?.Dispose();
+    }
 }
