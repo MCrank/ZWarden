@@ -135,6 +135,20 @@
           break;
       }
     });
+    // #340: each Host row's players, re-summed from its members' entries (listed on the cell, so a collapsed Host —
+    // whose Server rows are not in the page — still adds up). Mirrors FleetTree: known counts over known caps.
+    root.querySelectorAll('[data-fleet-rollup]').forEach(function (cell) {
+      var players = 0, anyPlayers = false, caps = 0, anyCaps = false;
+      String(cell.getAttribute('data-fleet-members') || '').split(' ').forEach(function (id) {
+        var s = byId[id];
+        if (!s) { return; }
+        if (typeof s.players === 'number') { players += s.players; anyPlayers = true; }
+        if (typeof s.maxPlayers === 'number') { caps += s.maxPlayers; anyCaps = true; }
+      });
+      var current = anyPlayers ? String(players) : DASH;
+      setText(cell, anyCaps ? current + ' / ' + caps : current);
+      swapClass(cell, ['text-foreground', 'text-muted-foreground'], anyPlayers ? 'text-foreground' : 'text-muted-foreground');
+    });
   }
 
   function kpiTile(strip, key) {
@@ -287,6 +301,19 @@
     });
   }
 
+  // #340: the Fleet grid's Host rows ride this feed too; a sort there re-renders them with their first-render meters,
+  // so the last answer is re-applied on any change under the root (idempotent writes, so the observer settles).
+  var lastHosts = null;
+  var lastHostsRoot = null;
+
+  function observeHosts(root) {
+    if (root.__zwHostsObserved || !window.MutationObserver) { return; }
+    root.__zwHostsObserved = true;
+    new window.MutationObserver(function () {
+      if (lastHosts && lastHostsRoot === root && root.isConnected) { applyHosts(root, lastHosts); }
+    }).observe(root, { subtree: true, childList: true });
+  }
+
   function hostsRoot() {
     return doc.querySelector('[data-live-hosts]');
   }
@@ -306,6 +333,9 @@
         if (!Array.isArray(list) || !current || current.getAttribute('data-live-hosts') !== url) { return; }
         var byId = {};
         list.forEach(function (e) { if (e && typeof e.id === 'string') { byId[e.id] = e; } });
+        lastHosts = byId;
+        lastHostsRoot = current;
+        observeHosts(current);
         applyHosts(current, byId);
       })
       .catch(function () { /* transient: the next tick tries again */ })

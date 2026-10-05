@@ -340,7 +340,8 @@ public sealed class ServerInventoryPageTests
         string html = await (await client.GetAsync(new Uri("/servers", UriKind.Relative))).Content.ReadAsStringAsync();
 
         await Assert.That(Regex.IsMatch(html, $"data-fleet-host[^>]*>{Regex.Escape(HtmlEncoder.Default.Encode(HostNames.ShortId(agent)))}<")).IsTrue();
-        await Assert.That(html).DoesNotContain(agent.ToString());
+        // The full id may key the row (the caller may view Hosts) but is never the shown name.
+        await Assert.That(html).DoesNotContain($">{agent}<");
         client.Dispose();
     }
 
@@ -373,6 +374,99 @@ public sealed class ServerInventoryPageTests
         await Assert.That(Regex.IsMatch(html, $"data-fleet-host[^>]*>{Regex.Escape(HtmlEncoder.Default.Encode(HostNames.ShortId(agent)))}<")).IsTrue();
         // #338: no Server.Register, no Deploy server button (the service re-checks on submit anyway).
         await Assert.That(html).DoesNotContain("data-action=\"deploy-server-open\"");
+        // #340: still grouped under the Host, keyed by its short id — never the full AgentId — and no Host telemetry
+        // without Agent.View.
+        await Assert.That(html).Contains($"data-fleet-host-row=\"{HtmlEncoder.Default.Encode(HostNames.ShortId(agent))}\"");
+        await Assert.That(html).DoesNotContain(agent.ToString());
+        await Assert.That(html).DoesNotContain("data-live-hosts");
+        await Assert.That(html).DoesNotContain("data-host-telemetry-for");
+        client.Dispose();
+    }
+
+    // --- #340: the hierarchical grid, Servers under Host rollup rows ---------------------------------------------
+
+    [Test]
+    public async Task A_server_sits_under_its_host_row_with_the_count_and_the_unreachable_chip()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        AgentId agent = await SeedServerOnHostAsync(factory, "NSFW", label: null, hostname: "nsfw-01");
+
+        string html = await (await client.GetAsync(new Uri("/servers", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        await Assert.That(html).Contains($"data-fleet-host-row=\"{agent}\"");
+        await Assert.That(Regex.IsMatch(html, "data-fleet-host-count[^>]*>1 server<")).IsTrue();
+        await Assert.That(Regex.IsMatch(html, "data-fleet-host-status[\\s\\S]*?zw-status-unknown")).IsTrue();
+        // The Host row comes first, then its Server.
+        await Assert.That(html.IndexOf($"data-fleet-host-row=\"{agent}\"", StringComparison.Ordinal))
+            .IsLessThan(html.IndexOf(">NSFW<", StringComparison.Ordinal));
+        // Unreachable: no telemetry meters (the feed only reports connected Hosts).
+        await Assert.That(html).DoesNotContain("data-host-telemetry-for");
+        // Expand all / Collapse all.
+        await Assert.That(html).Contains("data-fleet-expand=\"all\"");
+        await Assert.That(html).Contains("data-fleet-expand=\"none\"");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task A_connected_host_row_shows_its_cpu_and_memory_meters_from_the_telemetry_feed()
+    {
+        const long GiB = 1024L * 1024 * 1024;
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        AgentId agent = await SeedServerOnHostAsync(factory, "live", label: null, hostname: "nsfw-01");
+        factory.Services.GetRequiredService<Application.Agents.IAgentConnectionRegistry>().Register(agent, "conn-online", () => { });
+        factory.Services.GetRequiredService<IHostCapacityCache>().Record(new HostCapacity(
+            agent, 32 * GiB, 0, 0, 4 * GiB, 0, DateTimeOffset.UtcNow,
+            new HostVitals(37.5, 12 * GiB, 212 * GiB, 480 * GiB, 4, 0.12, 0.2, 0.18)));
+
+        string html = await (await client.GetAsync(new Uri("/servers", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        await Assert.That(html).Contains("data-live-hosts=\"/api/hosts/telemetry\"");
+        await Assert.That(html).Contains($"data-host-telemetry-for=\"{agent}\"");
+        await Assert.That(html).Contains("aria-label=\"Host CPU: 38%\"");
+        await Assert.That(html).Contains("aria-label=\"Host memory: 38%\"");
+        await Assert.That(Regex.IsMatch(html, "data-fleet-host-status[\\s\\S]*?zw-status-running")).IsTrue();
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task A_host_row_sums_its_servers_players_and_names_its_members_for_the_poll()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        AgentId agent = await SeedServerOnHostAsync(factory, "rolled", label: null, hostname: "nsfw-01");
+        ServerId serverId;
+        using (AsyncServiceScope scope = factory.Services.CreateSystemScope())
+        {
+            serverId = (await scope.ServiceProvider.GetRequiredService<ZWardenDbContext>().Set<Server>().SingleAsync()).Id;
+        }
+
+        factory.Services.GetRequiredService<Application.Agents.IAgentConnectionRegistry>().Register(agent, "conn-online", () => { });
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        factory.Services.GetRequiredService<IServerMetricsCache>().Record(
+        [
+            new ServerMetrics(agent, serverId, 10, 1_000, 2_000, null, null, 3, now, now, null, null, MaxPlayers: 16),
+        ]);
+
+        string html = await (await client.GetAsync(new Uri("/servers", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        await Assert.That(Regex.IsMatch(html, $"data-fleet-rollup=\"{agent}\" data-fleet-members=\"{serverId}\"[^>]*>3 / 16<")).IsTrue();
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task A_server_on_an_unknown_agent_goes_in_the_unassigned_group()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        await SeedServerAsync(factory, "orphan"); // its Agent has no record
+
+        string html = await (await client.GetAsync(new Uri("/servers", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        await Assert.That(html).Contains("data-fleet-host-row=\"unassigned\"");
+        await Assert.That(Regex.IsMatch(html, "data-fleet-host[^>]*>Unassigned<")).IsTrue();
+        await Assert.That(html).Contains("orphan");
         client.Dispose();
     }
 

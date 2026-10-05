@@ -35,6 +35,32 @@ public sealed class FleetSmokeTests(BrowserHost host)
     }
 
     [Test]
+    public async Task Collapse_all_hides_the_servers_and_survives_a_reload_until_expand_all()
+    {
+        // #340: Servers sit under Host rows; collapse state is remembered per browser (local-prefs.js).
+        await host.SeedServerAsync("tree-orphan"); // an unknown Agent, so the Unassigned group
+        await using BrowserSession session = await host.OpenAsync("/servers");
+        ILocator board = session.Page.Locator("[data-fleet-board]");
+        ILocator server = board.Locator("[data-server-link]", new() { HasText = "tree-orphan" });
+        await Expect(board).ToHaveAttributeAsync("data-fleet-ready", "on");
+        await Expect(board.Locator("[data-fleet-host-row=unassigned]")).ToBeVisibleAsync();
+        await Expect(server).ToBeVisibleAsync();
+
+        await session.Page.ClickAsync("[data-fleet-expand=none]");
+        await Expect(server).ToHaveCountAsync(0);
+
+        await session.Page.ReloadAsync();
+        await session.WaitForCircuitAsync();
+        await Expect(board).ToHaveAttributeAsync("data-fleet-ready", "on");
+        await Expect(board.Locator("[data-fleet-host-row=unassigned]")).ToBeVisibleAsync();
+        await Expect(server).ToHaveCountAsync(0);
+
+        await session.Page.ClickAsync("[data-fleet-expand=all]");
+        await Expect(server).ToBeVisibleAsync();
+        await session.AssertNoErrorsAsync();
+    }
+
+    [Test]
     public async Task The_adopt_banner_adopts_a_discovered_container_and_clears()
     {
         // #339: the banner and the sheet are separate islands in one circuit; Adopt in one opens the other.

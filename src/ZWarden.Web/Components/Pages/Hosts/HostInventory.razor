@@ -62,7 +62,8 @@ else
         @foreach (HostSummary host in _hosts)
         {
             bool degraded = !host.IsConnected;
-            <BbCard Class="@CardClass(degraded)" data-host-card data-host-degraded="@degraded">
+            @* #340: the Fleet grid's Host rows link here, anchored to the card. *@
+            <BbCard Class="@CardClass(degraded)" id="@($"host-{host.Id}")" data-host-card data-host-degraded="@degraded">
                 <div class="flex flex-col gap-4 p-5">
                     <div class="flex items-start gap-3">
                         @* #341: the prototype's server-rack tile — secondary normally, violet (unknown) when unreachable. *@
