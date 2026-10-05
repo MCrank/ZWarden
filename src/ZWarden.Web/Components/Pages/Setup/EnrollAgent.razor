@@ -5,6 +5,7 @@
 @using ZWarden.Application.Agents
 @using ZWarden.Application.Setup
 @using ZWarden.Domain.Ids
+@using ZWarden.Web.Components.Hosts
 @inject IEnrollmentService Enrollment
 @inject ISetupState SetupState
 @inject UserManager<ApplicationUser> Users
@@ -25,16 +26,11 @@
     later — this step is optional.
 </p>
 
-@if (_secret is not null)
+@if (_secret is not null && _expiresAt is { } expiresAt)
 {
-    <div class="mt-4" data-enrollment-secret>
-        <BbAlert Variant="AlertVariant.Success" AccentBorder>
-            <BbAlertDescription>
-                <p class="font-medium">Enrollment token created. Copy it now — it is shown only once.</p>
-                <code class="mt-2 block break-all rounded bg-muted px-2 py-1 font-mono text-xs">@_secret</code>
-                <p class="mt-2 text-xs text-muted-foreground">Expires @_expiresAt?.UtcDateTime.ToString("yyyy-MM-dd HH:mm") UTC.</p>
-            </BbAlertDescription>
-        </BbAlert>
+    @* #342: the same token panel as the Hosts page's Enroll host sheet (copy, expiry, the Agent's .env lines). *@
+    <div class="mt-4">
+        <EnrollmentTokenPanel Secret="@_secret" ExpiresAt="@expiresAt" />
     </div>
 }
 

@@ -1,0 +1,53 @@
+@inject NavigationManager Nav
+
+@* A freshly minted enrollment token (#342): the "shown only once" alert with the token, its copy button and expiry,
+   then the Agent .env lines to paste on the host. Shared by the Hosts page's Enroll host sheet (interactive) and the
+   first-run /setup/enroll page (static), so it has no interactivity of its own: copying is shell.js's delegated
+   data-shell-copy handler, and the text stays selectable without the clipboard API. The secret is never stored raw
+   or logged; it exists only in this render. *@
+
+<div class="space-y-4" data-enrollment-secret>
+    <BbAlert Variant="AlertVariant.Success" AccentBorder>
+        <BbAlertDescription>
+            <p class="font-medium">Enrollment token created. Copy it now — it is shown only once.</p>
+            <div class="mt-2 flex items-start gap-2">
+                <code class="block flex-1 break-all rounded bg-muted px-2 py-1 font-mono text-xs" data-enrollment-token>@Secret</code>
+                <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" Class="shrink-0"
+                          data-shell-copy="[data-enrollment-token]" data-copy-done="Copied" aria-label="Copy enrollment token">
+                    <span data-copy-label>Copy</span>
+                </BbButton>
+            </div>
+            <p class="mt-2 text-xs text-muted-foreground" data-enrollment-expiry>
+                Single use. Expires @ExpiresAt.UtcDateTime.ToString("yyyy-MM-dd HH:mm") UTC.
+            </p>
+        </BbAlertDescription>
+    </BbAlert>
+
+    <div class="space-y-2 text-sm">
+        <p class="font-medium text-foreground">Start the Agent on the host</p>
+        <p class="text-xs text-muted-foreground">
+            Put these lines in the Agent's <code class="font-mono">.env</code>
+            (<code class="font-mono">deploy/compose/remote-agent/.env</code> on a remote host,
+            <code class="font-mono">deploy/compose/.env</code> for the Agent next to ZWarden), then run
+            <code class="font-mono">docker compose up -d</code> in that folder.
+        </p>
+        <div class="flex items-start gap-2">
+            <pre class="flex-1 whitespace-pre-wrap break-all rounded bg-muted px-2 py-1.5 font-mono text-xs" data-enrollment-env>@EnvLines</pre>
+            <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" Class="shrink-0"
+                      data-shell-copy="[data-enrollment-env]" data-copy-done="Copied" aria-label="Copy the .env lines">
+                <span data-copy-label>Copy</span>
+            </BbButton>
+        </div>
+    </div>
+</div>
+
+@code {
+    /// <summary>The one-time enrollment secret, revealed for this render only.</summary>
+    [Parameter, EditorRequired]
+    public string Secret { get; set; } = string.Empty;
+
+    [Parameter, EditorRequired]
+    public DateTimeOffset ExpiresAt { get; set; }
+
+    private string EnvLines => EnrollmentSnippet.EnvLines(new Uri(Nav.BaseUri), Secret);
+}

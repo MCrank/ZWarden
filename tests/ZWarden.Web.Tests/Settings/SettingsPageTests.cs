@@ -91,7 +91,7 @@ public sealed class SettingsPageTests
     }
 
     [Test]
-    public async Task The_enrollment_section_links_to_the_existing_enrollment_surface()
+    public async Task The_enrollment_section_links_to_the_enroll_host_sheet()
     {
         await using ZWardenWebAppFactory factory = new();
         HttpClient client = await SignedInOwnerAsync(factory, "owner@zwarden.test");
@@ -99,7 +99,7 @@ public sealed class SettingsPageTests
         string html = await GetStringAsync(client, "/settings");
 
         await Assert.That(html).Contains("data-settings-enrollment-link");
-        await Assert.That(html).Contains("/enrollment");
+        await Assert.That(html).Contains("href=\"/hosts?enroll=1\""); // #342: the Enroll host sheet
         // #343: "Host enrollment" section, "Enroll host" action.
         await Assert.That(html).Contains("Host enrollment");
         await Assert.That(Regex.IsMatch(html, "data-settings-enrollment-link[^>]*>\\s*Enroll host\\s*<")).IsTrue();
