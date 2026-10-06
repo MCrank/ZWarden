@@ -1,5 +1,6 @@
 using Docker.DotNet.Models;
 using ZWarden.Agent.Docker;
+using ZWarden.Agent.Identity;
 using ZWarden.Domain.Ids;
 
 namespace ZWarden.Agent.Tests.Docker;
@@ -152,6 +153,21 @@ public class PzContainerFactoryTests
         await Assert.That(labels[CanonicalLabels.SchemaVersion]).IsEqualTo(CanonicalLabels.SchemaVersionValue);
         await Assert.That(labels[CanonicalLabels.ServerId]).IsEqualTo(Server.ToString());
         await Assert.That(labels[CanonicalLabels.AgentId]).IsEqualTo(Self.ToString());
+    }
+
+    [Test]
+    public async Task Once_enrolled_the_container_is_stamped_with_the_enrolled_id_not_the_local_one()
+    {
+        // #365: the label must carry the AgentId the Hosts card shows, so ownership survives in the operator's terms.
+        AgentId local = AgentId.New();
+        AgentId enrolled = AgentId.New();
+        AgentIdentityHolder holder = new();
+        holder.Set(local);
+        holder.MarkEnrolled(enrolled);
+
+        IDictionary<string, string> labels = new PzContainerFactory(holder).Build(ValidSpec()).Labels!;
+
+        await Assert.That(labels[CanonicalLabels.AgentId]).IsEqualTo(enrolled.ToString());
     }
 
     [Test]

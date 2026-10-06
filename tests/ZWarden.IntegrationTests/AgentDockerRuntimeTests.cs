@@ -417,5 +417,9 @@ public sealed class AgentDockerRuntimeTests : IAsyncDisposable
     private sealed class FixedIdentity(AgentId agentId) : IAgentIdentity
     {
         public AgentId AgentId { get; } = agentId;
+
+        public AgentId LocalId => AgentId;
+
+        public bool Owns(AgentId owner) => owner == AgentId;
     }
 }

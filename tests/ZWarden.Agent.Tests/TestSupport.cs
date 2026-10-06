@@ -36,6 +36,10 @@ internal sealed class FixedAgentIdentity : IAgentIdentity
     public FixedAgentIdentity(AgentId agentId) => AgentId = agentId;
 
     public AgentId AgentId { get; }
+
+    public AgentId LocalId => AgentId;
+
+    public bool Owns(AgentId agentId) => agentId == AgentId;
 }
 
 /// <summary>A self-cleaning temporary directory for the file-based identity-store tests.</summary>

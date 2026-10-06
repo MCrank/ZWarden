@@ -103,9 +103,11 @@ audit log. Nothing on the machine is touched — the Agent container, volumes an
 you clean them up there (`docker compose down`, adding `-v` to drop the volumes too). To bring the machine back,
 enroll it again with a fresh token; it shows up as a new host.
 
-A re-enrolled Agent can't yet see PZ containers the previous Agent created on that machine
-([#365](https://github.com/MCrank/ZWarden/issues/365)), so delete a host's servers in ZWarden before you wipe
-and re-enroll its Agent.
+An Agent labels the PZ containers it creates with the host id shown on its card (containers created by an older
+Agent carry its local id instead, and the same Agent still manages them). A re-enrolled Agent is a new host with a
+new id, so it can't yet see PZ containers the previous Agent created on that machine
+([#368](https://github.com/MCrank/ZWarden/issues/368)). Delete a host's servers in ZWarden before you wipe and
+re-enroll its Agent.
 
 ## Security notes
 

@@ -12,7 +12,7 @@
    holding Tenant.Enrollment.Manage (Owner-only); IAgentTrustService re-checks, refuses while the Host has Servers,
    and audits. A Host with Servers gets the blocked message and no Remove button (the service refuses it anyway).
    Nothing on the machine is touched, and the dialog doesn't promise that re-enrolling brings old servers back
-   (#365: a re-enrolled Agent can't see the previous Agent's containers). *@
+   (#368: a re-enrolled Agent can't see the previous Agent's containers). *@
 
 <span hidden data-circuit="@(_circuitReady ? "on" : "off")"></span>
 <BbButton Variant="ButtonVariant.Destructive" Size="ButtonSize.Small" OnClick="Open" data-action="remove-host-open">Remove host…</BbButton>

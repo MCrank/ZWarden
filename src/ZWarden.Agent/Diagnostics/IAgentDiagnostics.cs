@@ -8,7 +8,7 @@ namespace ZWarden.Agent.Diagnostics;
 /// speaks, how it is, and how long it has run. The minimal surface F9/F10/F16 attach richer
 /// diagnostics to.
 /// </summary>
-/// <param name="AgentId">The Agent's resolved self-identity.</param>
+/// <param name="AgentId">The Agent's operational id: its enrolled AgentId once enrolled, else its local id (#365).</param>
 /// <param name="ProtocolVersion">The protocol version this build speaks (F7).</param>
 /// <param name="Health">The Agent's current self-reported health.</param>
 /// <param name="HealthReason">Why the Agent is in that health state.</param>

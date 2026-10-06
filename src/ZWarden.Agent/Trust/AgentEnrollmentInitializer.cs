@@ -4,6 +4,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using ZWarden.Agent.Configuration;
+using ZWarden.Agent.Identity;
 using ZWarden.Domain.Ids;
 using ZWarden.Domain.Security;
 
@@ -15,6 +16,8 @@ namespace ZWarden.Agent.Trust;
 /// the exchange and stores the result; if no secret is configured, the Agent starts <b>un-enrolled</b> — the
 /// host still runs (F10 owns connecting, which an un-enrolled Agent cannot yet do). A failed exchange writes
 /// no trust file. A malformed existing trust file fails typed (from the store) rather than being overwritten.
+/// Whenever it learns the enrolled AgentId (already enrolled, or an exchange succeeded) it records it on the
+/// <see cref="AgentIdentityHolder"/>, making it the Agent's operational id (#365).
 /// </summary>
 /// <remarks>
 /// Enrolment-time <b>transport</b> failures are not fatal (#185). A TLS-trust failure (common in Private mode,
@@ -30,6 +33,7 @@ public sealed partial class AgentEnrollmentInitializer : IHostedService, IDispos
     private readonly IAgentTrustStore _store;
     private readonly IEnrollmentClient _client;
     private readonly AgentEnrollmentSignal _signal;
+    private readonly AgentIdentityHolder _identity;
     private readonly AgentOptions _options;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<AgentEnrollmentInitializer> _logger;
@@ -40,6 +44,7 @@ public sealed partial class AgentEnrollmentInitializer : IHostedService, IDispos
         IAgentTrustStore store,
         IEnrollmentClient client,
         AgentEnrollmentSignal signal,
+        AgentIdentityHolder identity,
         IOptions<AgentOptions> options,
         TimeProvider timeProvider,
         ILogger<AgentEnrollmentInitializer> logger)
@@ -47,12 +52,14 @@ public sealed partial class AgentEnrollmentInitializer : IHostedService, IDispos
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(client);
         ArgumentNullException.ThrowIfNull(signal);
+        ArgumentNullException.ThrowIfNull(identity);
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(timeProvider);
         ArgumentNullException.ThrowIfNull(logger);
         _store = store;
         _client = client;
         _signal = signal;
+        _identity = identity;
         _options = options.Value;
         _timeProvider = timeProvider;
         _logger = logger;
@@ -79,6 +86,7 @@ public sealed partial class AgentEnrollmentInitializer : IHostedService, IDispos
         AgentTrustMaterial? existing = await _store.TryLoadAsync(cancellationToken).ConfigureAwait(false);
         if (existing is not null)
         {
+            _identity.MarkEnrolled(existing.AgentId);
             LogAlreadyEnrolled(existing.AgentId);
             _signal.MarkSettled();
             return;
@@ -153,6 +161,7 @@ public sealed partial class AgentEnrollmentInitializer : IHostedService, IDispos
             }
 
             await _store.SaveAsync(material, cancellationToken).ConfigureAwait(false);
+            _identity.MarkEnrolled(material.AgentId);
             LogEnrolled(material.AgentId);
             return EnrollmentAttempt.Succeeded;
         }

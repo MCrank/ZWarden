@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Options;
 using ZWarden.Agent.Configuration;
 using ZWarden.Agent.Health;
+using ZWarden.Agent.Identity;
 using ZWarden.Contracts.Protocol;
 using ZWarden.Domain.Ids;
 
@@ -13,7 +14,7 @@ namespace ZWarden.Agent.Tests;
 public class AgentWorkerTests
 {
     private static (AgentWorker Worker, AgentHealthState Health, RecordingLogger<AgentWorker> Logger) Build(
-        AgentId agentId,
+        IAgentIdentity identity,
         AgentOptions? options = null)
     {
         var health = new AgentHealthState(new RecordingLogger<AgentHealthState>());
@@ -27,7 +28,7 @@ public class AgentWorkerTests
         };
 
         var worker = new AgentWorker(
-            new FixedAgentIdentity(agentId),
+            identity,
             health,
             Options.Create(options),
             TimeProvider.System,
@@ -40,7 +41,7 @@ public class AgentWorkerTests
     public async Task Starts_healthy_and_stops_gracefully()
     {
         AgentId id = AgentId.New();
-        var (worker, health, _) = Build(id);
+        var (worker, health, _) = Build(new FixedAgentIdentity(id));
 
         await worker.StartAsync(CancellationToken.None);
         await Task.Delay(60); // let the liveness loop run a couple of ticks
@@ -57,7 +58,7 @@ public class AgentWorkerTests
     public async Task Startup_banner_reports_identity_and_protocol_version()
     {
         AgentId id = AgentId.New();
-        var (worker, _, logger) = Build(id);
+        var (worker, _, logger) = Build(new FixedAgentIdentity(id));
 
         await worker.StartAsync(CancellationToken.None);
         await worker.StopAsync(CancellationToken.None);
@@ -73,6 +74,51 @@ public class AgentWorkerTests
         {
             await Assert.That(entry.Message).DoesNotContain("password", StringComparison.OrdinalIgnoreCase);
         }
+
+        worker.Dispose();
+    }
+
+    [Test]
+    public async Task Once_enrolled_the_banner_names_the_enrolled_id_and_traces_the_local_one()
+    {
+        // #365: the logs carry the AgentId the Hosts card shows; the local id is logged once so older log lines
+        // (and containers stamped with it) stay traceable.
+        AgentId local = AgentId.New();
+        AgentId enrolled = AgentId.New();
+        AgentIdentityHolder holder = new();
+        holder.Set(local);
+        holder.MarkEnrolled(enrolled);
+        var (worker, _, logger) = Build(holder);
+
+        await worker.StartAsync(CancellationToken.None);
+        await worker.StopAsync(CancellationToken.None);
+
+        var banner = logger.Entries.First(e => e.Message.Contains("ZWarden.Agent starting", StringComparison.Ordinal));
+        await Assert.That(banner.Message).Contains(enrolled.ToString());
+        await Assert.That(banner.Message).DoesNotContain(local.ToString());
+        var trace = logger.Entries.Where(e => e.Message.Contains(local.ToString(), StringComparison.Ordinal)).ToList();
+        await Assert.That(trace.Count).IsEqualTo(1);
+        await Assert.That(trace[0].Message).Contains(enrolled.ToString());
+        var stopping = logger.Entries.First(e => e.Message.Contains("ZWarden.Agent stopping", StringComparison.Ordinal));
+        await Assert.That(stopping.Message).Contains(enrolled.ToString());
+
+        worker.Dispose();
+    }
+
+    [Test]
+    public async Task Before_enrollment_only_the_local_id_is_logged()
+    {
+        AgentId local = AgentId.New();
+        AgentIdentityHolder holder = new();
+        holder.Set(local);
+        var (worker, _, logger) = Build(holder);
+
+        await worker.StartAsync(CancellationToken.None);
+        await worker.StopAsync(CancellationToken.None);
+
+        await Assert.That(logger.Entries.Count(e => e.Message.Contains("local id", StringComparison.Ordinal))).IsEqualTo(0);
+        var banner = logger.Entries.First(e => e.Message.Contains("ZWarden.Agent starting", StringComparison.Ordinal));
+        await Assert.That(banner.Message).Contains(local.ToString());
 
         worker.Dispose();
     }
