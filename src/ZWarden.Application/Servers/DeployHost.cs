@@ -10,4 +10,6 @@ namespace ZWarden.Application.Servers;
 /// <param name="Id">The Agent (Host) identifier.</param>
 /// <param name="Label">The operator-set enrollment label, when the caller may see it.</param>
 /// <param name="Hostname">The Host's self-reported machine name, when the caller may see it.</param>
-public sealed record DeployHost(AgentId Id, string? Label, string? Hostname);
+/// <param name="PzImageReady">#364: false when the Host's Agent reported no usable PZ image, so it can't take a server;
+/// true when it reported one or hasn't said (an older Agent), which the Agent still checks at provision.</param>
+public sealed record DeployHost(AgentId Id, string? Label, string? Hostname, bool PzImageReady = true);

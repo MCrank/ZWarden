@@ -26,19 +26,22 @@ public class ServerProvisionerTests
 
     private static readonly PortAllocation OldPorts = new(16261, 16262);
 
+    private const string Pinned = "zwarden/pzserver:pinned";
+
     private static ServerProvisioner Provisioner(
         FakeContainerRuntime runtime,
         FakeServerRestartCoordinator? coordinator = null,
         FakeServerHostDirectories? hostDirectories = null,
         FakeRconServerConfig? rconConfig = null,
-        FakeInitialSettingsSeeder? seeder = null) =>
+        FakeInitialSettingsSeeder? seeder = null,
+        string? image = Pinned) =>
         new(
             runtime,
             hostDirectories ?? new FakeServerHostDirectories(),
             rconConfig ?? new FakeRconServerConfig(),
             seeder ?? new FakeInitialSettingsSeeder(),
             coordinator ?? new FakeServerRestartCoordinator(),
-            Options.Create(new AgentOptions { PzImageReference = "zwarden/pzserver:pinned", DataMountRoot = Root }),
+            Options.Create(new AgentOptions { PzImageReference = image, DataMountRoot = Root }),
             NullLogger<ServerProvisioner>.Instance);
 
     private static ServerContainer Existing(
@@ -522,5 +525,50 @@ public class ServerProvisionerTests
         await Recreate(Provisioner(runtime), server, gamePort: 27015);
 
         await Assert.That(runtime.CreatedSpecs.Select(s => s.Branch ?? "public")).IsEquivalentTo(["unstable", "unstable"]);
+    }
+
+    // --- #364: no usable PZ image -------------------------------------------------------------------------------
+
+    [Test]
+    [Arguments(null)]
+    [Arguments("")]
+    [Arguments("zwarden-pzserver:latest")]
+    public async Task Provisioning_without_a_usable_image_fails_with_the_reason_before_touching_anything(string? image)
+    {
+        var runtime = new FakeContainerRuntime();
+        var directories = new FakeServerHostDirectories();
+        var seeder = new FakeInitialSettingsSeeder();
+
+        ServerProvisionOutcome outcome = await Provisioner(runtime, hostDirectories: directories, seeder: seeder, image: image)
+            .ProvisionAsync(ServerId.New(), new CreateServer(null), CancellationToken.None);
+
+        await Assert.That(outcome.Succeeded).IsFalse();
+        await Assert.That(outcome.FailureReason!).Contains("ZWARDEN_PZ_IMAGE");
+        await Assert.That(outcome.FailureReason!).Contains("Nothing was created");
+        await Assert.That(runtime.Calls).IsEmpty();
+        await Assert.That(runtime.CreateCount).IsEqualTo(0);
+        await Assert.That(directories.Created).IsEmpty();
+        await Assert.That(seeder.Seeded).IsEmpty();
+    }
+
+    [Test]
+    [Arguments(null)]
+    [Arguments("latest")]
+    public async Task Recreating_without_a_usable_image_fails_with_the_reason_before_stopping_the_server(string? image)
+    {
+        // Recreate removes the old container before it creates the new one: without this check a running server
+        // would be taken down and could not be brought back.
+        ServerId server = ServerId.New();
+        var runtime = new FakeContainerRuntime { ServerContainer = Existing(server) };
+        var coordinator = new FakeServerRestartCoordinator();
+
+        ServerProvisionOutcome outcome = await Recreate(Provisioner(runtime, coordinator, image: image), server, gamePort: null);
+
+        await Assert.That(outcome.Succeeded).IsFalse();
+        await Assert.That(outcome.FailureReason!).Contains("ZWARDEN_PZ_IMAGE");
+        await Assert.That(outcome.FailureReason!).Contains("Nothing was changed");
+        await Assert.That(runtime.Calls).IsEmpty();
+        await Assert.That(runtime.RemoveCount).IsEqualTo(0);
+        await Assert.That(coordinator.WarnCount).IsEqualTo(0);
     }
 }

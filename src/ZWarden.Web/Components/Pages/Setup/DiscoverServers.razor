@@ -173,6 +173,7 @@
             ServerRegisterFailure.AgentNotFound => "That host is no longer known.",
             ServerRegisterFailure.InvalidPort => "That game port is not allowed.",
             ServerRegisterFailure.PortInUse => "That game port (or the one above it) is already used by another server on this host.",
+            ServerRegisterFailure.NoPzImage => DeployServerDraft.NoPzImageMessage,
             _ => "The server could not be registered.",
         };
     }

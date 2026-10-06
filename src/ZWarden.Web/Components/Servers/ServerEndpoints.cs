@@ -113,6 +113,8 @@ public static class ServerEndpoints
                 ServerRegisterFailure.InvalidBranch => Results.BadRequest(new { error = "invalid_branch" }),
                 ServerRegisterFailure.OverCapacity =>
                     Results.Json(new { error = "over_capacity" }, statusCode: StatusCodes.Status409Conflict),
+                ServerRegisterFailure.NoPzImage =>
+                    Results.Json(new { error = "no_pz_image" }, statusCode: StatusCodes.Status409Conflict),
                 _ => Results.BadRequest(new { error = "register_failed" }),
             };
         });

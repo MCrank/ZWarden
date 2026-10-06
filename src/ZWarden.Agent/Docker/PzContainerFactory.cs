@@ -156,8 +156,7 @@ public sealed class PzContainerFactory
         ArgumentException.ThrowIfNullOrWhiteSpace(spec.ServerMountSource);
 
         // Invariant 9: a floating tag is never acceptable — production pins a digest.
-        if (spec.ImageReference.Equals("latest", StringComparison.Ordinal)
-            || spec.ImageReference.EndsWith(":latest", StringComparison.Ordinal))
+        if (PzImageRules.IsFloating(spec.ImageReference))
         {
             throw new ArgumentException("The canonical PZ image reference must be pinned, never a floating 'latest' tag.", nameof(spec));
         }

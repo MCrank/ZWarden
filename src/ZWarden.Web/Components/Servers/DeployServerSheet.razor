@@ -100,9 +100,15 @@
                 <BbNativeSelect TValue="string" Id="deploy-host" Value="@_draft.HostId" ValueChanged="HostChanged" Placeholder="Select…">
                     @foreach (HostOption host in _hosts ?? [])
                     {
-                        <option value="@host.Id" disabled="@(!host.Connected)" data-host-option>@host.OptionLabel</option>
+                        <option value="@host.Id" disabled="@(!host.Deployable)" data-host-option>@host.OptionLabel</option>
                     }
                 </BbNativeSelect>
+                @if ((_hosts ?? []).Any(h => h.Connected && !h.Deployable))
+                {
+                    <p class="mt-1 text-xs text-muted-foreground" data-host-no-image>
+                        A host with no PZ image can't take servers. Set ZWARDEN_PZ_IMAGE in its Agent's .env and restart the Agent.
+                    </p>
+                }
             </div>
             <div class="flex flex-col text-sm">
                 <BbLabel For="deploy-name" Class="mb-1 text-muted-foreground">Name</BbLabel>
@@ -312,14 +318,15 @@
             (inventory, ct) => inventory.ListDeployHostsAsync(user, ct));
         _hosts = [.. hosts
             .Select(h => HostOption.Of(h, Connections.IsConnected(h.Id), Capacity.GetLatest(h.Id)))
-            .OrderByDescending(h => h.Connected)
+            .OrderByDescending(h => h.Deployable)
+            .ThenByDescending(h => h.Connected)
             .ThenBy(h => h.Name, StringComparer.OrdinalIgnoreCase)];
 
-        // One connected host: nothing to choose.
-        List<HostOption> connected = [.. _hosts.Where(h => h.Connected)];
-        if (_draft.HostId is null && connected.Count == 1)
+        // One host that can take a server: nothing to choose.
+        List<HostOption> deployable = [.. _hosts.Where(h => h.Deployable)];
+        if (_draft.HostId is null && deployable.Count == 1)
         {
-            _draft.HostId = connected[0].Id.ToString();
+            _draft.HostId = deployable[0].Id.ToString();
         }
 
         // #339: what the tenant's Hosts report without a Server record, on the Hosts listed above.
@@ -475,7 +482,7 @@
         }
     }
 
-    private HashSet<AgentId> Deployable() => [.. (_hosts ?? []).Where(h => h.Connected).Select(h => h.Id)];
+    private HashSet<AgentId> Deployable() => [.. (_hosts ?? []).Where(h => h.Deployable).Select(h => h.Id)];
 
     private async Task<UserId> CurrentUserAsync()
     {
@@ -511,16 +518,17 @@
         }
     }
 
-    // One host in the picker: its name (#336, or its short id), whether it is connected, and its free memory.
-    private sealed record HostOption(AgentId Id, string Name, bool Connected, string OptionLabel)
+    // One host in the picker: its name (#336, or its short id), whether it is connected, whether its Agent has a usable PZ
+    // image (#364), and its free memory. Only a connected host with an image can take a server; offline wins the label.
+    private sealed record HostOption(AgentId Id, string Name, bool Connected, bool Deployable, string OptionLabel)
     {
         public static HostOption Of(DeployHost host, bool connected, HostCapacity? capacity)
         {
             string name = HostNames.Display(host.Id, host.Label, host.Hostname);
-            string label = !connected
-                ? $"{name} — offline"
+            string label = !connected ? $"{name} — offline"
+                : !host.PzImageReady ? $"{name} — no PZ image configured"
                 : capacity is null ? name : $"{name} — {NewServerForm.FormatGiB(capacity.FreeBytes)} free";
-            return new HostOption(host.Id, name, connected, label);
+            return new HostOption(host.Id, name, connected, connected && host.PzImageReady, label);
         }
     }
 }

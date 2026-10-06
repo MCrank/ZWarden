@@ -49,6 +49,34 @@ public class EnvelopeSerializationTests
     }
 
     [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task AgentHello_round_trips_whether_the_host_can_provision(bool ready)
+    {
+        // #364: the Agent says whether its PZ image can provision a server.
+        Envelope<AgentHello> original = Envelope.Create(
+            new AgentHello(AgentId.New(), new HostDescriptor("pz-host-2", "1.0.0", "Linux", PzImageReady: ready)), At);
+
+        Envelope<AgentHello> back = ProtocolJson.Deserialize<AgentHello>(ProtocolJson.Serialize(original));
+
+        await Assert.That(back.Payload.Host!.PzImageReady).IsEqualTo(ready);
+    }
+
+    [Test]
+    public async Task A_host_descriptor_from_an_agent_before_364_reads_as_unknown_readiness()
+    {
+        string json = ProtocolJson.Serialize(Envelope.Create(
+            new AgentHello(AgentId.New(), new HostDescriptor("pz-host-2", "1.0.0", "Linux")), At));
+        string older = System.Text.RegularExpressions.Regex.Replace(
+            json, ",\\s*\"pzImageReady\"\\s*:\\s*null", string.Empty, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+        Envelope<AgentHello> back = ProtocolJson.Deserialize<AgentHello>(older);
+
+        await Assert.That(older.ToUpperInvariant()).DoesNotContain("PZIMAGEREADY");
+        await Assert.That(back.Payload.Host!.PzImageReady).IsNull();
+    }
+
+    [Test]
     public async Task AgentHeartbeat_round_trips()
     {
         Envelope<AgentHeartbeat> original = Envelope.Create(new AgentHeartbeat(AgentHealthStatus.Degraded), At);

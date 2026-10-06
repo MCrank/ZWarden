@@ -345,7 +345,7 @@ public class ServerInventoryTests
                 .ListDeployHostsAsync(user);
 
             await Assert.That(hosts.Count).IsEqualTo(1);
-            await Assert.That(hosts[0]).IsEqualTo(new DeployHost(named.Id, "host-alpha", "nsfw-01"));
+            await Assert.That(hosts[0]).IsEqualTo(new DeployHost(named.Id, "host-alpha", "nsfw-01", PzImageReady: true));
         });
     }
 
@@ -363,7 +363,7 @@ public class ServerInventoryTests
                 .ListDeployHostsAsync(user);
 
             await Assert.That(hosts.Count).IsEqualTo(1);
-            await Assert.That(hosts[0]).IsEqualTo(new DeployHost(agent, null, null));
+            await Assert.That(hosts[0]).IsEqualTo(new DeployHost(agent, null, null, PzImageReady: true));
         });
     }
 
@@ -629,7 +629,8 @@ public class ServerInventoryTests
         CapturingAuditWriter audit,
         IOperationCoordinator? coordinator = null,
         FakeSecretProtector? secrets = null,
-        HostCapacityCache? capacity = null)
+        HostCapacityCache? capacity = null,
+        HostProvisioningCache? provisioning = null)
         => new(
             db,
             new ServerRepository(db),
@@ -640,7 +641,8 @@ public class ServerInventoryTests
             audit,
             new StubClock(Now),
             secrets ?? new FakeSecretProtector(),
-            capacity ?? new HostCapacityCache());
+            capacity ?? new HostCapacityCache(),
+            provisioning ?? new HostProvisioningCache());
 
     private sealed class StubOperationCoordinator : IOperationCoordinator
     {
@@ -773,6 +775,57 @@ public class ServerInventoryTests
                 .RegisterAsync(user, Request(agent) with { Branch = branch });
 
             await Assert.That(result.Failure).IsEqualTo(ServerRegisterFailure.InvalidBranch);
+            await Assert.That(coordinator.LastRequest).IsNull();
+            await Assert.That(await new ServerRepository(db).ListByAgentAsync(agent)).IsEmpty();
+        });
+    }
+
+    // --- #364: a host with no usable PZ image -------------------------------------------------------------------
+
+    [Test]
+    public async Task Deploy_hosts_mark_a_host_whose_agent_reported_no_usable_pz_image()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            await SeedAssignmentAsync(options, user, server: null, Permissions.ServerRegister);
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            AgentId noImage = await PersistAgentAsync(db);
+            AgentId ready = await PersistAgentAsync(db);
+            AgentId older = await PersistAgentAsync(db);
+            HostProvisioningCache provisioning = new();
+            provisioning.Record(noImage, pzImageReady: false);
+            provisioning.Record(ready, pzImageReady: true);
+
+            IReadOnlyList<DeployHost> hosts = await Inventory(
+                    db, new ServerDiscoveryCache(), new CapturingAuditWriter(), provisioning: provisioning)
+                .ListDeployHostsAsync(user);
+
+            await Assert.That(hosts.Single(h => h.Id == noImage).PzImageReady).IsFalse();
+            await Assert.That(hosts.Single(h => h.Id == ready).PzImageReady).IsTrue();
+            // Unknown (an Agent before #364, or no hello yet) is not blocked: the Agent still refuses at provision.
+            await Assert.That(hosts.Single(h => h.Id == older).PzImageReady).IsTrue();
+        });
+    }
+
+    [Test]
+    public async Task Register_refuses_a_host_whose_agent_reported_no_usable_pz_image_and_creates_nothing()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            await SeedAssignmentAsync(options, user, server: null, Permissions.ServerRegister);
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            AgentId agent = await PersistAgentAsync(db);
+            HostProvisioningCache provisioning = new();
+            provisioning.Record(agent, pzImageReady: false);
+            StubOperationCoordinator coordinator = new();
+
+            ServerRegisterResult refused = await Inventory(
+                    db, new ServerDiscoveryCache(), new CapturingAuditWriter(), coordinator, provisioning: provisioning)
+                .RegisterAsync(user, Request(agent));
+
+            await Assert.That(refused.Failure).IsEqualTo(ServerRegisterFailure.NoPzImage);
             await Assert.That(coordinator.LastRequest).IsNull();
             await Assert.That(await new ServerRepository(db).ListByAgentAsync(agent)).IsEmpty();
         });

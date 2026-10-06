@@ -54,8 +54,10 @@ Edit `.env`:
 - `ZWARDEN_DOMAIN` — the **same public domain** the control plane serves (e.g. `zwarden.example.com`). The
   Agent connects to `wss://<domain>/agent/hub`.
 - `ZWARDEN_ENROLLMENT_SECRET` — paste the secret from step 1.
-- `ZWARDEN_PZ_IMAGE` — optional now; a **specific** PZ image reference (any tag except a floating `:latest`,
-  which is rejected — ADR 0008), needed before you provision a server on this host. A `repo@sha256:…` digest is
+- `ZWARDEN_PZ_IMAGE` — **required to run servers on this host**: a **specific** PZ image reference (any tag
+  except a floating `:latest`, which is rejected — ADR 0008). Set it on the existing `ZWARDEN_PZ_IMAGE=` line;
+  don't add a second one. The Agent connects without it, but Deploy server lists the host as "no PZ image
+  configured" and refuses it until you set it and restart the Agent (`docker compose up -d`). A `repo@sha256:…` digest is
   the hardened production form; a locally built, unpushed image has no digest, so pin its build tag.
 
 ### 3. Bring the Agent up
@@ -93,6 +95,10 @@ example by bind-mounting the CA file and pointing the container's CA bundle at i
   it as disconnected until it returns, then Connected again.
 - **Provisioning a server fails with "no such image".** Set `ZWARDEN_PZ_IMAGE` to the pinned PZ image digest
   and re-run — the socket-proxy denies image pulls by design (ADR 0008), so the image must be present/pinned.
+- **Deploy server shows the host as "no PZ image configured".** Its Agent started with `ZWARDEN_PZ_IMAGE` blank
+  (or a floating `:latest`). Set it in the Agent's `.env` and run `docker compose up -d`; the host becomes
+  selectable once the Agent reconnects. A provision or Recreate that reaches such an Agent fails at once with
+  the same reason.
 
 ## Removing a host
 

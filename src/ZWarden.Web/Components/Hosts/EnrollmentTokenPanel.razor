@@ -38,6 +38,12 @@
                 <span data-copy-label>Copy</span>
             </BbButton>
         </div>
+        @* #364: not one of the pasted lines, since the .env.example already has a ZWARDEN_PZ_IMAGE= line to fill in. *@
+        <p class="text-xs text-muted-foreground" data-enrollment-pz-image>
+            To run servers on this host, also set <code class="font-mono">ZWARDEN_PZ_IMAGE</code> on its existing line in
+            the same <code class="font-mono">.env</code> (a specific tag or digest, not <code class="font-mono">latest</code>).
+            Until then the host shows as "no PZ image configured" in Deploy server.
+        </p>
     </div>
 </div>
 

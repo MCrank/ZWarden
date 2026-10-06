@@ -373,6 +373,42 @@ public sealed class DeployServerSheetTests
     }
 
     [Test]
+    public async Task A_host_without_a_pz_image_is_listed_disabled_with_the_reason_and_not_preselected()
+    {
+        // #364: the Agent said its ZWARDEN_PZ_IMAGE is blank, so a deploy there could only fail.
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
+        AgentId ready = await SeedHostAsync(harness, "host-alpha", connected: true);
+        AgentId noImage = await SeedHostAsync(harness, "host-bravo", connected: true);
+        RecordPzImage(harness, noImage, ready: false);
+
+        IRenderedComponent<DeployServerSheet> cut = await OpenAsync(harness);
+
+        AngleSharp.Dom.IElement bravo = cut.Find($"#deploy-host option[value='{noImage}']");
+        await Assert.That(bravo.TextContent).IsEqualTo("host-bravo — no PZ image configured");
+        await Assert.That(bravo.HasAttribute("disabled")).IsTrue();
+        await Assert.That(cut.Find("[data-host-no-image]").TextContent).Contains("ZWARDEN_PZ_IMAGE");
+        // The one host that can take a server is preselected.
+        await Assert.That(cut.FindComponents<BlazorBlueprint.Components.BbNativeSelect<string>>().Single().Instance.Value)
+            .IsEqualTo(ready.ToString());
+    }
+
+    [Test]
+    public async Task A_host_that_loses_its_pz_image_after_the_sheet_opened_is_refused_with_the_reason()
+    {
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
+        AgentId agent = await SeedHostAsync(harness, "host-alpha", connected: true);
+        IRenderedComponent<DeployServerSheet> cut = await ToGameVersionAsync(harness, "late");
+        await NextAsync(cut, "memory");
+        RecordPzImage(harness, agent, ready: false);
+
+        await cut.Find("[data-action=step-finish]").ClickAsync(new());
+
+        cut.WaitForState(() => cut.FindAll("[data-deploy-message]").Count == 1);
+        await Assert.That(cut.Find("[data-deploy-message]").TextContent).Contains("Set ZWARDEN_PZ_IMAGE");
+        await Assert.That(await ServerCountAsync(harness)).IsEqualTo(0);
+    }
+
+    [Test]
     public async Task A_hostile_host_label_is_rendered_escaped()
     {
         await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
@@ -598,4 +634,7 @@ public sealed class DeployServerSheetTests
 
     private static void RecordCapacity(InteractivePageHarness harness, AgentId agent, HostCapacity capacity) =>
         harness.Factory.Services.GetRequiredService<IHostCapacityCache>().Record(capacity with { AgentId = agent });
+
+    private static void RecordPzImage(InteractivePageHarness harness, AgentId agent, bool ready) =>
+        harness.Factory.Services.GetRequiredService<IHostProvisioningCache>().Record(agent, ready);
 }

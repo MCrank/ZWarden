@@ -33,6 +33,7 @@ public sealed class ServerInventory : IServerInventory
     private readonly TimeProvider _clock;
     private readonly ISecretProtector _secrets;
     private readonly IHostCapacityCache _capacity;
+    private readonly IHostProvisioningCache _provisioning;
 
     public ServerInventory(
         ZWardenDbContext context,
@@ -44,12 +45,15 @@ public sealed class ServerInventory : IServerInventory
         IAuditWriter audit,
         TimeProvider clock,
         ISecretProtector secrets,
-        IHostCapacityCache capacity)
+        IHostCapacityCache capacity,
+        IHostProvisioningCache provisioning)
     {
         ArgumentNullException.ThrowIfNull(secrets);
         ArgumentNullException.ThrowIfNull(capacity);
+        ArgumentNullException.ThrowIfNull(provisioning);
         _secrets = secrets;
         _capacity = capacity;
+        _provisioning = provisioning;
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(servers);
         ArgumentNullException.ThrowIfNull(agents);
@@ -189,7 +193,8 @@ public sealed class ServerInventory : IServerInventory
         IReadOnlyList<Agent> agents = await _agents.ListAsync(cancellationToken).ConfigureAwait(false);
         return agents
             .Where(a => a.IsTrusted)
-            .Select(a => named ? new DeployHost(a.Id, a.Label, a.Hostname) : new DeployHost(a.Id, null, null))
+            .Select(a => new DeployHost(
+                a.Id, named ? a.Label : null, named ? a.Hostname : null, _provisioning.IsPzImageReady(a.Id) ?? true))
             .ToList();
     }
 
@@ -275,6 +280,12 @@ public sealed class ServerInventory : IServerInventory
         if (agent is null)
         {
             return ServerRegisterResult.Denied(ServerRegisterFailure.AgentNotFound);
+        }
+
+        // #364: the host's Agent said its PZ image can't provision; the Operation could only fail. Unknown is not blocked.
+        if (_provisioning.IsPzImageReady(agentId) == false)
+        {
+            return ServerRegisterResult.Denied(ServerRegisterFailure.NoPzImage);
         }
 
         // The fast control-plane port refusal (#229) — before anything is created. The Agent stays authoritative: it

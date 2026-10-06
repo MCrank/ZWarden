@@ -115,6 +115,12 @@ public sealed partial class ServerProvisioner : IServerProvisioner
     {
         ArgumentNullException.ThrowIfNull(request);
 
+        // #364: a host with no usable PZ image fails the Operation now, with the fix, instead of throwing in the factory.
+        if (PzImageRules.Problem(_options.PzImageReference) is { } imageRefusal)
+        {
+            return Failed($"{imageRefusal} Nothing was created.");
+        }
+
         // Refusals that change nothing: the heap and the settings are operator input, re-validated here (defence in depth).
         if (ValidateHeap(request.HeapSizeBytes) is { } heapRefusal)
         {
@@ -163,6 +169,12 @@ public sealed partial class ServerProvisioner : IServerProvisioner
 
         // 1. Refusals that change nothing: an invalid heap; a container with other data binds (an import from elsewhere)
         // would lose its world to a template recreate; an unavailable pair would only fail after the server was taken down.
+        // No usable PZ image (#364) is checked first: the old container would be removed and nothing could replace it.
+        if (PzImageRules.Problem(_options.PzImageReference) is { } imageRefusal)
+        {
+            return Failed($"{imageRefusal} Nothing was changed.");
+        }
+
         if (ValidateHeap(request.HeapSizeBytes) is { } heapRefusal)
         {
             return Failed(heapRefusal);
