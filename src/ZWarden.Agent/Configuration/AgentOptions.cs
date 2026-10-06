@@ -71,8 +71,9 @@ public sealed class AgentOptions
     /// The pinned canonical PZ image reference used when provisioning a Server's container (F14): a
     /// <c>repo@sha256:…</c> digest in production (ADR 0008 D5), a local tag in dev. Supplied from
     /// configuration, never from the wire. Optional at startup — an Agent that never provisions may leave it
-    /// unset — but provisioning fails with an actionable message until it is a real, non-floating reference
-    /// (the create-template rejects a floating <c>latest</c>).
+    /// unset — but until it is a real, non-floating reference (<see cref="Docker.PzImageRules"/>) a provision or Recreate
+    /// fails at once with an actionable message, and the Agent tells the control plane on hello so Deploy server
+    /// refuses the Host up front (#364).
     /// </summary>
     public string? PzImageReference { get; set; }
 

@@ -27,4 +27,18 @@ public class HostDescriptorProviderTests
 
         await Assert.That(known).Contains(HostDescriptorProvider.Current.OsPlatform);
     }
+
+    [Test]
+    [Arguments("zwarden-pzserver:42.20.4", true)]
+    [Arguments(null, false)]
+    [Arguments(" ", false)]
+    [Arguments("zwarden-pzserver:latest", false)]
+    public async Task The_hello_descriptor_says_whether_the_configured_image_can_provision(string? image, bool ready)
+    {
+        // #364: the control plane refuses a Host whose Agent reports false.
+        var host = HostDescriptorProvider.For(image);
+
+        await Assert.That(host.PzImageReady).IsEqualTo(ready);
+        await Assert.That(host.Hostname).IsEqualTo(HostDescriptorProvider.Current.Hostname);
+    }
 }

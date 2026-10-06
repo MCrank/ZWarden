@@ -218,6 +218,27 @@ public class AgentHubIntegrationTests
     }
 
     [Test]
+    public async Task A_hello_records_whether_the_agents_pz_image_can_provision()
+    {
+        // #364: the Deploy sheet and RegisterAsync refuse a Host whose Agent said its image can't provision.
+        await using ZWardenWebAppFactory factory = new();
+        (AgentId agentId, string credential) = await SeedTrustedAgentAsync(factory);
+        await using HubConnection connection = BuildConnection(factory, credential);
+        IHostProvisioningCache cache = factory.Services.GetRequiredService<IHostProvisioningCache>();
+
+        await connection.StartAsync();
+        Envelope<AgentHello> hello = Hello(agentId, ProtocolVersion.Current) with
+        {
+            Payload = new AgentHello(agentId, new HostDescriptor("nsfw-3", "1.0.0", "Linux", PzImageReady: false)),
+        };
+        await connection.InvokeAsync<ProtocolNegotiationResult>(AgentHubProtocol.Hello, hello);
+
+        await Assert.That(cache.IsPzImageReady(agentId)).IsFalse();
+
+        await connection.StopAsync();
+    }
+
+    [Test]
     public async Task A_max_players_outside_pzs_bounds_is_dropped_on_ingest()
     {
         // #337 D2: the cap is untrusted Agent data; anything PZ itself would refuse is not shown.

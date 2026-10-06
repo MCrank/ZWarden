@@ -13,4 +13,7 @@ namespace ZWarden.Contracts.Protocol.Messages;
 /// <param name="Hostname">The Host's machine name (e.g. <c>Environment.MachineName</c>). Never a secret.</param>
 /// <param name="AgentVersion">The ZWarden.Agent build version reporting in.</param>
 /// <param name="OsPlatform">A short OS-platform label (e.g. <c>Linux</c>, <c>Windows</c>, <c>macOS</c>).</param>
-public sealed record HostDescriptor(string Hostname, string AgentVersion, string OsPlatform);
+/// <param name="PzImageReady">#364: whether the Agent's configured PZ image can provision a server (set, and not a
+/// floating <c>latest</c>); <c>null</c> from an Agent that predates it. The control plane uses it to refuse a Host
+/// up front; the Agent re-checks on every provision.</param>
+public sealed record HostDescriptor(string Hostname, string AgentVersion, string OsPlatform, bool? PzImageReady = null);

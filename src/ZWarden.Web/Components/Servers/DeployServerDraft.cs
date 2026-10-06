@@ -51,7 +51,7 @@ public sealed class DeployServerDraft
     public bool AcknowledgeOvercommit { get; set; }
 
     /// <summary>Why <paramref name="step"/> can't be left yet, or <c>null</c> when it is valid. Basics also needs the
-    /// chosen host to be one of <paramref name="deployable"/> (connected right now).</summary>
+    /// chosen host to be one of <paramref name="deployable"/> (connected right now, with a usable PZ image — #364).</summary>
     public string? Validate(int step, IReadOnlyCollection<AgentId> deployable)
     {
         ArgumentNullException.ThrowIfNull(deployable);
@@ -104,6 +104,10 @@ public sealed class DeployServerDraft
         _ => Basics,
     };
 
+    /// <summary>Why a host whose Agent reported no usable PZ image can't take a server, and how to fix it (#364).</summary>
+    public const string NoPzImageMessage =
+        "That host has no Project Zomboid image configured. Set ZWARDEN_PZ_IMAGE in its Agent's .env and restart the Agent.";
+
     /// <summary>The operator-facing reason a registration was refused.</summary>
     public static string FailureMessage(ServerRegisterFailure? failure) => failure switch
     {
@@ -114,6 +118,7 @@ public sealed class DeployServerDraft
         ServerRegisterFailure.InvalidHeap => "That heap is not allowed.",
         ServerRegisterFailure.InvalidSettings => "One of the settings is not allowed.",
         ServerRegisterFailure.InvalidBranch => "That branch is not allowed.",
+        ServerRegisterFailure.NoPzImage => NoPzImageMessage,
         _ => "The server could not be deployed.",
     };
 
@@ -126,7 +131,7 @@ public sealed class DeployServerDraft
 
         if (!AgentId.TryParse(HostId, out AgentId agent) || !deployable.Contains(agent))
         {
-            return "That host isn't connected. Choose a connected host.";
+            return "That host can't take a server right now. Choose a connected host that has a PZ image.";
         }
 
         if (!HostPortInput.TryParse(GamePort, out _, out string? error)

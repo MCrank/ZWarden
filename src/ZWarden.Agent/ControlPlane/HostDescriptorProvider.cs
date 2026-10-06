@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using ZWarden.Agent.Docker;
 using ZWarden.Contracts.Protocol.Messages;
 
 namespace ZWarden.Agent.ControlPlane;
@@ -17,6 +18,12 @@ public static class HostDescriptorProvider
 {
     /// <summary>The descriptor for the Host this Agent runs on, computed once.</summary>
     public static HostDescriptor Current { get; } = Build();
+
+    /// <summary>The descriptor sent on hello: <see cref="Current"/> plus whether <paramref name="pzImageReference"/> can
+    /// provision a server (#364). The reference is fixed for the process, so a changed <c>.env</c> reaches the control
+    /// plane with the hello after the Agent restarts.</summary>
+    public static HostDescriptor For(string? pzImageReference) =>
+        Current with { PzImageReady = PzImageRules.Problem(pzImageReference) is null };
 
     private static HostDescriptor Build()
     {

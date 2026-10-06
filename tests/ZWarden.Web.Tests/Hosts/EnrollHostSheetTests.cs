@@ -65,6 +65,8 @@ public sealed class EnrollHostSheetTests
         await Assert.That(env).Contains($"ZWARDEN_ENROLLMENT_SECRET={token}");
         await Assert.That(env).Contains("ZWARDEN_DOMAIN=localhost");
         await Assert.That(cut.Find("[data-shell-copy='[data-enrollment-env]']")).IsNotNull();
+        // #364: the image is set by hand in the same .env; without it the host can't run servers.
+        await Assert.That(cut.Find("[data-enrollment-pz-image]").TextContent).Contains("ZWARDEN_PZ_IMAGE");
         await Assert.That(cut.Find("[data-enrollment-waiting]").TextContent).Contains("Waiting for the Agent");
         // The token is listed under Recent tokens with its label, and the finish button now just closes the sheet.
         await Assert.That(cut.Find("[data-enrollment-row]").TextContent).Contains("host-alpha");

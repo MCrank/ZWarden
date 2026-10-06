@@ -29,6 +29,10 @@ public enum ServerRegisterFailure
 
     /// <summary>The server's memory limit exceeds the host's free memory and the operator did not acknowledge it (#230 D1).</summary>
     OverCapacity,
+
+    /// <summary>The chosen host's Agent reported no usable PZ image (#364): <c>ZWARDEN_PZ_IMAGE</c> is blank or a floating
+    /// <c>latest</c>, so a provision could only fail.</summary>
+    NoPzImage,
 }
 
 /// <summary>The outcome of registering a new Server (F14 PR-B): on success, the new Server and the
