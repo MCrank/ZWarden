@@ -82,8 +82,8 @@
                                 @if (State is { CanManageWorkshop: true })
                                 {
                                     <EditForm Model="_timeout" OnValidSubmit="SaveTimeoutAsync" data-settings-session-form
-                                              class="flex flex-wrap items-center gap-2">
-                                        <BbNativeSelect TValue="string" Id="session-timeout" @bind-Value="_timeout.Minutes" aria-label="Session timeout">
+                                              class="flex flex-wrap items-center gap-2 sm:flex-nowrap">
+                                        <BbNativeSelect TValue="string" Id="session-timeout" @bind-Value="_timeout.Minutes" aria-label="Session timeout" Class="w-44">
                                             @foreach (TimeSpan choice in ControlPlaneSettings.SessionIdleTimeoutChoices)
                                             {
                                                 <option value="@((int)choice.TotalMinutes)" selected="@(_timeout.Minutes == ((int)choice.TotalMinutes).ToString(CultureInfo.InvariantCulture))">
@@ -251,7 +251,7 @@
                             @if (State is { CanManageSettings: true })
                             {
                                 <EditForm Model="_name" OnValidSubmit="SaveNameAsync" data-settings-instance-form
-                                          class="flex flex-wrap items-center gap-2 sm:justify-end">
+                                          class="flex flex-wrap items-center gap-2 sm:flex-nowrap sm:justify-end">
                                     <BbInput Id="instance-name" UpdateTiming="UpdateTiming.Immediate" @bind-Value="_name.Value"
                                              Placeholder="@Instance.Value.Name" aria-label="Instance name" maxlength="64"
                                              autocomplete="off" Class="w-56" />
@@ -290,8 +290,8 @@
                             @if (State is { CanManageSettings: true, DeployHosts: { } choices })
                             {
                                 <EditForm Model="_host" OnValidSubmit="SaveDefaultHostAsync" data-settings-default-host-form
-                                          class="flex flex-wrap items-center gap-2 sm:justify-end">
-                                    <BbNativeSelect TValue="string" Id="default-deploy-host" @bind-Value="_host.Id" aria-label="Default deploy host">
+                                          class="flex flex-wrap items-center gap-2 sm:flex-nowrap sm:justify-end">
+                                    <BbNativeSelect TValue="string" Id="default-deploy-host" @bind-Value="_host.Id" aria-label="Default deploy host" Class="w-56">
                                         <option value="" selected="@(string.IsNullOrEmpty(_host.Id))">No default</option>
                                         @foreach (HostChoice choice in choices)
                                         {
