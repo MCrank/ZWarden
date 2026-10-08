@@ -20,8 +20,9 @@ public static class IdentityAuthenticationServiceCollectionExtensions
     /// browser-exposed bearer token).</summary>
     public const string ApplicationCookieName = "zwarden.auth";
 
-    /// <summary>The default bounded session lifetime; sliding, so activity extends it up to this window.</summary>
-    public static readonly TimeSpan SessionLifetime = TimeSpan.FromHours(8);
+    /// <summary>The default bounded session lifetime; sliding, so activity extends it up to this window. The Owner may
+    /// choose another in Settings (#346), applied by <see cref="SessionTimeoutCookieEvents"/>.</summary>
+    public static readonly TimeSpan SessionLifetime = Domain.Settings.ControlPlaneSettings.DefaultSessionIdleTimeout;
 
     /// <summary>
     /// Registers Identity's sign-in surface and hardened cookie authentication over
@@ -74,7 +75,9 @@ public static class IdentityAuthenticationServiceCollectionExtensions
             .AddCookie(IdentityConstants.ApplicationScheme, options =>
             {
                 ConfigureApplicationCookie(options);
-                options.Events.OnValidatePrincipal = SecurityStampValidator.ValidatePrincipalAsync;
+                // #297 security stamp, then #346 the Owner's session idle timeout (sign-in and every request).
+                options.Events.OnValidatePrincipal = SessionTimeoutCookieEvents.ValidatePrincipalAsync;
+                options.Events.OnSigningIn = SessionTimeoutCookieEvents.SigningInAsync;
             })
             .AddCookie(IdentityConstants.ExternalScheme, ConfigureTransientCookie)
             .AddCookie(IdentityConstants.TwoFactorUserIdScheme, ConfigureTransientCookie)

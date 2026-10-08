@@ -68,6 +68,45 @@ public sealed class ControlPlaneSettingsTests
     }
 
     [Test]
+    public async Task The_session_idle_timeout_offers_bounded_choices_around_the_8_hour_default()
+    {
+        await Assert.That(ControlPlaneSettings.DefaultSessionIdleTimeout).IsEqualTo(TimeSpan.FromHours(8));
+        await Assert.That(ControlPlaneSettings.SessionIdleTimeoutChoices).IsEquivalentTo(
+            [TimeSpan.FromMinutes(30), TimeSpan.FromHours(1), TimeSpan.FromHours(8), TimeSpan.FromHours(24), TimeSpan.FromDays(7)]);
+        await Assert.That(ControlPlaneSettings.Create().SessionIdleTimeout).IsNull();
+    }
+
+    [Test]
+    public async Task A_listed_session_timeout_is_stored_and_the_default_stores_nothing()
+    {
+        ControlPlaneSettings settings = ControlPlaneSettings.Create();
+
+        settings.SetSessionIdleTimeout(TimeSpan.FromMinutes(30));
+        await Assert.That(settings.SessionIdleTimeout).IsEqualTo(TimeSpan.FromMinutes(30));
+
+        settings.SetSessionIdleTimeout(TimeSpan.FromHours(8));
+        await Assert.That(settings.SessionIdleTimeout).IsNull();
+
+        settings.SetSessionIdleTimeout(TimeSpan.FromDays(7));
+        settings.SetSessionIdleTimeout(null);
+        await Assert.That(settings.SessionIdleTimeout).IsNull();
+    }
+
+    [Test]
+    [Arguments(0)]
+    [Arguments(5)]
+    [Arguments(45)]
+    [Arguments(60 * 24 * 30)]
+    public async Task A_session_timeout_off_the_list_is_refused(int minutes)
+    {
+        ControlPlaneSettings settings = ControlPlaneSettings.Create();
+        settings.SetSessionIdleTimeout(TimeSpan.FromHours(1));
+
+        await Assert.That(() => settings.SetSessionIdleTimeout(TimeSpan.FromMinutes(minutes))).Throws<ArgumentException>();
+        await Assert.That(settings.SessionIdleTimeout).IsEqualTo(TimeSpan.FromHours(1));
+    }
+
+    [Test]
     public async Task Owner_and_administrator_may_manage_settings_but_no_lesser_role()
     {
         PermissionDefinition manage = Permissions.TenantSettingsManage;
