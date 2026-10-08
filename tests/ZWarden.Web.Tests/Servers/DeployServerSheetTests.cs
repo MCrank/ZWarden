@@ -559,6 +559,50 @@ public sealed class DeployServerSheetTests
         return cut;
     }
 
+    [Test]
+    public async Task The_default_deploy_host_is_preselected_among_several_and_can_still_be_changed()
+    {
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
+        AgentId alpha = await SeedHostAsync(harness, "host-alpha", connected: true);
+        AgentId bravo = await SeedHostAsync(harness, "host-bravo", connected: true);
+        await SetDefaultHostAsync(harness, bravo);
+
+        IRenderedComponent<DeployServerSheet> cut = await OpenAsync(harness);
+        BlazorBlueprint.Components.BbNativeSelect<string> picker = cut.FindComponents<BlazorBlueprint.Components.BbNativeSelect<string>>().Single().Instance;
+        await Assert.That(picker.Value).IsEqualTo(bravo.ToString()); // #347
+
+        await cut.Find("#deploy-host").ChangeAsync(new Microsoft.AspNetCore.Components.ChangeEventArgs { Value = alpha.ToString() });
+        await Assert.That(cut.FindComponents<BlazorBlueprint.Components.BbNativeSelect<string>>().Single().Instance.Value)
+            .IsEqualTo(alpha.ToString());
+    }
+
+    [Test]
+    public async Task An_offline_default_deploy_host_is_not_preselected()
+    {
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
+        AgentId alpha = await SeedHostAsync(harness, "host-alpha", connected: true);
+        AgentId zulu = await SeedHostAsync(harness, "host-zulu", connected: false);
+        await SetDefaultHostAsync(harness, zulu);
+
+        IRenderedComponent<DeployServerSheet> cut = await OpenAsync(harness);
+
+        // The default can't take a server now, so the existing rule applies: the one deployable host.
+        await Assert.That(cut.FindComponents<BlazorBlueprint.Components.BbNativeSelect<string>>().Single().Instance.Value)
+            .IsEqualTo(alpha.ToString());
+    }
+
+    // Saves the default deploy host through the real settings service as the harness's Owner.
+    private static async Task SetDefaultHostAsync(InteractivePageHarness harness, AgentId host)
+    {
+        await using AsyncServiceScope scope = harness.Factory.Services.CreateSystemScope();
+        Microsoft.AspNetCore.Identity.UserManager<ZWarden.Infrastructure.Identity.ApplicationUser> users =
+            scope.ServiceProvider.GetRequiredService<Microsoft.AspNetCore.Identity.UserManager<ZWarden.Infrastructure.Identity.ApplicationUser>>();
+        ZWarden.Infrastructure.Identity.ApplicationUser owner = await users.FindByEmailAsync(InteractivePageHarness.OperatorEmail)
+            ?? throw new InvalidOperationException("No harness operator.");
+        await scope.ServiceProvider.GetRequiredService<ZWarden.Application.Settings.IControlPlaneSettingsService>()
+            .SetDefaultDeployHostAsync(UserId.FromGuid(owner.Id), host);
+    }
+
     private static void Discover(InteractivePageHarness harness, AgentId agent, params (ServerId Id, ServerRunState State)[] containers) =>
         harness.Factory.Services.GetRequiredService<IServerDiscoveryCache>()
             .Record(agent, [.. containers.Select(c => new DiscoveredServer(c.Id, c.State))]);

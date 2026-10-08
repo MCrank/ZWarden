@@ -1,5 +1,6 @@
 @using System.Security.Claims
 @using ZWarden.Application.Agents
+@using ZWarden.Application.Settings
 @using ZWarden.Domain.Ids
 @using ZWarden.Infrastructure.Tenancy
 @inject ActionScopeRunner Actions
@@ -322,9 +323,16 @@
             .ThenByDescending(h => h.Connected)
             .ThenBy(h => h.Name, StringComparer.OrdinalIgnoreCase)];
 
-        // One host that can take a server: nothing to choose.
+        // #347: the tenant's default deploy host, when it can take a server now; else one host that can is chosen for
+        // the operator. Either way the operator can pick another.
         List<HostOption> deployable = [.. _hosts.Where(h => h.Deployable)];
-        if (_draft.HostId is null && deployable.Count == 1)
+        ControlPlaneSettingsSnapshot settings = await Actions.RunAsync<IControlPlaneSettingsService, ControlPlaneSettingsSnapshot>(
+            (service, ct) => service.GetAsync(ct));
+        if (_draft.HostId is null && settings.DefaultDeployHost is { } preferred && deployable.Any(h => h.Id == preferred))
+        {
+            _draft.HostId = preferred.ToString();
+        }
+        else if (_draft.HostId is null && deployable.Count == 1)
         {
             _draft.HostId = deployable[0].Id.ToString();
         }

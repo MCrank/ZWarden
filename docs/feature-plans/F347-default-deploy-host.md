@@ -37,3 +37,15 @@ default and Settings says why.
 ## Not in scope
 
 - A default per operator (this is one per tenant).
+
+## Result (2026-10-08)
+
+- Delivered as planned.
+- The stored host is an `AgentId` column with no FK, mapped explicitly. The typed-id convention needs
+  `builder.Property(...)` for a nullable id, as `Enrollment.ConsumedByAgent` does.
+- Settings reads the tenant's hosts once, for Agent.View holders. The host count (#344) still shows only to Owners.
+- Tests:
+  - Domain: +2.
+  - Infrastructure: +3.
+  - Web: `DefaultDeployHostTests` (2) and two Deploy sheet tests (pre-select, offline default not pre-selected).
+  - Floors: Domain 414, Infrastructure 720, Web 721.

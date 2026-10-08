@@ -284,9 +284,55 @@
                                 </BbAlert>
                             </div>
                         }
-                        <SettingRow Label="Default deploy host" Hint="Where Deploy server provisions">
-                            <span class="text-muted-foreground">Chosen per deploy — <a href="/hosts" class="text-foreground underline hover:no-underline">manage hosts</a></span>
+                        @* #347: the host Deploy server pre-selects (Tenant.Settings.Manage); the operator can still pick another.
+                           A saved host that is no longer enrolled and enabled means no default, said here. *@
+                        <SettingRow Label="Default deploy host" Hint="Pre-selected in Deploy server; you can still pick another">
+                            @if (State is { CanManageSettings: true, DeployHosts: { } choices })
+                            {
+                                <EditForm Model="_host" OnValidSubmit="SaveDefaultHostAsync" data-settings-default-host-form
+                                          class="flex flex-wrap items-center gap-2 sm:justify-end">
+                                    <BbNativeSelect TValue="string" Id="default-deploy-host" @bind-Value="_host.Id" aria-label="Default deploy host">
+                                        <option value="" selected="@(string.IsNullOrEmpty(_host.Id))">No default</option>
+                                        @foreach (HostChoice choice in choices)
+                                        {
+                                            <option value="@choice.Id" selected="@(_host.Id == choice.Id)">@choice.Name</option>
+                                        }
+                                    </BbNativeSelect>
+                                    <BbButton Type="ButtonType.Submit" Disabled="_acting" data-action="default-host-save">Save</BbButton>
+                                </EditForm>
+                            }
+                            else
+                            {
+                                <span data-settings-default-host>@DefaultHostName</span>
+                            }
                         </SettingRow>
+                        @if (State is { DefaultDeployHostGone: true })
+                        {
+                            <div class="pb-3" data-settings-default-host-gone>
+                                <BbAlert Variant="AlertVariant.Warning" AccentBorder>
+                                    <BbAlertDescription>
+                                        The saved default host is no longer enrolled and enabled, so Deploy server has no default.
+                                        Pick another host, or <a href="/hosts" class="underline">manage hosts</a>.
+                                    </BbAlertDescription>
+                                </BbAlert>
+                            </div>
+                        }
+                        @if (_hostError is not null)
+                        {
+                            <div class="pb-3" data-settings-default-host-error>
+                                <BbAlert Variant="AlertVariant.Danger" AccentBorder>
+                                    <BbAlertDescription>@_hostError</BbAlertDescription>
+                                </BbAlert>
+                            </div>
+                        }
+                        @if (_hostMessage is not null)
+                        {
+                            <div class="pb-3" data-settings-default-host-saved>
+                                <BbAlert Variant="AlertVariant.Success" AccentBorder>
+                                    <BbAlertDescription>@_hostMessage</BbAlertDescription>
+                                </BbAlert>
+                            </div>
+                        }
                         @* Time display (#211) — a per-operator, per-browser preference (a cookie, not the tenant). Toggling
                            is client-side (shell.js sets/clears the cookie with the browser's detected zone, then reloads);
                            the server reads the cookie to render audit/log times. The prerender reads it (a circuit has no
@@ -381,6 +427,14 @@
     private int _titleVersion; // a rename re-creates the title, which reads the name once
     private readonly SessionTimeoutInput _timeout = new();
     private string? _timeoutMessage;
+    private readonly DefaultHostInput _host = new();
+    private string? _hostMessage;
+    private string? _hostError;
+
+    // The default deploy host as text (#347): its name, "None", or (gone) "None (saved host no longer enrolled)".
+    private string DefaultHostName =>
+        State?.DeployHosts?.FirstOrDefault(h => h.Id == State.DefaultDeployHost)?.Name
+        ?? (State?.DefaultDeployHost is null ? "None" : "None (the saved host is no longer enrolled)");
 
     private string EffectiveName => State?.InstanceNameOverride ?? Instance.Value.Name;
 
@@ -414,6 +468,7 @@
         State ??= await LoadAsync();
         _name.Value = State.InstanceNameOverride;
         _timeout.Minutes = MinutesOf(EffectiveTimeout);
+        _host.Id = State.DefaultDeployHost;
 
         // Resolve only once the section gates are known, so a withheld section fails closed to General.
         _active = Resolve(_location.Section);
@@ -487,6 +542,8 @@
             _nameMessage = null;
             _nameError = null;
             _timeoutMessage = null;
+            _hostMessage = null;
+            _hostError = null;
         }
 
         _location = location;
@@ -606,6 +663,11 @@
 
     private sealed record SectionLink(string Id, string Label, string Icon, string Href);
 
+    private sealed class DefaultHostInput
+    {
+        public string? Id { get; set; }
+    }
+
     private sealed class SessionTimeoutInput
     {
         public string? Minutes { get; set; }
@@ -669,6 +731,32 @@
             State = await LoadAsync();
             _timeout.Minutes = MinutesOf(EffectiveTimeout);
             _timeoutMessage = $"Session timeout set to {SessionTimeouts.Describe(EffectiveTimeout)}. Existing sessions pick it up on their next request.";
+        }
+        finally
+        {
+            _acting = false;
+        }
+    }
+
+    private async Task SaveDefaultHostAsync()
+    {
+        _hostMessage = null;
+        _hostError = null;
+        AgentId? host = AgentId.TryParse(_host.Id, out AgentId parsed) ? parsed : null;
+        _acting = true;
+        try
+        {
+            UserId user = await CurrentUserAsync();
+            await Actions.RunAsync<IControlPlaneSettingsService>((settings, ct) => settings.SetDefaultDeployHostAsync(user, host, ct));
+            State = await LoadAsync();
+            _host.Id = State.DefaultDeployHost;
+            _hostMessage = host is null ? "Deploy server has no default host." : $"Deploy server now pre-selects {DefaultHostName}.";
+        }
+        catch (ArgumentException)
+        {
+            // The host was revoked or removed between loading the page and saving.
+            State = await LoadAsync();
+            _hostError = "That host is no longer enrolled and enabled. Pick another.";
         }
         finally
         {

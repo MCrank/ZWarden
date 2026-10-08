@@ -6,6 +6,7 @@ using ZWarden.Application.Workshop;
 using ZWarden.Domain.Authorization;
 using ZWarden.Domain.Ids;
 using ZWarden.Domain.Setup;
+using ZWarden.Web.Components.Servers;
 
 namespace ZWarden.Web.Components.Pages.Settings;
 
@@ -23,7 +24,13 @@ public sealed record SettingsState(
     int? OnlineHosts = null,
     bool CanManageSettings = false,
     string? InstanceNameOverride = null,
-    TimeSpan? SessionIdleTimeout = null);
+    TimeSpan? SessionIdleTimeout = null,
+    string? DefaultDeployHost = null,
+    IReadOnlyList<HostChoice>? DeployHosts = null,
+    bool DefaultDeployHostGone = false);
+
+/// <summary>A host the default deploy host may be (#347): enrolled and enabled. The id is the <c>agt-</c> form.</summary>
+public sealed record HostChoice(string Id, string Name);
 
 /// <summary>
 /// Loads the Settings page (#299). The interactive page calls it through <c>ActionScopeRunner</c>, a scope per load.
@@ -64,24 +71,36 @@ public sealed class SettingsQuery
             (await _permissions.EvaluateAsync(user, permission, cancellationToken: ct).ConfigureAwait(false)).IsAllowed;
 
         bool canManageEnrollment = await Can(Permissions.TenantEnrollmentManage).ConfigureAwait(false);
+        bool canManageSettings = await Can(Permissions.TenantSettingsManage).ConfigureAwait(false);
 
-        // The Host enrollment section's "N enrolled · M online" (#344): only where that section shows, and only for an
-        // operator who may see Hosts at all (the inventory enforces Agent.View itself).
-        IReadOnlyList<HostSummary>? hosts = canManageEnrollment && await Can(Permissions.AgentView).ConfigureAwait(false)
+        // The tenant's hosts, for an operator who may see Hosts at all (the inventory enforces Agent.View itself): the Host
+        // enrollment section's "N enrolled · M online" (#344) and the default deploy host's picker and name (#347).
+        IReadOnlyList<HostSummary>? hosts = await Can(Permissions.AgentView).ConfigureAwait(false)
             ? await _agents.ListHostsAsync(user, ct).ConfigureAwait(false)
             : null;
+        IReadOnlyList<HostChoice>? deployHosts = hosts?
+            .Where(h => h.IsEnabled && h.HasCredential)
+            .Select(h => new HostChoice(h.Id.ToString(), HostNames.Display(h.Id, h.Label, h.Hostname)))
+            .OrderBy(h => h.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
         ControlPlaneSettingsSnapshot settings = await _settings.GetAsync(ct).ConfigureAwait(false);
+        string? defaultHost = settings.DefaultDeployHost?.ToString();
         return new SettingsState(
             TlsMode: await _setup.GetTlsModeAsync(ct).ConfigureAwait(false),
             WorkshopKeyConfigured: await _workshop.IsSearchAvailableAsync(ct).ConfigureAwait(false),
             CanManageEnrollment: canManageEnrollment,
             CanManageWorkshop: await Can(Permissions.TenantManage).ConfigureAwait(false),
             CanManageRoles: await Can(Permissions.RoleManage).ConfigureAwait(false),
-            EnrolledHosts: hosts?.Count,
-            OnlineHosts: hosts?.Count(h => h.IsConnected),
-            CanManageSettings: await Can(Permissions.TenantSettingsManage).ConfigureAwait(false),
+            EnrolledHosts: canManageEnrollment ? hosts?.Count : null,
+            OnlineHosts: canManageEnrollment ? hosts?.Count(h => h.IsConnected) : null,
+            CanManageSettings: canManageSettings,
             InstanceNameOverride: settings.InstanceName,
-            SessionIdleTimeout: settings.SessionIdleTimeout);
+            SessionIdleTimeout: settings.SessionIdleTimeout,
+            DefaultDeployHost: defaultHost,
+            DeployHosts: deployHosts,
+            // A saved host that is no longer trusted (revoked, disabled, removed) means no default (#347); only known
+            // where the hosts could be read.
+            DefaultDeployHostGone: defaultHost is not null && deployHosts is not null && deployHosts.All(h => h.Id != defaultHost));
     }
 }
