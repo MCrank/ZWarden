@@ -8,4 +8,7 @@ public static class SettingsAuditActions
 
     /// <summary>The Owner changed the operator session idle timeout (#346); the detail is old → new.</summary>
     public const string SessionTimeoutChanged = "Settings.SessionTimeoutChanged";
+
+    /// <summary>An operator set or cleared the host Deploy server pre-selects (#347); the detail is old → new.</summary>
+    public const string DefaultDeployHostChanged = "Settings.DefaultDeployHostChanged";
 }

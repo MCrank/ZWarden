@@ -1,8 +1,10 @@
 using Microsoft.EntityFrameworkCore;
 using ZWarden.Application.Authorization;
 using ZWarden.Application.Settings;
+using ZWarden.Domain.Agents;
 using ZWarden.Domain.Authorization;
 using ZWarden.Domain.Ids;
+using ZWarden.Infrastructure.Agents;
 using ZWarden.Infrastructure.Persistence;
 using ZWarden.Infrastructure.Settings;
 using ZWarden.Infrastructure.Tests.Agents;
@@ -180,11 +182,75 @@ public sealed class ControlPlaneSettingsServiceTests
         });
     }
 
+    [Test]
+    public async Task The_default_deploy_host_is_set_by_name_in_the_audit_and_cleared()
+    {
+        await WithSqlite(async options =>
+        {
+            await using ZWardenDbContext ctx = Context(options);
+            Agent boone = await EnrollAsync(ctx, "boone-01");
+            CapturingAuditWriter audit = new();
+            RecordingCache cache = new();
+            ControlPlaneSettingsService service = Service(ctx, audit, cache, held: [Manage]);
+
+            await service.SetDefaultDeployHostAsync(Actor, boone.Id);
+            await Assert.That((await service.GetAsync()).DefaultDeployHost).IsEqualTo(boone.Id);
+            await Assert.That(cache.Last!.Value.Snapshot.DefaultDeployHost).IsEqualTo(boone.Id);
+
+            await service.SetDefaultDeployHostAsync(Actor, null);
+
+            await Assert.That((await service.GetAsync()).DefaultDeployHost).IsNull();
+            await Assert.That(audit.Actions).IsEquivalentTo([SettingsAuditActions.DefaultDeployHostChanged, SettingsAuditActions.DefaultDeployHostChanged]);
+            await Assert.That(audit.Entries[0].Detail).IsEqualTo("default deploy host: (none) → \"boone-01\"");
+            await Assert.That(audit.Entries[1].Detail).IsEqualTo("default deploy host: \"boone-01\" → (none)");
+        });
+    }
+
+    [Test]
+    public async Task An_unknown_or_untrusted_host_cannot_be_the_default()
+    {
+        await WithSqlite(async options =>
+        {
+            await using ZWardenDbContext ctx = Context(options);
+            Agent disabled = await EnrollAsync(ctx, "old-box");
+            disabled.Disable();
+            await ctx.SaveChangesAsync();
+            CapturingAuditWriter audit = new();
+            ControlPlaneSettingsService service = Service(ctx, audit, new RecordingCache(), held: [Manage]);
+
+            await Assert.That(async () => await service.SetDefaultDeployHostAsync(Actor, AgentId.New())).Throws<ArgumentException>();
+            await Assert.That(async () => await service.SetDefaultDeployHostAsync(Actor, disabled.Id)).Throws<ArgumentException>();
+            await Assert.That(audit.Entries).IsEmpty();
+        });
+    }
+
+    [Test]
+    public async Task The_default_deploy_host_needs_Tenant_Settings_Manage()
+    {
+        await WithSqlite(async options =>
+        {
+            await using ZWardenDbContext ctx = Context(options);
+            Agent boone = await EnrollAsync(ctx, "boone-01");
+            ControlPlaneSettingsService service = Service(ctx, new CapturingAuditWriter(), new RecordingCache(), held: [Permissions.AgentView.Name]);
+
+            await Assert.That(async () => await service.SetDefaultDeployHostAsync(Actor, boone.Id))
+                .Throws<AuthorizationDeniedException>();
+        });
+    }
+
+    private static async Task<Agent> EnrollAsync(ZWardenDbContext ctx, string label)
+    {
+        Agent agent = Agent.Enroll("credential-hash-" + label, EnrollmentId.New(), DateTimeOffset.UtcNow, label);
+        ctx.Add(agent);
+        await ctx.SaveChangesAsync();
+        return agent;
+    }
+
     private static ZWardenDbContext Context(DbContextOptions options) => new(options, new TestTenantContext(Tenant));
 
     private static ControlPlaneSettingsService Service(
         ZWardenDbContext ctx, CapturingAuditWriter audit, RecordingCache cache, string[] held) =>
-        new(ctx, new ControlPlaneSettingsRepository(ctx), new StubPermissionChecker(held), audit, cache, new TestTenantContext(Tenant));
+        new(ctx, new ControlPlaneSettingsRepository(ctx), new StubPermissionChecker(held), audit, cache, new TestTenantContext(Tenant), new AgentRepository(ctx));
 
     private static async Task WithSqlite(Func<DbContextOptions, Task> body)
     {

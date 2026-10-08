@@ -27,10 +27,19 @@ public interface IControlPlaneSettingsService
     /// <exception cref="ZWarden.Application.Authorization.AuthorizationDeniedException">The actor may not change it.</exception>
     /// <exception cref="ArgumentException">The timeout is not one of the choices.</exception>
     Task SetSessionIdleTimeoutAsync(UserId actor, TimeSpan? timeout, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Sets the host Deploy server pre-selects (#347), or clears it (null). Requires <c>Tenant.Settings.Manage</c>; the
+    /// host must be a trusted host in the tenant.
+    /// </summary>
+    /// <exception cref="ZWarden.Application.Authorization.AuthorizationDeniedException">The actor may not change it.</exception>
+    /// <exception cref="ArgumentException">The host is unknown or not trusted.</exception>
+    Task SetDefaultDeployHostAsync(UserId actor, AgentId? host, CancellationToken cancellationToken = default);
 }
 
 /// <summary>A tenant's control-plane setting overrides at one moment; null = not overridden (config applies).</summary>
-public sealed record ControlPlaneSettingsSnapshot(string? InstanceName, TimeSpan? SessionIdleTimeout = null)
+public sealed record ControlPlaneSettingsSnapshot(
+    string? InstanceName, TimeSpan? SessionIdleTimeout = null, AgentId? DefaultDeployHost = null)
 {
     /// <summary>No overrides.</summary>
     public static ControlPlaneSettingsSnapshot Empty { get; } = new((string?)null);

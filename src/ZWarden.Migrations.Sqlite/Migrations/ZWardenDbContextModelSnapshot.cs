@@ -744,6 +744,9 @@ namespace ZWarden.Migrations.Sqlite.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("TEXT");
 
+                    b.Property<Guid?>("DefaultDeployHost")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("InstanceName")
                         .HasMaxLength(64)
                         .HasColumnType("TEXT");

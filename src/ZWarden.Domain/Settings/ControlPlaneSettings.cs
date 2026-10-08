@@ -47,6 +47,10 @@ public sealed class ControlPlaneSettings : IVersioned, ITenantOwned
     /// the <see cref="DefaultSessionIdleTimeout"/>.</summary>
     public TimeSpan? SessionIdleTimeout { get; private set; }
 
+    /// <summary>The host Deploy server pre-selects (#347); null for none. Not cleared when the host is revoked or removed:
+    /// readers treat a host that is no longer trusted as no default, so re-enabling it restores the default.</summary>
+    public AgentId? DefaultDeployHost { get; private set; }
+
     /// <inheritdoc />
     public Guid Version { get; set; }
 
@@ -90,5 +94,18 @@ public sealed class ControlPlaneSettings : IVersioned, ITenantOwned
         }
 
         SessionIdleTimeout = timeout == DefaultSessionIdleTimeout ? null : timeout;
+    }
+
+    /// <summary>Sets the default deploy host, or clears it (null). The caller checks the host is a trusted one in the
+    /// tenant; this refuses only an empty id.</summary>
+    /// <exception cref="ArgumentException">The id is empty.</exception>
+    public void SetDefaultDeployHost(AgentId? host)
+    {
+        if (host is { IsEmpty: true })
+        {
+            throw new ArgumentException("The default deploy host needs a host id.", nameof(host));
+        }
+
+        DefaultDeployHost = host;
     }
 }
