@@ -1,0 +1,22 @@
+@* One setting in a Settings card (#344, the prototype's setrow): the label and a one-line hint on the left, the value or
+   control on the right. Stacks at phone width. *@
+<div class="flex flex-col gap-2 border-b border-border py-3 last:border-b-0 sm:flex-row sm:items-center sm:gap-4">
+    <div class="min-w-0 flex-1">
+        <div class="text-sm font-semibold text-foreground">@Label</div>
+        @if (Hint is not null)
+        {
+            <div class="text-xs text-muted-foreground">@Hint</div>
+        }
+    </div>
+    <div class="text-sm text-foreground sm:max-w-[60%] sm:text-right">
+        @ChildContent
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Label { get; set; } = default!;
+
+    [Parameter] public string? Hint { get; set; }
+
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

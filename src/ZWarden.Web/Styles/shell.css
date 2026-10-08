@@ -167,6 +167,9 @@ html:not(.dark) .zw-ico-moon { display: inline-block; }
   .zw-srvlayout { grid-template-columns: 1fr; }
   .zw-rail { flex-direction: row; flex-wrap: wrap; gap: 4px; }
   .zw-railgrp { width: 100%; }
+  /* Settings (#344): one horizontally scrolling row instead, so seven sections don't wrap into a block. */
+  .zw-rail.zw-rail-scroll { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin; }
+  .zw-rail-scroll .zw-railitem { flex: none; white-space: nowrap; }
 }
 
 /* ---- mod install control (#291) ------------------------------------------ */

@@ -66,7 +66,7 @@ public sealed class SettingsPageTests
     }
 
     [Test]
-    public async Task An_owner_sees_all_sections_and_the_real_configured_values()
+    public async Task Settings_opens_on_general_with_a_sub_nav_of_every_section_an_owner_can_open()
     {
         await using ZWardenWebAppFactory factory = new();
         HttpClient client = await SignedInOwnerAsync(factory, "owner@zwarden.test");
@@ -74,51 +74,118 @@ public sealed class SettingsPageTests
         string html = await GetStringAsync(client, "/settings");
 
         await Assert.That(html).Contains("data-settings-page");
+        await Assert.That(ActiveSection(html)).IsEqualTo("general");
+        await Assert.That(NavItems(html)).IsEquivalentTo(
+            ["general", "security", "enrollment", "integrations", "backups", "users", "about"]);
+        await Assert.That(Regex.IsMatch(html, "class=\"zw-railitem active\"[^>]*data-settings-nav-item=\"general\"")).IsTrue();
+        await Assert.That(html).Contains("href=\"/settings/security\"");
+        // Only the active section renders.
         await Assert.That(html).Contains("data-settings-general");
-        await Assert.That(html).Contains("data-settings-security");
-        await Assert.That(html).Contains("data-settings-backups");
-        await Assert.That(html).Contains("data-settings-time");          // #211: local-time toggle (all operators)
-        // Owner-gated sections.
-        await Assert.That(html).Contains("data-settings-enrollment");
-        await Assert.That(html).Contains("data-settings-users");
-        // Real, deploy-time configured values wired into General/Security.
-        await Assert.That(html).Contains("data-settings-instance-name");
-        await Assert.That(html).Contains("ZWarden");            // default instance name
-        await Assert.That(html).Contains("data-settings-session");
-        await Assert.That(html).Contains("8 hours (sliding)");  // SessionLifetime source of truth
-        await Assert.That(html).Contains("data-settings-tls-mode");
+        await Assert.That(html).Contains("data-settings-time"); // #211: time display, per user, under General
+        await Assert.That(html).DoesNotContain("data-settings-security");
         client.Dispose();
     }
 
     [Test]
-    public async Task The_enrollment_section_links_to_the_enroll_host_sheet()
+    [Arguments("general", "data-settings-general")]
+    [Arguments("security", "data-settings-security")]
+    [Arguments("enrollment", "data-settings-enrollment")]
+    [Arguments("integrations", "data-settings-workshop")]
+    [Arguments("backups", "data-settings-backups")]
+    [Arguments("users", "data-settings-users")]
+    [Arguments("about", "data-settings-about")]
+    public async Task Each_section_opens_at_its_own_url(string section, string hook)
     {
         await using ZWardenWebAppFactory factory = new();
         HttpClient client = await SignedInOwnerAsync(factory, "owner@zwarden.test");
 
-        string html = await GetStringAsync(client, "/settings");
+        string html = await GetStringAsync(client, $"/settings/{section}");
+
+        await Assert.That(ActiveSection(html)).IsEqualTo(section);
+        await Assert.That(html).Contains(hook);
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task An_unknown_section_falls_back_to_general()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOwnerAsync(factory, "owner@zwarden.test");
+
+        string html = await GetStringAsync(client, "/settings/nope");
+
+        await Assert.That(ActiveSection(html)).IsEqualTo("general");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task General_and_security_show_the_real_configured_values_as_set_in_config()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOwnerAsync(factory, "owner@zwarden.test");
+
+        string general = await GetStringAsync(client, "/settings");
+        string security = await GetStringAsync(client, "/settings/security");
+
+        await Assert.That(general).Contains("data-settings-instance-name");
+        await Assert.That(general).Contains("ZWarden");            // default instance name
+        await Assert.That(general).Contains("ZWarden:Instance:Name"); // the "set in config" hint
+        await Assert.That(security).Contains("data-settings-session");
+        await Assert.That(security).Contains("8 hours (sliding)");  // SessionLifetime source of truth
+        await Assert.That(security).Contains("data-settings-tls-mode");
+        await Assert.That(security).Contains("data-settings-forwarded");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task The_enrollment_section_links_to_the_enroll_host_sheet_and_counts_enrolled_hosts()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOwnerAsync(factory, "owner@zwarden.test");
+
+        string html = await GetStringAsync(client, "/settings/enrollment");
 
         await Assert.That(html).Contains("data-settings-enrollment-link");
         await Assert.That(html).Contains("href=\"/hosts?enroll=1\""); // #342: the Enroll host sheet
         // #343: "Host enrollment" section, "Enroll host" action.
         await Assert.That(html).Contains("Host enrollment");
-        await Assert.That(Regex.IsMatch(html, "data-settings-enrollment-link[^>]*>\\s*Enroll host\\s*<")).IsTrue();
+        await Assert.That(Regex.IsMatch(html, "data-settings-enrollment-link[^>]*>[\\s\\S]*?Enroll host\\s*</a>")).IsTrue();
         await Assert.That(html).DoesNotContain("Agent enrollment");
         await Assert.That(html).DoesNotContain("Manage enrollment");
+        await Assert.That(Regex.IsMatch(html, "data-settings-hosts-count[^>]*>\\s*0 enrolled · 0 online\\s*<")).IsTrue();
         client.Dispose();
     }
 
     [Test]
-    public async Task An_administrator_sees_the_page_but_not_the_owner_only_enrollment_section()
+    public async Task About_shows_the_version_the_licence_and_the_docs()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOwnerAsync(factory, "owner@zwarden.test");
+
+        string html = await GetStringAsync(client, "/settings/about");
+
+        await Assert.That(html).Contains("data-settings-version");
+        await Assert.That(html).Contains("Business Source License 1.1");
+        await Assert.That(html).Contains("href=\"https://github.com/MCrank/ZWarden\"");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task An_administrator_sees_neither_the_owner_only_sections_nor_their_nav_items()
     {
         await using ZWardenWebAppFactory factory = new();
         HttpClient client = await SignedInWithRoleAsync(factory, "admin@zwarden.test", BuiltInRoleKind.Administrator);
 
         string html = await GetStringAsync(client, "/settings");
+        string enrollment = await GetStringAsync(client, "/settings/enrollment");
+        string users = await GetStringAsync(client, "/settings/users");
 
         await Assert.That(html).Contains("data-settings-page");
-        await Assert.That(html).Contains("data-settings-users");        // Role.Manage — held by Administrator
-        await Assert.That(html).DoesNotContain("data-settings-enrollment"); // Tenant.Enrollment.Manage — Owner only
+        // Tenant.Enrollment.Manage and Tenant.Manage are Owner only; Role.Manage is held by Administrator.
+        await Assert.That(NavItems(html)).IsEquivalentTo(["general", "security", "backups", "users", "about"]);
+        await Assert.That(ActiveSection(enrollment)).IsEqualTo("general");
+        await Assert.That(enrollment).DoesNotContain("data-settings-enrollment");
+        await Assert.That(ActiveSection(users)).IsEqualTo("users");
         client.Dispose();
     }
 
@@ -141,7 +208,7 @@ public sealed class SettingsPageTests
         await using ZWardenWebAppFactory factory = new();
         HttpClient client = await SignedInOwnerAsync(factory, "owner@zwarden.test");
 
-        string html = await GetStringAsync(client, "/settings");
+        string html = await GetStringAsync(client, "/settings/integrations");
 
         await Assert.That(html).Contains("data-settings-workshop");
         await Assert.That(html).Contains("data-settings-workshop-status");
@@ -155,10 +222,11 @@ public sealed class SettingsPageTests
         await using ZWardenWebAppFactory factory = new();
         HttpClient client = await SignedInWithRoleAsync(factory, "admin@zwarden.test", BuiltInRoleKind.Administrator);
 
-        string html = await GetStringAsync(client, "/settings");
+        string html = await GetStringAsync(client, "/settings/integrations");
 
         // Workshop search is gated on Tenant.Manage — Owner only, not Administrator.
         await Assert.That(html).DoesNotContain("data-settings-workshop");
+        await Assert.That(ActiveSection(html)).IsEqualTo("general");
         client.Dispose();
     }
 
@@ -168,7 +236,7 @@ public sealed class SettingsPageTests
         // The save and clear are circuit handlers on the interactive page (#299), driven in bUnit on the real host.
         const string key = "ABCDEF0123456789ABCDEF0123456789";
         await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
-        IRenderedComponent<SettingsPage> cut = harness.RenderPage<SettingsPage>("/settings");
+        IRenderedComponent<SettingsPage> cut = harness.RenderPage<SettingsPage>("/settings/integrations");
 
         // Configure the key via the write-only form.
         await InteractivePageHarness.TypeAsync(cut, "workshop-key", key);
@@ -177,7 +245,7 @@ public sealed class SettingsPageTests
         await Assert.That(cut.Markup).DoesNotContain(key); // write-only: never echoed back
 
         // A fresh page still reports configured and still never shows the key.
-        IRenderedComponent<SettingsPage> reloaded = harness.RenderPage<SettingsPage>("/settings");
+        IRenderedComponent<SettingsPage> reloaded = harness.RenderPage<SettingsPage>("/settings/integrations");
         await Assert.That(reloaded.Markup).Contains("A search key is configured");
         await Assert.That(reloaded.Markup).DoesNotContain(key);
 
@@ -264,6 +332,12 @@ public sealed class SettingsPageTests
                 $"Could not seed test user: {string.Join(", ", result.Errors.Select(e => e.Code))}.");
         }
     }
+
+    private static string ActiveSection(string html) =>
+        Regex.Match(html, "data-settings-section=\"([^\"]*)\"").Groups[1].Value;
+
+    private static List<string> NavItems(string html) =>
+        Regex.Matches(html, "data-settings-nav-item=\"([^\"]*)\"").Select(m => m.Groups[1].Value).ToList();
 
     private static async Task<string> GetStringAsync(HttpClient client, string path) =>
         await (await client.GetAsync(new Uri(path, UriKind.Relative))).Content.ReadAsStringAsync();

@@ -1,4 +1,4 @@
-// #312: switches Server Detail's rail sections and config files in the circuit. The router is static (ADR 0046), so a
+// #312: switches Server Detail's rail sections and config files (and, #344, Settings' sections) in the circuit. The router is static (ADR 0046), so a
 // click on one of the page's own links would otherwise be an enhanced navigation: the server prerenders the whole page
 // for the new URL (the Server, every permission check, the section's load, a live config read from the Agent), throws
 // it away, and the circuit then loads the section again. Here a plain click on a link to this Server page, and a
@@ -8,11 +8,17 @@
 // the order they were added, so this one has to be added first to stop it.
 (function () {
   'use strict';
-  var current = null; // { path, page, instance } while a Server page's circuit is up; page is the .NET ServerDetail
+  // { path, subpaths, page, instance } while a page's circuit is up: Server Detail, or Settings (#344), which also claims
+  // the paths below its own. page is the .NET component.
+  var current = null;
 
   function isThisPage(url) {
-    return current !== null && url.origin === location.origin
-      && url.pathname.replace(/\/$/, '').toLowerCase() === current.path;
+    if (current === null || url.origin !== location.origin) {
+      return false;
+    }
+
+    var path = url.pathname.replace(/\/$/, '').toLowerCase();
+    return path === current.path || (current.subpaths && path.indexOf(current.path + '/') === 0);
   }
 
   // Hands the URL to the page. If the circuit can't take it (gone, or not this page after all), the address bar already
@@ -59,10 +65,11 @@
   }, true);
 
   window.zwInPlaceNav = {
-    // Takes over the links of the Server page at `path` for `page` (a DotNetObjectReference); `instance` names this
-    // page so a later detach of an older one leaves it alone.
-    attach: function (path, page, instance) {
-      current = { path: path.toLowerCase(), page: page, instance: instance };
+    // Takes over the links of the page at `path` for `page` (a DotNetObjectReference); `instance` names this page so a
+    // later detach of an older one leaves it alone. `options.subpaths` also claims the paths below `path`
+    // (/settings/security for /settings).
+    attach: function (path, page, instance, options) {
+      current = { path: path.toLowerCase(), subpaths: !!(options && options.subpaths), page: page, instance: instance };
     },
     detach: function (instance) {
       if (current && current.instance === instance) {

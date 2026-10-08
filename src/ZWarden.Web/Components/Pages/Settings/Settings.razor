@@ -1,8 +1,11 @@
 @page "/settings"
+@page "/settings/{Section}"
+@implements IAsyncDisposable
 @using System.Security.Claims
 @using Microsoft.AspNetCore.Builder
 @using Microsoft.AspNetCore.HttpOverrides
 @using Microsoft.Extensions.Options
+@using ZWarden.Application.Diagnostics
 @using ZWarden.Application.Setup
 @using ZWarden.Application.Workshop
 @using ZWarden.Domain.Ids
@@ -16,21 +19,24 @@
 @using ZWarden.Infrastructure.Tenancy
 @inject IOptions<InstanceOptions> Instance
 @inject IOptions<ForwardedHeadersOptions> Forwarded
+@inject DiagnosticsOptions Build
 @inject ActionScopeRunner Actions
 @inject IOperatorTimeZoneProvider OperatorTz
 @inject UserManager<ApplicationUser> Users
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
 
-@* Control-plane Settings landing (#160, renamed from "Config" — per-server config stays inside Server Detail).
-   Interactive (#299, ADR 0046): the Workshop key's save and clear are circuit handlers, through ActionScopeRunner.
-   The page's load (TLS mode, key status, the tenant-wide card gates) runs in one action scope on the prerender and
-   reaches the circuit through [PersistentState]. Gated on User.Manage, which exactly the tenant-administrator tier
-   holds (Tenant Owner + Administrator) and no operational or read-only role does — that is the "Owner/Admin" gate
-   the ticket asks for; enforcement is server-side (PRD 12), the shell nav merely mirrors it. General and Security
-   are wired to the real, deploy-time configured values (config-as-truth: instance name, forwarded-header trust
-   and session lifetime are all fixed at boot, so they are shown as status, not editable toggles). The Owner-only
-   Enrollment section is gated a second time on Tenant.Enrollment.Manage so an Administrator sees the page but not
-   that control; Users & roles is gated on Role.Manage. Enrollment/Backups/Users link out to where the work
-   already lives rather than duplicating it here. *@
+@* Control-plane Settings (#160, renamed from "Config" — per-server config stays inside Server Detail). A left sub-nav
+   with one section per URL (#344, /settings/{section}; /settings is General), switched in the circuit by
+   in-place-nav.js (#312) so a click doesn't prerender the page again. Interactive (#299, ADR 0046): the Workshop key's
+   save and clear are circuit handlers, through ActionScopeRunner. The page's load (TLS mode, key status, host counts,
+   the tenant-wide section gates) runs in one action scope on the prerender and reaches the circuit through
+   [PersistentState]. Gated on User.Manage, which exactly the tenant-administrator tier holds (Tenant Owner +
+   Administrator); enforcement is server-side (PRD 12), the sub-nav merely mirrors it. Values fixed at boot (instance
+   name, TLS, forwarded-header trust, session lifetime) are shown as status with a "set in config" hint; they become
+   editable in #345-#347. Host enrollment (Tenant.Enrollment.Manage), Integrations (Tenant.Manage) and Users & roles
+   (Role.Manage) are offered only to operators who hold their grant; an unknown or withheld section falls back to
+   General. *@
 
 <PageTitle>Settings · ZWarden</PageTitle>
 
@@ -43,216 +49,235 @@
         Control-plane configuration for this ZWarden instance. Per-server settings live inside each server.
     </p>
 
-    <div class="mt-6 flex max-w-3xl flex-col gap-6">
-        @* General — instance identity. Instance name is deploy-time config (ZWarden:Instance:Name); the
-           default new-server host has no control-plane default yet — it is chosen at registration time. *@
-        <BbCard data-settings-general>
-            <BbCardHeader>
-                <BbCardTitle>General</BbCardTitle>
-                <BbCardDescription>How this instance identifies itself.</BbCardDescription>
-            </BbCardHeader>
-            <BbCardContent>
-                <dl class="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-[12rem_1fr]">
-                    <dt class="text-sm text-muted-foreground">Instance name</dt>
-                    <dd class="text-sm text-foreground" data-settings-instance-name>@Instance.Value.Name</dd>
+    <div class="zw-srvlayout mt-6">
+        <nav class="zw-rail zw-rail-scroll" aria-label="Settings sections" data-settings-nav>
+            @foreach (SectionLink link in VisibleSections)
+            {
+                <a class="zw-railitem @Active(link.Id)" href="@link.Href" data-settings-nav-item="@link.Id"
+                   aria-current="@(_active == link.Id ? "page" : null)">
+                    <ShellIcon Name="@link.Icon" /><span>@link.Label</span>
+                </a>
+            }
+        </nav>
 
-                    <dt class="text-sm text-muted-foreground">Default new-server host</dt>
-                    <dd class="text-sm text-muted-foreground">
-                        Chosen per registration — <a href="/hosts" class="text-foreground underline hover:no-underline">manage hosts</a>.
-                    </dd>
-                </dl>
-                <p class="mt-4 text-xs text-muted-foreground">
-                    Set the instance name with <code class="rounded bg-muted px-1 py-0.5 font-mono">ZWarden:Instance:Name</code>
-                    in configuration.
-                </p>
-            </BbCardContent>
-        </BbCard>
+        <div class="zw-secbody max-w-3xl" data-settings-section="@_active">
+            @switch (_active)
+            {
+                case "security":
+                    @* Read-only status of the boot-time security posture (F32/ADR 0035, F33, PRD 11). *@
+                    <SettingsCard Icon="shield" Title="Security" Description="The ingress, forwarded-header trust, and session posture." data-settings-security>
+                        <SettingRow Label="TLS deployment mode" Hint="How HTTPS reaches this instance">
+                            <span data-settings-tls-mode>@TlsModeLabel(State?.TlsMode)</span>
+                        </SettingRow>
+                        <SettingRow Label="Trust X-Forwarded-* headers" Hint="Client address and scheme from the ingress">
+                            <span data-settings-forwarded>@ForwardedSummary()</span>
+                        </SettingRow>
+                        <SettingRow Label="Session timeout" Hint="Sign-out after inactivity">
+                            <span data-settings-session>@SessionSummary()</span>
+                        </SettingRow>
+                        <p class="pb-3 pt-1 text-xs text-muted-foreground">
+                            Set in config. ZWarden does not terminate TLS itself; these reflect the deploy-time
+                            configuration and change with the deployment, not here.
+                        </p>
+                    </SettingsCard>
+                    break;
 
-        @* Security & TLS — read-only status of the boot-time security posture (F32/ADR 0035, F33, PRD 11). *@
-        <BbCard data-settings-security>
-            <BbCardHeader>
-                <BbCardTitle>Security &amp; TLS</BbCardTitle>
-                <BbCardDescription>The ingress, forwarded-header trust, and session posture.</BbCardDescription>
-            </BbCardHeader>
-            <BbCardContent>
-                <dl class="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-[12rem_1fr]">
-                    <dt class="text-sm text-muted-foreground">TLS deployment mode</dt>
-                    <dd class="text-sm text-foreground" data-settings-tls-mode>@TlsModeLabel(State?.TlsMode)</dd>
-
-                    <dt class="text-sm text-muted-foreground">Trust <code class="font-mono">X-Forwarded-*</code></dt>
-                    <dd class="text-sm text-foreground" data-settings-forwarded>@ForwardedSummary()</dd>
-
-                    <dt class="text-sm text-muted-foreground">Session timeout</dt>
-                    <dd class="text-sm text-foreground" data-settings-session>@SessionSummary()</dd>
-                </dl>
-                <p class="mt-4 text-xs text-muted-foreground">
-                    ZWarden does not terminate TLS itself; these reflect the deploy-time configuration and are
-                    changed with the deployment, not here.
-                </p>
-            </BbCardContent>
-        </BbCard>
-
-        @* Time display (#211) — a per-operator, per-browser preference (stored in a cookie, not the tenant), so it
-           is visible to anyone who can reach Settings. Toggling is client-side (shell.js sets/clears the cookie
-           with the browser's detected zone, then reloads); the server reads the cookie to render audit/log times.
-           The prerender reads it (a circuit has no request cookie) and hands it on with the rest of the load. *@
-        <BbCard data-settings-time>
-            <BbCardHeader>
-                <BbCardTitle>Time display</BbCardTitle>
-                <BbCardDescription>Show timestamps in your local time zone instead of UTC.</BbCardDescription>
-            </BbCardHeader>
-            <BbCardContent>
-                <div class="flex flex-wrap items-center gap-3">
-                    <button type="button" data-shell-tz-toggle data-tz-on="@(_localTime ? "true" : "false")"
-                            aria-pressed="@(_localTime ? "true" : "false")"
-                            class="inline-flex items-center gap-2 rounded border border-border px-3 py-1.5 text-sm font-medium text-foreground hover:bg-muted">
-                        @(_localTime ? "Switch to UTC" : "Use my local time")
-                    </button>
-                    <span class="text-sm text-muted-foreground" data-settings-time-status>
-                        @if (_localTime)
+                case "enrollment":
+                    @* Owner-only (Tenant.Enrollment.Manage). Opens the Enroll host sheet on Hosts (#342) rather than
+                       duplicating token issuance here. *@
+                    <SettingsCard Icon="key-round" Title="Host enrollment" Description="Bring a host under management." data-settings-enrollment>
+                        <SettingRow Label="Enroll a host" Hint="Generate a one-time token, then run the ZWarden Agent on the host with it">
+                            <a href="/hosts?enroll=1"
+                               class="inline-flex items-center gap-1.5 rounded bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90"
+                               data-settings-enrollment-link>
+                                Enroll host
+                            </a>
+                        </SettingRow>
+                        @if (State is { EnrolledHosts: { } enrolled, OnlineHosts: { } online })
                         {
-                            <text>Showing <span class="text-foreground">@_zoneLabel</span></text>
+                            <SettingRow Label="Enrolled hosts" Hint="Hosts whose Agent holds a credential for this instance">
+                                <span class="inline-flex flex-wrap items-center justify-end gap-3">
+                                    <span class="font-mono tabular-nums" data-settings-hosts-count>@enrolled enrolled · @online online</span>
+                                    <a href="/hosts" class="text-foreground underline hover:no-underline">Manage hosts</a>
+                                </span>
+                            </SettingRow>
                         }
-                        else
-                        {
-                            <text>Showing UTC</text>
-                        }
-                    </span>
-                </div>
-                <p class="mt-3 text-xs text-muted-foreground">
-                    Applies to the audit log and live server logs. Your zone is detected from this browser and stored
-                    in a cookie here; CSV exports stay in UTC.
-                </p>
-            </BbCardContent>
-        </BbCard>
+                    </SettingsCard>
+                    break;
 
-        @* Host enrollment — Owner-only (Tenant.Enrollment.Manage). Opens the Enroll host sheet on Hosts (#342)
-           rather than duplicating token issuance here. *@
-        @if (State is { CanManageEnrollment: true })
-        {
-            <BbCard data-settings-enrollment>
-                <BbCardHeader>
-                    <BbCardTitle>Host enrollment</BbCardTitle>
-                    <BbCardDescription>Bring a host under management.</BbCardDescription>
-                </BbCardHeader>
-                <BbCardContent>
-                    <p class="text-sm text-muted-foreground">
-                        Generate a one-time enrollment token, then run the ZWarden Agent on the host with it.
-                    </p>
-                    <a href="/hosts?enroll=1"
-                       class="mt-4 inline-flex items-center gap-1.5 rounded bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90"
-                       data-settings-enrollment-link>
-                        Enroll host
-                    </a>
-                </BbCardContent>
-            </BbCard>
-        }
+                case "integrations":
+                    @* Workshop search — Owner-only (Tenant.Manage). Optional, per-tenant Steam Web API key that unlocks
+                       free-text Workshop search (F110/ADR 0044). Names and previews work without a key; this only adds
+                       search. Write-only: the stored key is never echoed — only configured✓/not. Enforcement is
+                       server-side in IWorkshopSettingsService (PRD 12); the flag (SettingsQuery) merely mirrors the gate. *@
+                    <SettingsCard Icon="plug" Title="Integrations" Description="Services ZWarden talks to on your behalf." data-settings-workshop>
+                        <div class="py-3">
+                            <div class="text-sm font-semibold text-foreground">Steam Workshop search</div>
+                            <p class="text-xs text-muted-foreground">
+                                An optional Steam Web API key enables searching the Workshop. Names and previews work without one.
+                            </p>
 
-        @* Workshop search — Owner-only (Tenant.Manage). Optional, per-tenant Steam Web API key that unlocks
-           free-text Workshop search (F110/ADR 0044). Names and previews work without a key; this only adds
-           search. Write-only: the stored key is never echoed — only configured✓/not. Enforcement is
-           server-side in IWorkshopSettingsService (PRD 12); the flag (SettingsQuery) merely mirrors the gate. *@
-        @if (State is { CanManageWorkshop: true })
-        {
-            <BbCard data-settings-workshop>
-                <BbCardHeader>
-                    <BbCardTitle>Workshop search</BbCardTitle>
-                    <BbCardDescription>
-                        An optional Steam Web API key enables searching the Workshop. Names and previews work without one.
-                    </BbCardDescription>
-                </BbCardHeader>
-                <BbCardContent>
-                    <p class="text-sm @(_keyConfigured ? "text-foreground" : "text-muted-foreground")" data-settings-workshop-status>
-                        @if (_keyConfigured)
-                        {
-                            <span>A search key is configured. Search is enabled.</span>
-                        }
-                        else
-                        {
-                            <span>No search key configured — search is off; browsing by id, names and previews still work.</span>
-                        }
-                    </p>
+                            <p class="mt-3 text-sm @(_keyConfigured ? "text-foreground" : "text-muted-foreground")" data-settings-workshop-status>
+                                @if (_keyConfigured)
+                                {
+                                    <span>A search key is configured. Search is enabled.</span>
+                                }
+                                else
+                                {
+                                    <span>No search key configured — search is off; browsing by id, names and previews still work.</span>
+                                }
+                            </p>
 
-                    @if (_saved)
-                    {
-                        <div class="mt-3" data-settings-workshop-saved>
-                            <BbAlert Variant="AlertVariant.Success" AccentBorder>
-                                <BbAlertDescription>@_savedMessage</BbAlertDescription>
-                            </BbAlert>
+                            @if (_saved)
+                            {
+                                <div class="mt-3" data-settings-workshop-saved>
+                                    <BbAlert Variant="AlertVariant.Success" AccentBorder>
+                                        <BbAlertDescription>@_savedMessage</BbAlertDescription>
+                                    </BbAlert>
+                                </div>
+                            }
+                            @if (_error is not null)
+                            {
+                                <div class="mt-3" data-settings-workshop-error>
+                                    <BbAlert Variant="AlertVariant.Danger" AccentBorder>
+                                        <BbAlertDescription>@_error</BbAlertDescription>
+                                    </BbAlert>
+                                </div>
+                            }
+
+                            @* A form so Enter saves, as the button does. Immediate, so a click right after typing saves the
+                               typed key (a BbInput otherwise reports on blur). *@
+                            <EditForm class="mt-4 flex flex-wrap items-end gap-3" Model="_input" OnValidSubmit="SaveAsync">
+                                <div class="flex flex-col text-sm">
+                                    <BbLabel For="workshop-key" Class="mb-1 text-muted-foreground">Steam Web API key</BbLabel>
+                                    <BbInput Id="workshop-key" Type="InputType.Password" UpdateTiming="UpdateTiming.Immediate" @bind-Value="_input.ApiKey"
+                                             autocomplete="off"
+                                             Placeholder="@(_keyConfigured ? "Enter a new key to replace it" : "Your steamcommunity.com/dev/apikey key")" />
+                                </div>
+                                <BbButton Type="ButtonType.Submit" Disabled="_acting" data-action="workshop-save">Save key</BbButton>
+                            </EditForm>
+
+                            @if (_keyConfigured)
+                            {
+                                <BbButton Class="mt-3" Variant="ButtonVariant.Destructive" Disabled="_acting" OnClick="ClearAsync" data-action="workshop-clear">Clear key</BbButton>
+                            }
+
+                            <p class="mt-4 text-xs text-muted-foreground">
+                                Get a key at
+                                <a href="https://steamcommunity.com/dev/apikey" target="_blank" rel="noreferrer"
+                                   class="text-foreground underline hover:no-underline">steamcommunity.com/dev/apikey</a>.
+                                The key is stored encrypted and is never shown again.
+                            </p>
                         </div>
-                    }
-                    @if (_error is not null)
-                    {
-                        <div class="mt-3" data-settings-workshop-error>
-                            <BbAlert Variant="AlertVariant.Danger" AccentBorder>
-                                <BbAlertDescription>@_error</BbAlertDescription>
-                            </BbAlert>
+                    </SettingsCard>
+                    break;
+
+                case "backups":
+                    @* The backup root is Agent-side, per-host config (F24); the control plane has no single backup path to
+                       edit, so this points at the hosts that own theirs. *@
+                    <SettingsCard Icon="archive" Title="Backups" Description="Where each host stores its world backups." data-settings-backups>
+                        <SettingRow Label="Backup root" Hint="Set per host in its Agent's configuration">
+                            <span class="text-muted-foreground">Per host — manage backups from each <a href="/hosts" class="text-foreground underline hover:no-underline">host</a> or server</span>
+                        </SettingRow>
+                    </SettingsCard>
+                    break;
+
+                case "users":
+                    @* Owner+Admin (Role.Manage). The role/user administration backend exists (F5) but has no dedicated
+                       UI yet (#171, v1.1); this is the reserved entry. *@
+                    <SettingsCard Icon="users" Title="Users & roles" Description="Who can operate this instance, and what they can do." data-settings-users>
+                        <SettingRow Label="User & role management" Hint="Built-in roles: Owner, Administrator, Operator, Moderator, Viewer, Support">
+                            <span class="zw-rail-soon">Coming in v1.1</span>
+                        </SettingRow>
+                    </SettingsCard>
+                    break;
+
+                case "about":
+                    <SettingsCard Icon="info" Title="About" Description="This ZWarden build and where to learn more." data-settings-about>
+                        <SettingRow Label="Version" Hint="@(BuildId is null ? "The running control plane" : $"Build {BuildId}")">
+                            <span class="font-mono" data-settings-version>@VersionLabel</span>
+                        </SettingRow>
+                        <SettingRow Label="Licence" Hint="Self-host and modify freely; hosted resale needs a commercial licence">
+                            <a href="@($"{Repository}/blob/development/LICENSING.md")" target="_blank" rel="noreferrer"
+                               class="text-foreground underline hover:no-underline" data-settings-licence>Business Source License 1.1</a>
+                        </SettingRow>
+                        <SettingRow Label="Documentation" Hint="Deployment, remote hosts and architecture">
+                            <span class="inline-flex flex-wrap justify-end gap-3">
+                                <a href="@($"{Repository}/tree/development/docs")" target="_blank" rel="noreferrer"
+                                   class="text-foreground underline hover:no-underline">Docs</a>
+                                <a href="@Repository" target="_blank" rel="noreferrer"
+                                   class="text-foreground underline hover:no-underline">Repository</a>
+                            </span>
+                        </SettingRow>
+                    </SettingsCard>
+                    break;
+
+                default:
+                    @* General — instance identity and per-operator display. The default deploy host is chosen per deploy
+                       until #347 adds a control-plane default. *@
+                    <SettingsCard Icon="settings" Title="General" Description="How this instance identifies itself." data-settings-general>
+                        <SettingRow Label="Instance name" Hint="Shown in page titles">
+                            <span data-settings-instance-name>@Instance.Value.Name</span>
+                        </SettingRow>
+                        <SettingRow Label="Default deploy host" Hint="Where Deploy server provisions">
+                            <span class="text-muted-foreground">Chosen per deploy — <a href="/hosts" class="text-foreground underline hover:no-underline">manage hosts</a></span>
+                        </SettingRow>
+                        @* Time display (#211) — a per-operator, per-browser preference (a cookie, not the tenant). Toggling
+                           is client-side (shell.js sets/clears the cookie with the browser's detected zone, then reloads);
+                           the server reads the cookie to render audit/log times. The prerender reads it (a circuit has no
+                           request cookie) and hands it on with the rest of the load. *@
+                        <div data-settings-time>
+                            <SettingRow Label="Time display" Hint="For you, in this browser. Audit log and live logs; CSV exports stay in UTC">
+                                <span class="inline-flex flex-wrap items-center justify-end gap-3">
+                                    <span class="text-muted-foreground" data-settings-time-status>
+                                        @if (_localTime)
+                                        {
+                                            <text>Showing <span class="text-foreground">@_zoneLabel</span></text>
+                                        }
+                                        else
+                                        {
+                                            <text>Showing UTC</text>
+                                        }
+                                    </span>
+                                    <button type="button" data-shell-tz-toggle data-tz-on="@(_localTime ? "true" : "false")"
+                                            aria-pressed="@(_localTime ? "true" : "false")"
+                                            class="inline-flex items-center gap-2 rounded border border-border px-3 py-1.5 text-sm font-medium text-foreground hover:bg-muted">
+                                        @(_localTime ? "Switch to UTC" : "Use my local time")
+                                    </button>
+                                </span>
+                            </SettingRow>
                         </div>
-                    }
-
-                    @* A form so Enter saves, as the button does. Immediate, so a click right after typing saves the
-                       typed key (a BbInput otherwise reports on blur). *@
-                    <EditForm class="mt-4 flex flex-wrap items-end gap-3" Model="_input" OnValidSubmit="SaveAsync">
-                        <div class="flex flex-col text-sm">
-                            <BbLabel For="workshop-key" Class="mb-1 text-muted-foreground">Steam Web API key</BbLabel>
-                            <BbInput Id="workshop-key" Type="InputType.Password" UpdateTiming="UpdateTiming.Immediate" @bind-Value="_input.ApiKey"
-                                     autocomplete="off"
-                                     Placeholder="@(_keyConfigured ? "Enter a new key to replace it" : "Your steamcommunity.com/dev/apikey key")" />
-                        </div>
-                        <BbButton Type="ButtonType.Submit" Disabled="_acting" data-action="workshop-save">Save key</BbButton>
-                    </EditForm>
-
-                    @if (_keyConfigured)
-                    {
-                        <BbButton Class="mt-3" Variant="ButtonVariant.Destructive" Disabled="_acting" OnClick="ClearAsync" data-action="workshop-clear">Clear key</BbButton>
-                    }
-
-                    <p class="mt-4 text-xs text-muted-foreground">
-                        Get a key at
-                        <a href="https://steamcommunity.com/dev/apikey" target="_blank" rel="noreferrer"
-                           class="text-foreground underline hover:no-underline">steamcommunity.com/dev/apikey</a>.
-                        The key is stored encrypted and is never shown again.
-                    </p>
-                </BbCardContent>
-            </BbCard>
-        }
-
-        @* Backups — the backup root is Agent-side, per-host config (F24); the control plane has no single
-           backup path to edit, so this points at the hosts that own theirs. *@
-        <BbCard data-settings-backups>
-            <BbCardHeader>
-                <BbCardTitle>Backups</BbCardTitle>
-                <BbCardDescription>Where each host stores its world backups.</BbCardDescription>
-            </BbCardHeader>
-            <BbCardContent>
-                <p class="text-sm text-muted-foreground">
-                    The backup root is configured per host on its Agent. Manage backups from each
-                    <a href="/hosts" class="text-foreground underline hover:no-underline">host</a> or server.
-                </p>
-            </BbCardContent>
-        </BbCard>
-
-        @* Users & roles — Owner+Admin (Role.Manage). The role/user administration backend exists (F5) but has
-           no dedicated UI yet; this is the reserved entry. *@
-        @if (State is { CanManageRoles: true })
-        {
-            <BbCard data-settings-users>
-                <BbCardHeader>
-                    <BbCardTitle>Users &amp; roles</BbCardTitle>
-                    <BbCardDescription>Who can operate this instance, and what they can do.</BbCardDescription>
-                </BbCardHeader>
-                <BbCardContent>
-                    <p class="text-sm text-muted-foreground">
-                        Built-in roles (Owner, Administrator, Operator, Moderator, Viewer, Support) are seeded per
-                        tenant. A dedicated user &amp; role management screen is coming in a later release.
-                    </p>
-                </BbCardContent>
-            </BbCard>
-        }
+                        <p class="pb-3 pt-1 text-xs text-muted-foreground">
+                            Set the instance name with <code class="rounded bg-muted px-1 py-0.5 font-mono">ZWarden:Instance:Name</code>
+                            in config.
+                        </p>
+                    </SettingsCard>
+                    break;
+            }
+        </div>
     </div>
 </div>
 
 @code {
+    private const string Repository = "https://github.com/MCrank/ZWarden";
+
+    // The sub-nav, in the issue's order (#344). Href is the section's own URL; General is the bare /settings.
+    private static readonly SectionLink[] AllSections =
+    [
+        new("general", "General", "settings", "/settings"),
+        new("security", "Security", "shield", "/settings/security"),
+        new("enrollment", "Host enrollment", "key-round", "/settings/enrollment"),
+        new("integrations", "Integrations", "plug", "/settings/integrations"),
+        new("backups", "Backups", "archive", "/settings/backups"),
+        new("users", "Users & roles", "users", "/settings/users"),
+        new("about", "About", "info", "/settings/about"),
+    ];
+
+    /// <summary>The route's section. Only the router reads it: the page keeps its own location (an in-place switch is a
+    /// <c>pushState</c> the router never sees), so the section shown comes from <see cref="SettingsLocation"/>.</summary>
+    [Parameter]
+    public string? Section { get; set; }
+
     /// <summary>The prerender's load, handed to the circuit (#299).</summary>
     [PersistentState]
     public SettingsState? State { get; set; }
@@ -268,6 +293,10 @@
     // Write-only: this only ever carries a newly-entered key; the stored key is never read back into it.
     private readonly WorkshopKeyInput _input = new();
     private readonly string _instance = Guid.NewGuid().ToString("N");
+    private SettingsLocation _location = new(true, null);
+    private string _active = "general";
+    private DotNetObjectReference<Settings>? _self;
+    private bool _attached;
     private bool _saved;
     private string? _savedMessage;
     private string? _error;
@@ -281,8 +310,18 @@
 
     private string? _zoneLabel => _localTime ? TimeDisplay : null;
 
+    private IEnumerable<SectionLink> VisibleSections => AllSections.Where(s => Resolve(s.Id) == s.Id);
+
+    // The informational version is "<version>+<commit>" in a CI build; the version alone otherwise.
+    private string VersionLabel => Build.Version?.Split('+')[0] is { Length: > 0 } version ? version : "Development build";
+
+    private string? BuildId => Build.Version?.Split('+') is [_, { Length: > 0 } commit] ? commit[..Math.Min(7, commit.Length)] : null;
+
     protected override async Task OnInitializedAsync()
     {
+        _location = SettingsLocation.Parse(Navigation.Uri);
+        Navigation.LocationChanged += OnLocationChanged;
+
         if (TimeDisplay is null)
         {
             TimeZoneInfo zone = OperatorTz.Zone;
@@ -292,15 +331,75 @@
         }
 
         State ??= await LoadAsync();
+
+        // Resolve only once the section gates are known, so a withheld section fails closed to General.
+        _active = Resolve(_location.Section);
     }
 
-    protected override void OnAfterRender(bool firstRender)
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
         {
             _circuitReady = true;
             StateHasChanged();
         }
+
+        // #344: from here on a click on a section switches in the circuit (in-place-nav.js, #312).
+        if (!_attached)
+        {
+            _attached = true;
+            _self = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("zwInPlaceNav.attach", "/settings", _self, _instance, new { subpaths = true });
+        }
+    }
+
+    // The fail-closed sub-nav: a section is selectable only where the operator holds its grant.
+    private string Resolve(string? requested) => State is not { } s ? "general" : requested switch
+    {
+        "security" => "security",
+        "enrollment" when s.CanManageEnrollment => "enrollment",
+        "integrations" when s.CanManageWorkshop => "integrations",
+        "backups" => "backups",
+        "users" when s.CanManageRoles => "users",
+        "about" => "about",
+        _ => "general",
+    };
+
+    private string Active(string section) => _active == section ? "active" : string.Empty;
+
+    /// <summary>A click on a section link, or a back/forward between Settings entries, already in the address bar
+    /// (in-place-nav.js). False when <paramref name="url"/> isn't Settings, and the browser then loads it.</summary>
+    [JSInvokable]
+    public bool NavigatedInPlace(string url)
+    {
+        SettingsLocation location = SettingsLocation.Parse(url);
+        if (!location.IsSettingsPage)
+        {
+            return false;
+        }
+
+        Show(location);
+        return true;
+    }
+
+    // A real navigation (an enhanced one: a click before the circuit was up). It starts before the server is asked for
+    // the new page, so the page follows it here; a move to another page is left alone.
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        SettingsLocation location = SettingsLocation.Parse(e.Location);
+        if (location.IsSettingsPage)
+        {
+            _ = InvokeAsync(() => Show(location));
+        }
+    }
+
+    private void Show(SettingsLocation location)
+    {
+        _location = location;
+        _active = Resolve(location.Section);
+        _saved = false;
+        _error = null;
+        StateHasChanged();
     }
 
     private async Task<SettingsState> LoadAsync()
@@ -361,11 +460,30 @@
             : throw new InvalidOperationException("Authenticated request carries no user id claim.");
     }
 
+    public async ValueTask DisposeAsync()
+    {
+        Navigation.LocationChanged -= OnLocationChanged;
+        if (_attached)
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("zwInPlaceNav.detach", _instance);
+            }
+            catch (JSDisconnectedException)
+            {
+                // The circuit is already gone; the module goes with it.
+            }
+        }
+
+        _self?.Dispose();
+    }
+
+    private sealed record SectionLink(string Id, string Label, string Icon, string Href);
+
     private sealed class WorkshopKeyInput
     {
         public string? ApiKey { get; set; }
     }
-
 
     private static string TlsModeLabel(TlsMode? mode) => mode switch
     {

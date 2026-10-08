@@ -1,0 +1,28 @@
+@* One Settings section (#344): the Signal setting card, a primary-tinted Lucide icon beside the title, then the
+   section's rows. Extra attributes (the data-settings-* test hooks) land on the card. *@
+<BbCard @attributes="Attributes">
+    <BbCardHeader Class="border-b border-border">
+        <div class="flex items-center gap-3">
+            <span class="text-primary"><ShellIcon Name="@Icon" /></span>
+            <div class="min-w-0">
+                <BbCardTitle>@Title</BbCardTitle>
+                <BbCardDescription>@Description</BbCardDescription>
+            </div>
+        </div>
+    </BbCardHeader>
+    <BbCardContent Class="py-1">
+        @ChildContent
+    </BbCardContent>
+</BbCard>
+
+@code {
+    [Parameter, EditorRequired] public string Icon { get; set; } = default!;
+
+    [Parameter, EditorRequired] public string Title { get; set; } = default!;
+
+    [Parameter] public string? Description { get; set; }
+
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)] public IReadOnlyDictionary<string, object>? Attributes { get; set; }
+}
