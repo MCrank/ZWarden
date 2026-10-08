@@ -22,7 +22,8 @@ public sealed record SettingsState(
     int? EnrolledHosts = null,
     int? OnlineHosts = null,
     bool CanManageSettings = false,
-    string? InstanceNameOverride = null);
+    string? InstanceNameOverride = null,
+    TimeSpan? SessionIdleTimeout = null);
 
 /// <summary>
 /// Loads the Settings page (#299). The interactive page calls it through <c>ActionScopeRunner</c>, a scope per load.
@@ -70,6 +71,7 @@ public sealed class SettingsQuery
             ? await _agents.ListHostsAsync(user, ct).ConfigureAwait(false)
             : null;
 
+        ControlPlaneSettingsSnapshot settings = await _settings.GetAsync(ct).ConfigureAwait(false);
         return new SettingsState(
             TlsMode: await _setup.GetTlsModeAsync(ct).ConfigureAwait(false),
             WorkshopKeyConfigured: await _workshop.IsSearchAvailableAsync(ct).ConfigureAwait(false),
@@ -79,6 +81,7 @@ public sealed class SettingsQuery
             EnrolledHosts: hosts?.Count,
             OnlineHosts: hosts?.Count(h => h.IsConnected),
             CanManageSettings: await Can(Permissions.TenantSettingsManage).ConfigureAwait(false),
-            InstanceNameOverride: (await _settings.GetAsync(ct).ConfigureAwait(false)).InstanceName);
+            InstanceNameOverride: settings.InstanceName,
+            SessionIdleTimeout: settings.SessionIdleTimeout);
     }
 }

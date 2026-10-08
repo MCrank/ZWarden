@@ -1,6 +1,7 @@
 @page "/settings"
 @page "/settings/{Section}"
 @implements IAsyncDisposable
+@using System.Globalization
 @using System.Security.Claims
 @using Microsoft.AspNetCore.Builder
 @using Microsoft.AspNetCore.HttpOverrides
@@ -11,6 +12,7 @@
 @using ZWarden.Application.Workshop
 @using ZWarden.Domain.Ids
 @using ZWarden.Domain.Security
+@using ZWarden.Domain.Settings
 @using ZWarden.Domain.Setup
 @using ZWarden.Infrastructure.Identity
 @using ZWarden.Web.Configuration
@@ -65,7 +67,8 @@
             @switch (_active)
             {
                 case "security":
-                    @* Read-only status of the boot-time security posture (F32/ADR 0035, F33, PRD 11). *@
+                    @* The boot-time security posture (F32/ADR 0035, F33) is read-only; the session idle timeout (PRD 11) is
+                       the Owner's choice (#346, Tenant.Manage), applied to sessions on their next request. *@
                     <SettingsCard Icon="shield" Title="Security" Description="The ingress, forwarded-header trust, and session posture." data-settings-security>
                         <SettingRow Label="TLS deployment mode" Hint="How HTTPS reaches this instance">
                             <span data-settings-tls-mode>@TlsModeLabel(State?.TlsMode)</span>
@@ -73,12 +76,37 @@
                         <SettingRow Label="Trust X-Forwarded-* headers" Hint="Client address and scheme from the ingress">
                             <span data-settings-forwarded>@ForwardedSummary()</span>
                         </SettingRow>
-                        <SettingRow Label="Session timeout" Hint="Sign-out after inactivity">
-                            <span data-settings-session>@SessionSummary()</span>
+                        <SettingRow Label="Session timeout" Hint="Sign-out after this long without activity. Existing sessions pick up a change on their next request">
+                            <span class="inline-flex flex-wrap items-center gap-2 sm:justify-end">
+                                <span data-settings-session>@SessionSummary()</span>
+                                @if (State is { CanManageWorkshop: true })
+                                {
+                                    <EditForm Model="_timeout" OnValidSubmit="SaveTimeoutAsync" data-settings-session-form
+                                              class="flex flex-wrap items-center gap-2">
+                                        <BbNativeSelect TValue="string" Id="session-timeout" @bind-Value="_timeout.Minutes" aria-label="Session timeout">
+                                            @foreach (TimeSpan choice in ControlPlaneSettings.SessionIdleTimeoutChoices)
+                                            {
+                                                <option value="@((int)choice.TotalMinutes)" selected="@(_timeout.Minutes == ((int)choice.TotalMinutes).ToString(CultureInfo.InvariantCulture))">
+                                                    @SessionTimeouts.Describe(choice)@(choice == ControlPlaneSettings.DefaultSessionIdleTimeout ? " (default)" : "")
+                                                </option>
+                                            }
+                                        </BbNativeSelect>
+                                        <BbButton Type="ButtonType.Submit" Disabled="_acting" data-action="session-timeout-save">Save</BbButton>
+                                    </EditForm>
+                                }
+                            </span>
                         </SettingRow>
+                        @if (_timeoutMessage is not null)
+                        {
+                            <div class="pb-3" data-settings-session-saved>
+                                <BbAlert Variant="AlertVariant.Success" AccentBorder>
+                                    <BbAlertDescription>@_timeoutMessage</BbAlertDescription>
+                                </BbAlert>
+                            </div>
+                        }
                         <p class="pb-3 pt-1 text-xs text-muted-foreground">
-                            Set in config. ZWarden does not terminate TLS itself; these reflect the deploy-time
-                            configuration and change with the deployment, not here.
+                            TLS and forwarded-header trust are set in config. ZWarden does not terminate TLS itself; they
+                            reflect the deploy-time configuration and change with the deployment, not here.
                         </p>
                     </SettingsCard>
                     break;
@@ -351,6 +379,8 @@
     private string? _nameMessage;
     private string? _nameError;
     private int _titleVersion; // a rename re-creates the title, which reads the name once
+    private readonly SessionTimeoutInput _timeout = new();
+    private string? _timeoutMessage;
 
     private string EffectiveName => State?.InstanceNameOverride ?? Instance.Value.Name;
 
@@ -383,6 +413,7 @@
 
         State ??= await LoadAsync();
         _name.Value = State.InstanceNameOverride;
+        _timeout.Minutes = MinutesOf(EffectiveTimeout);
 
         // Resolve only once the section gates are known, so a withheld section fails closed to General.
         _active = Resolve(_location.Section);
@@ -455,6 +486,7 @@
             _error = null;
             _nameMessage = null;
             _nameError = null;
+            _timeoutMessage = null;
         }
 
         _location = location;
@@ -574,6 +606,11 @@
 
     private sealed record SectionLink(string Id, string Label, string Icon, string Href);
 
+    private sealed class SessionTimeoutInput
+    {
+        public string? Minutes { get; set; }
+    }
+
     private sealed class InstanceNameInput
     {
         public string? Value { get; set; }
@@ -610,13 +647,34 @@
             : "Trusted from configured proxies (Proto, Host, For)";
     }
 
-    // The application session cookie's bounded, sliding lifetime (PRD 11), read from the single source of truth.
-    private static string SessionSummary()
+    // The application session cookie's bounded, sliding idle timeout (PRD 11): the Owner's choice (#346), else the default.
+    private TimeSpan EffectiveTimeout => State?.SessionIdleTimeout ?? ControlPlaneSettings.DefaultSessionIdleTimeout;
+
+    private string SessionSummary() => $"{SessionTimeouts.Describe(EffectiveTimeout)} (sliding)";
+
+    private async Task SaveTimeoutAsync()
     {
-        TimeSpan lifetime = IdentityAuthenticationServiceCollectionExtensions.SessionLifetime;
-        string hours = lifetime.TotalHours is var h && h == Math.Floor(h)
-            ? $"{(int)h} hour{((int)h == 1 ? "" : "s")}"
-            : $"{lifetime.TotalHours:0.#} hours";
-        return $"{hours} (sliding)";
+        _timeoutMessage = null;
+        if (!int.TryParse(_timeout.Minutes, NumberStyles.None, CultureInfo.InvariantCulture, out int minutes))
+        {
+            return;
+        }
+
+        _acting = true;
+        try
+        {
+            UserId user = await CurrentUserAsync();
+            await Actions.RunAsync<IControlPlaneSettingsService>(
+                (settings, ct) => settings.SetSessionIdleTimeoutAsync(user, TimeSpan.FromMinutes(minutes), ct));
+            State = await LoadAsync();
+            _timeout.Minutes = MinutesOf(EffectiveTimeout);
+            _timeoutMessage = $"Session timeout set to {SessionTimeouts.Describe(EffectiveTimeout)}. Existing sessions pick it up on their next request.";
+        }
+        finally
+        {
+            _acting = false;
+        }
     }
+
+    private static string MinutesOf(TimeSpan timeout) => ((int)timeout.TotalMinutes).ToString(CultureInfo.InvariantCulture);
 }

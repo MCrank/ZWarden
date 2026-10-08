@@ -51,3 +51,15 @@ next request. It is audited.
 
 - An interactive page that stays open keeps its circuit until the next full request or the #297 revalidation. The
   timeout applies to the cookie (each request), not to an open circuit's idle time.
+
+## Result (2026-10-08)
+
+- Delivered as planned.
+- The settings service now shares one path for every setting: authorize, apply, compare snapshots, save, refresh the
+  cache, then audit old → new. #347 reuses it.
+- `SessionTimeouts.Describe` words a timeout for the audit entry and the UI ("30 minutes", "24 hours", "7 days").
+- Tests:
+  - Domain: +6.
+  - Infrastructure: +9 (service and `SessionTimeoutCookieEventsTests`).
+  - Web: `SessionTimeoutTests` (3).
+  - Floors: Domain 412, Infrastructure 717, Web 717.
