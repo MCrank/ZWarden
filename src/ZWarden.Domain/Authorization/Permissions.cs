@@ -84,6 +84,10 @@ public static class Permissions
     public static readonly PermissionDefinition TenantMembersManage = Tenant("Tenant.Members.Manage");
     public static readonly PermissionDefinition TenantEnrollmentManage = Tenant("Tenant.Enrollment.Manage");
 
+    /// <summary>Edits the control-plane settings an Owner or Administrator may change: instance name, default deploy
+    /// host (#345, #347). Tenant-level settings with a wider reach (session lifetime, #346) stay on Tenant.Manage.</summary>
+    public static readonly PermissionDefinition TenantSettingsManage = Tenant("Tenant.Settings.Manage");
+
     // Users, roles, audit, diagnostics (tenant-wide).
     public static readonly PermissionDefinition UserManage = Tenant("User.Manage");
     public static readonly PermissionDefinition RoleManage = Tenant("Role.Manage");
@@ -101,7 +105,7 @@ public static class Permissions
         ConsoleView, ConsoleExecute,
         BackupView, BackupCreate, BackupRestore, BackupDelete,
         AgentView, AgentManage,
-        TenantView, TenantManage, TenantMembersManage, TenantEnrollmentManage,
+        TenantView, TenantManage, TenantMembersManage, TenantEnrollmentManage, TenantSettingsManage,
         UserManage, RoleManage, AuditView, DiagnosticsView, DiagnosticsExport,
     ];
 

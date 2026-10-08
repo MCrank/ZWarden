@@ -44,7 +44,7 @@ public class PrefixRegistryTests
         [
             "ten-", "usr-", "rol-", "agt-", "srv-", "op-", "aud-", "bkp-", "diag-", "enr-",
             "cfg-", "mod-", "wsi-", "mdp-", "ban-", "ply-", "prm-", "crt-", "ntf-", "msg-",
-            "ist-", "wis-",
+            "ist-", "wis-", "cps-",
         ];
 
         List<string> actual = TypedIdStructs().ConvertAll(PrefixOf);
