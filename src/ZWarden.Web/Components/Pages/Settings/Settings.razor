@@ -6,6 +6,7 @@
 @using Microsoft.AspNetCore.HttpOverrides
 @using Microsoft.Extensions.Options
 @using ZWarden.Application.Diagnostics
+@using ZWarden.Application.Settings
 @using ZWarden.Application.Setup
 @using ZWarden.Application.Workshop
 @using ZWarden.Domain.Ids
@@ -38,7 +39,7 @@
    (Role.Manage) are offered only to operators who hold their grant; an unknown or withheld section falls back to
    General. *@
 
-<PageTitle>Settings · ZWarden</PageTitle>
+<ShellTitle Title="Settings" @key="_titleVersion" />
 
 @* "on" once the circuit has rendered the page (browser tests wait for it); see ServerDetail. *@
 <span hidden data-circuit="@(_circuitReady ? "on" : "off")" data-circuit-instance="@_instance"></span>
@@ -216,9 +217,45 @@
                     @* General — instance identity and per-operator display. The default deploy host is chosen per deploy
                        until #347 adds a control-plane default. *@
                     <SettingsCard Icon="settings" Title="General" Description="How this instance identifies itself." data-settings-general>
-                        <SettingRow Label="Instance name" Hint="Shown in page titles">
-                            <span data-settings-instance-name>@Instance.Value.Name</span>
+                        @* Editable by Tenant.Settings.Manage (#345, ADR 0048): a saved name overrides ZWarden:Instance:Name;
+                           "Use config name" clears it. The service validates, authorizes and audits. *@
+                        <SettingRow Label="Instance name" Hint="Shown in the sidebar and page titles">
+                            @if (State is { CanManageSettings: true })
+                            {
+                                <EditForm Model="_name" OnValidSubmit="SaveNameAsync" data-settings-instance-form
+                                          class="flex flex-wrap items-center gap-2 sm:justify-end">
+                                    <BbInput Id="instance-name" UpdateTiming="UpdateTiming.Immediate" @bind-Value="_name.Value"
+                                             Placeholder="@Instance.Value.Name" aria-label="Instance name" maxlength="64"
+                                             autocomplete="off" Class="w-56" />
+                                    <BbButton Type="ButtonType.Submit" Disabled="_acting" data-action="instance-name-save">Save</BbButton>
+                                    @if (State.InstanceNameOverride is not null)
+                                    {
+                                        <BbButton Variant="ButtonVariant.Outline" Disabled="_acting" OnClick="ResetNameAsync"
+                                                  data-action="instance-name-reset">Use config name</BbButton>
+                                    }
+                                </EditForm>
+                            }
+                            else
+                            {
+                                <span>@EffectiveName</span>
+                            }
                         </SettingRow>
+                        @if (_nameMessage is not null)
+                        {
+                            <div class="pb-3" data-settings-instance-saved>
+                                <BbAlert Variant="AlertVariant.Success" AccentBorder>
+                                    <BbAlertDescription>@_nameMessage</BbAlertDescription>
+                                </BbAlert>
+                            </div>
+                        }
+                        @if (_nameError is not null)
+                        {
+                            <div class="pb-3" data-settings-instance-error>
+                                <BbAlert Variant="AlertVariant.Danger" AccentBorder>
+                                    <BbAlertDescription>@_nameError</BbAlertDescription>
+                                </BbAlert>
+                            </div>
+                        }
                         <SettingRow Label="Default deploy host" Hint="Where Deploy server provisions">
                             <span class="text-muted-foreground">Chosen per deploy — <a href="/hosts" class="text-foreground underline hover:no-underline">manage hosts</a></span>
                         </SettingRow>
@@ -247,9 +284,17 @@
                                 </span>
                             </SettingRow>
                         </div>
-                        <p class="pb-3 pt-1 text-xs text-muted-foreground">
-                            Set the instance name with <code class="rounded bg-muted px-1 py-0.5 font-mono">ZWarden:Instance:Name</code>
-                            in config.
+                        <p class="pb-3 pt-1 text-xs text-muted-foreground" data-settings-instance-source>
+                            Showing <span class="text-foreground" data-settings-instance-name>@EffectiveName</span>.
+                            @if (State?.InstanceNameOverride is not null)
+                            {
+                                <text>Set here; it overrides the config name "@Instance.Value.Name"</text>
+                            }
+                            else
+                            {
+                                <text>From config</text>
+                            }
+                            (<code class="rounded bg-muted px-1 py-0.5 font-mono">ZWarden:Instance:Name</code>).
                         </p>
                     </SettingsCard>
                     break;
@@ -302,6 +347,12 @@
     private string? _error;
     private bool _acting;
     private bool _circuitReady;
+    private readonly InstanceNameInput _name = new();
+    private string? _nameMessage;
+    private string? _nameError;
+    private int _titleVersion; // a rename re-creates the title, which reads the name once
+
+    private string EffectiveName => State?.InstanceNameOverride ?? Instance.Value.Name;
 
     private bool _keyConfigured => State?.WorkshopKeyConfigured ?? false;
 
@@ -331,6 +382,7 @@
         }
 
         State ??= await LoadAsync();
+        _name.Value = State.InstanceNameOverride;
 
         // Resolve only once the section gates are known, so a withheld section fails closed to General.
         _active = Resolve(_location.Section);
@@ -395,11 +447,53 @@
 
     private void Show(SettingsLocation location)
     {
+        string section = Resolve(location.Section);
+        if (section != _active)
+        {
+            // A save's message belongs to its section; a refresh of the same section (after a rename) keeps it.
+            _saved = false;
+            _error = null;
+            _nameMessage = null;
+            _nameError = null;
+        }
+
         _location = location;
-        _active = Resolve(location.Section);
-        _saved = false;
-        _error = null;
+        _active = section;
         StateHasChanged();
+    }
+
+    // #345: the instance name, saved through the settings service (which authorizes, validates and audits). The shell
+    // around this page is static, so an enhanced refresh re-renders the sidebar with the new name; the page keeps its
+    // circuit and its message.
+    private async Task SaveNameAsync() => await ChangeNameAsync(_name.Value);
+
+    private async Task ResetNameAsync() => await ChangeNameAsync(null);
+
+    private async Task ChangeNameAsync(string? name)
+    {
+        _nameMessage = null;
+        _nameError = null;
+        _acting = true;
+        try
+        {
+            UserId user = await CurrentUserAsync();
+            await Actions.RunAsync<IControlPlaneSettingsService>((settings, ct) => settings.SetInstanceNameAsync(user, name, ct));
+            State = await LoadAsync();
+            _name.Value = State.InstanceNameOverride;
+            _nameMessage = State.InstanceNameOverride is null
+                ? $"Instance name reset to the config name \"{Instance.Value.Name}\"."
+                : $"Instance name saved as \"{State.InstanceNameOverride}\".";
+            _titleVersion++;
+            Navigation.Refresh();
+        }
+        catch (ArgumentException ex)
+        {
+            _nameError = ex.Message.Split(" (Parameter", 2)[0];
+        }
+        finally
+        {
+            _acting = false;
+        }
     }
 
     private async Task<SettingsState> LoadAsync()
@@ -479,6 +573,11 @@
     }
 
     private sealed record SectionLink(string Id, string Label, string Icon, string Href);
+
+    private sealed class InstanceNameInput
+    {
+        public string? Value { get; set; }
+    }
 
     private sealed class WorkshopKeyInput
     {

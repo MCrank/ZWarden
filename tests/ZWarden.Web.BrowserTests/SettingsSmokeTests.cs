@@ -57,6 +57,30 @@ public sealed partial class SettingsSmokeTests(BrowserHost host)
         await session.AssertNoErrorsAsync();
     }
 
+    [Test]
+    public async Task Renaming_the_instance_updates_the_sidebar_without_a_restart()
+    {
+        // #345: the shell is static, so the page refreshes it after a save; the circuit (and its message) stays.
+        await using BrowserSession session = await host.OpenAsync("/settings");
+        ILocator label = session.Page.Locator("[data-shell-menu-trigger=workspace] .zw-t1");
+        try
+        {
+            await session.FillAsync("#instance-name", "Knox Ops");
+            await session.Page.ClickAsync("[data-action=instance-name-save]");
+            await Expect(session.Page.Locator("[data-settings-instance-saved]")).ToBeVisibleAsync();
+            await Expect(label).ToHaveTextAsync("Knox Ops");
+            await Expect(session.Page).ToHaveTitleAsync("Settings · Knox Ops");
+        }
+        finally
+        {
+            // The host is shared by the session's tests: put the configured name back.
+            await session.Page.ClickAsync("[data-action=instance-name-reset]");
+            await Expect(label).ToHaveTextAsync("ZWarden");
+        }
+
+        await session.AssertNoErrorsAsync();
+    }
+
     [GeneratedRegex(@"/settings/about$")]
     private static partial Regex AboutUrl();
 

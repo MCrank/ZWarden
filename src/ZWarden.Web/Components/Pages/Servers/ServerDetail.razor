@@ -29,7 +29,7 @@
    countdown restart, last failure) and the rail; each rail section is its own component under Sections/ and owns
    its forms, handlers and data. *@
 
-<PageTitle>@(_server?.Name ?? "Server") — ZWarden</PageTitle>
+<ShellTitle Title="@(_server?.Name ?? "Server")" />
 
 <p class="text-sm"><a href="/servers" class="text-muted-foreground hover:text-foreground">← Servers</a></p>
 @* "on" once the circuit has rendered the page, so a browser test knows the buttons are live (a click on the

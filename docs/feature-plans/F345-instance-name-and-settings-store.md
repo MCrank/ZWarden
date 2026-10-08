@@ -56,6 +56,21 @@ is audited as old → new. The store built here also holds #346 (session timeout
 3. Web: `InstanceName`, `MainLayout`, `ShellTitle`, the General row editor.
 4. Chores: `app.css`, floors, docs, this plan's result.
 
+## Result (2026-10-08)
+
+- Delivered as planned. ADR 0048 records the store, and CONTEXT.md lists the new `cps-` prefix.
+- The cache's write method is `Remember`; `Set` trips CA1716 (a reserved keyword in VB).
+- After a save, the page runs an enhanced `Navigation.Refresh()` so the static sidebar re-renders. The circuit and its
+  message survive. `Show` clears messages only on a section change. The page's `ShellTitle` is re-keyed so the title
+  reads the new name.
+- Tests:
+  - Domain: `ControlPlaneSettingsTests` (10).
+  - Infrastructure: `ControlPlaneSettingsServiceTests` (6) and `ControlPlaneSettingsMigrationTests` (1, the grant on
+    an existing install).
+  - Web: `InstanceNameTests` (5).
+  - Browser: rename → sidebar and title.
+  - Floors: Domain 406, Infrastructure 708, Web 714, Browser 29.
+
 ## Not in scope
 
 - Session timeout (#346), default deploy host (#347).

@@ -75,6 +75,7 @@ string[] allowedHosts = builder.Configuration.GetSection("ZWarden:AllowedHosts")
 // and the Settings page. Bound with its default when the section is absent, so a stock install shows "ZWarden".
 builder.Services.Configure<ZWarden.Web.Configuration.InstanceOptions>(
     builder.Configuration.GetSection(ZWarden.Web.Configuration.InstanceOptions.SectionName));
+builder.Services.AddScoped<ZWarden.Web.Configuration.InstanceName>(); // #345: the override from Settings, else this config
 
 builder.Services.AddSecurityFoundation();          // key ring from the environment (fail-closed, ADR 0015)
 builder.Services.AddZWardenDataProtection(builder.Configuration, builder.Environment); // #186: persist + encrypt the DP key ring (ADR 0015)

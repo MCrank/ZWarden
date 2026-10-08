@@ -1,0 +1,16 @@
+@using ZWarden.Web.Configuration
+@inject InstanceName Instance
+
+@* The browser title of a signed-in page (#345): "<page> · <instance name>", the name being the override set in Settings,
+   else ZWarden:Instance:Name. Sign-in, account and setup pages keep a fixed "· ZWarden" title, so an override is never
+   shown before sign-in. *@
+<PageTitle>@Title · @_name</PageTitle>
+
+@code {
+    /// <summary>The page's own part of the title.</summary>
+    [Parameter, EditorRequired] public string Title { get; set; } = default!;
+
+    private string _name = string.Empty;
+
+    protected override async Task OnInitializedAsync() => _name = await Instance.GetAsync();
+}

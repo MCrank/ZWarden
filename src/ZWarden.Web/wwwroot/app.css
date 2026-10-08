@@ -1495,6 +1495,9 @@ html:not(.dark) .zw-ico-moon {
   .w-40 {
     width: calc(var(--spacing) * 40);
   }
+  .w-56 {
+    width: calc(var(--spacing) * 56);
+  }
   .w-\[30px\] {
     width: 30px;
   }
@@ -2177,6 +2180,9 @@ html:not(.dark) .zw-ico-moon {
     }
     .sm\:justify-between {
       justify-content: space-between;
+    }
+    .sm\:justify-end {
+      justify-content: flex-end;
     }
     .sm\:gap-4 {
       gap: calc(var(--spacing) * 4);

@@ -1,5 +1,6 @@
 using ZWarden.Application.Agents;
 using ZWarden.Application.Authorization;
+using ZWarden.Application.Settings;
 using ZWarden.Application.Setup;
 using ZWarden.Application.Workshop;
 using ZWarden.Domain.Authorization;
@@ -9,9 +10,9 @@ using ZWarden.Domain.Setup;
 namespace ZWarden.Web.Components.Pages.Settings;
 
 /// <summary>What the Settings page shows that comes from the database: the declared TLS mode, whether a Workshop key is
-/// configured, the enrolled and connected host counts (#344, null without <c>Agent.View</c>), and the tenant-wide grants
-/// that gate its Owner/Admin-only sections. A plain, JSON-serializable record, so the prerender hands it to the circuit
-/// through <c>[PersistentState]</c> (#299).</summary>
+/// configured, the enrolled and connected host counts (#344, null without <c>Agent.View</c>), the instance name override
+/// (#345, null = config applies), and the tenant-wide grants that gate its Owner/Admin-only sections and controls. A
+/// plain, JSON-serializable record, so the prerender hands it to the circuit through <c>[PersistentState]</c> (#299).</summary>
 public sealed record SettingsState(
     TlsMode? TlsMode,
     bool WorkshopKeyConfigured,
@@ -19,7 +20,9 @@ public sealed record SettingsState(
     bool CanManageWorkshop,
     bool CanManageRoles,
     int? EnrolledHosts = null,
-    int? OnlineHosts = null);
+    int? OnlineHosts = null,
+    bool CanManageSettings = false,
+    string? InstanceNameOverride = null);
 
 /// <summary>
 /// Loads the Settings page (#299). The interactive page calls it through <c>ActionScopeRunner</c>, a scope per load.
@@ -33,18 +36,25 @@ public sealed class SettingsQuery
     private readonly IWorkshopSettingsService _workshop;
     private readonly IPermissionChecker _permissions;
     private readonly IAgentInventory _agents;
+    private readonly IControlPlaneSettingsService _settings;
 
     public SettingsQuery(
-        ISetupState setup, IWorkshopSettingsService workshop, IPermissionChecker permissions, IAgentInventory agents)
+        ISetupState setup,
+        IWorkshopSettingsService workshop,
+        IPermissionChecker permissions,
+        IAgentInventory agents,
+        IControlPlaneSettingsService settings)
     {
         ArgumentNullException.ThrowIfNull(setup);
         ArgumentNullException.ThrowIfNull(workshop);
         ArgumentNullException.ThrowIfNull(permissions);
         ArgumentNullException.ThrowIfNull(agents);
+        ArgumentNullException.ThrowIfNull(settings);
         _setup = setup;
         _workshop = workshop;
         _permissions = permissions;
         _agents = agents;
+        _settings = settings;
     }
 
     public async Task<SettingsState> LoadAsync(UserId user, CancellationToken ct)
@@ -67,6 +77,8 @@ public sealed class SettingsQuery
             CanManageWorkshop: await Can(Permissions.TenantManage).ConfigureAwait(false),
             CanManageRoles: await Can(Permissions.RoleManage).ConfigureAwait(false),
             EnrolledHosts: hosts?.Count,
-            OnlineHosts: hosts?.Count(h => h.IsConnected));
+            OnlineHosts: hosts?.Count(h => h.IsConnected),
+            CanManageSettings: await Can(Permissions.TenantSettingsManage).ConfigureAwait(false),
+            InstanceNameOverride: (await _settings.GetAsync(ct).ConfigureAwait(false)).InstanceName);
     }
 }
