@@ -1,16 +1,18 @@
+using System.Text.RegularExpressions;
 using Microsoft.Playwright;
 using static Microsoft.Playwright.Assertions;
 
 namespace ZWarden.Web.BrowserTests;
 
-/// <summary>The Settings smoke test (#299): the owner saves, then clears, the Workshop search key.</summary>
+/// <summary>The Settings smoke tests: the owner saves, then clears, the Workshop search key (#299), and the sub-nav
+/// switches sections in the circuit, back/forward included, with a bookmarkable URL per section (#344).</summary>
 [ClassDataSource<BrowserHost>(Shared = SharedType.PerTestSession)]
-public sealed class SettingsSmokeTests(BrowserHost host)
+public sealed partial class SettingsSmokeTests(BrowserHost host)
 {
     [Test]
     public async Task Settings_saves_then_clears_the_workshop_search_key()
     {
-        await using BrowserSession session = await host.OpenAsync("/settings");
+        await using BrowserSession session = await host.OpenAsync("/settings/integrations");
         ILocator workshop = session.Page.Locator("[data-settings-workshop]");
 
         await session.FillAsync("#workshop-key", "ABCDEF0123456789ABCDEF0123456789");
@@ -21,4 +23,43 @@ public sealed class SettingsSmokeTests(BrowserHost host)
         await Expect(workshop).ToContainTextAsync("No search key configured");
         await session.AssertNoErrorsAsync();
     }
+
+    [Test]
+    public async Task The_sub_nav_switches_sections_in_place_and_each_url_opens_its_section()
+    {
+        await using BrowserSession session = await host.OpenAsync("/settings");
+        int pageRequests = 0;
+        session.Page.Request += (_, request) =>
+        {
+            if (new Uri(request.Url).AbsolutePath.StartsWith("/settings", StringComparison.OrdinalIgnoreCase))
+            {
+                Interlocked.Increment(ref pageRequests);
+            }
+        };
+
+        await session.Page.ClickAsync("[data-settings-nav-item=security]");
+        await Expect(session.Page.Locator("[data-settings-security]")).ToBeVisibleAsync();
+        await session.Page.ClickAsync("[data-settings-nav-item=about]");
+        await Expect(session.Page.Locator("[data-settings-about]")).ToBeVisibleAsync();
+        await Expect(session.Page).ToHaveURLAsync(AboutUrl());
+        await Expect(session.Page.Locator("[data-settings-nav-item=about]")).ToHaveClassAsync(Active());
+
+        await session.Page.GoBackAsync();
+        await Expect(session.Page.Locator("[data-settings-security]")).ToBeVisibleAsync();
+        await session.Page.GoForwardAsync();
+        await Expect(session.Page.Locator("[data-settings-about]")).ToBeVisibleAsync();
+        await session.WaitForCircuitAsync();
+        await Assert.That(Volatile.Read(ref pageRequests)).IsEqualTo(0).Because("a section switch must not ask the server for the page");
+
+        await session.Page.ReloadAsync();
+        await session.WaitForCircuitAsync();
+        await Expect(session.Page.Locator("[data-settings-about]")).ToBeVisibleAsync();
+        await session.AssertNoErrorsAsync();
+    }
+
+    [GeneratedRegex(@"/settings/about$")]
+    private static partial Regex AboutUrl();
+
+    [GeneratedRegex(@"\bactive\b")]
+    private static partial Regex Active();
 }

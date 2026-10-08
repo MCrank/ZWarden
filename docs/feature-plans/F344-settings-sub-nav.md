@@ -64,6 +64,15 @@ content into the issue's sections. Nothing becomes editable here except what alr
 3. In-place switch (`in-place-nav.js` sub-paths, `NavigatedInPlace`) with bUnit and browser tests.
 4. Chores: `app.css`, test floors, docs (`ui-components.md`), this plan's result.
 
+## Result (2026-10-08)
+
+- Delivered as planned. `SettingsCard` and `SettingRow` keep the sections uniform for #345–#347, which will put
+  editable controls in a row's right-hand side.
+- Checked in run-web, light and dark, desktop and phone. A sub-nav click and back/forward make no request for the
+  page.
+- Tests: `SettingsLocationTests` (4), `SettingsInPlaceNavigationTests` (5, bUnit), `SettingsPageTests` reworked per
+  section, and a new browser test for the sub-nav, back/forward and reload.
+
 ## Not in scope
 
 - Making anything editable (#345 instance name and settings store, #346 session timeout, #347 default deploy host).

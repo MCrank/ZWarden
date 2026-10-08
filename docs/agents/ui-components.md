@@ -123,7 +123,9 @@ Use them and don't write static workarounds. The rules:
   `ServerDetailLocation` (the circuit's `NavigationManager` never sees a `pushState`) and still follows a real
   navigation through `LocationChanged`. Sections move with `GoToAsync` (the cascaded `ServerDetailNavigator`), not
   `NavigateTo`. The script loads before `blazor.web.js`: listeners on `window` run in the order they were added, so
-  it has to come first to stop Blazor's `popstate` handler.
+  it has to come first to stop Blazor's `popstate` handler. Settings (#344) uses it too, with path sections
+  (`/settings/{section}`): `attach("/settings", page, instance, { subpaths: true })` also claims the paths below
+  `/settings`, and the page parses its own `SettingsLocation`. Server Detail matches its exact path only.
 - **Keep persisted state small: well under 32 KB.** A prerender's state rides in the page, and every enhanced
   navigation (any link the circuit doesn't switch in place) posts it to the circuit as one hub message. Past the Blazor hub's 32 KB
   `MaximumReceiveMessageSize`, the hub drops the connection: the reconnect overlay flashes. That was #322: the
