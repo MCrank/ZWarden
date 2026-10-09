@@ -739,6 +739,30 @@ namespace ZWarden.Migrations.Sqlite.Migrations
                     b.ToTable("Servers", (string)null);
                 });
 
+            modelBuilder.Entity("ZWarden.Domain.Settings.ControlPlaneSettings", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("InstanceName")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId")
+                        .IsUnique();
+
+                    b.ToTable("ControlPlaneSettings", (string)null);
+                });
+
             modelBuilder.Entity("ZWarden.Domain.Setup.InstallState", b =>
                 {
                     b.Property<Guid>("Id")

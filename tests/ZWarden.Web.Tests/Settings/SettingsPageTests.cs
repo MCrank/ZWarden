@@ -186,6 +186,7 @@ public sealed class SettingsPageTests
         await Assert.That(ActiveSection(enrollment)).IsEqualTo("general");
         await Assert.That(enrollment).DoesNotContain("data-settings-enrollment");
         await Assert.That(ActiveSection(users)).IsEqualTo("users");
+        await Assert.That(html).Contains("data-settings-instance-form"); // #345: Tenant.Settings.Manage is Owner + Admin
         client.Dispose();
     }
 

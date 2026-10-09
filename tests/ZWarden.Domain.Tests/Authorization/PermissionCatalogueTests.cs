@@ -29,8 +29,10 @@ public class PermissionCatalogueTests
 
     // Permissions added after the original PRD 12A list as deliberate catalogue changes, each recorded in an
     // ADR: "Server.Diagnostics" is F18's per-server RCON diagnostic probe (#39, ADR 0026); "Server.Recreate" is the
-    // data-preserving container recreate (#229, ADR 0045); "Server.Delete" removes a Server and its container (#271).
-    private static readonly string[] PostPrdAdditions = ["Server.Diagnostics", "Server.Recreate", "Server.Delete"];
+    // data-preserving container recreate (#229, ADR 0045); "Server.Delete" removes a Server and its container (#271);
+    // "Tenant.Settings.Manage" edits the control-plane settings an Owner or Administrator may change (#345).
+    private static readonly string[] PostPrdAdditions =
+        ["Server.Diagnostics", "Server.Recreate", "Server.Delete", "Tenant.Settings.Manage"];
 
     private static readonly string[] ExpectedPermissionNames = [.. PrdPermissionNames, .. PostPrdAdditions];
 

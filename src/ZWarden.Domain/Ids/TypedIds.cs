@@ -428,3 +428,23 @@ public readonly record struct InstallStateId(Guid Value) : ITypedId<InstallState
     /// <inheritdoc />
     public override string ToString() => TypedId.Format<InstallStateId>(Value);
 }
+
+/// <summary>Identifies a tenant's control-plane settings (#345; one row per tenant). Canonical form
+/// <c>cps-&lt;uuid&gt;</c>.</summary>
+public readonly record struct ControlPlaneSettingsId(Guid Value) : ITypedId<ControlPlaneSettingsId>
+{
+    /// <inheritdoc />
+    public static string Prefix => "cps-";
+    /// <inheritdoc />
+    public static ControlPlaneSettingsId FromGuid(Guid value) => new(value);
+    /// <summary>A fresh, non-empty UUIDv7 id.</summary>
+    public static ControlPlaneSettingsId New() => TypedId.New<ControlPlaneSettingsId>();
+    /// <summary>Parses the canonical form; throws on the wrong prefix or a malformed UUID.</summary>
+    public static ControlPlaneSettingsId Parse(string s) => TypedId.Parse<ControlPlaneSettingsId>(s);
+    /// <summary>Non-throwing parse of the canonical form.</summary>
+    public static bool TryParse(string? s, out ControlPlaneSettingsId id) => TypedId.TryParse(s, out id);
+    /// <summary>True when this is the default (unset) id.</summary>
+    public bool IsEmpty => Value == Guid.Empty;
+    /// <inheritdoc />
+    public override string ToString() => TypedId.Format<ControlPlaneSettingsId>(Value);
+}
