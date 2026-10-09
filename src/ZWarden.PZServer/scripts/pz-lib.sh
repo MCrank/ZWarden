@@ -296,6 +296,22 @@ pz_share_workshop() {
   find "${workshop}" -type d ! -perm -g=w -exec chmod g+w {} +
 }
 
+# pz_fix_admin_password_mode <data_dir>
+# Makes an existing persisted admin password file 0640 so the Agent (uid 10001, group 10000) can
+# read it to back the world up (#377); images before #377 wrote it 0600. The content is never
+# touched. A restored world's file is owned by the Agent's uid, which pzserver cannot chmod — that
+# file was restored readable by the group already, so a failed chmod is logged and never fails
+# the start (the entrypoint runs under `set -e`).
+pz_fix_admin_password_mode() {
+  local data_dir="${1:-/pz/data}"
+  local pwfile="${data_dir}/${PZ_ADMIN_PASSWORD_FILE}"
+  [ -f "${pwfile}" ] || return 0
+  [ "$(stat -c '%a' "${pwfile}")" = "640" ] && return 0
+  chmod 0640 "${pwfile}" 2>/dev/null \
+    || echo "[zwarden] could not make ${PZ_ADMIN_PASSWORD_FILE} group-readable (not its owner); leaving it as it is" >&2
+  return 0
+}
+
 # pz_admin_password <data_dir>
 # The in-game administrator password supplied non-interactively at launch (#188). Build 42
 # PROMPTS for it on first boot when none is given ("Enter new administrator password:") and,
@@ -318,7 +334,7 @@ pz_admin_password() {
   local pw
   pw="$(LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 24)"
   mkdir -p "${data_dir}"
-  ( umask 077; printf '%s' "${pw}" > "${pwfile}" )
+  ( umask 027; printf '%s' "${pw}" > "${pwfile}" ) # 0640: the Agent backs it up (#377)
   printf '%s' "${pw}"
 }
 
