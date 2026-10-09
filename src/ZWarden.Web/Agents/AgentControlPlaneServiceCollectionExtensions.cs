@@ -27,6 +27,7 @@ public static class AgentControlPlaneServiceCollectionExtensions
         // The live-log viewer ref-count (F27): drives the owning Agent's on-demand follow on/off through the hub.
         // A singleton, beside the registry it routes through.
         services.AddSingleton<IServerLogSubscriptionCoordinator, ServerLogSubscriptionCoordinator>();
+        services.AddSingleton<IAgentOwnershipNotifier, AgentOwnershipNotifier>();
 
         // The live configuration read coordinator (F20c, ADR 0041): correlates a read request with its chunked
         // reply. A singleton — the AgentHub feeds reply chunks into the same instance ReadAsync awaits. It is the

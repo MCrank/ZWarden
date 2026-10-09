@@ -7,7 +7,8 @@ namespace ZWarden.Agent.Docker;
 /// The allowed-container enforcement point (PRD 25, trust-boundaries.md §4): the single gate every
 /// target-container operation passes through before a Docker verb is issued. A container is operable only when
 /// it is a canonical ZWarden container <b>and</b> its <c>io.zwarden.agent-id</c> is one <i>this</i> Agent owns
-/// (its enrolled AgentId, or its local id on a container created before #365). Because no socket proxy can authorize by container (ADR 0008), this check — in the Agent's own
+/// (its enrolled AgentId, its local id on a container created before #365, or an id it inherited when the Owner
+/// replaced the Host that made the container, #368). Because no socket proxy can authorize by container (ADR 0008), this check — in the Agent's own
 /// code — is the actual control; the proxy only downgrades a bug here from destruction to a 403. It is
 /// deliberately fail-closed: an unrecognised, mislabelled, or foreign-owned container is refused.
 /// </summary>
@@ -60,5 +61,23 @@ public sealed class ContainerOwnershipGuard
 
         serverId = resolved;
         return true;
+    }
+
+    /// <summary>
+    /// #368: the opposite question, for reporting only — returns <c>true</c> when the container is canonical but
+    /// stamped with an id this Agent doesn't own, with the Server it hosts and the id it carries. A foreign container
+    /// stays refused by <see cref="EnsureOwnedByThisAgent"/>; this never makes one operable.
+    /// </summary>
+    public bool TryResolveForeign(IReadOnlyDictionary<string, string>? labels, out ServerId serverId, out AgentId labelledAgentId)
+    {
+        if (CanonicalContainerRecognizer.TryRecognize(labels, out serverId, out labelledAgentId)
+            && !_identity.Owns(labelledAgentId))
+        {
+            return true;
+        }
+
+        serverId = default;
+        labelledAgentId = default;
+        return false;
     }
 }

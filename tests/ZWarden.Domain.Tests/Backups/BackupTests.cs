@@ -72,4 +72,24 @@ public class BackupTests
         await Assert.That(() => Backup.Record(ServerId.New(), AgentId.New(), "w.tar.gz", -1, "aa", BackupReason.Manual, Now))
             .Throws<ArgumentOutOfRangeException>();
     }
+
+    // #368: a backup's archive lives on the machine, so Replace host moves it with its Server.
+    [Test]
+    public async Task ReassignTo_moves_the_backup_to_the_replacing_host()
+    {
+        Backup backup = Backup.Record(ServerId.New(), AgentId.New(), "w.tar.gz", 1, "aa", BackupReason.Manual, Now);
+        AgentId successor = AgentId.New();
+
+        backup.ReassignTo(successor);
+
+        await Assert.That(backup.AgentId).IsEqualTo(successor);
+    }
+
+    [Test]
+    public async Task ReassignTo_rejects_an_empty_host()
+    {
+        Backup backup = Backup.Record(ServerId.New(), AgentId.New(), "w.tar.gz", 1, "aa", BackupReason.Manual, Now);
+
+        await Assert.That(() => backup.ReassignTo(default)).Throws<ArgumentException>();
+    }
 }

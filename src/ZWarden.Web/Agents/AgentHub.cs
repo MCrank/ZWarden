@@ -54,6 +54,8 @@ public sealed partial class AgentHub : Hub
     private readonly IModRefreshTrigger _modRefresh;
     private readonly IBackupRecorder _backups;
     private readonly IServerRemoval _removal;
+    private readonly IForeignContainerCache _foreign;
+    private readonly IHostReplacementService _replacements;
     private readonly ControlPlaneMetrics _telemetry;
     private readonly IAuditWriter _audit;
     private readonly ILogger<AgentHub> _logger;
@@ -78,6 +80,8 @@ public sealed partial class AgentHub : Hub
         IModRefreshTrigger modRefresh,
         IBackupRecorder backups,
         IServerRemoval removal,
+        IForeignContainerCache foreign,
+        IHostReplacementService replacements,
         ControlPlaneMetrics telemetry,
         IAuditWriter audit,
         ILogger<AgentHub> logger)
@@ -101,6 +105,8 @@ public sealed partial class AgentHub : Hub
         ArgumentNullException.ThrowIfNull(modRefresh);
         ArgumentNullException.ThrowIfNull(backups);
         ArgumentNullException.ThrowIfNull(removal);
+        ArgumentNullException.ThrowIfNull(foreign);
+        ArgumentNullException.ThrowIfNull(replacements);
         ArgumentNullException.ThrowIfNull(telemetry);
         ArgumentNullException.ThrowIfNull(audit);
         ArgumentNullException.ThrowIfNull(logger);
@@ -123,6 +129,8 @@ public sealed partial class AgentHub : Hub
         _modRefresh = modRefresh;
         _backups = backups;
         _removal = removal;
+        _foreign = foreign;
+        _replacements = replacements;
         _telemetry = telemetry;
         _audit = audit;
         _logger = logger;
@@ -244,9 +252,37 @@ public sealed partial class AgentHub : Hub
                     s.Health is { } health ? WireServerHealth.ToDomain(health) : null))
                 .ToList();
             await _servers.ReconcileAsync(agentId, observed, Context.ConnectionAborted).ConfigureAwait(false);
+
+            // #368: containers stamped with another Agent's id, kept under the authenticated reporter. Untrusted: they
+            // let the Hosts card offer Replace host, which re-checks them; an Agent before #368 reports none.
+            _foreign.Record(agentId, (snapshot.Payload.Foreign ?? [])
+                .Take(AgentStateSnapshot.MaxForeignContainers)
+                .Select(f => new ReportedForeignContainer(
+                    Bounded(f.ContainerId, 64), f.ServerId, f.LabelledAgentId, Bounded(f.State, ForeignContainer.MaxStateLength)))
+                .ToList());
             LogSnapshot(agentId, snapshot.Payload.Servers.Count);
         }
     }
+
+    /// <summary>
+    /// #368: the Agent ids the authenticated Agent inherited when the Owner replaced Hosts with it, as strings. The Agent
+    /// asks after <see cref="Hello"/> and before its snapshot, and again when told its ownership changed. Answered for
+    /// the connection's own Agent only, so an Agent can't learn another Host's ids.
+    /// </summary>
+    public async Task<string[]> InheritedAgentIds()
+    {
+        if (!AgentClaims.TryGetAgentId(Context.User, out AgentId agentId))
+        {
+            return [];
+        }
+
+        IReadOnlyList<AgentId> inherited = await _replacements.InheritedIdsAsync(agentId, Context.ConnectionAborted)
+            .ConfigureAwait(false);
+        return [.. inherited.Select(id => id.ToString())];
+    }
+
+    private static string Bounded(string? value, int length) =>
+        string.IsNullOrEmpty(value) ? string.Empty : value.Length <= length ? value : value[..length];
 
     /// <summary>
     /// The Agent's incremental run-state transition (F16): record the observed run-state on the named Server —

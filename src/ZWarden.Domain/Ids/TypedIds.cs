@@ -448,3 +448,23 @@ public readonly record struct ControlPlaneSettingsId(Guid Value) : ITypedId<Cont
     /// <inheritdoc />
     public override string ToString() => TypedId.Format<ControlPlaneSettingsId>(Value);
 }
+
+/// <summary>Identifies a host replacement (#368): the Owner replaced a wiped Host with the one its machine enrolled as
+/// next. Canonical form <c>hr-&lt;uuid&gt;</c>.</summary>
+public readonly record struct HostReplacementId(Guid Value) : ITypedId<HostReplacementId>
+{
+    /// <inheritdoc />
+    public static string Prefix => "hr-";
+    /// <inheritdoc />
+    public static HostReplacementId FromGuid(Guid value) => new(value);
+    /// <summary>A fresh, non-empty UUIDv7 id.</summary>
+    public static HostReplacementId New() => TypedId.New<HostReplacementId>();
+    /// <summary>Parses the canonical form; throws on the wrong prefix or a malformed UUID.</summary>
+    public static HostReplacementId Parse(string s) => TypedId.Parse<HostReplacementId>(s);
+    /// <summary>Non-throwing parse of the canonical form.</summary>
+    public static bool TryParse(string? s, out HostReplacementId id) => TypedId.TryParse(s, out id);
+    /// <summary>True when this is the default (unset) id.</summary>
+    public bool IsEmpty => Value == Guid.Empty;
+    /// <inheritdoc />
+    public override string ToString() => TypedId.Format<HostReplacementId>(Value);
+}

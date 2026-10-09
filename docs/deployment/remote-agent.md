@@ -110,10 +110,29 @@ you clean them up there (`docker compose down`, adding `-v` to drop the volumes 
 enroll it again with a fresh token; it shows up as a new host.
 
 An Agent labels the PZ containers it creates with the host id shown on its card (containers created by an older
-Agent carry its local id instead, and the same Agent still manages them). A re-enrolled Agent is a new host with a
-new id, so it can't yet see PZ containers the previous Agent created on that machine
-([#368](https://github.com/MCrank/ZWarden/issues/368)). Delete a host's servers in ZWarden before you wipe and
-re-enroll its Agent.
+Agent carry its local id instead, and the same Agent still manages them).
+
+## Replacing a host after a wipe
+
+If a machine's Agent state is lost (`docker compose down -v`, a lost volume) and the machine is enrolled again, it
+shows up as a **new** host. Its PZ containers still carry the old host's id, so the new Agent doesn't manage them.
+It reports them instead, and they appear on the new host's card in **`/hosts`**:
+
+- **Containers from an offline host you still have.** The card says how many containers from that host are on this
+  machine. The Owner clicks **Replace *old host*…** and confirms. In one step:
+  - the old host's servers and their backups move to the new host;
+  - the old host is removed and its credential revoked;
+  - the step is recorded in the audit log as `Agent.Replaced`.
+
+  The containers keep running, nothing restarts, and each container takes the new host's id the next time it is
+  recreated (a config apply or a game update). Replace is refused while the old host is connected, and it can't be
+  undone.
+- **Containers ZWarden can't place.** These were made by a host that no longer exists or one that is still connected.
+  They are listed read-only, with the `docker rm -f <id>` to run on the machine if you no longer need them.
+  ZWarden never touches them.
+
+Only the Owner can replace a host. Administrators see the containers but not the button. See ADR 0049 for why this is
+the only way across the Agent's container ownership check.
 
 ## Security notes
 

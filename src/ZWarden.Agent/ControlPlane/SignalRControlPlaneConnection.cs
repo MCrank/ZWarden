@@ -1,8 +1,11 @@
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using ZWarden.Agent.Configuration;
+using ZWarden.Agent.Docker;
 using ZWarden.Agent.Health;
+using ZWarden.Agent.Identity;
 using ZWarden.Agent.LogStreaming;
 using ZWarden.Agent.ServerConfig;
 using ZWarden.Agent.Trust;
@@ -28,6 +31,8 @@ public sealed partial class SignalRControlPlaneConnection : IAgentControlPlaneCo
     private readonly IServerLogSubscriptionService _logSubscriptions;
     private readonly IServerConfigReader _configReader;
     private readonly IServerConfigRawEditStaging _rawStaging;
+    private readonly AgentIdentityHolder _identity;
+    private readonly ForeignContainerScanner _foreign;
     private readonly AgentOptions _options;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<SignalRControlPlaneConnection> _logger;
@@ -41,6 +46,8 @@ public sealed partial class SignalRControlPlaneConnection : IAgentControlPlaneCo
         IServerLogSubscriptionService logSubscriptions,
         IServerConfigReader configReader,
         IServerConfigRawEditStaging rawStaging,
+        AgentIdentityHolder identity,
+        ForeignContainerScanner foreign,
         IOptions<AgentOptions> options,
         TimeProvider timeProvider,
         ILogger<SignalRControlPlaneConnection> logger)
@@ -51,6 +58,8 @@ public sealed partial class SignalRControlPlaneConnection : IAgentControlPlaneCo
         ArgumentNullException.ThrowIfNull(logSubscriptions);
         ArgumentNullException.ThrowIfNull(configReader);
         ArgumentNullException.ThrowIfNull(rawStaging);
+        ArgumentNullException.ThrowIfNull(identity);
+        ArgumentNullException.ThrowIfNull(foreign);
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(timeProvider);
         ArgumentNullException.ThrowIfNull(logger);
@@ -60,6 +69,8 @@ public sealed partial class SignalRControlPlaneConnection : IAgentControlPlaneCo
         _logSubscriptions = logSubscriptions;
         _configReader = configReader;
         _rawStaging = rawStaging;
+        _identity = identity;
+        _foreign = foreign;
         _options = options.Value;
         _timeProvider = timeProvider;
         _logger = logger;
@@ -277,6 +288,22 @@ public sealed partial class SignalRControlPlaneConnection : IAgentControlPlaneCo
             (correlationId, chunkIndex, chunkCount, chunk) =>
                 _rawStaging.Accept(new ServerConfigRawEditChunk(correlationId, chunkIndex, chunkCount, chunk)));
 
+        // #368: the Owner replaced a Host with this one. Re-ask which ids this Agent inherited and re-send the snapshot,
+        // so the moved Servers are reconciled now rather than at the next reconnect.
+        connection.On(AgentHubProtocol.OwnershipChanged, async () =>
+        {
+            try
+            {
+                await InheritAndSnapshotAsync(agentId, CancellationToken.None).ConfigureAwait(false);
+            }
+#pragma warning disable CA1031 // A failed refresh must not crash the connection; the next reconnect repeats it.
+            catch (Exception ex)
+            {
+                LogOwnershipRefreshFailed(ex);
+            }
+#pragma warning restore CA1031
+        });
+
         // A terminal close (auto-reconnect gave up, or an explicit stop) tears down every follow, so none lingers
         // against a dead connection; a transient drop keeps them — auto-reconnect reuses this same connection and
         // the emitter resumes once it is Connected again.
@@ -331,10 +358,54 @@ public sealed partial class SignalRControlPlaneConnection : IAgentControlPlaneCo
             return result;
         }
 
+        await InheritAndSnapshotAsync(agentId, cancellationToken).ConfigureAwait(false);
+        return result;
+    }
+
+    // #368: the inherited ids come first, so the snapshot already covers the Servers they bring and doesn't list their
+    // containers as foreign.
+    private async Task InheritAndSnapshotAsync(AgentId agentId, CancellationToken cancellationToken)
+    {
+        HubConnection connection = _connection
+            ?? throw new InvalidOperationException("The connection has not been built.");
+
+        _identity.SetInherited(await FetchInheritedAsync(connection, cancellationToken).ConfigureAwait(false));
+
         Envelope<AgentStateSnapshot> snapshot =
             Envelope.Create(await BuildSnapshotAsync(cancellationToken).ConfigureAwait(false), _timeProvider.GetUtcNow(), agentId);
         await connection.InvokeAsync(AgentHubProtocol.StateSnapshot, snapshot, cancellationToken).ConfigureAwait(false);
-        return result;
+    }
+
+    private async Task<IReadOnlyList<AgentId>> FetchInheritedAsync(HubConnection connection, CancellationToken cancellationToken)
+    {
+        string[]? raw;
+        try
+        {
+            raw = await connection.InvokeAsync<string[]>(AgentHubProtocol.InheritedAgentIds, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (HubException ex)
+        {
+            // A control plane that predates #368 has no such method: this Agent inherits nothing.
+            LogInheritedIdsUnavailable(ex.Message);
+            return [];
+        }
+
+        List<AgentId> inherited = [];
+        foreach (string text in raw ?? [])
+        {
+            if (AgentId.TryParse(text, out AgentId id))
+            {
+                inherited.Add(id);
+            }
+        }
+
+        if (inherited.Count > 0)
+        {
+            LogInherited(inherited.Count);
+        }
+
+        return inherited;
     }
 
     // The authoritative post-(re)connect snapshot: the observed run-state and health of every owned Server (F16).
@@ -345,13 +416,15 @@ public sealed partial class SignalRControlPlaneConnection : IAgentControlPlaneCo
         try
         {
             IReadOnlyList<ServerObservation> observed = await _health.ObserveAllAsync(cancellationToken).ConfigureAwait(false);
-            if (observed.Count == 0)
+            IReadOnlyList<ForeignContainer> foreign = await _foreign.ScanAsync(cancellationToken).ConfigureAwait(false);
+            if (observed.Count == 0 && foreign.Count == 0)
             {
                 return AgentStateSnapshot.Empty;
             }
 
             return new AgentStateSnapshot(
-                observed.Select(o => new ServerState(o.ServerId, o.RunState, o.Health)).ToList());
+                observed.Select(o => new ServerState(o.ServerId, o.RunState, o.Health)).ToList(),
+                foreign.Count == 0 ? null : foreign);
         }
 #pragma warning disable CA1031 // A failed observation must not break the handshake; send an empty snapshot instead.
         catch (Exception ex)
@@ -361,6 +434,15 @@ public sealed partial class SignalRControlPlaneConnection : IAgentControlPlaneCo
         }
 #pragma warning restore CA1031
     }
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "This Agent owns {Count} inherited Agent id(s) from replaced Hosts (#368)")]
+    private partial void LogInherited(int count);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "The control plane offers no inherited Agent ids (it predates #368): {Reason}")]
+    private partial void LogInheritedIdsUnavailable(string reason);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Refreshing inherited Agent ids after a host replacement failed; the next reconnect retries")]
+    private partial void LogOwnershipRefreshFailed(Exception ex);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Control-plane protocol negotiation was rejected: {Reason}")]
     private partial void LogIncompatible(string reason);

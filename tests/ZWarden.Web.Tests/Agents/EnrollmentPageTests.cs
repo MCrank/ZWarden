@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using ZWarden.Application.Agents;
 using ZWarden.Domain.Authorization;
 using ZWarden.Domain.Ids;
 using ZWarden.Domain.Tenancy;
@@ -97,6 +98,78 @@ public sealed class EnrollmentPageTests
         await Assert.That(html).DoesNotContain("remove-host-open");
         await Assert.That(html).DoesNotContain("data-host-remove");
         client.Dispose();
+    }
+
+    // #368: the new Host's card shows containers its Agent found stamped with another id.
+    [Test]
+    public async Task An_owner_can_replace_an_offline_host_whose_containers_the_new_host_reports()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOwnerAsync(factory, "owner@zwarden.test");
+        AgentId old = await SeedNamedHostAsync(factory, "nsfw-2-old");
+        AgentId fresh = await SeedNamedHostAsync(factory, "nsfw-2");
+        ServerId orphan = ServerId.New();
+        factory.Services.GetRequiredService<IForeignContainerCache>().Record(fresh,
+        [
+            new ReportedForeignContainer("0123456789ab", ServerId.New(), old, "running"),
+            new ReportedForeignContainer("fedcba987654", orphan, AgentId.New(), "exited"),
+        ]);
+
+        string html = await (await client.GetAsync(new Uri("/hosts", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        await Assert.That(html).Contains($"data-host-replace-candidate=\"{old}\"");
+        await Assert.That(html).Contains("1 container from nsfw-2-old");
+        await Assert.That(Regex.Count(html, "data-action=\"replace-host-open\"")).IsEqualTo(1);
+        await Assert.That(html).Contains("data-host-unmanaged");
+        await Assert.That(html).Contains("docker rm -f fedcba987654");
+        await Assert.That(html).Contains(orphan.ToString());
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task A_connected_old_host_is_not_offered_for_replacement()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOwnerAsync(factory, "owner@zwarden.test");
+        AgentId old = await SeedNamedHostAsync(factory, "still-here");
+        AgentId fresh = await SeedNamedHostAsync(factory, "nsfw-2");
+        factory.Services.GetRequiredService<IAgentConnectionRegistry>().Register(old, "conn-old", () => { });
+        factory.Services.GetRequiredService<IForeignContainerCache>()
+            .Record(fresh, [new ReportedForeignContainer("0123456789ab", ServerId.New(), old, "running")]);
+
+        string html = await (await client.GetAsync(new Uri("/hosts", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        await Assert.That(html).DoesNotContain("replace-host-open");
+        await Assert.That(html).Contains("docker rm -f 0123456789ab");
+        client.Dispose();
+    }
+
+    [Test]
+    public async Task An_administrator_sees_the_reported_containers_but_cannot_replace()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInWithRoleAsync(factory, "admin@zwarden.test", BuiltInRoleKind.Administrator);
+        AgentId old = await SeedNamedHostAsync(factory, "nsfw-2-old");
+        AgentId fresh = await SeedNamedHostAsync(factory, "nsfw-2");
+        factory.Services.GetRequiredService<IForeignContainerCache>()
+            .Record(fresh, [new ReportedForeignContainer("0123456789ab", ServerId.New(), old, "running")]);
+
+        string html = await (await client.GetAsync(new Uri("/hosts", UriKind.Relative))).Content.ReadAsStringAsync();
+
+        await Assert.That(html).Contains("data-host-replace-candidate");
+        await Assert.That(html).DoesNotContain("replace-host-open");
+        client.Dispose();
+    }
+
+    private static async Task<AgentId> SeedNamedHostAsync(ZWardenWebAppFactory factory, string label)
+    {
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
+        ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
+        Domain.Agents.Agent agent = Domain.Agents.Agent.Enroll(
+            $"{label}hash".PadRight(64, 'a'), EnrollmentId.New(), DateTimeOffset.UtcNow, label);
+        db.Add(agent);
+        await db.SaveChangesAsync();
+        return agent.Id;
     }
 
     private static async Task SeedHostAsync(ZWardenWebAppFactory factory)

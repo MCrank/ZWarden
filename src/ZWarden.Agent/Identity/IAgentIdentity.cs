@@ -20,9 +20,9 @@ public interface IAgentIdentity
     AgentId LocalId { get; }
 
     /// <summary>
-    /// Whether a container stamped with <paramref name="agentId"/> belongs to this Agent: the enrolled id or the
-    /// local id (Docker labels can't be changed in place, so a container created under the local id stays owned
-    /// until a Recreate re-stamps it).
+    /// Whether a container stamped with <paramref name="agentId"/> belongs to this Agent: the enrolled id, the local
+    /// id, or an id inherited from a Host the Owner replaced with this one (#368). Docker labels can't be changed in
+    /// place, so such a container stays owned under its old id until a Recreate re-stamps it.
     /// </summary>
     bool Owns(AgentId agentId);
 }

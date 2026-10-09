@@ -30,6 +30,8 @@ public static class EnrollmentServiceCollectionExtensions
 
         services.AddScoped<IEnrollmentService, EnrollmentService>();
         services.AddScoped<IAgentTrustService, AgentTrustService>();
+        services.AddScoped<IHostReplacementService, HostReplacementService>();
+        services.AddSingleton<IForeignContainerCache, ForeignContainerCache>();
         services.AddScoped<IAgentEnrollmentExchange, AgentEnrollmentExchange>();
         services.AddScoped<IAgentCredentialVerifier, AgentCredentialVerifier>();
 

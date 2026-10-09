@@ -130,9 +130,12 @@ public sealed class AgentTrustService : IAgentTrustService
             return HostRemovalResult.Blocked(servers);
         }
 
-        // Delete before the abort, so a reconnect racing it already finds no credential to match.
+        // Delete before the abort, so a reconnect racing it already finds no credential to match. The ids it inherited
+        // (#368) go with it: with no Servers left there is nothing on the machine for them to cover.
         agent.RevokeCredential(_clock.GetUtcNow());
         _context.Remove(agent);
+        _context.RemoveRange(await _context.Set<HostReplacement>()
+            .Where(r => r.SuccessorId == agent.Id).ToListAsync(cancellationToken).ConfigureAwait(false));
         await _context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
         await AuditAsync(EnrollmentAuditActions.AgentRemoved, actor, agent.Id, cancellationToken).ConfigureAwait(false);

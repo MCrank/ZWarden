@@ -29,9 +29,10 @@ public sealed class Server : IVersioned, ITenantOwned
     /// <inheritdoc />
     public TenantId TenantId { get; init; }
 
-    /// <summary>The Agent (host) this Server runs on — the Agent-to-Server association. Required and immutable
-    /// in v1.0 (a Server is not moved between hosts).</summary>
-    public AgentId AgentId { get; init; }
+    /// <summary>The Agent (host) this Server runs on — the Agent-to-Server association. Required. It changes only
+    /// when the Owner replaces a wiped Host with the one its machine enrolled as next (#368, <see cref="ReassignTo"/>);
+    /// a Server is never moved to another machine.</summary>
+    public AgentId AgentId { get; private set; }
 
     /// <summary>The operator-facing name. Never a secret; not the container name.</summary>
     public string Name { get; private set; } = string.Empty;
@@ -161,6 +162,21 @@ public sealed class Server : IVersioned, ITenantOwned
             Branch = ServerBranchRules.Normalize(branch),
             CreatedAt = now,
         };
+    }
+
+    /// <summary>
+    /// #368: rebinds this Server to the Host that replaced its own after the machine was wiped and enrolled again. Only
+    /// the host replacement service calls it (an architecture test pins that): the container stays where it is, and the
+    /// replacing Agent owns it through the inherited id until a Recreate re-stamps it.
+    /// </summary>
+    public void ReassignTo(AgentId successor)
+    {
+        if (successor.IsEmpty)
+        {
+            throw new ArgumentException("A Server must belong to a host.", nameof(successor));
+        }
+
+        AgentId = successor;
     }
 
     /// <summary>Records a freshly observed run-state and the time it was reported (trust-boundaries.md §3 —

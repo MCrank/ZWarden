@@ -1,0 +1,144 @@
+@using System.Security.Claims
+@using ZWarden.Application.Agents
+@using ZWarden.Application.Authorization
+@using ZWarden.Domain.Ids
+@using ZWarden.Infrastructure.Tenancy
+@inject ActionScopeRunner Actions
+@inject UserManager<ApplicationUser> Users
+@inject NavigationManager Nav
+
+@* The "Replace host" action on a Host card (#368, ADR 0049): an interactive island on the static Hosts page, rendered
+   through the page's single BbPortalHost. The page offers it on the new Host's card only for an offline Host whose
+   containers this one reports, and only to a caller holding Tenant.Enrollment.Manage (Owner-only).
+   IHostReplacementService re-checks all of it, then moves the Servers and backups, removes the old Host, and audits. *@
+
+<span hidden data-circuit="@(_circuitReady ? "on" : "off")"></span>
+<BbButton Variant="ButtonVariant.Default" Size="ButtonSize.Small" OnClick="Open" data-action="replace-host-open">Replace @PredecessorName…</BbButton>
+
+<BbAlertDialog @bind-Open="_open">
+    <BbAlertDialogContent data-replace-host-dialog>
+        <BbAlertDialogHeader>
+            <BbAlertDialogTitle>Replace @PredecessorName with @SuccessorName?</BbAlertDialogTitle>
+        </BbAlertDialogHeader>
+        <ul class="mt-3 list-disc space-y-1 pl-5 text-sm" data-replace-host-effects>
+            <li>
+                @ServerCount @(ServerCount == 1 ? "server" : "servers") and their backups move to @SuccessorName. The containers
+                keep running; nothing restarts.
+            </li>
+            <li>
+                @PredecessorName is removed and its credential revoked, so its Agent can't reconnect. The audit log keeps its
+                history.
+            </li>
+            <li>Each container takes @SuccessorName's id the next time it is recreated, for example by a config apply or a game update.</li>
+            <li>This can't be undone.</li>
+        </ul>
+        @if (_message is not null)
+        {
+            <div class="mt-3" data-replace-host-message>
+                <BbAlert Variant="AlertVariant.Warning" AccentBorder>
+                    <BbAlertDescription>@_message</BbAlertDescription>
+                </BbAlert>
+            </div>
+        }
+        <BbAlertDialogFooter Class="mt-4">
+            <BbAlertDialogCancel>
+                <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" data-action="replace-host-cancel">Cancel</BbButton>
+            </BbAlertDialogCancel>
+            <BbButton Variant="ButtonVariant.Default" Size="ButtonSize.Small" Disabled="_busy" OnClick="ReplaceAsync"
+                      data-action="replace-host">Replace host</BbButton>
+        </BbAlertDialogFooter>
+    </BbAlertDialogContent>
+</BbAlertDialog>
+
+@code {
+    /// <summary>The Host whose card this is: the machine's new enrollment.</summary>
+    [Parameter, EditorRequired]
+    public AgentId SuccessorId { get; set; }
+
+    /// <summary>The new Host's display name.</summary>
+    [Parameter, EditorRequired]
+    public string SuccessorName { get; set; } = string.Empty;
+
+    /// <summary>The offline Host whose containers the new one reports.</summary>
+    [Parameter, EditorRequired]
+    public AgentId PredecessorId { get; set; }
+
+    /// <summary>The old Host's display name.</summary>
+    [Parameter, EditorRequired]
+    public string PredecessorName { get; set; } = string.Empty;
+
+    /// <summary>The old Host's Servers as the page saw them.</summary>
+    [Parameter]
+    public int ServerCount { get; set; }
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthState { get; set; }
+
+    private bool _circuitReady;
+    private bool _open;
+    private bool _busy;
+    private string? _message;
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender && RendererInfo.IsInteractive)
+        {
+            _circuitReady = true;
+            StateHasChanged();
+        }
+    }
+
+    private void Open()
+    {
+        _message = null;
+        _open = true;
+    }
+
+    private async Task ReplaceAsync()
+    {
+        _busy = true;
+        _message = null;
+        try
+        {
+            UserId user = await CurrentUserAsync();
+            AgentId successor = SuccessorId;
+            AgentId predecessor = PredecessorId;
+            HostReplacementResult result = await Actions.RunAsync<IHostReplacementService, HostReplacementResult>(
+                (service, ct) => service.ReplaceAsync(user, successor, predecessor, ct));
+            if (result.Outcome == HostReplacementOutcome.Replaced)
+            {
+                _open = false;
+                Nav.Refresh();
+                return;
+            }
+
+            _message = Refusal(result.Outcome);
+        }
+        catch (AuthorizationDeniedException)
+        {
+            _message = "You are not permitted to replace hosts, or one of the hosts no longer exists.";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private string Refusal(HostReplacementOutcome outcome) => outcome switch
+    {
+        HostReplacementOutcome.PredecessorOnline =>
+            $"{PredecessorName} is connected again, so it may still be managing these containers. Replace it once it is offline.",
+        HostReplacementOutcome.NotReported =>
+            $"{SuccessorName} no longer reports containers from {PredecessorName}. Reload the page to see what it reports now.",
+        HostReplacementOutcome.SuccessorUntrusted => $"{SuccessorName} is disabled or revoked. Enable it first.",
+        _ => "A host can't replace itself.",
+    };
+
+    private async Task<UserId> CurrentUserAsync()
+    {
+        ClaimsPrincipal principal = (await AuthState!).User;
+        return Guid.TryParse(Users.GetUserId(principal), out Guid id)
+            ? UserId.FromGuid(id)
+            : throw new InvalidOperationException("Authenticated request carries no user id claim.");
+    }
+}

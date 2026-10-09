@@ -13,7 +13,8 @@ namespace ZWarden.Domain.Backups;
 /// (the exact value F25 re-verifies before restoring), and the <b>retention metadata</b> — why it was taken and
 /// an optional expiry hint a later scheduler (F26) prunes on. It is <see cref="ITenantOwned"/> (stamped and
 /// filtered by the ambient tenant, ADR 0016) and write-once: a backup's facts are fixed the moment the Agent
-/// reports them, so there is no mutator and no concurrency token.
+/// reports them, so there is no concurrency token. The one exception is <see cref="ReassignTo"/> (#368), when the Owner
+/// replaces the wiped Host the archive sits on with the Host its machine enrolled as next.
 /// </summary>
 public sealed class Backup : ITenantOwned
 {
@@ -37,8 +38,9 @@ public sealed class Backup : ITenantOwned
     /// <summary>The Server whose world data this backup copies.</summary>
     public ServerId ServerId { get; init; }
 
-    /// <summary>The Agent that wrote the archive and on whose host it lives (a local backup is Agent-resident).</summary>
-    public AgentId AgentId { get; init; }
+    /// <summary>The Agent on whose host the archive lives (a local backup is Agent-resident): the one that wrote it, or
+    /// the Host that replaced it on the same machine (#368).</summary>
+    public AgentId AgentId { get; private set; }
 
     /// <summary>The archive's relative locator — its file name under <c>&lt;BackupRoot&gt;/&lt;ServerId&gt;/</c> on the
     /// Agent host (Agent-authored; never an absolute path). The full path is reconstructed by the Agent from its
@@ -92,5 +94,19 @@ public sealed class Backup : ITenantOwned
             CreatedAt = createdAt,
             ExpiresAt = expiresAt,
         };
+    }
+
+    /// <summary>
+    /// #368: moves the backup to the Host that replaced its own on the same machine, so restore and delete reach the
+    /// archive. Only the host replacement service calls it.
+    /// </summary>
+    public void ReassignTo(AgentId successor)
+    {
+        if (successor.IsEmpty)
+        {
+            throw new ArgumentException("A backup must belong to a host.", nameof(successor));
+        }
+
+        AgentId = successor;
     }
 }

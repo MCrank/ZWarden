@@ -72,4 +72,37 @@ public class AgentIdentityHolderTests
         await Assert.That(() => holder.AgentId).Throws<InvalidOperationException>();
         await Assert.That(() => holder.LocalId).Throws<InvalidOperationException>();
     }
+
+    // #368: after the Owner replaces a wiped Host, ZWarden hands this Agent the replaced Host's ids on connect.
+    [Test]
+    public async Task Inherited_ids_are_owned_but_never_become_the_operational_id()
+    {
+        AgentId local = AgentId.New();
+        AgentId enrolled = AgentId.New();
+        AgentId inherited = AgentId.New();
+        AgentIdentityHolder holder = new();
+        holder.Set(local);
+        holder.MarkEnrolled(enrolled);
+
+        holder.SetInherited([inherited]);
+
+        await Assert.That(holder.Owns(inherited)).IsTrue();
+        await Assert.That(holder.AgentId).IsEqualTo(enrolled);
+        await Assert.That(holder.Owns(AgentId.New())).IsFalse();
+    }
+
+    [Test]
+    public async Task Each_inherited_set_replaces_the_previous_one()
+    {
+        AgentId first = AgentId.New();
+        AgentId second = AgentId.New();
+        AgentIdentityHolder holder = new();
+        holder.Set(AgentId.New());
+        holder.SetInherited([first]);
+
+        holder.SetInherited([second]);
+
+        await Assert.That(holder.Owns(first)).IsFalse();
+        await Assert.That(holder.Owns(second)).IsTrue();
+    }
 }

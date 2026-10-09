@@ -11,7 +11,7 @@ namespace ZWarden.Agent.Identity;
 public sealed class AgentIdentityHolder : IAgentIdentity
 {
     private readonly Lock _gate = new();
-    private Ids _ids = new(null, null);
+    private Ids _ids = new(null, null, new HashSet<AgentId>());
 
     /// <inheritdoc />
     public AgentId AgentId => Current.Enrolled ?? LocalId;
@@ -30,7 +30,7 @@ public sealed class AgentIdentityHolder : IAgentIdentity
     public bool Owns(AgentId agentId)
     {
         Ids ids = Current;
-        return agentId == ids.Enrolled || agentId == ids.Local;
+        return agentId == ids.Enrolled || agentId == ids.Local || ids.Inherited.Contains(agentId);
     }
 
     /// <summary>Records the local identity. Called once, at startup.</summary>
@@ -51,5 +51,19 @@ public sealed class AgentIdentityHolder : IAgentIdentity
         }
     }
 
-    private sealed record Ids(AgentId? Local, AgentId? Enrolled);
+    /// <summary>
+    /// #368: records the ids this Agent inherited when the Owner replaced Hosts with it. ZWarden sends the whole set on
+    /// every connect and after a Replace; it replaces the previous set and is never written to disk.
+    /// </summary>
+    public void SetInherited(IEnumerable<AgentId> inherited)
+    {
+        ArgumentNullException.ThrowIfNull(inherited);
+        HashSet<AgentId> set = [.. inherited];
+        lock (_gate)
+        {
+            Volatile.Write(ref _ids, _ids with { Inherited = set });
+        }
+    }
+
+    private sealed record Ids(AgentId? Local, AgentId? Enrolled, HashSet<AgentId> Inherited);
 }

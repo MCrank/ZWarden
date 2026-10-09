@@ -260,4 +260,22 @@ public class ServerTests
 
         await Assert.That(() => server.Rename("  ", null)).Throws<ArgumentException>();
     }
+
+    // #368: Replace host moves a wiped machine's Servers to the Host that replaced it; nothing else rebinds one.
+    [Test]
+    public async Task ReassignTo_moves_the_server_to_the_replacing_host()
+    {
+        Server server = Import();
+        AgentId successor = AgentId.New();
+
+        server.ReassignTo(successor);
+
+        await Assert.That(server.AgentId).IsEqualTo(successor);
+    }
+
+    [Test]
+    public async Task ReassignTo_rejects_an_empty_host()
+    {
+        await Assert.That(() => Import().ReassignTo(default)).Throws<ArgumentException>();
+    }
 }
