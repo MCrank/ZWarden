@@ -45,10 +45,11 @@ end, and an operator guide covers the lifecycle and doubles as the DMZ checklist
   silently drops a file is worse than one that refuses, and the failure message names the path.
 - **D3 — save first, through an Agent `IWorldSaver`.**
   - `SaveAsync(serverId, ct)` returns `WorldSaveResult { Saved, NotRunning, Failed(reason) }`.
-  - It resolves the RCON endpoint (NoContainer → NotRunning; RconDisabled → Failed), connects, and sends `save`,
-    bounded by `AgentOptions.Backup.SaveTimeout` (default 60 s).
-  - It then waits a **fixed settle**, `AgentOptions.Backup.SaveSettle` (default 10 s, via `TimeProvider`), because
-    PZ only queues the save. The default gets timed on the DMZ.
+  - It checks the managed container is running (not → NotRunning), resolves the RCON endpoint (NoContainer or
+    RconDisabled → Failed) and sends `save`, bounded by the RCON client's own connect/command timeouts (3 s / 5 s).
+    *As built:* no separate save timeout, since PZ replies as soon as the save is queued.
+  - It then waits a **fixed settle**, `AgentOptions.BackupSaveSettle` (default 10 s, an injectable delay like
+    `ServerRestartCoordinator`), because PZ only queues the save. The default gets timed on the DMZ.
   - It uses the RCON client directly, not `ConsoleAdministration`. This is an Agent-authored command, not operator
     input, so the console policy doesn't apply. The connection is always disposed.
   - Whether the server is running is decided by the managed container's state (as in restore), not by RCON. A
@@ -62,7 +63,8 @@ end, and an operator guide covers the lifecycle and doubles as the DMZ checklist
 - **D5 — the warning is stored and shown on the row.**
   - `Backup.Warning` is a nullable column (≤ 512, truncated like `Operation.MaxReportedTextLength`). Migrations for
     SQLite and Postgres.
-  - `BackupRecorder.RecordCreatedAsync` stores it and adds it to the audit entry.
+  - `BackupRecorder.RecordCreatedAsync` stores it. *As built:* a backup's completion has no audit entry (backups are
+    audited when enqueued), so the hub puts the warning on the Operation's result line instead.
   - `BackupsSection` shows a warning `BbBadge` ("Not saved first") with the text as a tooltip.
   - The restore protective backup takes no save (the server is stopped), so it never has a warning.
 - **D6 — the guide is `docs/deployment/backups.md`**, linked from getting-started and the compose reference. It
@@ -100,12 +102,13 @@ end, and an operator guide covers the lifecycle and doubles as the DMZ checklist
    - the save always runs before `Create` (call order).
 4. **Agent `TarGzBackupArchiver`** (Linux-only, skipped on Windows like the other mode tests): a 0640 file owned by
    the test user is archived, and the archive contains it.
-5. **Agent integration round trip:** backup a temp world → mutate it → restore through `ServerRestoreRunner` → the
+5. **Agent integration round trip:** *already covered* by `ServerRestoreRunnerTests` (a real `ServerBackupRunner`
+   backup → the world is destroyed → restored byte-for-byte). Originally: backup a temp world → mutate it → restore through `ServerRestoreRunner` → the
    world equals the backup and a protective archive exists.
 6. **Contracts:** `BackupResult` round-trips `Warning`, and a payload without it reads as null.
 7. **Domain/Infra:**
    - `Backup.Record` keeps and truncates the warning;
-   - the recorder persists it and puts it in the audit entry;
+   - the recorder persists it;
    - the migration applies on both providers.
 8. **Web (bUnit):** the row shows "Not saved first" when a warning is present, and nothing otherwise.
 9. **Permissions:** confirm the existing Viewer/Operator coverage for take, restore and delete, and add any that's
