@@ -71,6 +71,19 @@ public class BuiltInRolesTests
     }
 
     [Test]
+    public async Task Backup_grants_operator_takes_and_restores_but_never_deletes_and_viewer_only_views()
+    {
+        // #377 acceptance: an Operator may take and restore but not delete; a Viewer holds Backup.View only.
+        static string[] BackupGrants(BuiltInRoleKind kind) =>
+            [.. BuiltInRoles.Get(kind).Permissions.Select(p => p.Name).Where(n => n.StartsWith("Backup.", StringComparison.Ordinal)).Order(StringComparer.Ordinal)];
+
+        string[] operatorExpected = ["Backup.Create", "Backup.Restore", "Backup.View"];
+        string[] viewerExpected = ["Backup.View"];
+        await Assert.That(BackupGrants(BuiltInRoleKind.Operator)).IsEquivalentTo(operatorExpected);
+        await Assert.That(BackupGrants(BuiltInRoleKind.Viewer)).IsEquivalentTo(viewerExpected);
+    }
+
+    [Test]
     public async Task Moderator_excludes_the_high_risk_permissions()
     {
         // PRD 12A "shall not include" (the catalogue-present subset — Mod.*Arbitrary are
