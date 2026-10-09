@@ -110,6 +110,7 @@ public static class HostingExtensions
 
         // Backups (F24): the host-side tar.gz archiver and the runner that resolves paths and names the archive.
         services.AddSingleton<IBackupArchiver, TarGzBackupArchiver>();
+        services.AddSingleton<IWorldSaver, WorldSaver>();
         services.AddSingleton<IServerBackupRunner, ServerBackupRunner>();
 
         // Restore (F25): the safe tar.gz extractor and the runner that verifies, protectively backs up, and swaps.

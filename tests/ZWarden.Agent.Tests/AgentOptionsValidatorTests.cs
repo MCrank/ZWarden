@@ -191,6 +191,18 @@ public class AgentOptionsValidatorTests
     }
 
     [Test]
+    public async Task Negative_backup_save_settle_fails()
+    {
+        var options = Valid();
+        options.BackupSaveSettle = TimeSpan.FromSeconds(-1);
+
+        var result = new AgentOptionsValidator().Validate(name: null, options);
+
+        await Assert.That(result.Failed).IsTrue();
+        await Assert.That(result.FailureMessage!).Contains(nameof(AgentOptions.BackupSaveSettle));
+    }
+
+    [Test]
     public async Task Non_positive_shutdown_timeout_fails()
     {
         var options = Valid();

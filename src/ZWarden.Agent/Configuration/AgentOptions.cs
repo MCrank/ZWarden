@@ -166,6 +166,11 @@ public sealed class AgentOptions
     /// <summary>The floor on <see cref="PlayerCountSampleInterval"/> (#257): 60s.</summary>
     public static readonly TimeSpan MinimumPlayerCountSampleInterval = TimeSpan.FromSeconds(60);
 
+    /// <summary>How long the Agent waits after a running Server accepts RCON <c>save</c> before it archives the world
+    /// (#377). PZ replies once the save is queued, not written, so this gives the game thread time to finish.
+    /// Must not be negative.</summary>
+    public TimeSpan BackupSaveSettle { get; set; } = TimeSpan.FromSeconds(10);
+
     /// <summary>How long graceful shutdown may take before the host stops forcibly. Must be positive.</summary>
     public TimeSpan ShutdownTimeout { get; set; } = TimeSpan.FromSeconds(10);
 

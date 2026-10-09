@@ -116,6 +116,11 @@ public sealed class AgentOptionsValidator : IValidateOptions<AgentOptions>
             failures.Add($"{AgentOptions.SectionName}:{nameof(AgentOptions.PlayerCountSampleInterval)} must be at least {AgentOptions.MinimumPlayerCountSampleInterval.TotalSeconds:0} seconds.");
         }
 
+        if (options.BackupSaveSettle < TimeSpan.Zero)
+        {
+            failures.Add($"{AgentOptions.SectionName}:{nameof(AgentOptions.BackupSaveSettle)} must not be negative.");
+        }
+
         if (options.ShutdownTimeout <= TimeSpan.Zero)
         {
             failures.Add($"{AgentOptions.SectionName}:{nameof(AgentOptions.ShutdownTimeout)} must be positive.");
