@@ -273,6 +273,7 @@ public class ServerRestoreRunnerTests
     private static ServerBackupRunner BackupRunner(TempRoot temp) =>
         new(
             new TarGzBackupArchiver(),
+            new FakeWorldSaver(),
             Options.Create(new AgentOptions { DataMountRoot = temp.DataMountRoot, BackupRoot = temp.BackupRoot }),
             TimeProvider.System,
             NullLogger<ServerBackupRunner>.Instance);

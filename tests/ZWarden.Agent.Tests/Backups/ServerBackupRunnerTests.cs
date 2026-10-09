@@ -68,6 +68,68 @@ public class ServerBackupRunnerTests
     }
 
     [Test]
+    public async Task RunAsync_saves_a_running_world_before_archiving_it_and_carries_no_warning()
+    {
+        using var temp = new TempRoot();
+        ServerId serverId = ServerId.New();
+        Directory.CreateDirectory(Path.Combine(temp.DataMountRoot, serverId.ToString()));
+        List<string> journal = [];
+        var archiver = new RecordingArchiver { Journal = journal };
+        var saver = new FakeWorldSaver { Result = WorldSaveResult.Saved, Journal = journal };
+
+        ServerBackupOutcome outcome = await Runner(temp, archiver, saver).RunAsync(serverId, OperationId.New(), CancellationToken.None);
+
+        await Assert.That(outcome.Succeeded).IsTrue();
+        await Assert.That(outcome.Warning).IsNull();
+        string[] expected = ["save", "archive"];
+        await Assert.That(journal).IsEquivalentTo(expected, TUnit.Assertions.Enums.CollectionOrdering.Matching);
+    }
+
+    [Test]
+    public async Task RunAsync_archives_anyway_with_a_warning_when_the_world_could_not_be_saved()
+    {
+        using var temp = new TempRoot();
+        ServerId serverId = ServerId.New();
+        Directory.CreateDirectory(Path.Combine(temp.DataMountRoot, serverId.ToString()));
+        var archiver = new RecordingArchiver();
+        var saver = new FakeWorldSaver { Result = WorldSaveResult.Failed("the server's RCON port timed out") };
+
+        ServerBackupOutcome outcome = await Runner(temp, archiver, saver).RunAsync(serverId, OperationId.New(), CancellationToken.None);
+
+        await Assert.That(outcome.Succeeded).IsTrue();
+        await Assert.That(archiver.CallCount).IsEqualTo(1);
+        await Assert.That(outcome.Warning!).Contains("could not be saved before this backup");
+        await Assert.That(outcome.Warning!).Contains("the server's RCON port timed out");
+        await Assert.That(outcome.Warning!).Contains("most recent changes may be missing");
+    }
+
+    [Test]
+    public async Task RunAsync_archives_a_stopped_world_without_a_warning()
+    {
+        using var temp = new TempRoot();
+        ServerId serverId = ServerId.New();
+        Directory.CreateDirectory(Path.Combine(temp.DataMountRoot, serverId.ToString()));
+        var saver = new FakeWorldSaver { Result = WorldSaveResult.NotRunning };
+
+        ServerBackupOutcome outcome = await Runner(temp, new RecordingArchiver(), saver)
+            .RunAsync(serverId, OperationId.New(), CancellationToken.None);
+
+        await Assert.That(outcome.Succeeded).IsTrue();
+        await Assert.That(outcome.Warning).IsNull();
+    }
+
+    [Test]
+    public async Task RunAsync_does_not_try_to_save_when_there_is_no_world_directory()
+    {
+        using var temp = new TempRoot();
+        var saver = new FakeWorldSaver();
+
+        await Runner(temp, new RecordingArchiver(), saver).RunAsync(ServerId.New(), OperationId.New(), CancellationToken.None);
+
+        await Assert.That(saver.CallCount).IsEqualTo(0);
+    }
+
+    [Test]
     public async Task DeleteAsync_removes_the_named_archive_from_the_backup_directory()
     {
         using var temp = new TempRoot();
@@ -110,9 +172,10 @@ public class ServerBackupRunnerTests
         await Assert.That(outcome.FailureReason!).Contains("bare file name");
     }
 
-    private static ServerBackupRunner Runner(TempRoot temp, IBackupArchiver archiver) =>
+    private static ServerBackupRunner Runner(TempRoot temp, IBackupArchiver archiver, IWorldSaver? saver = null) =>
         new(
             archiver,
+            saver ?? new FakeWorldSaver(),
             Options.Create(new AgentOptions { DataMountRoot = temp.DataMountRoot, BackupRoot = temp.BackupRoot }),
             TimeProvider.System,
             NullLogger<ServerBackupRunner>.Instance);
@@ -131,6 +194,8 @@ public class ServerBackupRunnerTests
 
         public string? ArchiveName { get; private set; }
 
+        public List<string>? Journal { get; set; }
+
         public BackupArchiveResult Create(
             string sourceDirectory, string destinationDirectory, string archiveName, CancellationToken cancellationToken)
         {
@@ -138,6 +203,7 @@ public class ServerBackupRunnerTests
             SourceDirectory = sourceDirectory;
             DestinationDirectory = destinationDirectory;
             ArchiveName = archiveName;
+            Journal?.Add("archive");
             if (Throw is not null)
             {
                 throw Throw;
