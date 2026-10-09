@@ -19,10 +19,18 @@ public interface IControlPlaneSettingsService
     /// <exception cref="ZWarden.Application.Authorization.AuthorizationDeniedException">The actor may not manage settings.</exception>
     /// <exception cref="ArgumentException">The name is too long or holds a control character.</exception>
     Task SetInstanceNameAsync(UserId actor, string? name, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Sets the operator session idle timeout (#346) to one of <c>ControlPlaneSettings.SessionIdleTimeoutChoices</c>, or
+    /// back to the default (null). Requires <c>Tenant.Manage</c>. Sessions pick it up on their next request.
+    /// </summary>
+    /// <exception cref="ZWarden.Application.Authorization.AuthorizationDeniedException">The actor may not change it.</exception>
+    /// <exception cref="ArgumentException">The timeout is not one of the choices.</exception>
+    Task SetSessionIdleTimeoutAsync(UserId actor, TimeSpan? timeout, CancellationToken cancellationToken = default);
 }
 
 /// <summary>A tenant's control-plane setting overrides at one moment; null = not overridden (config applies).</summary>
-public sealed record ControlPlaneSettingsSnapshot(string? InstanceName)
+public sealed record ControlPlaneSettingsSnapshot(string? InstanceName, TimeSpan? SessionIdleTimeout = null)
 {
     /// <summary>No overrides.</summary>
     public static ControlPlaneSettingsSnapshot Empty { get; } = new((string?)null);

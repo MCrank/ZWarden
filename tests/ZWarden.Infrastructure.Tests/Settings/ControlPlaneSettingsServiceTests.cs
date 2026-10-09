@@ -127,6 +127,59 @@ public sealed class ControlPlaneSettingsServiceTests
         });
     }
 
+    [Test]
+    public async Task The_owner_sets_the_session_timeout_and_it_is_audited_and_cached()
+    {
+        await WithSqlite(async options =>
+        {
+            await using ZWardenDbContext ctx = Context(options);
+            CapturingAuditWriter audit = new();
+            RecordingCache cache = new();
+            ControlPlaneSettingsService service = Service(ctx, audit, cache, held: [Permissions.TenantManage.Name]);
+
+            await service.SetSessionIdleTimeoutAsync(Actor, TimeSpan.FromMinutes(30));
+            await service.SetSessionIdleTimeoutAsync(Actor, TimeSpan.FromHours(8)); // the default: stores nothing
+
+            await Assert.That((await service.GetAsync()).SessionIdleTimeout).IsNull();
+            await Assert.That(audit.Actions).IsEquivalentTo([SettingsAuditActions.SessionTimeoutChanged, SettingsAuditActions.SessionTimeoutChanged]);
+            await Assert.That(audit.Entries[0].Detail).IsEqualTo("session timeout: 8 hours (default) → 30 minutes");
+            await Assert.That(audit.Entries[1].Detail).IsEqualTo("session timeout: 30 minutes → 8 hours (default)");
+            await Assert.That(cache.Last).IsEqualTo((Tenant, ControlPlaneSettingsSnapshot.Empty));
+        });
+    }
+
+    [Test]
+    public async Task An_administrator_cannot_change_the_session_timeout()
+    {
+        await WithSqlite(async options =>
+        {
+            await using ZWardenDbContext ctx = Context(options);
+            CapturingAuditWriter audit = new();
+            ControlPlaneSettingsService service = Service(ctx, audit, new RecordingCache(), held: [Manage]); // no Tenant.Manage
+
+            await Assert.That(async () => await service.SetSessionIdleTimeoutAsync(Actor, TimeSpan.FromMinutes(30)))
+                .Throws<AuthorizationDeniedException>();
+            await Assert.That(audit.Entries).IsEmpty();
+        });
+    }
+
+    [Test]
+    public async Task A_session_timeout_off_the_list_is_refused_and_settings_keep_the_other_values()
+    {
+        await WithSqlite(async options =>
+        {
+            await using ZWardenDbContext ctx = Context(options);
+            ControlPlaneSettingsService service = Service(
+                ctx, new CapturingAuditWriter(), new RecordingCache(), held: [Manage, Permissions.TenantManage.Name]);
+            await service.SetInstanceNameAsync(Actor, "Knox Ops");
+            await service.SetSessionIdleTimeoutAsync(Actor, TimeSpan.FromDays(7));
+
+            await Assert.That(async () => await service.SetSessionIdleTimeoutAsync(Actor, TimeSpan.FromMinutes(5)))
+                .Throws<ArgumentException>();
+            await Assert.That(await service.GetAsync()).IsEqualTo(new ControlPlaneSettingsSnapshot("Knox Ops", TimeSpan.FromDays(7)));
+        });
+    }
+
     private static ZWardenDbContext Context(DbContextOptions options) => new(options, new TestTenantContext(Tenant));
 
     private static ControlPlaneSettingsService Service(

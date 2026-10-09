@@ -11,9 +11,10 @@ using ZWarden.Infrastructure.Persistence;
 namespace ZWarden.Infrastructure.Settings;
 
 /// <summary>
-/// The operator-edited control-plane settings (#345, ADR 0048). Changes require <c>Tenant.Settings.Manage</c>
-/// tenant-wide (fail-closed, PRD 12), are validated by the aggregate, audited old → new, and pushed into the in-process
-/// cache so the shell shows them at once. The row is tenant-owned: the interceptor stamps the ambient tenant and the
+/// The operator-edited control-plane settings (#345, ADR 0048). Each change is authorized tenant-wide (fail-closed,
+/// PRD 12): the instance name on <c>Tenant.Settings.Manage</c>, the session idle timeout on <c>Tenant.Manage</c>
+/// (#346). The aggregate validates; a change is audited old → new and pushed into the in-process cache, so the shell and
+/// the session cookie see it at once. The row is tenant-owned: the interceptor stamps the ambient tenant and the
 /// repository reads through the tenant filter (ADR 0016).
 /// </summary>
 public sealed class ControlPlaneSettingsService : IControlPlaneSettingsService
@@ -52,15 +53,52 @@ public sealed class ControlPlaneSettingsService : IControlPlaneSettingsService
         Snapshot(await _settings.GetAsync(cancellationToken).ConfigureAwait(false));
 
     /// <inheritdoc />
-    public async Task SetInstanceNameAsync(UserId actor, string? name, CancellationToken cancellationToken = default)
+    public Task SetInstanceNameAsync(UserId actor, string? name, CancellationToken cancellationToken = default) =>
+        ChangeAsync(
+            actor,
+            Permissions.TenantSettingsManage,
+            SettingsAuditActions.InstanceNameChanged,
+            "instance name",
+            row => row.InstanceName is { } value ? $"\"{value}\"" : "(config)",
+            row => row.SetInstanceName(name),
+            cancellationToken);
+
+    /// <inheritdoc />
+    public Task SetSessionIdleTimeoutAsync(UserId actor, TimeSpan? timeout, CancellationToken cancellationToken = default) =>
+        ChangeAsync(
+            actor,
+            Permissions.TenantManage,
+            SettingsAuditActions.SessionTimeoutChanged,
+            "session timeout",
+            row => row.SessionIdleTimeout is { } value
+                ? SessionTimeouts.Describe(value)
+                : $"{SessionTimeouts.Describe(ControlPlaneSettings.DefaultSessionIdleTimeout)} (default)",
+            row => row.SetSessionIdleTimeout(timeout),
+            cancellationToken);
+
+    // Authorizes, applies (the aggregate validates and throws before anything is stored), and on a real change saves,
+    // refreshes the cache and audits "<setting>: <before> → <after>". A change to the current value does nothing.
+    private async Task ChangeAsync(
+        UserId actor,
+        PermissionDefinition required,
+        string auditAction,
+        string setting,
+        Func<ControlPlaneSettings, string> describe,
+        Action<ControlPlaneSettings> apply,
+        CancellationToken cancellationToken)
     {
-        await RequireManageAsync(actor, cancellationToken).ConfigureAwait(false);
+        IReadOnlySet<string> held = await _checker.GetTenantWidePermissionsAsync(actor, cancellationToken).ConfigureAwait(false);
+        if (!held.Contains(required.Name))
+        {
+            throw new AuthorizationDeniedException($"{required.Name} is required to change the {setting}.");
+        }
 
         ControlPlaneSettings? existing = await _settings.GetAsync(cancellationToken).ConfigureAwait(false);
         ControlPlaneSettings row = existing ?? ControlPlaneSettings.Create();
-        string? before = row.InstanceName;
-        row.SetInstanceName(name); // validates; throws before anything is stored
-        if (string.Equals(before, row.InstanceName, StringComparison.Ordinal))
+        string before = describe(row);
+        ControlPlaneSettingsSnapshot unchanged = Snapshot(row);
+        apply(row);
+        if (Snapshot(row) == unchanged)
         {
             return;
         }
@@ -74,27 +112,10 @@ public sealed class ControlPlaneSettingsService : IControlPlaneSettingsService
         _cache.Remember(_tenant.CurrentTenantId, Snapshot(row));
 
         await _audit.WriteAsync(
-            new AuditEntry(
-                SettingsAuditActions.InstanceNameChanged,
-                AuditOutcome.Succeeded,
-                actor,
-                null,
-                $"instance name: {Describe(before)} → {Describe(row.InstanceName)}"),
+            new AuditEntry(auditAction, AuditOutcome.Succeeded, actor, null, $"{setting}: {before} → {describe(row)}"),
             cancellationToken).ConfigureAwait(false);
     }
 
     private static ControlPlaneSettingsSnapshot Snapshot(ControlPlaneSettings? row) =>
-        row is null ? ControlPlaneSettingsSnapshot.Empty : new ControlPlaneSettingsSnapshot(row.InstanceName);
-
-    private static string Describe(string? value) => value is null ? "(config)" : $"\"{value}\"";
-
-    private async Task RequireManageAsync(UserId actor, CancellationToken cancellationToken)
-    {
-        IReadOnlySet<string> held = await _checker.GetTenantWidePermissionsAsync(actor, cancellationToken).ConfigureAwait(false);
-        if (!held.Contains(Permissions.TenantSettingsManage.Name))
-        {
-            throw new AuthorizationDeniedException(
-                $"{Permissions.TenantSettingsManage.Name} is required to change control-plane settings.");
-        }
-    }
+        row is null ? ControlPlaneSettingsSnapshot.Empty : new ControlPlaneSettingsSnapshot(row.InstanceName, row.SessionIdleTimeout);
 }

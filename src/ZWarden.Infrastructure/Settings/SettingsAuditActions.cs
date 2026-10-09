@@ -5,4 +5,7 @@ public static class SettingsAuditActions
 {
     /// <summary>An operator renamed the instance, or cleared the name back to config; the detail is old → new.</summary>
     public const string InstanceNameChanged = "Settings.InstanceNameChanged";
+
+    /// <summary>The Owner changed the operator session idle timeout (#346); the detail is old → new.</summary>
+    public const string SessionTimeoutChanged = "Settings.SessionTimeoutChanged";
 }
