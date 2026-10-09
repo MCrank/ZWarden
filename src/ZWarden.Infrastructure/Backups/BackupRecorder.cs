@@ -48,6 +48,7 @@ public sealed class BackupRecorder : IBackupRecorder
         long sizeBytes,
         string sha256,
         DateTimeOffset createdAt,
+        string? warning = null,
         CancellationToken cancellationToken = default)
     {
         Server? server = await _servers.FindByIdAsync(serverId, cancellationToken).ConfigureAwait(false);
@@ -58,7 +59,7 @@ public sealed class BackupRecorder : IBackupRecorder
         }
 
         BackupReason reason = await ResolveReasonAsync(operationId, cancellationToken).ConfigureAwait(false);
-        _backups.Add(Backup.Record(serverId, agentId, archiveName, sizeBytes, sha256, reason, createdAt));
+        _backups.Add(Backup.Record(serverId, agentId, archiveName, sizeBytes, sha256, reason, createdAt, warning: warning));
         await _context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }
 

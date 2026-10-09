@@ -24,6 +24,9 @@ public sealed class Backup : ITenantOwned
     /// <summary>The greatest length stored for the lowercase-hex SHA-256 (64 hex chars; bounded generously).</summary>
     public const int MaxChecksumLength = 128;
 
+    /// <summary>The greatest length stored for the Agent-authored warning (#377); a longer one is cut.</summary>
+    public const int MaxWarningLength = 512;
+
     /// <summary>EF / factory use.</summary>
     public Backup()
     {
@@ -64,6 +67,10 @@ public sealed class Backup : ITenantOwned
     /// backup — or <c>null</c> when it has no expiry. F24 records it; it enforces nothing.</summary>
     public DateTimeOffset? ExpiresAt { get; init; }
 
+    /// <summary>An optional, Agent-authored caveat about the archive (#377) — today, that a running world could not be
+    /// saved first, so its most recent changes may be missing — or <c>null</c>. <b>Untrusted</b>: escaped at render.</summary>
+    public string? Warning { get; init; }
+
     /// <summary>Records a completed backup from the facts the Agent reported (the <c>BackupResult</c> on the
     /// Operation's completion). The <see cref="TenantId"/> is left unset so the ownership interceptor stamps the
     /// ambient tenant on insert (ADR 0016). Validates that the locator and checksum are present and the size is
@@ -76,7 +83,8 @@ public sealed class Backup : ITenantOwned
         string sha256,
         BackupReason reason,
         DateTimeOffset createdAt,
-        DateTimeOffset? expiresAt = null)
+        DateTimeOffset? expiresAt = null,
+        string? warning = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(archiveName);
         ArgumentException.ThrowIfNullOrWhiteSpace(sha256);
@@ -93,6 +101,8 @@ public sealed class Backup : ITenantOwned
             Reason = reason,
             CreatedAt = createdAt,
             ExpiresAt = expiresAt,
+            Warning = string.IsNullOrWhiteSpace(warning) ? null
+                : warning.Length > MaxWarningLength ? warning[..MaxWarningLength] : warning,
         };
     }
 

@@ -13,7 +13,8 @@ public interface IBackupRecorder
 {
     /// <summary>Records a completed backup: creates the tenant-owned <c>Backup</c> from the reported archive facts,
     /// reading its retention reason from the Operation's stored command payload. No-op if the Server is not visible
-    /// or is not owned by the reporting Agent.</summary>
+    /// or is not owned by the reporting Agent. The optional <paramref name="warning"/> is the Agent's caveat about the
+    /// archive (#377), stored with it.</summary>
     Task RecordCreatedAsync(
         ServerId serverId,
         AgentId agentId,
@@ -22,6 +23,7 @@ public interface IBackupRecorder
         long sizeBytes,
         string sha256,
         DateTimeOffset createdAt,
+        string? warning = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>Removes the backup record a confirmed deletion Operation removed the archive for, resolving the

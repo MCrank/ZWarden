@@ -53,6 +53,38 @@ public class BackupTests
     }
 
     [Test]
+    public async Task Record_has_no_warning_by_default()
+    {
+        Backup backup = Backup.Record(
+            ServerId.New(), AgentId.New(), "world-20260914-100000.tar.gz", 4096, "abc123", BackupReason.Manual, Now);
+
+        await Assert.That(backup.Warning).IsNull();
+    }
+
+    [Test]
+    public async Task Record_keeps_the_Agents_warning()
+    {
+        Backup backup = Backup.Record(
+            ServerId.New(), AgentId.New(), "world-20260914-100000.tar.gz", 4096, "abc123", BackupReason.Manual, Now,
+            warning: "The world could not be saved before this backup.");
+
+        await Assert.That(backup.Warning).IsEqualTo("The world could not be saved before this backup.");
+    }
+
+    [Test]
+    public async Task Record_bounds_an_overlong_warning_and_drops_a_blank_one()
+    {
+        Backup overlong = Backup.Record(
+            ServerId.New(), AgentId.New(), "a.tar.gz", 1, "abc", BackupReason.Manual, Now,
+            warning: new string('w', Backup.MaxWarningLength + 50));
+        Backup blank = Backup.Record(
+            ServerId.New(), AgentId.New(), "a.tar.gz", 1, "abc", BackupReason.Manual, Now, warning: "  ");
+
+        await Assert.That(overlong.Warning!.Length).IsEqualTo(Backup.MaxWarningLength);
+        await Assert.That(blank.Warning).IsNull();
+    }
+
+    [Test]
     public async Task Record_rejects_a_blank_archive_name()
     {
         await Assert.That(() => Backup.Record(ServerId.New(), AgentId.New(), "  ", 1, "aa", BackupReason.Manual, Now))
