@@ -60,6 +60,35 @@ public class BackupMessagesTests
     }
 
     [Test]
+    public async Task OperationCompleted_round_trips_a_backup_warning()
+    {
+        var result = new BackupResult(
+            "world-20260914-100000.tar.gz", 4096, "abc123", At,
+            Warning: "The world could not be saved before this backup (the server's RCON port timed out), so the most recent changes may be missing.");
+        Envelope<OperationCompleted> original = Envelope.Create(
+            new OperationCompleted(OperationOutcome.Succeeded, Backup: result), At, serverId: ServerId.New(), operationId: OperationId.New());
+
+        Envelope<OperationCompleted> back = ProtocolJson.Deserialize<OperationCompleted>(ProtocolJson.Serialize(original));
+
+        await Assert.That(back.Payload.Backup!.Warning).IsEqualTo(result.Warning);
+    }
+
+    [Test]
+    public async Task A_backup_result_from_an_Agent_before_377_has_no_warning()
+    {
+        // Additive (ADR 0020): a completion serialized without the new field still deserializes, as null.
+        var result = new BackupResult("world-20260914-100000.tar.gz", 4096, "abc123", At);
+        string json = ProtocolJson.Serialize(Envelope.Create(
+                new OperationCompleted(OperationOutcome.Succeeded, Backup: result), At, operationId: OperationId.New()))
+            .Replace(",\"warning\":null", string.Empty, StringComparison.OrdinalIgnoreCase);
+
+        Envelope<OperationCompleted> back = ProtocolJson.Deserialize<OperationCompleted>(json);
+
+        await Assert.That(json).DoesNotContain("warning", StringComparison.OrdinalIgnoreCase);
+        await Assert.That(back.Payload.Backup!.Warning).IsNull();
+    }
+
+    [Test]
     public async Task OperationCompleted_without_a_backup_result_stays_null()
     {
         Envelope<OperationCompleted> original = Envelope.Create(

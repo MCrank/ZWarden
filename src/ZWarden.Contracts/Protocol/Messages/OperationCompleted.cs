@@ -158,7 +158,11 @@ public enum WorkshopContentDeletionOutcome
 /// <param name="SizeBytes">The produced archive's size in bytes.</param>
 /// <param name="Sha256">The lowercase-hex SHA-256 over the produced archive bytes.</param>
 /// <param name="CreatedAt">When the Agent finished writing the archive (UTC).</param>
-public sealed record BackupResult(string ArchiveName, long SizeBytes, string Sha256, DateTimeOffset CreatedAt);
+/// <param name="Warning">An optional, Agent-authored caveat about the archive — today, that a running world could not be
+/// saved before it was archived, so its most recent changes may be missing (#377). <b>Untrusted</b> at render
+/// (trust-boundaries.md §8). Additive (ADR 0020): <c>null</c> from an Agent built before #377.</param>
+public sealed record BackupResult(
+    string ArchiveName, long SizeBytes, string Sha256, DateTimeOffset CreatedAt, string? Warning = null);
 
 /// <summary>The signal a successful <see cref="DeleteBackup"/> Operation sends (F24): the Agent removed the archive
 /// from its <c>BackupRoot</c>. Carries the deleted archive name (a bare file name, non-secret) for the audit trail;
