@@ -20,6 +20,9 @@ public sealed class ControlPlaneSettingsConfiguration : IEntityTypeConfiguration
 
         builder.Property(s => s.InstanceName).HasMaxLength(ControlPlaneSettings.MaxInstanceNameLength);
 
+        // The default deploy host (#347): no relational FK, so revoking or removing the host never cascades into settings.
+        builder.Property(s => s.DefaultDeployHost);
+
         builder.HasIndex(nameof(ControlPlaneSettings.TenantId)).IsUnique();
     }
 }

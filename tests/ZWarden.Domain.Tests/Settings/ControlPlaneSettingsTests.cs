@@ -1,3 +1,4 @@
+using ZWarden.Domain.Ids;
 using ZWarden.Domain.Authorization;
 using ZWarden.Domain.Settings;
 
@@ -104,6 +105,27 @@ public sealed class ControlPlaneSettingsTests
 
         await Assert.That(() => settings.SetSessionIdleTimeout(TimeSpan.FromMinutes(minutes))).Throws<ArgumentException>();
         await Assert.That(settings.SessionIdleTimeout).IsEqualTo(TimeSpan.FromHours(1));
+    }
+
+    [Test]
+    public async Task The_default_deploy_host_is_set_and_cleared()
+    {
+        ControlPlaneSettings settings = ControlPlaneSettings.Create();
+        AgentId host = AgentId.New();
+
+        await Assert.That(settings.DefaultDeployHost).IsNull();
+        settings.SetDefaultDeployHost(host);
+        await Assert.That(settings.DefaultDeployHost).IsEqualTo(host);
+        settings.SetDefaultDeployHost(null);
+        await Assert.That(settings.DefaultDeployHost).IsNull();
+    }
+
+    [Test]
+    public async Task An_empty_host_id_is_refused()
+    {
+        ControlPlaneSettings settings = ControlPlaneSettings.Create();
+
+        await Assert.That(() => settings.SetDefaultDeployHost(default(AgentId))).Throws<ArgumentException>();
     }
 
     [Test]
