@@ -46,7 +46,7 @@ containers, because they are stamped with the old id. After this change:
 ## Decisions
 
 **D1 — Agent reports foreign containers.**
-- Add `IContainerRuntime.ListForeignAsync`. It returns canonical containers whose labelled agent id this Agent
+- Add a `ForeignContainerScanner` beside `ContainerRuntime` (so `IContainerRuntime` and its six test fakes stay as they are). It returns canonical containers whose labelled agent id this Agent
   doesn't own, as Docker short id, `ServerId`, labelled `AgentId` and state.
 - Add `ContainerOwnershipGuard.TryResolveForeign` as the non-throwing sibling of `TryResolveOwned`. Nothing else
   changes in the guard.
@@ -131,7 +131,7 @@ predecessor offline, predecessor id reported by the successor's own containers, 
 ## Tests
 
 **Agent**
-- `ContainerRuntime.ListForeignAsync` returns only canonical foreign containers: owned, non-canonical and inherited
+- `ForeignContainerScanner` returns only canonical foreign containers: owned, non-canonical and inherited
   ones are excluded.
 - `AgentIdentityHolder` owns its inherited ids after `SetInherited`, and they are replaced on the next set.
 - The snapshot carries `Foreign`, and a 65th entry is dropped.
