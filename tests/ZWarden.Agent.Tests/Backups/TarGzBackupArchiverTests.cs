@@ -125,6 +125,51 @@ public class TarGzBackupArchiverTests
         await Assert.That(result.Sha256.Length).IsEqualTo(64);
     }
 
+    [Test]
+    public async Task Create_archives_a_group_readable_password_file_and_restore_keeps_it_group_readable()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return; // Unix file modes; the Linux CI tier exercises this path.
+        }
+
+        using var temp = new TempTree();
+        string source = temp.Dir("world");
+        string pwfile = Path.Combine(source, ".zwarden-adminpw");
+        File.WriteAllText(pwfile, "admin-pw");
+        // The PZ image writes it 0640 so the Agent (group 10000) can read it (#377).
+        const UnixFileMode GroupReadable = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.GroupRead;
+        File.SetUnixFileMode(pwfile, GroupReadable);
+        string dest = temp.Dir("out");
+
+        new TarGzBackupArchiver().Create(source, dest, "pw.tar.gz", CancellationToken.None);
+
+        TarEntry? entry = null;
+        using (FileStream file = File.OpenRead(Path.Combine(dest, "pw.tar.gz")))
+        using (GZipStream gzip = new(file, CompressionMode.Decompress))
+        using (TarReader reader = new(gzip))
+        {
+            for (TarEntry? next = reader.GetNextEntry(); next is not null; next = reader.GetNextEntry())
+            {
+                if (next.Name == ".zwarden-adminpw")
+                {
+                    entry = next;
+                }
+            }
+        }
+
+        await Assert.That(entry).IsNotNull();
+        await Assert.That(entry!.Mode).IsEqualTo(GroupReadable);
+
+        // Restored by the Agent, the file stays readable by the PZ container through its group.
+        string restored = temp.Dir("restored");
+        new TarGzRestoreArchiveExtractor().Extract(Path.Combine(dest, "pw.tar.gz"), restored, CancellationToken.None);
+        string restoredFile = Path.Combine(restored, ".zwarden-adminpw");
+        await Assert.That(File.ReadAllText(restoredFile)).IsEqualTo("admin-pw");
+        await Assert.That(File.GetUnixFileMode(restoredFile) & UnixFileMode.GroupRead).IsEqualTo(UnixFileMode.GroupRead);
+        await Assert.That(File.GetUnixFileMode(restoredFile) & UnixFileMode.OtherRead).IsEqualTo(UnixFileMode.None);
+    }
+
     private static void Extract(string archivePath, string destination)
     {
         Directory.CreateDirectory(destination);
