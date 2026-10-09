@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using ZWarden.Application.Agents;
 using ZWarden.Application.Audit;
 using ZWarden.Application.Authorization;
@@ -249,6 +250,26 @@ public class AgentTrustServiceTests
             await Assert.That(await new AgentRepository(check).FindByIdAsync(id)).IsNotNull();
             await Assert.That(connections.Aborted).IsEmpty();
             await Assert.That(audit.Entries).IsEmpty();
+        });
+    }
+
+    [Test]
+    public async Task Remove_drops_the_ids_the_host_inherited()
+    {
+        await TrustTestHarness.WithSqlite(async options =>
+        {
+            CapturingAuditWriter audit = new();
+            await using ZWardenDbContext ctx = TrustTestHarness.Context(options);
+            (AgentId id, _) = SeedAgent(ctx);
+            ctx.Add(HostReplacement.Record(id, AgentId.New(), TrustTestHarness.Manager, TrustTestHarness.Now));
+            ctx.Add(HostReplacement.Record(AgentId.New(), AgentId.New(), TrustTestHarness.Manager, TrustTestHarness.Now));
+            await ctx.SaveChangesAsync();
+
+            await TrustTestHarness.Trust(ctx, audit, Manage).RemoveAsync(TrustTestHarness.Manager, id);
+
+            await using ZWardenDbContext check = TrustTestHarness.Context(options);
+            await Assert.That(await check.Set<HostReplacement>().CountAsync()).IsEqualTo(1);
+            await Assert.That(await check.Set<HostReplacement>().AnyAsync(r => r.SuccessorId == id)).IsFalse();
         });
     }
 }

@@ -298,7 +298,7 @@ never reused for another entity type; adding one is an ADR (PRD 7).
 | Diagnostic package | `diag-` | Enrollment | `enr-` |
 | Configuration revision | `cfg-` | Protocol message | `msg-` |
 | Install state | `ist-` | Workshop integration settings | `wis-` |
-| Control-plane settings | `cps-` | | |
+| Control-plane settings | `cps-` | Host replacement | `hr-` |
 
 ### Security
 

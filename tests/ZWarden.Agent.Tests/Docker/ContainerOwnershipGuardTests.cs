@@ -123,4 +123,41 @@ public class ContainerOwnershipGuardTests
         await Assert.That(current.TryResolveOwned(LabelsOwnedBy(previousEnrolled), out _)).IsFalse();
         await Assert.That(current.TryResolveOwned(LabelsOwnedBy(previousLocal), out _)).IsFalse();
     }
+
+    // #368: discovery reports canonical containers stamped with an id this Agent doesn't own, so the Owner can see
+    // them and replace the Host that made them. Reporting is all the Agent does with them.
+    [Test]
+    public async Task A_foreign_canonical_container_resolves_its_server_and_labelled_owner()
+    {
+        AgentId previous = AgentId.New();
+
+        bool foreign = Guard().TryResolveForeign(LabelsOwnedBy(previous), out ServerId server, out AgentId owner);
+
+        await Assert.That(foreign).IsTrue();
+        await Assert.That(server).IsEqualTo(Server);
+        await Assert.That(owner).IsEqualTo(previous);
+    }
+
+    [Test]
+    public async Task An_owned_or_non_canonical_container_is_not_foreign()
+    {
+        Dictionary<string, string> unlabeled = new(StringComparer.Ordinal) { ["com.example"] = "x" };
+
+        await Assert.That(Guard().TryResolveForeign(LabelsOwnedBy(Self), out _, out _)).IsFalse();
+        await Assert.That(Guard().TryResolveForeign(unlabeled, out _, out _)).IsFalse();
+        await Assert.That(Guard().TryResolveForeign(null, out _, out _)).IsFalse();
+    }
+
+    [Test]
+    public async Task An_inherited_id_is_owned_and_no_longer_foreign()
+    {
+        AgentId previous = AgentId.New();
+        AgentIdentityHolder holder = new();
+        holder.Set(AgentId.New());
+        holder.SetInherited([previous]);
+        ContainerOwnershipGuard guard = new(holder);
+
+        await Assert.That(guard.EnsureOwnedByThisAgent(ContainerId, LabelsOwnedBy(previous))).IsEqualTo(Server);
+        await Assert.That(guard.TryResolveForeign(LabelsOwnedBy(previous), out _, out _)).IsFalse();
+    }
 }

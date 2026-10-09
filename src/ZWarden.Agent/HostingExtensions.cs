@@ -83,6 +83,7 @@ public static class HostingExtensions
         });
         services.AddSingleton<IDockerEngine, DockerDotNetEngine>();
         services.AddSingleton<ContainerOwnershipGuard>();
+        services.AddSingleton<ForeignContainerScanner>();
         services.AddSingleton<PzContainerFactory>();
         services.AddSingleton<IContainerRuntime, ContainerRuntime>();
         // Materialises the host-side bind-mount sources before a create (#184): the Mounts API never

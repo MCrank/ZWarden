@@ -188,6 +188,36 @@ namespace ZWarden.Migrations.Postgres.Migrations
                     b.ToTable("Agents", (string)null);
                 });
 
+            modelBuilder.Entity("ZWarden.Domain.Agents.HostReplacement", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("PredecessorId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("ReplacedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("ReplacedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("SuccessorId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PredecessorId")
+                        .IsUnique();
+
+                    b.HasIndex("SuccessorId");
+
+                    b.ToTable("HostReplacements", (string)null);
+                });
+
             modelBuilder.Entity("ZWarden.Domain.Audit.AuditEvent", b =>
                 {
                     b.Property<Guid>("Id")

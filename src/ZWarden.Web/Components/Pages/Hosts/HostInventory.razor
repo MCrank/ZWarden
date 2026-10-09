@@ -13,6 +13,7 @@
 @inject AuthenticationStateProvider AuthProvider
 @inject UserManager<ApplicationUser> Users
 @inject IHostCapacityCache Capacity
+@inject IForeignContainerCache Foreign
 @inject IPermissionChecker PermissionChecker
 @inject TimeProvider Clock
 
@@ -207,6 +208,68 @@ else
                         }
                     </div>
 
+                    @* #368: PZ containers on this machine stamped with another Agent's id (the machine was wiped and
+                       enrolled again). Agent-reported and untrusted, rendered as data. Those from an offline Host in this
+                       tenant can be taken over (Replace host, Owner-only; IHostReplacementService re-checks everything);
+                       the rest are listed read-only with the command to remove them on the machine. *@
+                    @{
+                        ForeignOnHost foreign = ForeignOn(host);
+                    }
+                    @if (foreign.Candidates.Count > 0 || foreign.Unmanaged.Count > 0)
+                    {
+                        <div class="space-y-3 border-t border-border pt-3" data-host-foreign>
+                            @foreach ((HostSummary old, int containers) in foreign.Candidates)
+                            {
+                                string oldName = HostNames.Display(old.Id, old.Label, old.Hostname);
+                                <div class="space-y-2" data-host-replace-candidate="@old.Id">
+                                    <BbAlert Variant="AlertVariant.Warning" AccentBorder>
+                                        <BbAlertDescription>
+                                            @containers @(containers == 1 ? "container" : "containers") from @oldName
+                                            @(containers == 1 ? "is" : "are") on this machine. @oldName is offline: replacing it moves
+                                            its servers here.
+                                        </BbAlertDescription>
+                                    </BbAlert>
+                                    @if (_canManage)
+                                    {
+                                        <div class="flex justify-end" data-host-replace>
+                                            <ReplaceHostDialog @rendermode="InteractiveServer"
+                                                               SuccessorId="@host.Id"
+                                                               SuccessorName="@HostNames.Display(host.Id, host.Label, host.Hostname)"
+                                                               PredecessorId="@old.Id"
+                                                               PredecessorName="@oldName"
+                                                               ServerCount="@ServersOn(old.Id).Count" />
+                                        </div>
+                                    }
+                                </div>
+                            }
+                            @if (foreign.Unmanaged.Count > 0)
+                            {
+                                <div data-host-unmanaged>
+                                    <div class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                        Unmanaged ZWarden containers <span class="font-mono tabular-nums">(@foreign.Unmanaged.Count)</span>
+                                    </div>
+                                    <p class="mt-1 text-xs text-muted-foreground">
+                                        Made by a host ZWarden no longer knows, or one that is still connected. ZWarden doesn't touch
+                                        them; remove them on the machine if you no longer need them.
+                                    </p>
+                                    <ul class="mt-2 space-y-1.5">
+                                        @foreach (ReportedForeignContainer container in foreign.Unmanaged)
+                                        {
+                                            <li class="rounded-md bg-muted px-3 py-2 text-xs" data-host-unmanaged-container>
+                                                <div class="flex justify-between gap-2 font-mono tabular-nums text-foreground">
+                                                    <span class="truncate">@container.ContainerId</span>
+                                                    <span class="text-muted-foreground">@container.State</span>
+                                                </div>
+                                                <div class="mt-0.5 truncate font-mono text-muted-foreground">@container.ServerId</div>
+                                                <code class="mt-1 block select-all font-mono text-foreground">docker rm -f @container.ContainerId</code>
+                                            </li>
+                                        }
+                                    </ul>
+                                </div>
+                            }
+                        </div>
+                    }
+
                     @* #363: Remove host, Owner-only (Tenant.Enrollment.Manage; IAgentTrustService re-checks). The Owner
                        sees every Server, so onHost.Count is the Host's full count; the dialog blocks removal while it has any. *@
                     @if (_canManage)
@@ -255,6 +318,31 @@ else
 
     private IReadOnlyList<ServerSummary> ServersOn(AgentId host)
         => _servers.Where(s => s.AgentId == host).ToList();
+
+    private sealed record ForeignOnHost(
+        IReadOnlyList<(HostSummary Old, int Containers)> Candidates, IReadOnlyList<ReportedForeignContainer> Unmanaged);
+
+    // #368: a container stamped with an offline Host of this tenant makes that Host a Replace candidate; any other
+    // (an unknown id, or a Host that is connected) is unmanaged.
+    private ForeignOnHost ForeignOn(HostSummary host)
+    {
+        List<(HostSummary, int)> candidates = [];
+        List<ReportedForeignContainer> unmanaged = [];
+        foreach (IGrouping<AgentId, ReportedForeignContainer> group in Foreign.GetReported(host.Id).GroupBy(f => f.LabelledAgentId))
+        {
+            HostSummary? old = _hosts.FirstOrDefault(h => h.Id == group.Key);
+            if (old is not null && old.Id != host.Id && !old.IsConnected)
+            {
+                candidates.Add((old, group.Count()));
+            }
+            else
+            {
+                unmanaged.AddRange(group);
+            }
+        }
+
+        return new ForeignOnHost(candidates, unmanaged);
+    }
 
     // A degraded (unreachable) Host is visually distinct: a violet (unknown-state) border, matching the
     // status-unknown ramp used by the badge and by StatusBadge for "agent unreachable, not down". The prototype

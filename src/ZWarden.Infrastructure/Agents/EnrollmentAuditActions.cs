@@ -36,4 +36,8 @@ public static class EnrollmentAuditActions
 
     /// <summary>An operator removed a Host: its Agent record was deleted (#363).</summary>
     public const string AgentRemoved = "Agent.Removed";
+
+    /// <summary>The Owner replaced a wiped Host with the one its machine enrolled as next: its Servers and backups moved
+    /// and the old Host was removed (#368).</summary>
+    public const string AgentReplaced = "Agent.Replaced";
 }

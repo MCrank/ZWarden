@@ -413,6 +413,71 @@ public class AgentHubIntegrationTests
         await connection.StopAsync();
     }
 
+    // #368: the new Host's Agent reports containers stamped with the wiped Host's id; the hub keeps that per reporting
+    // Agent (from the authenticated connection, never the payload) so the Hosts card can offer Replace host.
+    [Test]
+    public async Task A_snapshot_records_the_foreign_containers_under_the_reporting_agent()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        (AgentId agentId, string credential) = await SeedTrustedAgentAsync(factory);
+        await using HubConnection connection = BuildConnection(factory, credential);
+        AgentId previous = AgentId.New();
+        ServerId orphan = ServerId.New();
+
+        await connection.StartAsync();
+        await connection.InvokeAsync<ProtocolNegotiationResult>(AgentHubProtocol.Hello, Hello(agentId, ProtocolVersion.Current));
+        await connection.InvokeAsync(
+            AgentHubProtocol.StateSnapshot,
+            Snapshot(agentId, new AgentStateSnapshot([], [new ForeignContainer("0123456789ab", orphan, previous, "running")])));
+
+        IForeignContainerCache cache = factory.Services.GetRequiredService<IForeignContainerCache>();
+        await Assert.That(cache.GetReported(agentId))
+            .IsEquivalentTo([new ReportedForeignContainer("0123456789ab", orphan, previous, "running")]);
+
+        await connection.StopAsync();
+    }
+
+    [Test]
+    public async Task An_agent_gets_only_the_ids_it_inherited()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        (AgentId agentId, string credential) = await SeedTrustedAgentAsync(factory);
+        AgentId inherited = AgentId.New();
+        using (AsyncServiceScope scope = factory.Services.CreateSystemScope())
+        {
+            ZWardenDbContext context = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
+            context.Add(HostReplacement.Record(agentId, inherited, UserId.New(), Now));
+            context.Add(HostReplacement.Record(AgentId.New(), AgentId.New(), UserId.New(), Now));
+            await context.SaveChangesAsync();
+        }
+
+        await using HubConnection connection = BuildConnection(factory, credential);
+        await connection.StartAsync();
+        await connection.InvokeAsync<ProtocolNegotiationResult>(AgentHubProtocol.Hello, Hello(agentId, ProtocolVersion.Current));
+
+        string[] ids = await connection.InvokeAsync<string[]>(AgentHubProtocol.InheritedAgentIds);
+
+        await Assert.That(ids).IsEquivalentTo([inherited.ToString()]);
+        await connection.StopAsync();
+    }
+
+    [Test]
+    public async Task An_ownership_change_reaches_the_connected_agent()
+    {
+        await using ZWardenWebAppFactory factory = new();
+        (AgentId agentId, string credential) = await SeedTrustedAgentAsync(factory);
+        await using HubConnection connection = BuildConnection(factory, credential);
+        TaskCompletionSource received = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        connection.On(AgentHubProtocol.OwnershipChanged, () => received.TrySetResult());
+        await connection.StartAsync();
+        await connection.InvokeAsync<ProtocolNegotiationResult>(AgentHubProtocol.Hello, Hello(agentId, ProtocolVersion.Current));
+
+        await factory.Services.GetRequiredService<IAgentOwnershipNotifier>().OwnershipChangedAsync(agentId);
+
+        await received.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        await connection.StopAsync();
+    }
+
     private static HealthBreakdown Breakdown() => new(
         new ProbeCheck(ProbeStatus.Pass),
         new ProbeCheck(ProbeStatus.Pass),

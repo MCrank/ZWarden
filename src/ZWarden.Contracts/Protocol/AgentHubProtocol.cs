@@ -129,4 +129,20 @@ public static class AgentHubProtocol
     /// transient buffer and applies them when the matching Operation runs.
     /// </summary>
     public const string StageServerConfigRawEdit = "StageServerConfigRawEdit";
+
+    /// <summary>
+    /// #368: the Agent asks for the Agent ids it inherited when the Owner replaced Hosts with it, after
+    /// <see cref="Hello"/> and before <see cref="StateSnapshot"/>. No argument; it receives the ids as strings. The
+    /// control plane answers for the <b>authenticated</b> Agent only, so an Agent can't ask for another Host's ids.
+    /// Transport plumbing, not a protocol message (ADR 0020). A control plane that predates #368 has no such method;
+    /// the Agent then inherits nothing.
+    /// </summary>
+    public const string InheritedAgentIds = "InheritedAgentIds";
+
+    /// <summary>
+    /// #368: the client method ZWarden.Web invokes on the Agent after the Owner replaces a Host with it. No argument:
+    /// the Agent re-asks <see cref="InheritedAgentIds"/> and re-sends its <see cref="StateSnapshot"/>, so the moved
+    /// Servers are reconciled without a reconnect.
+    /// </summary>
+    public const string OwnershipChanged = "OwnershipChanged";
 }
