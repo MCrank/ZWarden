@@ -98,6 +98,44 @@ public class ServerModOverviewServiceTests
     }
 
     [Test]
+    [Arguments(true, 5, true)] // Update ready, disk read 5 min ago: re-read it.
+    [Arguments(false, 5, false)] // Nothing ready: no discovery.
+    [Arguments(true, 0, false)] // Update ready but the disk was just read (reopened page): throttled.
+    public async Task Opening_the_mods_page_rereads_the_disk_only_when_an_update_is_ready_and_the_read_is_old(
+        bool updateReady, int observedMinutesAgo, bool discovers)
+    {
+        // #380: a chip left stale after a restart (PZ downloaded the update after the last discovery) clears on open.
+        await WithSqlite(async options =>
+        {
+            UserId viewer = UserId.New();
+            ServerId server = await SeedServerAsync(options);
+            await SeedAssignmentAsync(options, viewer, server, Permissions.ModView);
+            await using (ZWardenDbContext seed = new(options, new TestTenantContext(Tenant)))
+            {
+                ServerModState state = ServerModState.For(server);
+                state.MarkBooted(Now.AddHours(-1));
+                state.ObserveConfig(["100"], ["A"], Now.AddHours(-1));
+                ServerWorkshopItem item = ServerWorkshopItem.Track(server, "100");
+                item.ApplyMetadata("t", null, null, updateReady ? Now.AddDays(-1) : Now.AddDays(-5), [], [], Now);
+                item.ObserveDisk(
+                    onDisk: true, [], Now.AddMinutes(-observedMinutesAgo).AddSeconds(-1), installedUpdatedAt: Now.AddDays(-5));
+                seed.AddRange(state, item);
+                await seed.SaveChangesAsync();
+            }
+
+            ModStateRecorderTests.RecordingQueue queue = new();
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            await Service(db, queue).RequestUpdateCheckAsync(viewer, server);
+
+            ModRefreshRequest metadata = new(
+                Tenant, ModRefreshKind.RefreshMetadata, Server: server, MaxAge: new ModRefreshOptions().UpdateCheckMaxAge);
+            ModRefreshRequest discover = new(Tenant, ModRefreshKind.DiscoverServer, Server: server);
+            ModRefreshRequest[] expected = discovers ? [metadata, discover] : [metadata];
+            await Assert.That(queue.Requests).IsEquivalentTo(expected);
+        });
+    }
+
+    [Test]
     public async Task The_fleet_gets_each_viewable_servers_count_of_updates_ready()
     {
         await WithSqlite(async options =>
@@ -151,7 +189,13 @@ public class ServerModOverviewServiceTests
             new ServerWorkshopItemRepository(db),
             scheduler ?? new ModStateRecorderTests.RecordingQueue(),
             new TestTenantContext(Tenant),
+            new FixedClock(Now),
             Options.Create(new ModRefreshOptions()));
+
+    private sealed class FixedClock(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
+    }
 
     private static async Task<ServerId> SeedServerAsync(DbContextOptions options)
     {

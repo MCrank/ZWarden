@@ -13,18 +13,28 @@ public enum ModRefreshKind
 
     /// <summary>Refresh the Steam details of one Server's tracked Workshop items, in one batched call.</summary>
     RefreshMetadata,
+
+    /// <summary>One of the repeated disk discoveries after a boot (#380), so an "Update ready" clears once PZ has
+    /// downloaded the update. The first always discovers; later ones only while an item is still Update ready.</summary>
+    PostBootRediscover,
 }
 
 /// <summary>A unit of background mod-refresh work, carrying the tenant it runs in (#290 D1).</summary>
 /// <param name="Tenant">The tenant whose scope the work runs in.</param>
 /// <param name="Kind">What to do.</param>
-/// <param name="Server">The Server, for <see cref="ModRefreshKind.DiscoverServer"/> and
-/// <see cref="ModRefreshKind.RefreshMetadata"/>.</param>
+/// <param name="Server">The Server, for <see cref="ModRefreshKind.DiscoverServer"/>,
+/// <see cref="ModRefreshKind.RefreshMetadata"/> and <see cref="ModRefreshKind.PostBootRediscover"/>.</param>
 /// <param name="Agent">The Agent, for <see cref="ModRefreshKind.DiscoverAgentServers"/>.</param>
 /// <param name="MaxAge">For <see cref="ModRefreshKind.RefreshMetadata"/>: refresh items whose Steam details are older
 /// than this instead of the configured default (#275: the hourly update check and the Mods-page open).</param>
+/// <param name="Attempt">For <see cref="ModRefreshKind.PostBootRediscover"/>: which re-check this is, from 1.</param>
 public sealed record ModRefreshRequest(
-    TenantId Tenant, ModRefreshKind Kind, ServerId? Server = null, AgentId? Agent = null, TimeSpan? MaxAge = null);
+    TenantId Tenant,
+    ModRefreshKind Kind,
+    ServerId? Server = null,
+    AgentId? Agent = null,
+    TimeSpan? MaxAge = null,
+    int Attempt = 0);
 
 /// <summary>
 /// The in-process scheduler that keeps mod data fresh without anyone clicking Refresh (#290 D1). Callers (the Agent hub)
