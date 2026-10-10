@@ -115,6 +115,8 @@ public static class ServerEndpoints
                     Results.Json(new { error = "over_capacity" }, statusCode: StatusCodes.Status409Conflict),
                 ServerRegisterFailure.NoPzImage =>
                     Results.Json(new { error = "no_pz_image" }, statusCode: StatusCodes.Status409Conflict),
+                ServerRegisterFailure.HostOffline =>
+                    Results.Json(new { error = "host_offline" }, statusCode: StatusCodes.Status409Conflict),
                 _ => Results.BadRequest(new { error = "register_failed" }),
             };
         });
@@ -282,6 +284,8 @@ public static class ServerEndpoints
                     Results.Json(new { error = "server_not_found" }, statusCode: StatusCodes.Status404NotFound),
                 BackupRequestFailure.ServerBusy =>
                     Results.Json(new { error = "server_busy" }, statusCode: StatusCodes.Status409Conflict),
+                BackupRequestFailure.HostOffline =>
+                    Results.Json(new { error = "host_offline" }, statusCode: StatusCodes.Status409Conflict),
                 _ => Results.BadRequest(new { error = "backup_failed" }),
             };
         });
@@ -342,6 +346,8 @@ public static class ServerEndpoints
                     Results.Json(new { error = "backup_not_found" }, statusCode: StatusCodes.Status404NotFound),
                 RestoreRequestFailure.ServerBusy =>
                     Results.Json(new { error = "server_busy" }, statusCode: StatusCodes.Status409Conflict),
+                RestoreRequestFailure.HostOffline =>
+                    Results.Json(new { error = "host_offline" }, statusCode: StatusCodes.Status409Conflict),
                 RestoreRequestFailure.ServerRunning =>
                     Results.Json(new { error = "server_running" }, statusCode: StatusCodes.Status409Conflict),
                 _ => Results.BadRequest(new { error = "restore_failed" }),
@@ -415,6 +421,8 @@ public static class ServerEndpoints
                 Results.Json(new { error = "server_not_found" }, statusCode: StatusCodes.Status404NotFound),
             ServerLifecycleFailure.ServerBusy =>
                 Results.Json(new { error = "server_busy" }, statusCode: StatusCodes.Status409Conflict),
+            ServerLifecycleFailure.HostOffline =>
+                Results.Json(new { error = "host_offline" }, statusCode: StatusCodes.Status409Conflict),
             ServerLifecycleFailure.InvalidPort => Results.BadRequest(new { error = "invalid_port" }),
             ServerLifecycleFailure.InvalidHeap => Results.BadRequest(new { error = "invalid_heap" }),
             ServerLifecycleFailure.ConfirmationMismatch => Results.BadRequest(new { error = "confirmation_mismatch" }),

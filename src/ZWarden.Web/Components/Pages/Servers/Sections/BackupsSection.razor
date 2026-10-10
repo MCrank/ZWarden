@@ -141,6 +141,7 @@
             BackupRequestFailure.NotAuthorized => "You are not permitted to back up this server.",
             BackupRequestFailure.ServerNotFound => "That server is no longer available.",
             BackupRequestFailure.ServerBusy => "The server is busy with another operation; try again once it finishes.",
+            BackupRequestFailure.HostOffline => ZWarden.Web.Components.Servers.HostOfflineText.Message,
             _ => "The backup could not be started.",
         }, ok: false);
     }
@@ -176,6 +177,7 @@
             RestoreRequestFailure.NotAuthorized => "You are not permitted to restore this server.",
             RestoreRequestFailure.BackupNotFound => "That backup is no longer available.",
             RestoreRequestFailure.ServerBusy => "The server is busy with another operation; try again once it finishes.",
+            RestoreRequestFailure.HostOffline => ZWarden.Web.Components.Servers.HostOfflineText.Message,
             RestoreRequestFailure.ServerRunning => "Stop the server before restoring — a restore overwrites the live world.",
             _ => "The restore could not be started.",
         }, ok: false);
