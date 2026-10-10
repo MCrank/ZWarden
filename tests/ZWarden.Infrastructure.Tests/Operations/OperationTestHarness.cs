@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using ZWarden.Application.Agents;
 using ZWarden.Application.Operations;
 using ZWarden.Domain.Ids;
 using ZWarden.Domain.Operations;
@@ -23,8 +24,11 @@ internal static class OperationTestHarness
         ZWardenDbContext ctx,
         CapturingAuditWriter audit,
         TimeProvider clock,
-        IOperationDispatcher? dispatcher = null)
-        => new(ctx, new OperationRepository(ctx), dispatcher ?? new RecordingDispatcher(), audit, clock);
+        IOperationDispatcher? dispatcher = null,
+        IAgentConnectionRegistry? connections = null)
+        => new(
+            ctx, new OperationRepository(ctx), dispatcher ?? new RecordingDispatcher(), audit, clock,
+            connections ?? new AlwaysConnectedRegistry());
 
     public static OperationStore Store(
         ZWardenDbContext ctx,
@@ -100,4 +104,19 @@ internal sealed class RecordingDispatcher(bool dispatched = false) : IOperationD
         Dispatched.Add(operation.Id);
         return Task.FromResult(dispatched);
     }
+}
+
+/// <summary>A connection registry that reports every Agent as connected, so the engine tests enqueue as they did
+/// before the offline refusal (#383); a test of the refusal passes its own.</summary>
+internal sealed class AlwaysConnectedRegistry : IAgentConnectionRegistry
+{
+    public void Register(AgentId agentId, string connectionId, Action abort) { }
+
+    public void Remove(string connectionId) { }
+
+    public bool IsConnected(AgentId agentId) => true;
+
+    public string? GetConnectionId(AgentId agentId) => null;
+
+    public bool TryAbort(AgentId agentId) => false;
 }

@@ -103,4 +103,19 @@ public sealed class OperationRepository : TenantScopedRepository<Operation>
                 && lease < now)
             .ToList();
     }
+
+    /// <summary>
+    /// The Operations still <see cref="OperationState.Pending"/> that were enqueued before
+    /// <paramref name="enqueuedBefore"/> (#383): never dispatched, because their Agent was offline, and past the
+    /// dispatch window. Filtered in memory for the same reason as <see cref="FindExpiredLeasesAsync"/>.
+    /// </summary>
+    public async Task<IReadOnlyList<Operation>> FindStalePendingAsync(
+        DateTimeOffset enqueuedBefore, CancellationToken cancellationToken = default)
+    {
+        IReadOnlyList<Operation> all = await ListAsync(cancellationToken).ConfigureAwait(false);
+
+        return all
+            .Where(o => o.State == OperationState.Pending && o.EnqueuedAt < enqueuedBefore)
+            .ToList();
+    }
 }

@@ -124,6 +124,81 @@ public class OperationCoordinatorTests
     }
 
     [Test]
+    public async Task A_mutating_operation_on_an_offline_host_is_refused_and_nothing_is_written()
+    {
+        await OperationTestHarness.WithSqlite(async options =>
+        {
+            CapturingAuditWriter audit = new();
+            RecordingDispatcher dispatcher = new();
+            ServerId server = ServerId.New();
+            await using ZWardenDbContext ctx = OperationTestHarness.Context(options);
+            OperationCoordinator sut = OperationTestHarness.Coordinator(
+                ctx, audit, new StubClock(Now), dispatcher, connections: new StubConnectionRegistry());
+
+            HostOfflineException? refused = await Assert.ThrowsAsync<HostOfflineException>(() => sut.EnqueueAsync(Mutating(server)));
+
+            await Assert.That(refused!.ServerId).IsEqualTo(server);
+            await Assert.That(audit.Actions).IsEmpty();
+            await Assert.That(dispatcher.Dispatched).IsEmpty();
+            await using ZWardenDbContext verify = OperationTestHarness.Context(options);
+            await Assert.That(await new OperationRepository(verify).CountAsync()).IsEqualTo(0);
+        });
+    }
+
+    [Test]
+    public async Task A_mutating_operation_on_a_connected_host_is_enqueued()
+    {
+        await OperationTestHarness.WithSqlite(async options =>
+        {
+            AgentId agent = AgentId.New();
+            await using ZWardenDbContext ctx = OperationTestHarness.Context(options);
+            OperationCoordinator sut = OperationTestHarness.Coordinator(
+                ctx, new CapturingAuditWriter(), new StubClock(Now), connections: new StubConnectionRegistry(agent));
+
+            Operation op = await sut.EnqueueAsync(
+                new EnqueueOperationRequest(agent, OperationKind.DiagnosticsPing, IsMutating: true, "k-online", ServerId.New()));
+
+            await Assert.That(op.State).IsEqualTo(OperationState.Pending);
+        });
+    }
+
+    [Test]
+    public async Task A_non_mutating_operation_on_an_offline_host_is_still_enqueued()
+    {
+        await OperationTestHarness.WithSqlite(async options =>
+        {
+            await using ZWardenDbContext ctx = OperationTestHarness.Context(options);
+            OperationCoordinator sut = OperationTestHarness.Coordinator(
+                ctx, new CapturingAuditWriter(), new StubClock(Now), connections: new StubConnectionRegistry());
+
+            Operation op = await sut.EnqueueAsync(Ping());
+
+            await Assert.That(op.State).IsEqualTo(OperationState.Pending);
+        });
+    }
+
+    [Test]
+    public async Task An_existing_operation_is_returned_for_its_key_even_once_the_host_is_offline()
+    {
+        await OperationTestHarness.WithSqlite(async options =>
+        {
+            AgentId agent = AgentId.New();
+            ServerId server = ServerId.New();
+            var request = new EnqueueOperationRequest(agent, OperationKind.DiagnosticsPing, IsMutating: true, "k-same", server);
+            await using ZWardenDbContext ctx = OperationTestHarness.Context(options);
+            Operation first = await OperationTestHarness.Coordinator(
+                ctx, new CapturingAuditWriter(), new StubClock(Now), connections: new StubConnectionRegistry(agent))
+                .EnqueueAsync(request);
+
+            Operation again = await OperationTestHarness.Coordinator(
+                ctx, new CapturingAuditWriter(), new StubClock(Now), connections: new StubConnectionRegistry())
+                .EnqueueAsync(request);
+
+            await Assert.That(again.Id).IsEqualTo(first.Id);
+        });
+    }
+
+    [Test]
     public async Task Cancelling_a_pending_mutating_operation_releases_the_lock()
     {
         await OperationTestHarness.WithSqlite(async options =>
