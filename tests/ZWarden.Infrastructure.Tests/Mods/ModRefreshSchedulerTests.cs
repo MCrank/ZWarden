@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Time.Testing;
 using ZWarden.Application.Mods;
 using ZWarden.Domain.Ids;
 using ZWarden.Infrastructure.Mods;
@@ -16,7 +17,7 @@ public class ModRefreshSchedulerTests
     [Test]
     public async Task Requests_are_read_in_order()
     {
-        using ModRefreshScheduler scheduler = new(TimeProvider.System);
+        using ModRefreshScheduler scheduler = new(new FakeTimeProvider());
         ModRefreshRequest first = Discover(ServerId.New());
         ModRefreshRequest second = Discover(ServerId.New());
 
@@ -30,7 +31,7 @@ public class ModRefreshSchedulerTests
     [Test]
     public async Task A_duplicate_of_a_waiting_request_is_dropped_but_can_queue_again_once_read()
     {
-        using ModRefreshScheduler scheduler = new(TimeProvider.System);
+        using ModRefreshScheduler scheduler = new(new FakeTimeProvider());
         ModRefreshRequest request = Discover(ServerId.New());
         ModRefreshRequest other = Discover(ServerId.New());
 
@@ -48,19 +49,24 @@ public class ModRefreshSchedulerTests
     [Test]
     public async Task A_delayed_request_arrives_after_its_delay()
     {
-        using ModRefreshScheduler scheduler = new(TimeProvider.System);
+        // #385: a fake clock, so a busy runner can't starve the timer past the read's timeout.
+        FakeTimeProvider clock = new();
+        using ModRefreshScheduler scheduler = new(clock);
         ModRefreshRequest request = Discover(ServerId.New());
 
-        scheduler.EnqueueAfter(request, TimeSpan.FromMilliseconds(50));
+        scheduler.EnqueueAfter(request, TimeSpan.FromMinutes(3));
+        clock.Advance(TimeSpan.FromMinutes(3) - TimeSpan.FromTicks(1));
 
         await Assert.That(scheduler.Count).IsEqualTo(0);
+
+        clock.Advance(TimeSpan.FromTicks(1));
         await Assert.That(await ReadAsync(scheduler)).IsEqualTo(request);
     }
 
     [Test]
     public async Task A_full_queue_drops_the_oldest_and_the_dropped_request_can_queue_again()
     {
-        using ModRefreshScheduler scheduler = new(TimeProvider.System, capacity: 2);
+        using ModRefreshScheduler scheduler = new(new FakeTimeProvider(), capacity: 2);
         ModRefreshRequest a = Discover(ServerId.New());
         ModRefreshRequest b = Discover(ServerId.New());
         ModRefreshRequest c = Discover(ServerId.New());
@@ -78,7 +84,7 @@ public class ModRefreshSchedulerTests
     public async Task Disposing_twice_is_harmless()
     {
         // The container disposes the singleton once per registration (concrete type and interface).
-        ModRefreshScheduler scheduler = new(TimeProvider.System);
+        ModRefreshScheduler scheduler = new(new FakeTimeProvider());
         scheduler.EnqueueAfter(Discover(ServerId.New()), TimeSpan.FromMinutes(5));
 
         scheduler.Dispose();
