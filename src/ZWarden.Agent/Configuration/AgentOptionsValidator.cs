@@ -126,6 +126,11 @@ public sealed class AgentOptionsValidator : IValidateOptions<AgentOptions>
             failures.Add($"{AgentOptions.SectionName}:{nameof(AgentOptions.ShutdownTimeout)} must be positive.");
         }
 
+        if (options.PreOperationBackupHeartbeat <= TimeSpan.Zero)
+        {
+            failures.Add($"{AgentOptions.SectionName}:{nameof(AgentOptions.PreOperationBackupHeartbeat)} must be positive.");
+        }
+
         if (options.LogTailLines <= 0)
         {
             failures.Add($"{AgentOptions.SectionName}:{nameof(AgentOptions.LogTailLines)} must be positive.");

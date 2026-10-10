@@ -117,7 +117,8 @@ public sealed class OperationDispatcher : IOperationDispatcher
         OperationKind.StartServer => new StartServer(),
         OperationKind.StopServer => new StopServer(),
         OperationKind.RestartServer => RestartCommand(commandPayload),
-        OperationKind.UpdateServer => new UpdateServer(),
+        // #379: a game update and every config apply (form, raw, and each mod change) back up the world first.
+        OperationKind.UpdateServer => new UpdateServer(BackupFirst: true),
         OperationKind.RconHealthProbe => new ProbeRconHealth(),
         OperationKind.GatherHostDiagnostics => new GatherHostDiagnostics(),
         OperationKind.GatherServerDiagnostics => new GatherServerDiagnostics(),
@@ -151,7 +152,7 @@ public sealed class OperationDispatcher : IOperationDispatcher
         ServerContainerPayload? payload = ContainerPayload(commandPayload);
         return new RecreateServer(
             payload?.GamePort,
-            payload?.Plan is { } plan ? new GracefulRestartPlan(plan.WarningLeadSeconds, plan.Reason) : null,
+            payload?.Plan is { WarningLeadSeconds: { } leads } plan ? new GracefulRestartPlan(leads, plan.Reason) : null,
             payload?.HeapSizeBytes);
     }
 
@@ -189,10 +190,14 @@ public sealed class OperationDispatcher : IOperationDispatcher
 
     // Builds the RestartServer wire command from the optional graceful-restart payload the enqueueing service wrote
     // (#114). No payload ⇒ the Agent applies its default warning schedule; a payload carries the operator's chosen
-    // countdown (empty = restart immediately, no warning) and message.
-    private static RestartServer RestartCommand(string? commandPayload) => new(GracefulPlan(commandPayload));
+    // countdown (empty = restart immediately, no warning) and message. Only the mod-update restart's payload asks for an
+    // automatic backup first (#379).
+    private static RestartServer RestartCommand(string? commandPayload) => new(
+        GracefulPlan(commandPayload),
+        BackupFirst: commandPayload is not null && GracefulRestartPayload.FromJson(commandPayload).BackupFirst);
 
-    // The optional graceful-warning plan a restart (#114) or delete (#271) payload carries; null ⇒ the Agent's default.
+    // The optional graceful-warning plan a restart (#114) or delete (#271) payload carries; null ⇒ the Agent's default,
+    // as is a payload with no schedule (one that only asks for a backup first, #379).
     private static GracefulRestartPlan? GracefulPlan(string? commandPayload)
     {
         if (commandPayload is null)
@@ -201,7 +206,7 @@ public sealed class OperationDispatcher : IOperationDispatcher
         }
 
         GracefulRestartPayload payload = GracefulRestartPayload.FromJson(commandPayload);
-        return new GracefulRestartPlan(payload.WarningLeadSeconds, payload.Reason);
+        return payload.WarningLeadSeconds is { } leads ? new GracefulRestartPlan(leads, payload.Reason) : null;
     }
 
     private static PlayerCommandPayload Payload(string? commandPayload) => PlayerCommandPayload.FromJson(
@@ -218,7 +223,7 @@ public sealed class OperationDispatcher : IOperationDispatcher
             commandPayload ?? throw new InvalidOperationException("A config Operation was dispatched with no command payload."));
         IReadOnlyList<ConfigValueEdit> edits =
             [.. payload.Edits.Select(e => new ConfigValueEdit(e.Path, ToWireKind(e.Kind), e.Value))];
-        return new ConfigApply(payload.File, payload.BaselineHash, edits);
+        return new ConfigApply(payload.File, payload.BaselineHash, edits, BackupFirst: true);
     }
 
     // Builds the ConfigApplyRaw wire command from the Application-neutral payload the enqueueing service wrote
@@ -228,7 +233,7 @@ public sealed class OperationDispatcher : IOperationDispatcher
     {
         ConfigApplyRawPayload payload = ConfigApplyRawPayload.FromJson(
             commandPayload ?? throw new InvalidOperationException("A raw config Operation was dispatched with no command payload."));
-        return new ConfigApplyRaw(payload.File, payload.BaselineHash, payload.CorrelationId);
+        return new ConfigApplyRaw(payload.File, payload.BaselineHash, payload.CorrelationId, BackupFirst: true);
     }
 
     private static ConfigValueKind ToWireKind(ConfigEditKind kind) => kind switch

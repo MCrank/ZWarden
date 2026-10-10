@@ -33,7 +33,7 @@ namespace ZWarden.Agent.Tests.ControlPlane;
 /// Docker probe result on the same operation; a redelivered command is deduped so the work runs once (PRD 20);
 /// a command with no operation id, or one this Agent version does not understand, is ignored.
 /// </summary>
-public class AgentCommandProcessorTests
+public partial class AgentCommandProcessorTests
 {
     private static readonly DateTimeOffset Now = new(2026, 9, 12, 10, 0, 0, TimeSpan.Zero);
 
@@ -55,7 +55,8 @@ public class AgentCommandProcessorTests
         IHostDiagnosticsGatherer? hostDiagnostics = null,
         IServerDiagnosticsGatherer? serverDiagnostics = null,
         IWorkshopContentRemover? workshopRemover = null,
-        ILogger<AgentCommandProcessor>? logger = null)
+        ILogger<AgentCommandProcessor>? logger = null,
+        TimeSpan? backupHeartbeat = null)
     {
         IContainerRuntime effectiveRuntime = runtime ?? new FakeContainerRuntime();
         IOptions<AgentOptions> options = Options.Create(new AgentOptions
@@ -63,6 +64,7 @@ public class AgentCommandProcessorTests
             PzImageReference = "zwarden/pzserver:pinned",
             NetworkName = "zwarden",
             DataMountRoot = OperatingSystem.IsWindows() ? @"C:\pz" : "/pz",
+            PreOperationBackupHeartbeat = backupHeartbeat ?? TimeSpan.FromSeconds(60),
         });
 
         // The default coordinator is the real one, wired to the shared runtime with a resolver that reports no

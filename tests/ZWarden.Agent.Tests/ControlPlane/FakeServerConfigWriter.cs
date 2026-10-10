@@ -13,6 +13,8 @@ internal sealed class FakeServerConfigWriter : IServerConfigWriter
 
     public int ApplyCount { get; private set; }
 
+    public List<string>? Journal { get; set; }
+
     public ServerId? LastServerId { get; private set; }
 
     public PzConfigFile? LastFile { get; private set; }
@@ -35,6 +37,7 @@ internal sealed class FakeServerConfigWriter : IServerConfigWriter
         CancellationToken cancellationToken)
     {
         ApplyCount++;
+        Journal?.Add("write");
         LastServerId = serverId;
         LastFile = file;
         LastBaselineHash = baselineHash;
@@ -50,6 +53,7 @@ internal sealed class FakeServerConfigWriter : IServerConfigWriter
         CancellationToken cancellationToken)
     {
         ApplyRawCount++;
+        Journal?.Add("write");
         LastServerId = serverId;
         LastFile = file;
         LastBaselineHash = baselineHash;

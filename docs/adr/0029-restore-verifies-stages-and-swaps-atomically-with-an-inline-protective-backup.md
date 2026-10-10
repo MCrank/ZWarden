@@ -102,3 +102,10 @@ backup wants to live **inside** the one restore Operation, not ahead of it.
   shape; changing that contract is a breaking change for restore, as ADR 0028 already noted.
 - **`IPreOperationBackup` ships F24-complete but F25 is not its caller.** The seam stays available and unused by
   restore; a later feature that wants a separate pre-Operation backup is its first real caller.
+
+## Amendment (2026-10-10, #379): protective backups count toward retention
+
+Restore's protective backup is a `PreOperation` backup, so it now counts toward the automatic-backup retention ADR 0028
+added (`ZWarden:Backups:KeepAutomatic`, default 5 per server). "Every restore leaves a protective backup behind" still
+holds, but it is pruned with the other automatic backups instead of accumulating. Config applies, mod updates and game
+updates now take the same kind of inline backup that restore pioneered.

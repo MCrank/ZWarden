@@ -15,5 +15,8 @@ namespace ZWarden.Contracts.Protocol.Messages;
 /// </para>
 /// </summary>
 /// <param name="Plan">The optional graceful-restart broadcast plan. <c>null</c> ⇒ the Agent's default schedule.</param>
+/// <param name="BackupFirst">#379: take an automatic (<c>PreOperation</c>) backup of the world before the countdown
+/// starts — set only for the restart that applies mod updates (#273), never a plain restart. A failed backup fails the
+/// Operation and the server is not restarted. Additive (ADR 0020): <c>false</c> when absent.</param>
 [ProtocolMessage("lifecycle.restart-server")]
-public sealed record RestartServer(GracefulRestartPlan? Plan = null) : AgentCommand;
+public sealed record RestartServer(GracefulRestartPlan? Plan = null, bool BackupFirst = false) : AgentCommand;

@@ -25,8 +25,11 @@ namespace ZWarden.Contracts.Protocol.Messages;
 /// baseline, ADR 0042), or <c>null</c> to skip the drift check for a first write with no baseline.</param>
 /// <param name="CorrelationId">The id under which the operator's whole-file text was staged to the Agent — the
 /// Agent retrieves the staged bytes by this id when it runs the Operation.</param>
+/// <param name="BackupFirst">#379: take an automatic (<c>PreOperation</c>) backup of the world before writing; a failed
+/// backup fails the Operation and nothing is written. Additive (ADR 0020): <c>false</c> when absent.</param>
 [ProtocolMessage("configuration.apply-raw")]
 public sealed record ConfigApplyRaw(
     PzConfigFile File,
     string? BaselineHash,
-    string CorrelationId) : AgentCommand;
+    string CorrelationId,
+    bool BackupFirst = false) : AgentCommand;

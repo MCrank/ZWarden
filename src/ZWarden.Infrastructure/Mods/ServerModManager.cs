@@ -389,11 +389,13 @@ public sealed class ServerModManager : IServerModManager
         {
             // A safe restart (#273): PZ re-fetches WorkshopItems= at boot, so a restart is what pulls a newer Workshop
             // version (confirmed in the field). Not the F17 UpdateServer, which would also install any new game build.
-            // No plan ⇒ the Agent warns players on its default schedule (#114) before the save→quit stop.
+            // No plan ⇒ the Agent warns players on its default schedule (#114) before the save→quit stop. It backs the world
+            // up first (#379): a mod update can break a world, and this is the restart that applies one.
             Operation operation = await _operations.EnqueueAsync(
                 new EnqueueOperationRequest(
                     resolved.AgentId, OperationKind.RestartServer, IsMutating: true, Guid.NewGuid().ToString("N"),
-                    ServerId: resolved.Id, CommandPayload: plan?.ToJson()),
+                    ServerId: resolved.Id,
+                    CommandPayload: ((plan ?? GracefulRestartPayload.DefaultSchedule) with { BackupFirst = true }).ToJson()),
                 user,
                 cancellationToken).ConfigureAwait(false);
 

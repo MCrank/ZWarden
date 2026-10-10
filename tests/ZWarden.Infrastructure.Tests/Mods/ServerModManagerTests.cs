@@ -451,7 +451,8 @@ public class ServerModManagerTests
             await Assert.That(result.Succeeded).IsTrue();
             await Assert.That(coordinator.LastRequest!.Kind).IsEqualTo(OperationKind.RestartServer);
             await Assert.That(coordinator.LastRequest!.IsMutating).IsTrue();
-            await Assert.That(coordinator.LastRequest!.CommandPayload).IsNull();
+            await Assert.That(coordinator.LastRequest!.CommandPayload).IsEqualTo(
+                (GracefulRestartPayload.DefaultSchedule with { BackupFirst = true }).ToJson()); // #379: backs up first
             await Assert.That(audit.Actions).Contains(ModAuditActions.Updated);
         });
     }
@@ -496,7 +497,7 @@ public class ServerModManagerTests
             ModManagementResult result = await sut.UpdateModsAsync(user, serverId, plan);
 
             await Assert.That(result.Succeeded).IsTrue();
-            await Assert.That(coordinator.LastRequest!.CommandPayload).IsEqualTo(plan.ToJson());
+            await Assert.That(coordinator.LastRequest!.CommandPayload).IsEqualTo((plan with { BackupFirst = true }).ToJson());
         });
     }
 

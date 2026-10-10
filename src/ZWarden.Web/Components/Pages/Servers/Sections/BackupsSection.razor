@@ -1,6 +1,9 @@
 @inherits ServerSectionBase
 @using ZWarden.Application.Backups
 @using ZWarden.Domain.Backups
+@using Microsoft.Extensions.Options
+@using ZWarden.Infrastructure.Backups
+@inject IOptions<BackupOptions> BackupPolicy
 
 @* The Backups rail section (F24/F25): take, restore and delete verifiable world backups, gated per control on the
    per-server Backup.* grants the page evaluates; the services re-check on every action (circuit handlers, #299). *@
@@ -14,6 +17,12 @@
         backup is still taken and marked <em>Not saved first</em>. Deleting one removes the archive from the host. Restoring overwrites
         the live world — <strong>stop the server first</strong>, and a protective backup of the current world
         is taken automatically before the swap.
+    </p>
+    @* #379: the retention policy, from deploy config (ZWarden:Backups:KeepAutomatic). *@
+    <p class="mt-2 text-xs text-muted-foreground" data-backups-retention>
+        ZWarden also takes a <em>Pre-operation</em> backup before a config change, a mod change or a game update,
+        and keeps the newest @BackupPolicy.Value.KeepAutomatic of them for this server, deleting older ones.
+        Manual backups are kept until you delete them.
     </p>
 
     @if (_backupMessage is not null)

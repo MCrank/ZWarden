@@ -21,6 +21,7 @@
 @rendermode InteractiveServer
 @using ZWarden.Infrastructure.Tenancy
 @inject IOptions<InstanceOptions> Instance
+@inject IOptions<ZWarden.Infrastructure.Backups.BackupOptions> BackupPolicy
 @inject IOptions<ForwardedHeadersOptions> Forwarded
 @inject DiagnosticsOptions Build
 @inject ActionScopeRunner Actions
@@ -207,6 +208,11 @@
                     <SettingsCard Icon="archive" Title="Backups" Description="Where each host stores its world backups." data-settings-backups>
                         <SettingRow Label="Backup root" Hint="Set per host in its Agent's configuration">
                             <span class="text-muted-foreground">Per host — manage backups from each <a href="/hosts" class="text-foreground underline hover:no-underline">host</a> or server</span>
+                        </SettingRow>
+                        @* #379: taken before config, mod and game-update changes; deploy config, not editable here. *@
+                        <SettingRow Label="Automatic backups" Hint="Set with ZWarden:Backups:KeepAutomatic">
+                            <span data-settings-automatic-backups>Last @BackupPolicy.Value.KeepAutomatic per server, taken before config, mod and game-update changes</span>
+                            <span class="block text-xs text-muted-foreground">Older ones are deleted; manual backups are kept until deleted</span>
                         </SettingRow>
                     </SettingsCard>
                     break;

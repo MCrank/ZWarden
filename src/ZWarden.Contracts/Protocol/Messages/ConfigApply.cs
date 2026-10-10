@@ -51,8 +51,11 @@ public sealed record ConfigValueEdit(string Path, ConfigValueKind Kind, string V
 /// <param name="BaselineHash">The drift baseline the Agent re-checks before writing (the last revision's hash),
 /// or <c>null</c> for the first write to this file.</param>
 /// <param name="Edits">The surgical value edits to apply, in the caller's order.</param>
+/// <param name="BackupFirst">#379: take an automatic (<c>PreOperation</c>) backup of the world before writing; a failed
+/// backup fails the Operation and nothing is written. Additive (ADR 0020): <c>false</c> when absent.</param>
 [ProtocolMessage("configuration.apply")]
 public sealed record ConfigApply(
     PzConfigFile File,
     string? BaselineHash,
-    IReadOnlyList<ConfigValueEdit> Edits) : AgentCommand;
+    IReadOnlyList<ConfigValueEdit> Edits,
+    bool BackupFirst = false) : AgentCommand;

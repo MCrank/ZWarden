@@ -39,6 +39,58 @@ public class ServerBackupRunnerTests
     }
 
     [Test]
+    public async Task RunPreOperationAsync_saves_then_archives_under_a_pre_op_name()
+    {
+        using var temp = new TempRoot();
+        ServerId serverId = ServerId.New();
+        Directory.CreateDirectory(Path.Combine(temp.DataMountRoot, serverId.ToString()));
+        List<string> journal = [];
+        var archiver = new RecordingArchiver { Result = new BackupArchiveResult(512, "cafe"), Journal = journal };
+        var saver = new FakeWorldSaver { Result = WorldSaveResult.Saved, Journal = journal };
+        OperationId operationId = OperationId.New();
+
+        ServerBackupOutcome? outcome = await Runner(temp, archiver, saver)
+            .RunPreOperationAsync(serverId, operationId, CancellationToken.None);
+
+        await Assert.That(outcome).IsNotNull();
+        await Assert.That(outcome!.Succeeded).IsTrue();
+        await Assert.That(outcome.Sha256).IsEqualTo("cafe");
+        await Assert.That(outcome.ArchiveName!).StartsWith("world-");
+        await Assert.That(outcome.ArchiveName!).EndsWith($"-{operationId}-pre-op.tar.gz");
+        await Assert.That(archiver.DestinationDirectory).IsEqualTo(Path.Combine(temp.BackupRoot, serverId.ToString()));
+        string[] expected = ["save", "archive"];
+        await Assert.That(journal).IsEquivalentTo(expected, TUnit.Assertions.Enums.CollectionOrdering.Matching);
+    }
+
+    [Test]
+    public async Task RunPreOperationAsync_takes_no_backup_when_the_server_has_no_world_yet()
+    {
+        using var temp = new TempRoot();
+        var archiver = new RecordingArchiver();
+
+        ServerBackupOutcome? outcome = await Runner(temp, archiver)
+            .RunPreOperationAsync(ServerId.New(), OperationId.New(), CancellationToken.None);
+
+        await Assert.That(outcome).IsNull();
+        await Assert.That(archiver.CallCount).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task RunPreOperationAsync_fails_with_the_archiver_reason()
+    {
+        using var temp = new TempRoot();
+        ServerId serverId = ServerId.New();
+        Directory.CreateDirectory(Path.Combine(temp.DataMountRoot, serverId.ToString()));
+        var archiver = new RecordingArchiver { Throw = new IOException("No space left on device") };
+
+        ServerBackupOutcome? outcome = await Runner(temp, archiver)
+            .RunPreOperationAsync(serverId, OperationId.New(), CancellationToken.None);
+
+        await Assert.That(outcome!.Succeeded).IsFalse();
+        await Assert.That(outcome.FailureReason!).Contains("No space left on device");
+    }
+
+    [Test]
     public async Task RunAsync_fails_without_archiving_when_the_world_directory_is_missing()
     {
         using var temp = new TempRoot();

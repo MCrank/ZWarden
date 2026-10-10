@@ -295,16 +295,18 @@ public sealed partial class AgentCommandProcessor
             case RestartServer restart:
                 // Graceful restart (#114): the coordinator broadcasts a servermsg countdown to players (best-effort,
                 // never blocking) and then runs the F15 safe restart, so the same LifecycleAsync fault handling wraps
-                // the container half.
+                // the container half. The restart that applies mod updates backs up first (#379), before the countdown.
                 return await LifecycleAsync(
                     envelope,
                     operationId,
                     "restart",
                     (server, ct) => _restartCoordinator.RestartAsync(
                         server, restart.Plan, operationId, progress ?? NullOperationProgressReporter.Instance, ct),
-                    cancellationToken).ConfigureAwait(false);
+                    cancellationToken,
+                    restart.BackupFirst,
+                    progress).ConfigureAwait(false);
 
-            case UpdateServer:
+            case UpdateServer updateCommand:
                 if (envelope.ServerId is not { } updateServerId)
                 {
                     // An update command with no target Server is malformed — fail it explicitly.
@@ -316,12 +318,21 @@ public sealed partial class AgentCommandProcessor
                     return null; // Already handling this update — a redelivered command (PRD 20).
                 }
 
+                PreOperationBackupStep updateBackup = await BackupFirstAsync(
+                    updateCommand.BackupFirst, updateServerId, operationId, progress, cancellationToken).ConfigureAwait(false);
+                if (updateBackup.FailureReason is { } updateBackupFailure)
+                {
+                    return Completed(OperationOutcome.Failed, updateBackupFailure, operationId, updateServerId);
+                }
+
                 ServerUpdateOutcome update = await _updates
                     .RunAsync(updateServerId, operationId, progress ?? NullOperationProgressReporter.Instance, cancellationToken)
                     .ConfigureAwait(false);
-                return update.Succeeded
-                    ? Completed(OperationOutcome.Succeeded, failureReason: null, operationId, updateServerId, update: new UpdateResult(update.InstalledBuildId, update.PreviousBuildId))
-                    : Completed(OperationOutcome.Failed, update.FailureReason, operationId, updateServerId);
+                return WithBackup(
+                    update.Succeeded
+                        ? Completed(OperationOutcome.Succeeded, failureReason: null, operationId, updateServerId, update: new UpdateResult(update.InstalledBuildId, update.PreviousBuildId))
+                        : Completed(OperationOutcome.Failed, update.FailureReason, operationId, updateServerId),
+                    updateBackup.Backup);
 
             case BackupServer:
                 if (envelope.ServerId is not { } backupServerId)
@@ -514,15 +525,24 @@ public sealed partial class AgentCommandProcessor
                     return null; // Already handled this operation — a redelivered command (PRD 20).
                 }
 
+                PreOperationBackupStep configBackup = await BackupFirstAsync(
+                    apply.BackupFirst, configServerId, operationId, progress, cancellationToken).ConfigureAwait(false);
+                if (configBackup.FailureReason is { } configBackupFailure)
+                {
+                    return Completed(OperationOutcome.Failed, configBackupFailure, operationId, configServerId);
+                }
+
                 ConfigApplyOutcome config = await _configWriter
                     .ApplyAsync(configServerId, apply.File, apply.BaselineHash, apply.Edits, cancellationToken)
                     .ConfigureAwait(false);
                 // A drift refusal (ADR 0011) and any other failure are both a failed Operation whose non-secret
                 // reason the operator reads; only a write that applied carries the recorded revision.
                 LogConfigWriteOutcome(configServerId, operationId, apply.File, "surgical", config.Succeeded, config.ChangedCount, config.FailureReason);
-                return config.Succeeded
-                    ? await ConfigAppliedAsync(configServerId, operationId, apply.File, config, cancellationToken).ConfigureAwait(false)
-                    : Completed(OperationOutcome.Failed, config.FailureReason, operationId, configServerId);
+                return WithBackup(
+                    config.Succeeded
+                        ? await ConfigAppliedAsync(configServerId, operationId, apply.File, config, cancellationToken).ConfigureAwait(false)
+                        : Completed(OperationOutcome.Failed, config.FailureReason, operationId, configServerId),
+                    configBackup.Backup);
 
             case ConfigApplyRaw raw:
                 if (envelope.ServerId is not { } rawServerId)
@@ -548,13 +568,23 @@ public sealed partial class AgentCommandProcessor
                         rawServerId);
                 }
 
+                // The text is taken before the backup, so a lost stage fails at once rather than after a backup.
+                PreOperationBackupStep rawBackup = await BackupFirstAsync(
+                    raw.BackupFirst, rawServerId, operationId, progress, cancellationToken).ConfigureAwait(false);
+                if (rawBackup.FailureReason is { } rawBackupFailure)
+                {
+                    return Completed(OperationOutcome.Failed, rawBackupFailure, operationId, rawServerId);
+                }
+
                 ConfigApplyOutcome rawOutcome = await _configWriter
                     .ApplyRawAsync(rawServerId, raw.File, raw.BaselineHash, rawContent, cancellationToken)
                     .ConfigureAwait(false);
                 LogConfigWriteOutcome(rawServerId, operationId, raw.File, "raw", rawOutcome.Succeeded, rawOutcome.ChangedCount, rawOutcome.FailureReason);
-                return rawOutcome.Succeeded
-                    ? await ConfigAppliedAsync(rawServerId, operationId, raw.File, rawOutcome, cancellationToken).ConfigureAwait(false)
-                    : Completed(OperationOutcome.Failed, rawOutcome.FailureReason, operationId, rawServerId);
+                return WithBackup(
+                    rawOutcome.Succeeded
+                        ? await ConfigAppliedAsync(rawServerId, operationId, raw.File, rawOutcome, cancellationToken).ConfigureAwait(false)
+                        : Completed(OperationOutcome.Failed, rawOutcome.FailureReason, operationId, rawServerId),
+                    rawBackup.Backup);
 
             default:
                 // A command this Agent version does not understand: leave it unhandled (not marked handled) so
@@ -581,14 +611,17 @@ public sealed partial class AgentCommandProcessor
     /// Runs a lifecycle verb (start/stop/restart, F15) against the target Server on the envelope. The Agent
     /// resolves the container it owns for the Server and issues the guarded Docker verb; a Server with no owned
     /// container, a foreign container, or a Docker refusal becomes a failed completion with an actionable,
-    /// Agent-authored reason (escaped downstream) — never a crash. Deduped by <c>OperationId</c> (PRD 20).
+    /// Agent-authored reason (escaped downstream) — never a crash. Deduped by <c>OperationId</c> (PRD 20). With
+    /// <paramref name="backupFirst"/> (#379), an automatic backup runs before the verb and rides its completion.
     /// </summary>
     private async Task<Envelope<OperationCompleted>?> LifecycleAsync(
         Envelope<IProtocolMessage> envelope,
         OperationId operationId,
         string verb,
         Func<ServerId, CancellationToken, Task> action,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool backupFirst = false,
+        IOperationProgressReporter? progress = null)
     {
         if (envelope.ServerId is not { } serverId)
         {
@@ -601,31 +634,43 @@ public sealed partial class AgentCommandProcessor
             return null; // Already handled this operation — a redelivered command (PRD 20).
         }
 
-        try
+        PreOperationBackupStep backup = await BackupFirstAsync(backupFirst, serverId, operationId, progress, cancellationToken)
+            .ConfigureAwait(false);
+        if (backup.FailureReason is { } backupFailure)
         {
-            await action(serverId, cancellationToken).ConfigureAwait(false);
-            return Completed(OperationOutcome.Succeeded, failureReason: null, operationId, serverId);
+            return Completed(OperationOutcome.Failed, backupFailure, operationId, serverId);
         }
-        catch (ContainerNotFoundException)
+
+        return WithBackup(await RunVerbAsync().ConfigureAwait(false), backup.Backup);
+
+        async Task<Envelope<OperationCompleted>> RunVerbAsync()
         {
-            return Completed(
-                OperationOutcome.Failed,
-                $"This server has no container on its host to {verb}. Provision (register) the server first.",
-                operationId,
-                serverId);
-        }
-        catch (ForeignContainerException ex)
-        {
-            return Completed(OperationOutcome.Failed, ex.Reason, operationId, serverId);
-        }
-        catch (DockerApiException ex)
-        {
-            // A denied verb (socket proxy, ADR 0008) or any daemon-side error — report, do not crash.
-            return Completed(
-                OperationOutcome.Failed,
-                $"The Docker daemon refused to {verb} the container (HTTP {(int)ex.StatusCode}).",
-                operationId,
-                serverId);
+            try
+            {
+                await action(serverId, cancellationToken).ConfigureAwait(false);
+                return Completed(OperationOutcome.Succeeded, failureReason: null, operationId, serverId);
+            }
+            catch (ContainerNotFoundException)
+            {
+                return Completed(
+                    OperationOutcome.Failed,
+                    $"This server has no container on its host to {verb}. Provision (register) the server first.",
+                    operationId,
+                    serverId);
+            }
+            catch (ForeignContainerException ex)
+            {
+                return Completed(OperationOutcome.Failed, ex.Reason, operationId, serverId);
+            }
+            catch (DockerApiException ex)
+            {
+                // A denied verb (socket proxy, ADR 0008) or any daemon-side error — report, do not crash.
+                return Completed(
+                    OperationOutcome.Failed,
+                    $"The Docker daemon refused to {verb} the container (HTTP {(int)ex.StatusCode}).",
+                    operationId,
+                    serverId);
+            }
         }
     }
 
@@ -743,6 +788,83 @@ public sealed partial class AgentCommandProcessor
     [LoggerMessage(Level = LogLevel.Information,
         Message = "Live config reload for server {ServerId} (operation {OperationId}): {Outcome} {Detail}")]
     private partial void LogConfigReload(ServerId serverId, OperationId operationId, ConfigReloadOutcome outcome, string detail);
+
+    /// <summary>
+    /// Takes the automatic backup a world-changing command asks for before it changes anything (#379). Not asked for,
+    /// or a server with no world yet: no backup, and the command runs. A failed backup is the command's failure — it
+    /// must not run. While the archive is written, a progress line repeats every
+    /// <see cref="AgentOptions.PreOperationBackupHeartbeat"/>, which renews the Operation's lease.
+    /// </summary>
+    private async Task<PreOperationBackupStep> BackupFirstAsync(
+        bool requested,
+        ServerId serverId,
+        OperationId operationId,
+        IOperationProgressReporter? progress,
+        CancellationToken cancellationToken)
+    {
+        if (!requested)
+        {
+            return PreOperationBackupStep.None;
+        }
+
+        ServerBackupOutcome? outcome;
+        using (CancellationTokenSource heartbeatStop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+        {
+            Task heartbeat = HeartbeatAsync(progress ?? NullOperationProgressReporter.Instance, operationId, heartbeatStop.Token);
+            try
+            {
+                outcome = await _backups.RunPreOperationAsync(serverId, operationId, cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                await heartbeatStop.CancelAsync().ConfigureAwait(false);
+                await heartbeat.ConfigureAwait(false);
+            }
+        }
+
+        if (outcome is null)
+        {
+            return PreOperationBackupStep.None;
+        }
+
+        if (!outcome.Succeeded)
+        {
+            string reason = (outcome.FailureReason ?? "the backup failed").TrimEnd('.');
+            return new PreOperationBackupStep(null, $"No backup could be taken first: {reason}. Nothing was changed.");
+        }
+
+        return new PreOperationBackupStep(
+            new BackupResult(outcome.ArchiveName!, outcome.SizeBytes, outcome.Sha256!, outcome.CreatedAt!.Value, outcome.Warning),
+            null);
+    }
+
+    private async Task HeartbeatAsync(IOperationProgressReporter progress, OperationId operationId, CancellationToken stop)
+    {
+        const string line = "Taking an automatic backup first…";
+        try
+        {
+            await progress.ReportAsync(operationId, 0, line, stop).ConfigureAwait(false);
+            using PeriodicTimer timer = new(_options.PreOperationBackupHeartbeat, _timeProvider);
+            while (await timer.WaitForNextTickAsync(stop).ConfigureAwait(false))
+            {
+                await progress.ReportAsync(operationId, 0, line, stop).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // The backup finished (or the Operation was cancelled): the heartbeat simply stops.
+        }
+    }
+
+    // A taken automatic backup rides the command's completion, succeeded or failed: the archive exists either way.
+    private static Envelope<OperationCompleted> WithBackup(Envelope<OperationCompleted> reply, BackupResult? backup) =>
+        backup is null ? reply : reply with { Payload = reply.Payload with { PreOperationBackup = backup } };
+
+    /// <summary>The result of <see cref="BackupFirstAsync"/>: the backup taken (or none), or why the command must not run.</summary>
+    private sealed record PreOperationBackupStep(BackupResult? Backup, string? FailureReason)
+    {
+        public static readonly PreOperationBackupStep None = new(null, null);
+    }
 
     private Envelope<OperationCompleted> Completed(
         OperationOutcome outcome,

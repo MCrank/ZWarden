@@ -27,6 +27,32 @@ internal sealed class FakeServerBackupRunner : IServerBackupRunner
         return Task.FromResult(Outcome);
     }
 
+    /// <summary>The automatic backup's outcome (#379); <c>null</c> means the server has no world yet.</summary>
+    public ServerBackupOutcome? PreOperationOutcome { get; set; } = new(
+        true, "world-20261010-100000-op-x-pre-op.tar.gz", 2048, "feed01", new DateTimeOffset(2026, 10, 10, 10, 0, 0, TimeSpan.Zero), null);
+
+    public int PreOperationCount { get; private set; }
+
+    /// <summary>Order of calls across fakes that share it, so a test can assert the backup ran first.</summary>
+    public List<string>? Journal { get; set; }
+
+    /// <summary>Blocks the automatic backup until released, so a heartbeat test can observe progress mid-backup.</summary>
+    public TaskCompletionSource? Gate { get; set; }
+
+    public async Task<ServerBackupOutcome?> RunPreOperationAsync(
+        ServerId serverId, OperationId operationId, CancellationToken cancellationToken)
+    {
+        PreOperationCount++;
+        LastServerId = serverId;
+        Journal?.Add("backup");
+        if (Gate is not null)
+        {
+            await Gate.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        return PreOperationOutcome;
+    }
+
     public Task<ServerBackupDeletionOutcome> DeleteAsync(ServerId serverId, string archiveName, CancellationToken cancellationToken)
     {
         DeleteCount++;
