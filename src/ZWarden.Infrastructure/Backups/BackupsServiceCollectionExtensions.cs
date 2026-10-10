@@ -26,6 +26,13 @@ public static class BackupsServiceCollectionExtensions
         services.AddScoped<IBackupRecorder, BackupRecorder>();
         services.AddScoped<IBackupQuery, BackupQuery>();
 
+        // Retention for automatic backups (#379): ZWarden:Backups:KeepAutomatic, default 5, at least 1.
+        services.AddOptions<BackupOptions>()
+            .BindConfiguration(BackupOptions.SectionName)
+            .Validate(o => o.KeepAutomatic >= 1, $"{BackupOptions.SectionName}:{nameof(BackupOptions.KeepAutomatic)} must be at least 1.")
+            .ValidateOnStart();
+        services.AddScoped<IBackupRetention, BackupRetention>();
+
         return services;
     }
 }

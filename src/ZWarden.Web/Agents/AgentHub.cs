@@ -646,7 +646,7 @@ public sealed partial class AgentHub : Hub
             if (completed.Payload.Restore is { } restoreResult && completed.ServerId is { } restoreServerId
                 && AgentClaims.TryGetAgentId(Context.User, out AgentId restoreAgent))
             {
-                await _backups.RecordRestoreProtectiveBackupAsync(
+                await _backups.RecordPreOperationBackupAsync(
                     restoreServerId, restoreAgent,
                     restoreResult.ProtectiveBackup.ArchiveName, restoreResult.ProtectiveBackup.SizeBytes,
                     restoreResult.ProtectiveBackup.Sha256, restoreResult.ProtectiveBackup.CreatedAt,

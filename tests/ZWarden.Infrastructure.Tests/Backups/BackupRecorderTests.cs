@@ -109,7 +109,7 @@ public class BackupRecorderTests
     }
 
     [Test]
-    public async Task RecordRestoreProtectiveBackup_persists_a_pre_operation_backup_for_the_owning_agent()
+    public async Task RecordPreOperationBackup_persists_a_pre_operation_backup_for_the_owning_agent()
     {
         await WithSqlite(async options =>
         {
@@ -119,19 +119,21 @@ public class BackupRecorderTests
             await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
             BackupRecorder sut = Recorder(db, new FakeOperationStore(OperationId.New(), operation: null));
 
-            await sut.RecordRestoreProtectiveBackupAsync(
-                serverId, agent, "world-1-pre-restore.tar.gz", 2048, "protectivesha", Now);
+            bool recorded = await sut.RecordPreOperationBackupAsync(
+                serverId, agent, "world-1-pre-op.tar.gz", 2048, "protectivesha", Now, "not saved first");
 
             IReadOnlyList<Backup> backups = await new BackupRepository(db).ListForServerAsync(serverId);
+            await Assert.That(recorded).IsTrue();
             await Assert.That(backups.Count).IsEqualTo(1);
-            await Assert.That(backups[0].ArchiveName).IsEqualTo("world-1-pre-restore.tar.gz");
+            await Assert.That(backups[0].ArchiveName).IsEqualTo("world-1-pre-op.tar.gz");
             await Assert.That(backups[0].Sha256).IsEqualTo("protectivesha");
             await Assert.That(backups[0].Reason).IsEqualTo(BackupReason.PreOperation);
+            await Assert.That(backups[0].Warning).IsEqualTo("not saved first");
         });
     }
 
     [Test]
-    public async Task RecordRestoreProtectiveBackup_is_a_no_op_when_the_reporting_agent_does_not_own_the_server()
+    public async Task RecordPreOperationBackup_is_a_no_op_when_the_reporting_agent_does_not_own_the_server()
     {
         await WithSqlite(async options =>
         {
@@ -142,8 +144,9 @@ public class BackupRecorderTests
             await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
             BackupRecorder sut = Recorder(db, new FakeOperationStore(OperationId.New(), operation: null));
 
-            await sut.RecordRestoreProtectiveBackupAsync(serverId, other, "world-1-pre-restore.tar.gz", 1, "sha", Now);
+            bool recorded = await sut.RecordPreOperationBackupAsync(serverId, other, "world-1-pre-restore.tar.gz", 1, "sha", Now);
 
+            await Assert.That(recorded).IsFalse();
             await Assert.That((await new BackupRepository(db).ListForServerAsync(serverId)).Count).IsEqualTo(0);
         });
     }

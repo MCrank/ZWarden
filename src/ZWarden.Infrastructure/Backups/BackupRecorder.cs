@@ -90,27 +90,30 @@ public sealed class BackupRecorder : IBackupRecorder
     }
 
     /// <inheritdoc />
-    public async Task RecordRestoreProtectiveBackupAsync(
+    public async Task<bool> RecordPreOperationBackupAsync(
         ServerId serverId,
         AgentId agentId,
-        string protectiveArchiveName,
+        string archiveName,
         long sizeBytes,
         string sha256,
         DateTimeOffset createdAt,
+        string? warning = null,
         CancellationToken cancellationToken = default)
     {
         Server? server = await _servers.FindByIdAsync(serverId, cancellationToken).ConfigureAwait(false);
         if (server is null || server.AgentId != agentId)
         {
             // A report for a Server this tenant does not own, or one this Agent does not own: no-op (§3).
-            return;
+            return false;
         }
 
-        // The protective backup a restore takes is always a PreOperation backup (ADR 0029) — an operator can roll
-        // back a mistaken restore to it. It is recorded exactly like an operator backup, only with the reason fixed.
+        // A restore's protective backup (ADR 0029) and the backup a risky change takes first (#379) are always
+        // PreOperation backups — an operator can roll the change back to them. Recorded exactly like an operator
+        // backup, only with the reason fixed; they are the ones retention prunes.
         _backups.Add(Backup.Record(
-            serverId, agentId, protectiveArchiveName, sizeBytes, sha256, BackupReason.PreOperation, createdAt));
+            serverId, agentId, archiveName, sizeBytes, sha256, BackupReason.PreOperation, createdAt, warning: warning));
         await _context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        return true;
     }
 
     // The retention reason the enqueueing service wrote onto the Operation's payload; defaults to Manual for a
