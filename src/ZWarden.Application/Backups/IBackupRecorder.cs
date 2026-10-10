@@ -33,12 +33,14 @@ public interface IBackupRecorder
     /// <summary>Records an <b>automatic</b> backup the Agent took inside another Operation: a restore's protective
     /// backup of the pre-restore world (F25, ADR 0029), or the backup a config apply, mod update or game update took
     /// first (#379). Creates a tenant-owned <c>Backup</c> tagged <see cref="Domain.Backups.BackupReason.PreOperation"/>
-    /// from the reported archive facts, so the change can be rolled back. Returns whether it was recorded: <c>false</c>
-    /// (a no-op) if the Server is not visible or is not owned by the reporting Agent (the same ownership guard as
-    /// <see cref="RecordCreatedAsync"/>).</summary>
+    /// from the reported archive facts, so the change can be rolled back, audits it as taken by the system for
+    /// <paramref name="operationId"/>, and runs retention (<see cref="IBackupRetention"/>). Returns whether it was
+    /// recorded: <c>false</c> (a no-op) if the Server is not visible or is not owned by the reporting Agent (the same
+    /// ownership guard as <see cref="RecordCreatedAsync"/>).</summary>
     Task<bool> RecordPreOperationBackupAsync(
         ServerId serverId,
         AgentId agentId,
+        OperationId operationId,
         string archiveName,
         long sizeBytes,
         string sha256,

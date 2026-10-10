@@ -1,5 +1,7 @@
+using ZWarden.Application.Audit;
 using ZWarden.Application.Backups;
 using ZWarden.Application.Operations;
+using ZWarden.Domain.Audit;
 using ZWarden.Domain.Backups;
 using ZWarden.Domain.Ids;
 using ZWarden.Domain.Operations;
@@ -14,7 +16,8 @@ namespace ZWarden.Infrastructure.Backups;
 /// arrives (the F14/F17 ingest pattern). It is tenant-scoped by construction — every read builds on the tenant
 /// filter — and ownership-checked: a create is recorded only against a Server the reporting Agent owns, so an Agent
 /// can never plant a backup on another Agent's Server (trust-boundaries §3). The retention reason and the record id
-/// are read from the Operation's stored command payload the enqueueing service wrote.
+/// are read from the Operation's stored command payload the enqueueing service wrote. An automatic backup is also
+/// audited and then triggers retention (#379).
 /// </summary>
 public sealed class BackupRecorder : IBackupRecorder
 {
@@ -22,21 +25,29 @@ public sealed class BackupRecorder : IBackupRecorder
     private readonly ServerRepository _servers;
     private readonly BackupRepository _backups;
     private readonly ZWardenDbContext _context;
+    private readonly IAuditWriter _audit;
+    private readonly IBackupRetention _retention;
 
     public BackupRecorder(
         IOperationStore operations,
         ServerRepository servers,
         BackupRepository backups,
-        ZWardenDbContext context)
+        ZWardenDbContext context,
+        IAuditWriter audit,
+        IBackupRetention retention)
     {
         ArgumentNullException.ThrowIfNull(operations);
         ArgumentNullException.ThrowIfNull(servers);
         ArgumentNullException.ThrowIfNull(backups);
         ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(audit);
+        ArgumentNullException.ThrowIfNull(retention);
         _operations = operations;
         _servers = servers;
         _backups = backups;
         _context = context;
+        _audit = audit;
+        _retention = retention;
     }
 
     /// <inheritdoc />
@@ -93,6 +104,7 @@ public sealed class BackupRecorder : IBackupRecorder
     public async Task<bool> RecordPreOperationBackupAsync(
         ServerId serverId,
         AgentId agentId,
+        OperationId operationId,
         string archiveName,
         long sizeBytes,
         string sha256,
@@ -113,6 +125,15 @@ public sealed class BackupRecorder : IBackupRecorder
         _backups.Add(Backup.Record(
             serverId, agentId, archiveName, sizeBytes, sha256, BackupReason.PreOperation, createdAt, warning: warning));
         await _context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+        // The system took it, not an operator (they're audited for the operation itself); then retention runs, so the
+        // server never holds more than KeepAutomatic of them.
+        await _audit.WriteAsync(
+            new AuditEntry(
+                ServerAuditActions.BackedUp, AuditOutcome.Succeeded, ActorUserId: null, serverId,
+                $"automatic backup {archiveName} before operation {operationId}"),
+            cancellationToken).ConfigureAwait(false);
+        await _retention.PruneAsync(serverId, cancellationToken).ConfigureAwait(false);
         return true;
     }
 
