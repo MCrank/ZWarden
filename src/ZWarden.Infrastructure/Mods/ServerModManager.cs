@@ -221,6 +221,13 @@ public sealed class ServerModManager : IServerModManager
                 cancellationToken).ConfigureAwait(false);
             return ModManagementResult.Denied(ModManagementFailure.ServerBusy);
         }
+        catch (HostOfflineException)
+        {
+            await _audit.WriteAsync(
+                new AuditEntry(ModAuditActions.DownloadsDeleted, AuditOutcome.Failed, user, resolved.Id, $"{subject}: host offline"),
+                cancellationToken).ConfigureAwait(false);
+            return ModManagementResult.Denied(ModManagementFailure.HostOffline);
+        }
     }
 
     /// <inheritdoc />
@@ -403,6 +410,13 @@ public sealed class ServerModManager : IServerModManager
                 cancellationToken).ConfigureAwait(false);
             return ModManagementResult.Denied(ModManagementFailure.ServerBusy);
         }
+        catch (HostOfflineException)
+        {
+            await _audit.WriteAsync(
+                new AuditEntry(ModAuditActions.Updated, AuditOutcome.Failed, user, resolved.Id, "host offline"),
+                cancellationToken).ConfigureAwait(false);
+            return ModManagementResult.Denied(ModManagementFailure.HostOffline);
+        }
     }
 
     // The shared fail-closed pipeline for the list-editing verbs: resolve + authorize, load the ownership-guarded
@@ -509,6 +523,7 @@ public sealed class ServerModManager : IServerModManager
         return result.Failure switch
         {
             ServerConfigurationFailure.ServerBusy => ModManagementResult.Denied(ModManagementFailure.ServerBusy),
+            ServerConfigurationFailure.AgentOffline => ModManagementResult.Denied(ModManagementFailure.HostOffline),
             _ => ModManagementResult.Denied(ModManagementFailure.InvalidInput, result.Message),
         };
     }

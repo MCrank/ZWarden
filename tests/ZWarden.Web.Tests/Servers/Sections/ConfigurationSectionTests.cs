@@ -29,7 +29,7 @@ public sealed class ConfigurationSectionTests
     {
         // No fake reader: the real coordinator has no connected Agent, so the read is AgentOffline.
         await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
-        ServerId serverId = await harness.SeedServerAsync("config-offline");
+        ServerId serverId = await harness.SeedServerAsync("config-offline", hostOnline: false);
         IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "config");
 
         await Assert.That(cut.Markup).Contains("data-config-card");
@@ -680,7 +680,11 @@ public sealed class ConfigurationSectionTests
         ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
         Operation op = db.Set<Operation>().First(o => o.ServerId == serverId && o.Kind == OperationKind.ConfigApply);
         DateTimeOffset now = DateTimeOffset.UtcNow;
-        op.MarkDispatched(now.AddMinutes(5), now);
+        if (op.State == OperationState.Pending)
+        {
+            op.MarkDispatched(now.AddMinutes(5), now); // the dispatcher already did, when the host is connected
+        }
+
         if (succeeded)
         {
             op.ReportProgress(100, text, now.AddMinutes(5), now);

@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.DependencyInjection;
+using ZWarden.Application.Agents;
 using ZWarden.Application.Servers;
 using ZWarden.Domain.Agents;
 using ZWarden.Domain.Enrollments;
@@ -235,6 +236,7 @@ public sealed class ServerEndpointsTests
         Agent agent = Agent.Enroll(AgentHash, EnrollmentId.New(), DateTimeOffset.UtcNow, "host-alpha");
         db.Set<Agent>().Add(agent);
         await db.SaveChangesAsync();
+        factory.Services.GetRequiredService<IAgentConnectionRegistry>().Register(agent.Id, "conn-alpha", () => { }); // a connected host (#383)
         return agent.Id;
     }
 

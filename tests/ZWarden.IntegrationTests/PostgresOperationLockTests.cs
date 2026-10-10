@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using ZWarden.Application.Agents;
 using ZWarden.Application.Audit;
 using ZWarden.Application.Operations;
 using ZWarden.Application.Tenancy;
@@ -117,7 +118,7 @@ public class PostgresOperationLockTests
     }
 
     private static OperationCoordinator Coordinator(ZWardenDbContext db)
-        => new(db, new OperationRepository(db), new NoOpDispatcher(), new NoOpAuditWriter(), new FixedClock(Now));
+        => new(db, new OperationRepository(db), new NoOpDispatcher(), new NoOpAuditWriter(), new FixedClock(Now), new ConnectedRegistry());
 
     private static EnqueueOperationRequest Mutating(ServerId server, string key)
         => new(AgentId.New(), OperationKind.DiagnosticsPing, IsMutating: true, key, server);
@@ -143,6 +144,20 @@ public class PostgresOperationLockTests
     private sealed class FixedClock(DateTimeOffset now) : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => now;
+    }
+
+    // Every host connected, so the lock (not the #383 offline refusal) is what these tests exercise.
+    private sealed class ConnectedRegistry : IAgentConnectionRegistry
+    {
+        public void Register(AgentId agentId, string connectionId, Action abort) { }
+
+        public void Remove(string connectionId) { }
+
+        public bool IsConnected(AgentId agentId) => true;
+
+        public string? GetConnectionId(AgentId agentId) => null;
+
+        public bool TryAbort(AgentId agentId) => false;
     }
 
     private sealed class NoOpDispatcher : IOperationDispatcher

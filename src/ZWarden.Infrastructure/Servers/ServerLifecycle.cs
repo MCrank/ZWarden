@@ -207,5 +207,13 @@ public sealed class ServerLifecycle : IServerLifecycle
                 cancellationToken).ConfigureAwait(false);
             return ServerLifecycleResult.Denied(ServerLifecycleFailure.ServerBusy);
         }
+        catch (HostOfflineException)
+        {
+            // The server's host isn't connected (#383): nothing was enqueued.
+            await _audit.WriteAsync(
+                new AuditEntry(auditAction, AuditOutcome.Failed, user, serverId, "host offline"),
+                cancellationToken).ConfigureAwait(false);
+            return ServerLifecycleResult.Denied(ServerLifecycleFailure.HostOffline);
+        }
     }
 }

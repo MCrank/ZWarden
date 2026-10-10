@@ -65,6 +65,22 @@ public sealed class ServerLifecycleEndpointsTests
     }
 
     [Test]
+    public async Task A_lifecycle_action_on_an_offline_host_is_refused_as_host_offline()
+    {
+        // #383: an Operation for an offline host would sit Pending holding the server's lock; it is refused instead.
+        await using ZWardenWebAppFactory factory = new();
+        HttpClient client = await SignedInOperatorAsync(factory);
+        (ServerId serverId, _) = await SeedFleetServerAsync(factory); // its host never connected
+
+        HttpResponseMessage stop = await client.PostAsync(
+            new Uri($"/api/servers/{serverId}/stop", UriKind.Relative), content: null);
+
+        await Assert.That(stop.StatusCode).IsEqualTo(HttpStatusCode.Conflict);
+        await Assert.That(await stop.Content.ReadAsStringAsync()).Contains("host_offline");
+        client.Dispose();
+    }
+
+    [Test]
     public async Task Stop_and_restart_endpoints_enqueue_their_operations()
     {
         await using ZWardenWebAppFactory factory = new();
@@ -389,6 +405,7 @@ public sealed class ServerLifecycleEndpointsTests
         await using ZWardenWebAppFactory factory = new();
         HttpClient client = await SignedInOperatorAsync(factory);
         (ServerId serverId, AgentId agentId) = await SeedFleetServerAsync(factory);
+        MarkHostOnline(factory, serverId);
         factory.Services.GetRequiredService<IHostCapacityCache>()
             .Record(new HostCapacity(agentId, 16 * GiB, 20 * GiB, 6 * GiB, 4 * GiB, 2 * GiB, Now));
 
@@ -578,6 +595,15 @@ public sealed class ServerLifecycleEndpointsTests
     }
 
     private static StringContent JsonContent(string json) => new(json, System.Text.Encoding.UTF8, "application/json");
+    /// <summary>Marks <paramref name="serverId"/>'s host connected: a server-changing action on an offline host is
+    /// refused (#383), so a test that enqueues one needs its host online.</summary>
+    internal static void MarkHostOnline(ZWardenWebAppFactory factory, ServerId serverId)
+    {
+        using AsyncServiceScope scope = factory.Services.CreateSystemScope();
+        AgentId agent = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>().Set<Server>().Single(s => s.Id == serverId).AgentId;
+        factory.Services.GetRequiredService<IAgentConnectionRegistry>().Register(agent, $"conn-{agent}", () => { });
+    }
+
     private static async Task<ServerId> SeedServerAsync(ZWardenWebAppFactory factory, ServerRunState? state = null)
     {
         using AsyncServiceScope scope = factory.Services.CreateSystemScope();
@@ -590,6 +616,7 @@ public sealed class ServerLifecycleEndpointsTests
 
         db.Set<Server>().Add(server);
         await db.SaveChangesAsync();
+        factory.Services.GetRequiredService<IAgentConnectionRegistry>().Register(server.AgentId, $"conn-{server.AgentId}", () => { }); // a connected host (#383)
         return server.Id;
     }
 

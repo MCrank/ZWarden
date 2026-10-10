@@ -364,6 +364,27 @@ public class ServerModManagerTests
     }
 
     [Test]
+    public async Task Enable_reports_host_offline_when_the_host_is_not_connected()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            AgentId agent = AgentId.New();
+            ServerId serverId = await SeedServerAsync(options, agent);
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ModInstall);
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            ModInventoryCache cache = new();
+            cache.Record(Inventory(serverId, agent, workshop: ["100"], enabled: ["A"]));
+            ServerModManager sut = Manager(db, new RecordingCoordinator { ThrowOffline = true }, new CapturingAuditWriter(), cache);
+
+            ModManagementResult result = await sut.EnableModsAsync(user, serverId, ["B"]);
+
+            await Assert.That(result.Failure).IsEqualTo(ModManagementFailure.HostOffline);
+        });
+    }
+
+    [Test]
     public async Task Enable_reports_server_busy_when_the_per_server_lock_refuses()
     {
         await WithSqlite(async options =>
@@ -914,6 +935,28 @@ public class ServerModManagerTests
     }
 
     [Test]
+    public async Task Delete_downloads_reports_an_offline_host()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            AgentId agent = AgentId.New();
+            ServerId serverId = await SeedServerAsync(options, agent);
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ModRemove);
+            await SeedStateAsync(options, serverId, booted: [], configured: []);
+            await SeedOnDiskAsync(options, serverId, "200");
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            ServerModManager sut = Manager(
+                db, new RecordingCoordinator { ThrowOffline = true }, new CapturingAuditWriter(), new ModInventoryCache());
+
+            ModManagementResult result = await sut.DeleteDownloadsAsync(user, serverId, ["200"]);
+
+            await Assert.That(result.Failure).IsEqualTo(ModManagementFailure.HostOffline);
+        });
+    }
+
+    [Test]
     public async Task Delete_downloads_reports_a_busy_server()
     {
         await WithSqlite(async options =>
@@ -1000,6 +1043,8 @@ public class ServerModManagerTests
     {
         public bool ThrowBusy { get; init; }
 
+        public bool ThrowOffline { get; init; }
+
         public EnqueueOperationRequest? LastRequest { get; private set; }
 
         public Task<Operation> EnqueueAsync(
@@ -1008,6 +1053,11 @@ public class ServerModManagerTests
             if (ThrowBusy)
             {
                 throw new ServerBusyException(request.ServerId!.Value);
+            }
+
+            if (ThrowOffline)
+            {
+                throw new HostOfflineException(request.ServerId!.Value);
             }
 
             LastRequest = request;

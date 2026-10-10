@@ -66,7 +66,8 @@ public sealed class BrowserHost : IAsyncInitializer, IAsyncDisposable
         _storageState = await SignInAsync(_browser);
     }
 
-    /// <summary>Adds a fresh Server (one per test, so one test's in-flight Operation never makes another's busy).</summary>
+    /// <summary>Adds a fresh Server (one per test, so one test's in-flight Operation never makes another's busy). Its
+    /// host is marked connected: a server-changing action on an offline host is refused (#383).</summary>
     public async Task<ServerId> SeedServerAsync(string name)
     {
         await using AsyncServiceScope scope = _factory!.Services.CreateSystemScope();
@@ -74,6 +75,7 @@ public sealed class BrowserHost : IAsyncInitializer, IAsyncDisposable
         Server server = Server.Import(AgentId.New(), ServerId.New(), name, DateTimeOffset.UtcNow);
         db.Set<Server>().Add(server);
         await db.SaveChangesAsync();
+        _factory.Services.GetRequiredService<IAgentConnectionRegistry>().Register(server.AgentId, Guid.NewGuid().ToString(), () => { });
         return server.Id;
     }
 

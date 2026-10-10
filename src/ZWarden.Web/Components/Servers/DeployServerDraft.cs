@@ -119,6 +119,7 @@ public sealed class DeployServerDraft
         ServerRegisterFailure.InvalidSettings => "One of the settings is not allowed.",
         ServerRegisterFailure.InvalidBranch => "That branch is not allowed.",
         ServerRegisterFailure.NoPzImage => NoPzImageMessage,
+        ServerRegisterFailure.HostOffline => HostOfflineText.DeployMessage,
         _ => "The server could not be deployed.",
     };
 

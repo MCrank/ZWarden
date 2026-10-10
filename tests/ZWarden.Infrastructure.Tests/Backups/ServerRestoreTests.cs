@@ -117,6 +117,26 @@ public class ServerRestoreTests
     }
 
     [Test]
+    public async Task Restore_reports_host_offline_when_the_host_is_not_connected()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            AgentId agent = AgentId.New();
+            ServerId serverId = await SeedServerAsync(options, agent, ServerRunState.Stopped);
+            BackupId backupId = await SeedBackupAsync(options, serverId, agent, "world-1.tar.gz", "abc123");
+            await SeedAssignmentAsync(options, user, serverId, Permissions.BackupRestore);
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            ServerRestore sut = Service(db, new RecordingCoordinator { ThrowOffline = true }, new CapturingAuditWriter());
+
+            RestoreRequestResult result = await sut.RestoreAsync(user, backupId);
+
+            await Assert.That(result.Failure).IsEqualTo(RestoreRequestFailure.HostOffline);
+        });
+    }
+
+    [Test]
     public async Task Restore_reports_server_busy_when_the_per_server_lock_refuses()
     {
         await WithSqlite(async options =>
@@ -148,6 +168,8 @@ public class ServerRestoreTests
     {
         public bool ThrowBusy { get; init; }
 
+        public bool ThrowOffline { get; init; }
+
         public EnqueueOperationRequest? LastRequest { get; private set; }
 
         public Task<Operation> EnqueueAsync(
@@ -156,6 +178,11 @@ public class ServerRestoreTests
             if (ThrowBusy)
             {
                 throw new ServerBusyException(request.ServerId!.Value);
+            }
+
+            if (ThrowOffline)
+            {
+                throw new HostOfflineException(request.ServerId!.Value);
             }
 
             LastRequest = request;

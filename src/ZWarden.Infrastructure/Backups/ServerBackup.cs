@@ -100,6 +100,13 @@ public sealed class ServerBackup : IServerBackup, IPreOperationBackup
                 cancellationToken).ConfigureAwait(false);
             return BackupRequestResult.Denied(BackupRequestFailure.ServerBusy);
         }
+        catch (HostOfflineException)
+        {
+            await _audit.WriteAsync(
+                new AuditEntry(ServerAuditActions.BackedUp, AuditOutcome.Failed, user, serverId, "host offline"),
+                cancellationToken).ConfigureAwait(false);
+            return BackupRequestResult.Denied(BackupRequestFailure.HostOffline);
+        }
     }
 
     /// <inheritdoc />

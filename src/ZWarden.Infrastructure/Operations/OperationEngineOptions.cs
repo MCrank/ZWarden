@@ -11,6 +11,11 @@ public sealed class OperationEngineOptions
     /// per-server lock after at most this long without a report.</summary>
     public TimeSpan LeaseDuration { get; set; } = TimeSpan.FromMinutes(5);
 
+    /// <summary>How long an Operation may stay <c>Pending</c> (never dispatched, because its Agent was offline) before
+    /// the reaper fails it (#383). Mutating server Operations are refused up front when the host is offline, so this
+    /// catches a host that dropped between that check and the send, and anything queued for an offline Agent.</summary>
+    public TimeSpan PendingDispatchWindow { get; set; } = TimeSpan.FromMinutes(2);
+
     /// <summary>How often the reaper sweeps for expired leases.</summary>
     public TimeSpan ReaperInterval { get; set; } = TimeSpan.FromSeconds(30);
 }

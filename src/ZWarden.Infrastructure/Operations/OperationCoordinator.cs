@@ -1,6 +1,7 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using ZWarden.Application.Agents;
 using ZWarden.Application.Audit;
 using ZWarden.Application.Operations;
 using ZWarden.Domain.Audit;
@@ -14,8 +15,9 @@ namespace ZWarden.Infrastructure.Operations;
 /// The enqueue and cancellation engine (F11). Enqueue creates the Operation and <b>acquires the per-server
 /// lock as the same insert</b> (PRD 21) — a unique-constraint conflict becomes a typed
 /// <see cref="ServerBusyException"/> — enforces enqueue idempotency (PRD 20), audits, and attempts an
-/// initial dispatch. It commits the lock row and never holds a transaction across Agent work (ADR 0005
-/// condition 5).
+/// initial dispatch. A mutating, server-scoped Operation for an Agent that isn't connected is refused with
+/// <see cref="HostOfflineException"/> before anything is written (#383). It commits the lock row and never holds a
+/// transaction across Agent work (ADR 0005 condition 5).
 /// </summary>
 public sealed class OperationCoordinator : IOperationCoordinator
 {
@@ -24,24 +26,28 @@ public sealed class OperationCoordinator : IOperationCoordinator
     private readonly IOperationDispatcher _dispatcher;
     private readonly IAuditWriter _audit;
     private readonly TimeProvider _clock;
+    private readonly IAgentConnectionRegistry _connections;
 
     public OperationCoordinator(
         ZWardenDbContext context,
         OperationRepository operations,
         IOperationDispatcher dispatcher,
         IAuditWriter audit,
-        TimeProvider clock)
+        TimeProvider clock,
+        IAgentConnectionRegistry connections)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(operations);
         ArgumentNullException.ThrowIfNull(dispatcher);
         ArgumentNullException.ThrowIfNull(audit);
         ArgumentNullException.ThrowIfNull(clock);
+        ArgumentNullException.ThrowIfNull(connections);
         _context = context;
         _operations = operations;
         _dispatcher = dispatcher;
         _audit = audit;
         _clock = clock;
+        _connections = connections;
     }
 
     /// <inheritdoc />
@@ -59,6 +65,14 @@ public sealed class OperationCoordinator : IOperationCoordinator
         if (existing is not null)
         {
             return existing;
+        }
+
+        // A server-changing Operation for an offline host would sit Pending holding the server's lock, and run
+        // whenever the host returns; refuse it before anything is written (#383). Background and read-only
+        // Operations don't take the lock and stay queued for the reaper's dispatch window.
+        if (request.IsMutating && request.ServerId is { } offlineServer && !_connections.IsConnected(request.AgentId))
+        {
+            throw new HostOfflineException(offlineServer);
         }
 
         DateTimeOffset now = _clock.GetUtcNow();
