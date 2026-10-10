@@ -33,6 +33,10 @@ public enum ServerRegisterFailure
     /// <summary>The chosen host's Agent reported no usable PZ image (#364): <c>ZWARDEN_PZ_IMAGE</c> is blank or a floating
     /// <c>latest</c>, so a provision could only fail.</summary>
     NoPzImage,
+
+    /// <summary>The chosen host's Agent isn't connected (#383), so its provisioning could never be dispatched; nothing
+    /// was created.</summary>
+    HostOffline,
 }
 
 /// <summary>The outcome of registering a new Server (F14 PR-B): on success, the new Server and the

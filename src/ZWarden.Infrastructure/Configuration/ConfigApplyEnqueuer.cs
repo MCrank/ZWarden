@@ -128,5 +128,13 @@ internal sealed class ConfigApplyEnqueuer
                 cancellationToken).ConfigureAwait(false);
             return ServerConfigurationResult.Denied(ServerConfigurationFailure.ServerBusy);
         }
+        catch (HostOfflineException)
+        {
+            // The server's host isn't connected (#383): nothing was enqueued.
+            await _audit.WriteAsync(
+                new AuditEntry(auditAction, AuditOutcome.Failed, user, resolved.Id, "host offline"),
+                cancellationToken).ConfigureAwait(false);
+            return ServerConfigurationResult.Denied(ServerConfigurationFailure.AgentOffline);
+        }
     }
 }

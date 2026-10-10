@@ -112,5 +112,12 @@ public sealed class ServerRestore : IServerRestore
                 cancellationToken).ConfigureAwait(false);
             return RestoreRequestResult.Denied(RestoreRequestFailure.ServerBusy);
         }
+        catch (HostOfflineException)
+        {
+            await _audit.WriteAsync(
+                new AuditEntry(ServerAuditActions.Restored, AuditOutcome.Failed, user, backup.ServerId, "host offline"),
+                cancellationToken).ConfigureAwait(false);
+            return RestoreRequestResult.Denied(RestoreRequestFailure.HostOffline);
+        }
     }
 }

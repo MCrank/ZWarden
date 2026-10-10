@@ -15,6 +15,10 @@ public enum BackupRequestFailure
     /// <summary>A conflicting mutating Operation is already in flight against this Server (per-server lock,
     /// ADR 0022) — a backup is a mutating Operation and cannot start while one is running.</summary>
     ServerBusy,
+
+    /// <summary>The Server's host isn't connected, so nothing was enqueued (#383): an Operation for an offline host
+    /// would hold the server's lock until reaped.</summary>
+    HostOffline,
 }
 
 /// <summary>The outcome of a backup request (F24): on success, the enqueued Operation whose state the caller

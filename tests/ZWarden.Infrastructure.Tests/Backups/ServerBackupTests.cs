@@ -118,6 +118,25 @@ public class ServerBackupTests
     }
 
     [Test]
+    public async Task Create_reports_host_offline_and_enqueues_nothing_when_the_host_is_not_connected()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            ServerId serverId = await SeedServerAsync(options, AgentId.New());
+            await SeedAssignmentAsync(options, user, serverId, Permissions.BackupCreate);
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            RecordingCoordinator coordinator = new() { ThrowOffline = true };
+            BackupRequestResult result = await Service(db, coordinator, new CapturingAuditWriter())
+                .CreateAsync(user, serverId, BackupReason.Manual);
+
+            await Assert.That(result.Failure).IsEqualTo(BackupRequestFailure.HostOffline);
+            await Assert.That(coordinator.LastRequest).IsNull();
+        });
+    }
+
+    [Test]
     public async Task Create_reports_server_busy_when_the_per_server_lock_refuses()
     {
         await WithSqlite(async options =>
@@ -213,6 +232,8 @@ public class ServerBackupTests
     {
         public bool ThrowBusy { get; init; }
 
+        public bool ThrowOffline { get; init; }
+
         public EnqueueOperationRequest? LastRequest { get; private set; }
 
         public Task<Operation> EnqueueAsync(
@@ -221,6 +242,11 @@ public class ServerBackupTests
             if (ThrowBusy)
             {
                 throw new ServerBusyException(request.ServerId!.Value);
+            }
+
+            if (ThrowOffline)
+            {
+                throw new HostOfflineException(request.ServerId!.Value);
             }
 
             LastRequest = request;

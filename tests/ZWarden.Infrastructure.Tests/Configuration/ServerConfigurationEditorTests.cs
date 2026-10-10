@@ -195,6 +195,24 @@ public class ServerConfigurationEditorTests
     }
 
     [Test]
+    public async Task Apply_reports_agent_offline_when_the_host_is_not_connected()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            ServerId serverId = await SeedServerAsync(options, AgentId.New());
+            await SeedAssignmentAsync(options, user, serverId, Permissions.ServerConfigurationEdit);
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            ServerConfigurationEditor sut = Editor(db, new RecordingCoordinator { ThrowOffline = true }, new CapturingAuditWriter());
+
+            ServerConfigurationResult result = await sut.ApplyAsync(user, serverId, PzConfigFile.SandboxVars, Edits);
+
+            await Assert.That(result.Failure).IsEqualTo(ServerConfigurationFailure.AgentOffline);
+        });
+    }
+
+    [Test]
     public async Task Apply_reports_server_busy_when_the_per_server_lock_refuses()
     {
         await WithSqlite(async options =>
@@ -707,6 +725,8 @@ public class ServerConfigurationEditorTests
     {
         public bool ThrowBusy { get; init; }
 
+        public bool ThrowOffline { get; init; }
+
         public EnqueueOperationRequest? LastRequest { get; private set; }
 
         public Task<Operation> EnqueueAsync(
@@ -715,6 +735,11 @@ public class ServerConfigurationEditorTests
             if (ThrowBusy)
             {
                 throw new ServerBusyException(request.ServerId!.Value);
+            }
+
+            if (ThrowOffline)
+            {
+                throw new HostOfflineException(request.ServerId!.Value);
             }
 
             LastRequest = request;
