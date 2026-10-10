@@ -59,6 +59,20 @@ public sealed class BackupsSectionTests
     }
 
     [Test]
+    public async Task The_panel_says_when_automatic_backups_are_taken_and_how_many_are_kept()
+    {
+        // #379: the default policy (ZWarden:Backups:KeepAutomatic = 5) is spelled out next to the list.
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
+        ServerId serverId = await harness.SeedServerAsync("backup-retention");
+        IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "backups");
+
+        string text = cut.Find("[data-backups-retention]").TextContent;
+        await Assert.That(text).Contains("before a config change, a mod change or a game update");
+        await Assert.That(text).Contains("newest 5");
+        await Assert.That(text).Contains("Manual backups are kept until you delete them");
+    }
+
+    [Test]
     public async Task A_backup_that_could_not_save_first_shows_its_warning()
     {
         await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();

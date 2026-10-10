@@ -119,6 +119,26 @@ public sealed class SettingsPageTests
     }
 
     [Test]
+    public async Task Backups_shows_how_many_automatic_backups_are_kept_as_set_in_config()
+    {
+        // #379: the retention policy is deploy config (ZWarden:Backups:KeepAutomatic); the page shows the bound value.
+        await using ZWardenWebAppFactory factory = new()
+        {
+            ConfigureTestServicesHook = services =>
+                services.Configure<ZWarden.Infrastructure.Backups.BackupOptions>(o => o.KeepAutomatic = 3),
+        };
+        HttpClient client = await SignedInOwnerAsync(factory, "owner@zwarden.test");
+
+        string html = await GetStringAsync(client, "/settings/backups");
+
+        await Assert.That(html).Contains("data-settings-automatic-backups");
+        await Assert.That(html).Contains("Last 3 per server");
+        await Assert.That(html).Contains("manual backups are kept until deleted");
+        await Assert.That(html).Contains("ZWarden:Backups:KeepAutomatic");
+        client.Dispose();
+    }
+
+    [Test]
     public async Task General_and_security_show_the_real_configured_values_as_set_in_config()
     {
         await using ZWardenWebAppFactory factory = new();
