@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using ZWarden.Application.Agents;
 using ZWarden.Application.Mods;
 using ZWarden.Application.Servers;
 using ZWarden.Domain.Backups;
@@ -78,7 +79,7 @@ internal sealed class InteractivePageHarness : IAsyncDisposable
     }
 
     /// <summary>Adds an imported Server to the database, on a host port pair when one is given.</summary>
-    public async Task<ServerId> SeedServerAsync(string name, int? gamePort = null, int? queryPort = null)
+    public async Task<ServerId> SeedServerAsync(string name, int? gamePort = null, int? queryPort = null, bool hostOnline = true)
     {
         await using AsyncServiceScope scope = Factory.Services.CreateSystemScope();
         ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
@@ -90,6 +91,13 @@ internal sealed class InteractivePageHarness : IAsyncDisposable
 
         db.Set<Server>().Add(server);
         await db.SaveChangesAsync();
+
+        // Its host is connected unless a test says otherwise: a server-changing action on an offline host is refused (#383).
+        if (hostOnline)
+        {
+            Factory.Services.GetRequiredService<IAgentConnectionRegistry>().Register(server.AgentId, $"conn-{server.AgentId}", () => { });
+        }
+
         return server.Id;
     }
 

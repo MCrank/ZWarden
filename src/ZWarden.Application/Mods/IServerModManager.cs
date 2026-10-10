@@ -18,6 +18,10 @@ public enum ModManagementFailure
     /// ADR 0022).</summary>
     ServerBusy,
 
+    /// <summary>The Server's host isn't connected, so nothing was enqueued (#383): an Operation for an offline host
+    /// would hold the server's lock until reaped.</summary>
+    HostOffline,
+
     /// <summary>The request is not valid to enqueue — an empty request, a malformed Workshop id, or too many
     /// edits to fit one Operation's command payload.</summary>
     InvalidInput,

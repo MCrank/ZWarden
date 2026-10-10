@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using ZWarden.Application.Agents;
 using ZWarden.Application.Operations;
 using ZWarden.Application.Servers;
 using ZWarden.Domain.Agents;
@@ -12,6 +13,7 @@ using ZWarden.Infrastructure.Authorization;
 using ZWarden.Infrastructure.Persistence;
 using ZWarden.Infrastructure.Servers;
 using ZWarden.Infrastructure.Tests.Agents;
+using ZWarden.Infrastructure.Tests.Operations;
 using ZWarden.Infrastructure.Tests.Workshop;
 using ZWarden.TestSupport;
 
@@ -630,7 +632,8 @@ public class ServerInventoryTests
         IOperationCoordinator? coordinator = null,
         FakeSecretProtector? secrets = null,
         HostCapacityCache? capacity = null,
-        HostProvisioningCache? provisioning = null)
+        HostProvisioningCache? provisioning = null,
+        IAgentConnectionRegistry? connections = null)
         => new(
             db,
             new ServerRepository(db),
@@ -642,7 +645,8 @@ public class ServerInventoryTests
             new StubClock(Now),
             secrets ?? new FakeSecretProtector(),
             capacity ?? new HostCapacityCache(),
-            provisioning ?? new HostProvisioningCache());
+            provisioning ?? new HostProvisioningCache(),
+            connections ?? new AlwaysConnectedRegistry());
 
     private sealed class StubOperationCoordinator : IOperationCoordinator
     {
@@ -826,6 +830,28 @@ public class ServerInventoryTests
                 .RegisterAsync(user, Request(agent));
 
             await Assert.That(refused.Failure).IsEqualTo(ServerRegisterFailure.NoPzImage);
+            await Assert.That(coordinator.LastRequest).IsNull();
+            await Assert.That(await new ServerRepository(db).ListByAgentAsync(agent)).IsEmpty();
+        });
+    }
+
+    [Test]
+    public async Task Register_refuses_a_host_whose_agent_is_not_connected_and_creates_nothing()
+    {
+        await WithSqlite(async options =>
+        {
+            UserId user = UserId.New();
+            await SeedAssignmentAsync(options, user, server: null, Permissions.ServerRegister);
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            AgentId agent = await PersistAgentAsync(db);
+            StubOperationCoordinator coordinator = new();
+
+            ServerRegisterResult refused = await Inventory(
+                    db, new ServerDiscoveryCache(), new CapturingAuditWriter(), coordinator,
+                    connections: new StubConnectionRegistry())
+                .RegisterAsync(user, Request(agent));
+
+            await Assert.That(refused.Failure).IsEqualTo(ServerRegisterFailure.HostOffline);
             await Assert.That(coordinator.LastRequest).IsNull();
             await Assert.That(await new ServerRepository(db).ListByAgentAsync(agent)).IsEmpty();
         });

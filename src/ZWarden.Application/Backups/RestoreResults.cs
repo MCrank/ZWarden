@@ -17,6 +17,10 @@ public enum RestoreRequestFailure
     /// ADR 0022) — a restore is a mutating Operation and cannot start while one is running.</summary>
     ServerBusy,
 
+    /// <summary>The Server's host isn't connected, so nothing was enqueued (#383): an Operation for an offline host
+    /// would hold the server's lock until reaped.</summary>
+    HostOffline,
+
     /// <summary>The Server was last observed running. A restore overwrites the world tree, so the operator must stop
     /// the Server first — this is an advisory pre-check (last-observed state, trust-boundaries §3); the Agent makes
     /// the authoritative refusal if the container is genuinely running.</summary>

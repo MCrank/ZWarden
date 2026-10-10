@@ -1,3 +1,4 @@
+using ZWarden.Application.Agents;
 using ZWarden.Application.Audit;
 using ZWarden.Application.Authorization;
 using ZWarden.Application.Operations;
@@ -34,6 +35,7 @@ public sealed class ServerInventory : IServerInventory
     private readonly ISecretProtector _secrets;
     private readonly IHostCapacityCache _capacity;
     private readonly IHostProvisioningCache _provisioning;
+    private readonly IAgentConnectionRegistry _connections;
 
     public ServerInventory(
         ZWardenDbContext context,
@@ -46,14 +48,17 @@ public sealed class ServerInventory : IServerInventory
         TimeProvider clock,
         ISecretProtector secrets,
         IHostCapacityCache capacity,
-        IHostProvisioningCache provisioning)
+        IHostProvisioningCache provisioning,
+        IAgentConnectionRegistry connections)
     {
         ArgumentNullException.ThrowIfNull(secrets);
         ArgumentNullException.ThrowIfNull(capacity);
         ArgumentNullException.ThrowIfNull(provisioning);
+        ArgumentNullException.ThrowIfNull(connections);
         _secrets = secrets;
         _capacity = capacity;
         _provisioning = provisioning;
+        _connections = connections;
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(servers);
         ArgumentNullException.ThrowIfNull(agents);
@@ -280,6 +285,13 @@ public sealed class ServerInventory : IServerInventory
         if (agent is null)
         {
             return ServerRegisterResult.Denied(ServerRegisterFailure.AgentNotFound);
+        }
+
+        // #383: an offline host's provisioning could never be dispatched. Refuse before the Server row exists, since the
+        // coordinator's own offline refusal would come after it.
+        if (!_connections.IsConnected(agentId))
+        {
+            return ServerRegisterResult.Denied(ServerRegisterFailure.HostOffline);
         }
 
         // #364: the host's Agent said its PZ image can't provision; the Operation could only fail. Unknown is not blocked.

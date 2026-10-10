@@ -16,6 +16,10 @@ public enum ServerLifecycleFailure
     /// ADR 0022) — the previous action has not finished.</summary>
     ServerBusy,
 
+    /// <summary>The Server's host isn't connected, so nothing was enqueued (#383): an Operation for an offline host
+    /// would hold the server's lock until reaped.</summary>
+    HostOffline,
+
     /// <summary>The requested host game port is outside the allowed range (<c>HostPortRules</c>, #229).</summary>
     InvalidPort,
 

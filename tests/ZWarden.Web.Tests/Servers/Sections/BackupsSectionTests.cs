@@ -81,4 +81,19 @@ public sealed class BackupsSectionTests
 
         await Assert.That(cut.FindAll("[data-backup-warning]").Count).IsEqualTo(0);
     }
+
+    [Test]
+    public async Task Restore_on_an_offline_host_says_so_and_enqueues_nothing()
+    {
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
+        ServerId serverId = await harness.SeedServerAsync("backup-host-asleep", hostOnline: false);
+        await harness.SeedBackupAsync(serverId, "world-1.tar.gz");
+        IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "backups");
+
+        await cut.Find("[data-backup-row] [data-action=backup-restore]").ClickAsync(new());
+
+        cut.WaitForState(() => cut.FindAll("[data-backup-message]").Count == 1);
+        await Assert.That(cut.Find("[data-backup-message]").TextContent).Contains("host is offline");
+        await Assert.That(harness.FirstOperation(serverId, OperationKind.Restore)).IsNull();
+    }
 }

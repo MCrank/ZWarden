@@ -80,6 +80,7 @@ public sealed class ServerDetailPageTests
         await using ZWardenWebAppFactory factory = new();
         HttpClient client = await SignedInOperatorAsync(factory);
         ServerId serverId = await SeedServerAsync(factory, "stopping");
+        ServerLifecycleEndpointsTests.MarkHostOnline(factory, serverId);
         await client.PostAsync(new Uri($"/api/servers/{serverId}/stop", UriKind.Relative), content: null);
 
         string html = await (await client.GetAsync(new Uri($"/servers/{serverId}", UriKind.Relative))).Content.ReadAsStringAsync();
@@ -107,6 +108,7 @@ public sealed class ServerDetailPageTests
         await using ZWardenWebAppFactory factory = new();
         HttpClient client = await SignedInOperatorAsync(factory);
         ServerId serverId = await SeedServerAsync(factory, "countdown");
+        ServerLifecycleEndpointsTests.MarkHostOnline(factory, serverId);
         await client.PostAsync(new Uri($"/api/servers/{serverId}/restart", UriKind.Relative), content: null);
         await ServerLifecycleEndpointsTests.ReportProgressAsync(factory, serverId, "Restarting in 240 seconds <b>now</b>");
 
