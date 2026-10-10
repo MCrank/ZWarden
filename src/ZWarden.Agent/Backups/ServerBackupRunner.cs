@@ -45,6 +45,11 @@ public interface IServerBackupRunner
     /// Operation.</summary>
     Task<ServerBackupOutcome> RunAsync(ServerId serverId, OperationId operationId, CancellationToken cancellationToken);
 
+    /// <summary>Takes the automatic backup a world-changing command asks for first (#379): the same save-first archive
+    /// as <see cref="RunAsync"/>, named with a <c>-pre-op</c> marker. Returns <c>null</c> when the Server has no data
+    /// directory yet — there is no world to protect, so the command runs without a backup.</summary>
+    Task<ServerBackupOutcome?> RunPreOperationAsync(ServerId serverId, OperationId operationId, CancellationToken cancellationToken);
+
     /// <summary>Deletes the named backup archive from <paramref name="serverId"/>'s backup directory under the
     /// Agent's <c>BackupRoot</c> (F24). The <paramref name="archiveName"/> must be a bare file name — a name with a
     /// directory separator or <c>..</c> is refused (path-traversal guard). An already-absent archive is a success
@@ -93,6 +98,29 @@ public sealed partial class ServerBackupRunner : IServerBackupRunner
                 "This server has no data directory on its host to back up. Provision and start the server first.");
         }
 
+        return await ArchiveAsync(serverId, sourceDirectory, operationId, preOperation: false, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<ServerBackupOutcome?> RunPreOperationAsync(
+        ServerId serverId, OperationId operationId, CancellationToken cancellationToken)
+    {
+        string sourceDirectory = Path.Combine(_options.DataMountRoot, serverId.ToString());
+        if (!Directory.Exists(sourceDirectory))
+        {
+            // Never started on this host: no world to protect, so the command goes ahead without a backup.
+            LogNoWorldToProtect(serverId);
+            return null;
+        }
+
+        return await ArchiveAsync(serverId, sourceDirectory, operationId, preOperation: true, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private async Task<ServerBackupOutcome> ArchiveAsync(
+        ServerId serverId, string sourceDirectory, OperationId operationId, bool preOperation, CancellationToken cancellationToken)
+    {
         // A running world is saved first so the archive holds its latest state (#377). A save that can't be sent
         // doesn't stop the backup — an older world is better than none — but the backup says so.
         WorldSaveResult save = await _saver.SaveAsync(serverId, cancellationToken).ConfigureAwait(false);
@@ -102,7 +130,7 @@ public sealed partial class ServerBackupRunner : IServerBackupRunner
 
         DateTimeOffset createdAt = _timeProvider.GetUtcNow();
         string destinationDirectory = Path.Combine(_options.BackupRoot, serverId.ToString());
-        string archiveName = ArchiveName(createdAt, operationId);
+        string archiveName = ArchiveName(createdAt, operationId, preOperation);
 
         try
         {
@@ -148,14 +176,18 @@ public sealed partial class ServerBackupRunner : IServerBackupRunner
     }
 
     // A human-legible, per-Server-unique name: the UTC timestamp for reading, the OperationId for uniqueness and
-    // traceability back to the Operation that produced it. Two backups in the same second never collide.
-    private static string ArchiveName(DateTimeOffset createdAt, OperationId operationId) =>
+    // traceability back to the Operation that produced it. Two backups in the same second never collide. An automatic
+    // backup (#379) carries a "-pre-op" marker, as restore's protective one carries "-pre-restore".
+    private static string ArchiveName(DateTimeOffset createdAt, OperationId operationId, bool preOperation) =>
         string.Create(
             CultureInfo.InvariantCulture,
-            $"world-{createdAt.UtcDateTime:yyyyMMdd-HHmmss}-{operationId}.tar.gz");
+            $"world-{createdAt.UtcDateTime:yyyyMMdd-HHmmss}-{operationId}{(preOperation ? "-pre-op" : string.Empty)}.tar.gz");
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Backup for server {ServerId} found no data directory to archive.")]
     private partial void LogNoWorldData(ServerId serverId);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Automatic backup for server {ServerId} skipped: it has no world yet.")]
+    private partial void LogNoWorldToProtect(ServerId serverId);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Backup for server {ServerId} wrote {ArchiveName} ({SizeBytes} bytes).")]
     private partial void LogBackupSucceeded(ServerId serverId, string archiveName, long sizeBytes);
