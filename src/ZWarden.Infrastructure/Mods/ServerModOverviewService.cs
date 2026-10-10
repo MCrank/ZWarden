@@ -4,6 +4,7 @@ using ZWarden.Application.Mods;
 using ZWarden.Application.Tenancy;
 using ZWarden.Domain.Authorization;
 using ZWarden.Domain.Ids;
+using ZWarden.Domain.Mods;
 using ZWarden.Infrastructure.Servers;
 
 namespace ZWarden.Infrastructure.Mods;
@@ -18,6 +19,7 @@ public sealed class ServerModOverviewService : IServerModOverviewService
     private readonly ServerWorkshopItemRepository _items;
     private readonly IModRefreshScheduler _scheduler;
     private readonly ITenantContext _tenant;
+    private readonly TimeProvider _clock;
     private readonly ModRefreshOptions _options;
 
     public ServerModOverviewService(
@@ -27,6 +29,7 @@ public sealed class ServerModOverviewService : IServerModOverviewService
         ServerWorkshopItemRepository items,
         IModRefreshScheduler scheduler,
         ITenantContext tenant,
+        TimeProvider clock,
         IOptions<ModRefreshOptions> options)
     {
         ArgumentNullException.ThrowIfNull(servers);
@@ -35,6 +38,7 @@ public sealed class ServerModOverviewService : IServerModOverviewService
         ArgumentNullException.ThrowIfNull(items);
         ArgumentNullException.ThrowIfNull(scheduler);
         ArgumentNullException.ThrowIfNull(tenant);
+        ArgumentNullException.ThrowIfNull(clock);
         ArgumentNullException.ThrowIfNull(options);
         _servers = servers;
         _permissions = permissions;
@@ -42,6 +46,7 @@ public sealed class ServerModOverviewService : IServerModOverviewService
         _items = items;
         _scheduler = scheduler;
         _tenant = tenant;
+        _clock = clock;
         _options = options.Value;
     }
 
@@ -54,10 +59,26 @@ public sealed class ServerModOverviewService : IServerModOverviewService
     /// <inheritdoc />
     public async Task RequestUpdateCheckAsync(UserId user, ServerId server, CancellationToken cancellationToken = default)
     {
-        if (await CanViewAsync(user, server, cancellationToken).ConfigureAwait(false))
+        if (!await CanViewAsync(user, server, cancellationToken).ConfigureAwait(false))
         {
-            _scheduler.Enqueue(new ModRefreshRequest(
-                _tenant.CurrentTenantId, ModRefreshKind.RefreshMetadata, Server: server, MaxAge: _options.UpdateCheckMaxAge));
+            return;
+        }
+
+        _scheduler.Enqueue(new ModRefreshRequest(
+            _tenant.CurrentTenantId, ModRefreshKind.RefreshMetadata, Server: server, MaxAge: _options.UpdateCheckMaxAge));
+
+        // #380: only a disk discovery re-reads the installed version. If PZ downloaded an update after the last one
+        // (a long post-boot download), the chip is stale until something re-reads the disk, so opening the page does.
+        // The age check keeps a reopened page from queuing another discovery while the last one is fresh.
+        IReadOnlyList<ServerWorkshopItem> items =
+            await _items.ListForServerAsync(server, cancellationToken).ConfigureAwait(false);
+        ServerModOverview overview = ModChangeSet.Derive(
+            server, await _states.FindAsync(server, cancellationToken).ConfigureAwait(false), items);
+        HashSet<string> ready = [.. overview.Items.Where(i => i.UpdateReady).Select(i => i.WorkshopId)];
+        DateTimeOffset? lastRead = items.Where(i => ready.Contains(i.WorkshopId)).Max(i => i.ObservedAt);
+        if (ready.Count > 0 && (lastRead is null || _clock.GetUtcNow() - lastRead >= _options.UpdateReadyDiskMaxAge))
+        {
+            _scheduler.Enqueue(new ModRefreshRequest(_tenant.CurrentTenantId, ModRefreshKind.DiscoverServer, Server: server));
         }
     }
 

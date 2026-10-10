@@ -14,7 +14,9 @@ public interface IServerModOverviewService
     Task<ServerModOverview?> GetAsync(UserId user, ServerId server, CancellationToken cancellationToken = default);
 
     /// <summary>Asks for a background refresh of <paramref name="server"/>'s Steam details when they are older than the
-    /// update-check max age (#275 D4: opening the Mods page). Does nothing for a caller without <c>Mod.View</c>.</summary>
+    /// update-check max age (#275 D4: opening the Mods page). When an item is Update ready and the disk wasn't read
+    /// recently, also asks for a disk discovery, so a chip left stale after a restart clears (#380). Does nothing for a
+    /// caller without <c>Mod.View</c>.</summary>
     Task RequestUpdateCheckAsync(UserId user, ServerId server, CancellationToken cancellationToken = default);
 
     /// <summary>How many Workshop items a restart would update on each of <paramref name="servers"/> (#275, the fleet
