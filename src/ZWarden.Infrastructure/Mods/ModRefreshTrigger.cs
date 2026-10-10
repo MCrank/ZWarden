@@ -86,9 +86,12 @@ public sealed partial class ModRefreshTrigger : IModRefreshTrigger
                 await _context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
                 // Now: PZ has read servertest.ini, so this discovery fills the booted-with lists. Later: PZ downloads
-                // new Workshop items after Docker reports the start, so look at the disk again (D2).
+                // new Workshop items after Docker reports the start, so look at the disk again (D2), and keep looking
+                // while an update is still ready (#380; the processor chains the re-checks).
                 _scheduler.Enqueue(discover);
-                _scheduler.EnqueueAfter(discover, _options.PostBootRediscoverDelay);
+                _scheduler.EnqueueAfter(
+                    new ModRefreshRequest(_tenant.CurrentTenantId, ModRefreshKind.PostBootRediscover, Server: server, Attempt: 1),
+                    _options.PostBootRediscoverDelay);
             }
             else if (operation.Kind is OperationKind.ConfigApply or OperationKind.ConfigApplyRaw
                      or OperationKind.DeleteWorkshopContent)

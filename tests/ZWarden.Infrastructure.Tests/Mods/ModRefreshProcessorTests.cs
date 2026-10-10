@@ -18,7 +18,8 @@ namespace ZWarden.Infrastructure.Tests.Mods;
 /// #290: the background processor. A discovery request enqueues a system, non-mutating
 /// <see cref="OperationKind.ModDiscovery"/> for the Server (or each of an Agent's Servers); a metadata refresh makes
 /// one batched Steam call for the items whose details are missing or stale, applies what was found (with the guessed
-/// mod ids parsed from the description), and leaves the rest untouched.
+/// mod ids parsed from the description), and leaves the rest untouched. A post-boot re-check (#380) discovers and
+/// chains the next one while an update is still ready, up to the window.
 /// </summary>
 public class ModRefreshProcessorTests
 {
@@ -173,15 +174,138 @@ public class ModRefreshProcessorTests
         });
     }
 
-    private static ModRefreshProcessor Processor(ZWardenDbContext db, RecordingCoordinator coordinator, StubMetadata metadata) =>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task The_first_post_boot_recheck_always_discovers_and_queues_the_next(bool updateReady)
+    {
+        // #380: the first re-check keeps #290 D2 (new downloads' mod.info ids), so it runs even with nothing ready.
+        await WithSqlite(async options =>
+        {
+            AgentId agent = AgentId.New();
+            ServerId server = await SeedServerAsync(options, agent);
+            await SeedActiveItemAsync(options, server, updateReady);
+            RecordingCoordinator coordinator = new();
+            ModStateRecorderTests.RecordingQueue queue = new();
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            await Processor(db, coordinator, new StubMetadata(), queue).ProcessAsync(Recheck(server, 1), CancellationToken.None);
+
+            await Assert.That(coordinator.Requests.Single().Kind).IsEqualTo(OperationKind.ModDiscovery);
+            await Assert.That(queue.Delayed.Single()).IsEqualTo((Recheck(server, 2), RecheckDelay));
+        });
+    }
+
+    [Test]
+    public async Task A_later_recheck_repeats_while_an_update_is_still_ready()
+    {
+        await WithSqlite(async options =>
+        {
+            AgentId agent = AgentId.New();
+            ServerId server = await SeedServerAsync(options, agent);
+            await SeedActiveItemAsync(options, server, updateReady: true);
+            RecordingCoordinator coordinator = new();
+            ModStateRecorderTests.RecordingQueue queue = new();
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            await Processor(db, coordinator, new StubMetadata(), queue).ProcessAsync(Recheck(server, 3), CancellationToken.None);
+
+            await Assert.That(coordinator.Requests.Single().ServerId).IsEqualTo(server);
+            await Assert.That(queue.Delayed.Single()).IsEqualTo((Recheck(server, 4), RecheckDelay));
+        });
+    }
+
+    [Test]
+    public async Task A_later_recheck_stops_once_nothing_is_update_ready()
+    {
+        // The download landed and the previous discovery recorded it: no more discoveries for this boot.
+        await WithSqlite(async options =>
+        {
+            AgentId agent = AgentId.New();
+            ServerId server = await SeedServerAsync(options, agent);
+            await SeedActiveItemAsync(options, server, updateReady: false);
+            RecordingCoordinator coordinator = new();
+            ModStateRecorderTests.RecordingQueue queue = new();
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            await Processor(db, coordinator, new StubMetadata(), queue).ProcessAsync(Recheck(server, 2), CancellationToken.None);
+
+            await Assert.That(coordinator.Requests).IsEmpty();
+            await Assert.That(queue.Delayed).IsEmpty();
+        });
+    }
+
+    [Test]
+    public async Task The_last_recheck_in_the_window_discovers_but_queues_no_more()
+    {
+        // 15 min window / 3 min delay = 5 re-checks.
+        await WithSqlite(async options =>
+        {
+            AgentId agent = AgentId.New();
+            ServerId server = await SeedServerAsync(options, agent);
+            await SeedActiveItemAsync(options, server, updateReady: true);
+            RecordingCoordinator coordinator = new();
+            ModStateRecorderTests.RecordingQueue queue = new();
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            await Processor(db, coordinator, new StubMetadata(), queue).ProcessAsync(Recheck(server, 5), CancellationToken.None);
+
+            await Assert.That(coordinator.Requests).Count().IsEqualTo(1);
+            await Assert.That(queue.Delayed).IsEmpty();
+        });
+    }
+
+    [Test]
+    public async Task A_recheck_of_an_unknown_server_does_nothing()
+    {
+        await WithSqlite(async options =>
+        {
+            RecordingCoordinator coordinator = new();
+            ModStateRecorderTests.RecordingQueue queue = new();
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            await Processor(db, coordinator, new StubMetadata(), queue).ProcessAsync(
+                Recheck(ServerId.New(), 1), CancellationToken.None);
+
+            await Assert.That(coordinator.Requests).IsEmpty();
+            await Assert.That(queue.Delayed).IsEmpty();
+        });
+    }
+
+    private static readonly TimeSpan RecheckDelay = TimeSpan.FromMinutes(3);
+
+    private static ModRefreshRequest Recheck(ServerId server, int attempt) =>
+        new(Tenant, ModRefreshKind.PostBootRediscover, Server: server, Attempt: attempt);
+
+    // One configured, booted item on disk; Steam's copy is newer than the installed one when `updateReady`.
+    private static async Task SeedActiveItemAsync(DbContextOptions options, ServerId server, bool updateReady)
+    {
+        await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+        ServerModState state = ServerModState.For(server);
+        state.MarkBooted(Now.AddMinutes(-10));
+        state.ObserveConfig(["100"], ["A"], Now.AddMinutes(-10));
+        ServerWorkshopItem item = ServerWorkshopItem.Track(server, "100");
+        item.ApplyMetadata("t", null, null, Now.AddDays(-1), [], [], Now.AddMinutes(-10));
+        item.ObserveDisk(onDisk: true, [], Now.AddMinutes(-5), installedUpdatedAt: updateReady ? Now.AddDays(-5) : Now.AddDays(-1));
+        db.AddRange(state, item);
+        await db.SaveChangesAsync();
+    }
+
+    private static ModRefreshProcessor Processor(
+        ZWardenDbContext db, RecordingCoordinator coordinator, StubMetadata metadata, IModRefreshScheduler? scheduler = null) =>
         new(
             new ServerRepository(db),
             new ServerWorkshopItemRepository(db),
+            new ServerModStateRepository(db),
             db,
             coordinator,
             metadata,
+            scheduler ?? new ModStateRecorderTests.RecordingQueue(),
             new FixedClock(Now),
-            Options.Create(new ModRefreshOptions()));
+            Options.Create(new ModRefreshOptions
+            {
+                PostBootRediscoverDelay = RecheckDelay, PostBootRediscoverWindow = TimeSpan.FromMinutes(15),
+            }));
 
     private static async Task<ServerId> SeedServerAsync(DbContextOptions options, AgentId agent)
     {

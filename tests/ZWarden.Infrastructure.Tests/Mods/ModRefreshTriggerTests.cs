@@ -18,7 +18,7 @@ namespace ZWarden.Infrastructure.Tests.Mods;
 
 /// <summary>
 /// #290 D1/D2: hub events become background mod refreshes. A boot (start, restart, update, recreate) marks the
-/// Server booted and queues a discovery now plus a follow-up after the post-boot delay; a config apply queues one
+/// Server booted and queues a discovery now plus the first post-boot re-check (#380) after the delay; a config apply queues one
 /// discovery; any other kind, a foreign Agent's report, or an unknown operation queues nothing. An Agent connecting
 /// queues a discovery of its Servers. The kind is read from the persisted Operation, never the wire.
 /// </summary>
@@ -33,7 +33,7 @@ public class ModRefreshTriggerTests
     [Arguments(OperationKind.RestartServer)]
     [Arguments(OperationKind.UpdateServer)]
     [Arguments(OperationKind.RecreateServer)]
-    public async Task A_boot_marks_the_server_booted_and_queues_discovery_now_and_after_the_delay(OperationKind kind)
+    public async Task A_boot_marks_the_server_booted_and_queues_discovery_now_and_a_recheck_after_the_delay(OperationKind kind)
     {
         await WithSqlite(async options =>
         {
@@ -49,7 +49,9 @@ public class ModRefreshTriggerTests
 
             ModRefreshRequest discover = new(Tenant, ModRefreshKind.DiscoverServer, Server: server);
             await Assert.That(scheduler.Requests).IsEquivalentTo([discover]);
-            await Assert.That(scheduler.Delayed.Single()).IsEqualTo((discover, Delay));
+            // #380: the follow-up is the first post-boot re-check; the processor chains the rest.
+            ModRefreshRequest recheck = new(Tenant, ModRefreshKind.PostBootRediscover, Server: server, Attempt: 1);
+            await Assert.That(scheduler.Delayed.Single()).IsEqualTo((recheck, Delay));
 
             await using ZWardenDbContext read = new(options, new TestTenantContext(Tenant));
             ServerModState state = (await new ServerModStateRepository(read).FindAsync(server))!;
