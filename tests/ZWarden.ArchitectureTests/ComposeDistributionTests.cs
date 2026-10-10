@@ -191,6 +191,16 @@ public class ComposeDistributionTests
         await Assert.That(envExample).Contains("ZW_SECRET_KEYS=");
         await Assert.That(envExample).Contains("ZW_SECRET_ACTIVE_KEY_ID=");
         await Assert.That(envExample).Contains("ZWARDEN_ENROLLMENT_SECRET=");
+        await Assert.That(envExample).Contains("ZWARDEN_BACKUPS_KEEP_AUTOMATIC=5");
+    }
+
+    [Test]
+    public async Task Automatic_backup_retention_is_wired_from_the_environment_with_the_default()
+    {
+        string compose = await ComposeYamlAsync();
+
+        // #379: KeepAutomatic is deploy config; an unset .env value keeps the default of 5.
+        await Assert.That(compose).Contains("ZWarden__Backups__KeepAutomatic=${ZWARDEN_BACKUPS_KEEP_AUTOMATIC:-5}");
     }
 
     [Test]

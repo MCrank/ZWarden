@@ -68,7 +68,8 @@ deleted and audited. Manual backups are never pruned.
     `Server.BackupPruned` with the system actor.
   - No permission check: retention is policy, not an operator action.
   - Never touches a `Manual` backup. A delete that fails leaves the record, and the next prune retries it.
-- **D7 — `BackupOptions { KeepAutomatic = 5 }`** bound to `ZWarden:Backups`, validated `>= 1` on start.
+- **D7 — `BackupOptions { KeepAutomatic = 5 }`** bound to `ZWarden:Backups`, validated `>= 1` on start. The compose
+  file passes `ZWARDEN_BACKUPS_KEEP_AUTOMATIC` (default 5) through, since its web environment is an explicit list.
 - **D8 — the operator sees the policy**: Settings → Backups gains a "Automatic backups" row ("Last 5 per server, taken
   before config, mod and game-update changes; manual backups are kept until deleted"), and the server's Backups panel
   shows the same line under its list. Both read `IOptions<BackupOptions>`.
