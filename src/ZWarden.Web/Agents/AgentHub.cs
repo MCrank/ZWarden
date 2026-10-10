@@ -503,6 +503,18 @@ public sealed partial class AgentHub : Hub
                 .ConfigureAwait(false);
         }
 
+        // The automatic backup a config apply, mod update or game update took first (#379) exists whatever the command
+        // then did, so it is recorded on success and failure alike — a PreOperation Backup on the reporting Agent's own
+        // Server (ownership guard, §3), audited, and followed by retention. It is the rollback point for the change.
+        if (completed.Payload.PreOperationBackup is { } preOperation && completed.ServerId is { } preOperationServerId
+            && AgentClaims.TryGetAgentId(Context.User, out AgentId preOperationAgent))
+        {
+            await _backups.RecordPreOperationBackupAsync(
+                preOperationServerId, preOperationAgent, operationId,
+                preOperation.ArchiveName, preOperation.SizeBytes, preOperation.Sha256, preOperation.CreatedAt,
+                preOperation.Warning, Context.ConnectionAborted).ConfigureAwait(false);
+        }
+
         if (completed.Payload.Outcome == OperationOutcome.Succeeded)
         {
             // A successful update Operation carries the build id the Agent read from the manifest (F17); record
@@ -646,11 +658,11 @@ public sealed partial class AgentHub : Hub
             if (completed.Payload.Restore is { } restoreResult && completed.ServerId is { } restoreServerId
                 && AgentClaims.TryGetAgentId(Context.User, out AgentId restoreAgent))
             {
-                await _backups.RecordRestoreProtectiveBackupAsync(
-                    restoreServerId, restoreAgent,
+                await _backups.RecordPreOperationBackupAsync(
+                    restoreServerId, restoreAgent, operationId,
                     restoreResult.ProtectiveBackup.ArchiveName, restoreResult.ProtectiveBackup.SizeBytes,
                     restoreResult.ProtectiveBackup.Sha256, restoreResult.ProtectiveBackup.CreatedAt,
-                    Context.ConnectionAborted).ConfigureAwait(false);
+                    restoreResult.ProtectiveBackup.Warning, Context.ConnectionAborted).ConfigureAwait(false);
             }
 
             // A successful delete means the Agent removed the container (#271); remove the Server from the fleet. The

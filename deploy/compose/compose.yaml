@@ -62,6 +62,8 @@ services:
       # plus localhost so the in-container liveness probe is accepted.
       - ZWarden__AllowedHosts__0=${ZWARDEN_DOMAIN}
       - ZWarden__AllowedHosts__1=localhost
+      # How many automatic (pre-operation) backups each server keeps (#379); manual backups are never pruned.
+      - ZWarden__Backups__KeepAutomatic=${ZWARDEN_BACKUPS_KEEP_AUTOMATIC:-5}
     volumes:
       - zwarden_data:/data
     healthcheck:

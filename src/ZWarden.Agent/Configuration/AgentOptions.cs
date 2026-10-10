@@ -171,6 +171,11 @@ public sealed class AgentOptions
     /// Must not be negative.</summary>
     public TimeSpan BackupSaveSettle { get; set; } = TimeSpan.FromSeconds(10);
 
+    /// <summary>How often the Agent repeats its "Taking an automatic backup first…" progress line while a pre-operation
+    /// backup is being written (#379). Progress renews the Operation's lease, so a large world can't be reaped mid-backup.
+    /// Must be positive.</summary>
+    public TimeSpan PreOperationBackupHeartbeat { get; set; } = TimeSpan.FromSeconds(60);
+
     /// <summary>How long graceful shutdown may take before the host stops forcibly. Must be positive.</summary>
     public TimeSpan ShutdownTimeout { get; set; } = TimeSpan.FromSeconds(10);
 

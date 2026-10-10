@@ -12,12 +12,15 @@ internal sealed class FakeServerUpdateRunner : IServerUpdateRunner
 
     public int RunCount { get; private set; }
 
+    public List<string>? Journal { get; set; }
+
     public ServerId? LastServerId { get; private set; }
 
     public Task<ServerUpdateOutcome> RunAsync(
         ServerId serverId, OperationId operationId, IOperationProgressReporter progress, CancellationToken cancellationToken)
     {
         RunCount++;
+        Journal?.Add("update");
         LastServerId = serverId;
         return Task.FromResult(Outcome);
     }

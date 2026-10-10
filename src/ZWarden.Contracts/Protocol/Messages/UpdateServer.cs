@@ -12,5 +12,7 @@ namespace ZWarden.Contracts.Protocol.Messages;
 /// are undocumented by Valve (ADR 0009). Install, update and validate are the same SteamCMD verb; a repair is
 /// this same command run again. It carries no free-form command.
 /// </summary>
+/// <param name="BackupFirst">#379: take an automatic (<c>PreOperation</c>) backup of the world before the update starts;
+/// a failed backup fails the Operation and nothing is changed. Additive (ADR 0020): <c>false</c> when absent.</param>
 [ProtocolMessage("lifecycle.update-server")]
-public sealed record UpdateServer : AgentCommand;
+public sealed record UpdateServer(bool BackupFirst = false) : AgentCommand;

@@ -166,6 +166,44 @@ public class OperationDispatcherMapTests
     }
 
     [Test]
+    public async Task A_game_update_and_both_config_applies_always_back_up_first()
+    {
+        // #379: the world-changing kinds always ask the Agent for an automatic backup before they change anything.
+        string apply = new ConfigApplyPayload(PzConfigFile.Ini, "base", []).ToJson();
+        string raw = new ConfigApplyRawPayload(PzConfigFile.Ini, "base", "corr").ToJson();
+
+        await Assert.That(((UpdateServer)OperationDispatcher.CommandFor(OperationKind.UpdateServer)).BackupFirst).IsTrue();
+        await Assert.That(((ConfigApply)OperationDispatcher.CommandFor(OperationKind.ConfigApply, apply)).BackupFirst).IsTrue();
+        await Assert.That(((ConfigApplyRaw)OperationDispatcher.CommandFor(OperationKind.ConfigApplyRaw, raw)).BackupFirst).IsTrue();
+    }
+
+    [Test]
+    public async Task Only_a_restart_whose_payload_asks_for_it_backs_up_first()
+    {
+        // #379: a plain or graceful restart never backs up; the mod-update restart's payload asks for it.
+        var plain = (RestartServer)OperationDispatcher.CommandFor(OperationKind.RestartServer);
+        var graceful = (RestartServer)OperationDispatcher.CommandFor(
+            OperationKind.RestartServer, new GracefulRestartPayload(GracefulLeads).ToJson());
+        var modUpdate = (RestartServer)OperationDispatcher.CommandFor(
+            OperationKind.RestartServer, new GracefulRestartPayload(GracefulLeads, BackupFirst: true).ToJson());
+
+        await Assert.That(plain.BackupFirst).IsFalse();
+        await Assert.That(graceful.BackupFirst).IsFalse();
+        await Assert.That(modUpdate.BackupFirst).IsTrue();
+        await Assert.That(modUpdate.Plan!.WarningLeadSeconds).IsEquivalentTo(GracefulLeads);
+    }
+
+    [Test]
+    public async Task A_backup_only_restart_payload_keeps_the_agents_default_warning()
+    {
+        var command = (RestartServer)OperationDispatcher.CommandFor(
+            OperationKind.RestartServer, (GracefulRestartPayload.DefaultSchedule with { BackupFirst = true }).ToJson());
+
+        await Assert.That(command.BackupFirst).IsTrue();
+        await Assert.That(command.Plan).IsNull();
+    }
+
+    [Test]
     public async Task The_rcon_health_kind_maps_to_the_rcon_probe_command()
     {
         await Assert.That(OperationDispatcher.CommandFor(OperationKind.RconHealthProbe)).IsTypeOf<ProbeRconHealth>();

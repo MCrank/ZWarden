@@ -101,6 +101,12 @@ namespace ZWarden.Contracts.Protocol.Messages;
 /// deletion. Additive and optional (ADR 0020); carries no host path. Recorded against the Server the envelope's
 /// <c>ServerId</c> names.
 /// </param>
+/// <param name="PreOperationBackup">
+/// For a command sent with <c>BackupFirst</c> (#379), the automatic backup the Agent took before running it — set
+/// whether the command then succeeded <b>or failed</b>, since the archive exists either way; <c>null</c> when no backup
+/// was taken (not asked for, or the server has no world yet). Additive and optional (ADR 0020); recorded as a
+/// <c>PreOperation</c> backup against the Server the envelope's <c>ServerId</c> names.
+/// </param>
 [ProtocolMessage("operation.completed")]
 public sealed record OperationCompleted(
     OperationOutcome Outcome,
@@ -118,7 +124,8 @@ public sealed record OperationCompleted(
     ConsoleCommandResult? ConsoleCommand = null,
     HostDiagnosticsResult? HostDiagnostics = null,
     ServerDiagnosticsResult? ServerDiagnostics = null,
-    WorkshopContentDeletionResult? WorkshopContentDeletion = null) : AgentEvent;
+    WorkshopContentDeletionResult? WorkshopContentDeletion = null,
+    BackupResult? PreOperationBackup = null) : AgentEvent;
 
 /// <summary>What a successful <see cref="DeleteWorkshopContent"/> Operation did (#293): one entry per requested id, in
 /// request order. The Server it belongs to is the completion envelope's <c>ServerId</c>.</summary>

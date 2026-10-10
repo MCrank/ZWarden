@@ -98,3 +98,26 @@ re-downloadable at boot.
   delete handler still refuses anything but a bare file name, so a tampered payload cannot traverse out of `BackupRoot`.
 - **F25 depends on this contract exactly.** Restore verifies the stored SHA-256 against the archive before unpacking and
   relies on the world-tree-only, symlink-free shape; changing the archive contract is a breaking change for restore.
+
+## Amendment (2026-10-10, #379): automatic backups inside risky Operations, and retention for them
+
+Two decisions above no longer hold as written: "the pre-operation seam has no caller" and "retention is recorded, not
+enforced".
+
+- **Automatic backups run inside the risky Operation, on the Agent.** A config apply (form or raw, so every mod list
+  change), the restart that applies mod updates, and a game update carry an additive `BackupFirst` flag (ADR 0020).
+  The Agent takes a `PreOperation` backup (the same save-first archive as a manual one, named `…-pre-op.tar.gz`) before
+  it changes anything. A failed backup fails the Operation with "No backup could be taken first: <reason>. Nothing was
+  changed." A server with no world directory yet runs without one. The completion carries the backup in
+  `OperationCompleted.PreOperationBackup`, whether the command then succeeded or failed, and the control plane records it.
+  This is restore's shape (ADR 0029): one Operation, one lock, no window between the backup and the change.
+- **`IPreOperationBackup` stays unused.** It enqueues a *separate* backup Operation, so using it would mean two
+  Operations and a hand-off of the per-server lock. It remains for a future caller that wants exactly that.
+- **Retention is enforced for automatic backups only.** After each `PreOperation` backup is recorded (restore's
+  protective one included), the server keeps its newest `ZWarden:Backups:KeepAutomatic` (default 5, minimum 1). Each
+  older one is deleted through the same non-mutating `DeleteBackup` Operation and audited as `Server.BackupPruned`, with
+  the system as actor. **Manual backups are never deleted automatically.** `ExpiresAt` stays unused; schedules, storage
+  caps and a "retain" flag are F26 (#378).
+- **Consequence:** "Backups accumulate" now applies to manual backups only. Every config apply, mod update and game
+  update now takes as long as a backup of the world, plus the 10 s save settle (#377) when the server is running. The
+  Agent repeats a progress line while it archives, which keeps the Operation's lease alive.

@@ -215,6 +215,18 @@ public class AgentOptionsValidatorTests
     }
 
     [Test]
+    public async Task Non_positive_pre_operation_backup_heartbeat_fails()
+    {
+        var options = Valid();
+        options.PreOperationBackupHeartbeat = TimeSpan.Zero;
+
+        var result = new AgentOptionsValidator().Validate(name: null, options);
+
+        await Assert.That(result.Failed).IsTrue();
+        await Assert.That(result.FailureMessage!).Contains(nameof(AgentOptions.PreOperationBackupHeartbeat));
+    }
+
+    [Test]
     [Arguments("")]
     [Arguments("   ")]
     [Arguments("relative/backups")]

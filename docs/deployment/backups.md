@@ -45,15 +45,41 @@ fix RCON (or stop the server) and take another.
 
 ## When backups happen automatically
 
-Today, the only automatic backup is a restore's **protective** backup: before a restore replaces the world, the
-current world is archived first. It shows as **Pre-operation** and can itself be restored, which undoes a mistaken
-restore. Automatic backups before config, mod and game changes are coming in #379.
+ZWarden backs up the world on its own before any change that could damage it. These backups show as
+**Pre-operation** and restore like any other:
+
+- **A config change**: a settings form save or a raw file edit, on any of the server's config files.
+- **A mod change**: install, remove, enable, disable, reorder or pick parts. These are all config changes to
+  `WorkshopItems=` / `Mods=`. **Update mods** (the restart that applies mod changes and pulls Workshop updates)
+  also backs up first, before its countdown starts.
+- **A game update.** A server's Steam branch is fixed when it is created, so there's no branch change to cover.
+- **A restore**, which takes a **protective** backup of the current world before it swaps (this was already the case).
+
+The backup runs inside the same operation, on the host, before anything changes. A running server saves its world
+over RCON first, exactly as for a manual backup, so these operations now take a little longer: the 10 s save settle
+plus however long the archive takes. While the backup runs, the operation shows "Taking an automatic backup first…".
+
+**If the backup fails, the change doesn't happen.** The operation fails with *No backup could be taken first:
+&lt;reason&gt;. Nothing was changed.*, and the config, mods and game build stay as they were. Fix the cause (usually
+disk space), then try again.
+
+A server that has never started has no world yet, so its first config changes run without a backup.
+
+Start, stop, a plain restart, Recreate and delete take no automatic backup, because they don't touch the world.
 
 ## Retention
 
-There's no automatic pruning yet: every backup is kept until someone deletes it. Retention for automatic backups
-is planned in #379. Delete old backups from the list to free disk space. Deleting removes the archive from the
-host as well.
+Each server keeps its newest **5** automatic (Pre-operation) backups. When a sixth is recorded, the oldest is deleted:
+first the archive on the host, then its row. Each deletion is in the audit log as `Server.BackupPruned`, done by the
+system. Restore's protective backups count toward the 5.
+
+**Manual backups are never deleted automatically.** They're kept until someone deletes them from the list, which
+removes the archive from the host as well.
+
+To keep a different number, set `ZWARDEN_BACKUPS_KEEP_AUTOMATIC` (minimum 1) in `.env`, which the compose file passes
+to the web container as `ZWarden:Backups:KeepAutomatic`, then run `docker compose up -d web`. Settings → Backups and each server's
+Backups panel show the number in effect. To keep an automatic backup for good, restore it into a test server or copy
+the archive off the host. A "retain" flag is planned for v1.1 (#378).
 
 ## Restoring a backup
 
@@ -89,6 +115,7 @@ the archives are still on disk under `/srv/zwarden/pz-backups`.
 | The backup archive failed its integrity check (checksum mismatch); the restore was refused. | The archive changed after it was taken (disk error or tampering). Nothing was touched. | Use a different backup, and check the disk. |
 | The backup archive contained no world data; the restore was refused. | The archive is empty. | Use a different backup. |
 | The restored world did not verify after the swap; the previous world was kept. | The swap was rolled back. | Try again. If it repeats, collect a support package. |
+| No backup could be taken first: *…*. Nothing was changed. | A config change, mod update or game update needed its automatic backup, and the backup failed. Nothing was changed. | Fix what the reason names (usually disk space on `/srv/zwarden/pz-backups`), then try the change again. |
 | **Not saved first** badge | RCON couldn't take `save`; the archive may miss very recent changes. | Fix RCON or stop the server, and take another backup if needed. |
 
 **"Access to the path '…/.zwarden-adminpw' is denied".** PZ images from before #377 wrote this file readable only
@@ -130,3 +157,21 @@ Rebuild **web, agent and the PZ image** first, then run these checks.
 6. **Host replacement.** Restore, on the replacing host, a backup that a Replace moved there. It succeeds.
 7. **Permissions.** As a Viewer, there are no Take, Restore or Delete buttons. As an Operator, Take and Restore are
    shown and Delete isn't.
+
+### Automatic backups and retention (#379)
+
+Rebuild **web and agent**.
+
+8. **Config change.** Save a setting on the Configuration tab. The operation shows "Taking an automatic backup first…",
+   then applies. A **Pre-operation** row appears in Backups, and the audit log has `Server.BackedUp` ("automatic
+   backup … before operation …").
+9. **Raw edit and mod change.** Save a raw config edit, then install or remove a mod. Each adds a Pre-operation row
+   before its change.
+10. **Update mods and game update.** Press **Update mods** on the Mods tab, then run **Update** (game). Each adds a
+    Pre-operation row before the restart or update starts. A plain **Restart**, **Stop** or **Start** adds none.
+11. **Refused change.** Make the backup fail, e.g. `sudo chmod 0500 /srv/zwarden/pz-backups/<server-id>`, then save a
+    setting. The operation fails with "No backup could be taken first: … Nothing was changed." and the setting is
+    unchanged on the Configuration tab. Restore the mode afterwards (`chmod 2775`).
+12. **Retention.** Make changes until the server has 6 Pre-operation backups. The oldest disappears from the list
+    and from `/srv/zwarden/pz-backups/<server-id>/`, the audit log has `Server.BackupPruned`, and every Manual backup
+    is still there. Settings → Backups and the Backups panel both say 5 are kept.

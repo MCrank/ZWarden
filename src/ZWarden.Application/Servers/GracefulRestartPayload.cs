@@ -12,11 +12,18 @@ namespace ZWarden.Application.Servers;
 /// schedule; a payload with an <b>empty</b> <see cref="WarningLeadSeconds"/> restarts immediately without warning.
 /// </summary>
 /// <param name="WarningLeadSeconds">The seconds-before-stop at which to broadcast, strictly descending. Empty =
-/// skip the broadcast. Validated by <c>GracefulRestartRules</c> before enqueue.</param>
+/// skip the broadcast; <c>null</c> = the Agent's default schedule (a payload that only carries
+/// <paramref name="BackupFirst"/>). Validated by <c>GracefulRestartRules</c> before enqueue.</param>
 /// <param name="Reason">The optional clause appended to each countdown notice.</param>
-public sealed record GracefulRestartPayload(IReadOnlyList<int> WarningLeadSeconds, string? Reason = null)
+/// <param name="BackupFirst">#379: take an automatic backup before the countdown — set only by the restart that applies
+/// mod updates, never a plain restart.</param>
+public sealed record GracefulRestartPayload(
+    IReadOnlyList<int>? WarningLeadSeconds, string? Reason = null, bool BackupFirst = false)
 {
     private static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web);
+
+    /// <summary>A payload that keeps the Agent's default warning schedule.</summary>
+    public static GracefulRestartPayload DefaultSchedule { get; } = new(WarningLeadSeconds: null);
 
     /// <summary>Serializes to the canonical JSON stored on the Operation's command payload.</summary>
     public string ToJson() => JsonSerializer.Serialize(this, Options);

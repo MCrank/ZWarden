@@ -37,6 +37,10 @@ public static class ServerAuditActions
     /// <summary>Deletion of a Server's backup was requested (a deletion Operation was enqueued — F24).</summary>
     public const string BackupDeleted = "Server.BackupDeleted";
 
+    /// <summary>Retention deleted one of a Server's automatic backups (a deletion Operation was enqueued by the system,
+    /// not an operator — #379).</summary>
+    public const string BackupPruned = "Server.BackupPruned";
+
     /// <summary>A restore of a Server from a backup was requested (a restore Operation was enqueued — F25).</summary>
     public const string Restored = "Server.Restored";
 
