@@ -24,6 +24,7 @@ public sealed class BackupConfiguration : IEntityTypeConfiguration<Backup>
         builder.Property(b => b.ArchiveName).IsRequired().HasMaxLength(Backup.MaxArchiveNameLength);
         builder.Property(b => b.SizeBytes).IsRequired();
         builder.Property(b => b.Sha256).IsRequired().HasMaxLength(Backup.MaxChecksumLength);
+        builder.Property(b => b.Warning).HasMaxLength(Backup.MaxWarningLength);
         builder.Property(b => b.Reason).HasConversion<string>().HasMaxLength(16).IsRequired();
         builder.Property(b => b.CreatedAt)
             .HasConversion(

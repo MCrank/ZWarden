@@ -25,6 +25,6 @@ public sealed class BackupQuery : IBackupQuery
     {
         IReadOnlyList<Backup> backups = await _backups.ListForServerAsync(server, cancellationToken).ConfigureAwait(false);
         return [.. backups.Select(b => new BackupSummary(
-            b.Id, b.ArchiveName, b.SizeBytes, b.Sha256, b.Reason, b.CreatedAt, b.ExpiresAt))];
+            b.Id, b.ArchiveName, b.SizeBytes, b.Sha256, b.Reason, b.CreatedAt, b.ExpiresAt, b.Warning))];
     }
 }

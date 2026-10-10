@@ -733,6 +733,21 @@ public class AgentCommandProcessorTests
     }
 
     [Test]
+    public async Task Backup_server_carries_the_runners_warning_on_success()
+    {
+        var backups = new FakeServerBackupRunner
+        {
+            Outcome = new(true, "world-20260912-100000-op-x.tar.gz", 4096, "abc123", Now, null, Warning: "not saved first"),
+        };
+
+        Envelope<OperationCompleted>? reply = await Processor(backups: backups)
+            .ProcessAsync(Json(new BackupServer(), OperationId.New(), ServerId.New()), CancellationToken.None);
+
+        await Assert.That(reply!.Payload.Outcome).IsEqualTo(OperationOutcome.Succeeded);
+        await Assert.That(reply.Payload.Backup!.Warning).IsEqualTo("not saved first");
+    }
+
+    [Test]
     public async Task Backup_server_fails_with_the_runners_reason()
     {
         var backups = new FakeServerBackupRunner { Outcome = new(false, null, 0, null, null, "The backup could not be written: disk full.") };

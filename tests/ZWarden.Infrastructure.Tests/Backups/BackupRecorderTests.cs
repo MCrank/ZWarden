@@ -50,6 +50,25 @@ public class BackupRecorderTests
     }
 
     [Test]
+    public async Task RecordCreated_persists_the_Agents_warning()
+    {
+        await WithSqlite(async options =>
+        {
+            AgentId agent = AgentId.New();
+            ServerId serverId = await SeedServerAsync(options, agent);
+
+            await using ZWardenDbContext db = new(options, new TestTenantContext(Tenant));
+            BackupRecorder sut = Recorder(db, new FakeOperationStore(OperationId.New(), operation: null));
+
+            await sut.RecordCreatedAsync(
+                serverId, agent, OperationId.New(), "world-1.tar.gz", 4096, "sha", Now, warning: "not saved first");
+
+            IReadOnlyList<Backup> backups = await new BackupRepository(db).ListForServerAsync(serverId);
+            await Assert.That(backups[0].Warning).IsEqualTo("not saved first");
+        });
+    }
+
+    [Test]
     public async Task RecordCreated_is_a_no_op_when_the_reporting_agent_does_not_own_the_server()
     {
         await WithSqlite(async options =>

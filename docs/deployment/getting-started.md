@@ -241,7 +241,7 @@ You're in:
 
 - **Where your worlds live.** Provisioned servers keep world data and backups on the host under
   **`/srv/zwarden`** (`pz-data/<server-id>` and `pz-backups/`). **Include `/srv/zwarden` in your backup
-  routine**, and use the in-app backup/restore features too.
+  routine**, and use the in-app backup/restore features too — see [backups.md](backups.md).
 - **Changing a server's ports or memory.** On the server's **Overview**, **Container settings** recreates its container on
   a new UDP pair and/or with a new heap. The world, config and installed game are kept, so nothing is downloaded again. A running server
   warns players, stops safely and comes back. If the new pair turns out to be taken, the server

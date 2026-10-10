@@ -198,12 +198,13 @@ internal sealed class InteractivePageHarness : IAsyncDisposable
     public string? Payload(ServerId serverId, OperationKind kind) => FirstOperation(serverId, kind)?.CommandPayload;
 
     /// <summary>Records a verified backup of <paramref name="serverId"/> on its own Agent.</summary>
-    public async Task<BackupId> SeedBackupAsync(ServerId serverId, string archiveName)
+    public async Task<BackupId> SeedBackupAsync(ServerId serverId, string archiveName, string? warning = null)
     {
         await using AsyncServiceScope scope = Factory.Services.CreateSystemScope();
         ZWardenDbContext db = scope.ServiceProvider.GetRequiredService<ZWardenDbContext>();
         Server server = db.Set<Server>().Single(s => s.Id == serverId);
-        Backup backup = Backup.Record(serverId, server.AgentId, archiveName, 2048, "abc123", BackupReason.Manual, DateTimeOffset.UtcNow);
+        Backup backup = Backup.Record(
+            serverId, server.AgentId, archiveName, 2048, "abc123", BackupReason.Manual, DateTimeOffset.UtcNow, warning: warning);
         db.Set<Backup>().Add(backup);
         await db.SaveChangesAsync();
         return backup.Id;

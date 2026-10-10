@@ -341,7 +341,7 @@ public sealed partial class AgentCommandProcessor
                 return backup.Succeeded
                     ? Completed(
                         OperationOutcome.Succeeded, failureReason: null, operationId, backupServerId,
-                        backup: new BackupResult(backup.ArchiveName!, backup.SizeBytes, backup.Sha256!, backup.CreatedAt!.Value))
+                        backup: new BackupResult(backup.ArchiveName!, backup.SizeBytes, backup.Sha256!, backup.CreatedAt!.Value, backup.Warning))
                     : Completed(OperationOutcome.Failed, backup.FailureReason, operationId, backupServerId);
 
             case DeleteBackup deleteBackup:

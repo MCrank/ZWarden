@@ -371,6 +371,10 @@ namespace ZWarden.Migrations.Postgres.Migrations
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("Warning")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
                     b.HasKey("Id");
 
                     b.HasIndex("TenantId", "ServerId", "CreatedAt");

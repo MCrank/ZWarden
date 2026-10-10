@@ -70,13 +70,40 @@ teardown() {
   [ "$second" = "$first" ]
 }
 
-@test "a generated admin password file is not world-readable" {
+@test "a generated admin password file is group-readable but not world-readable (#377)" {
   ZW_PZ_ADMIN_PASSWORD=""
   pz_admin_password "$PZ_ROOT/data" >/dev/null
   run stat -c '%a' "$PZ_ROOT/data/.zwarden-adminpw"
   assert_success
-  # umask 077 => 600 (no group/other bits).
-  [ "$output" = "600" ]
+  # umask 027 => 640: the Agent (group 10000) can read it to back it up; "other" cannot (#377).
+  [ "$output" = "640" ]
+}
+
+@test "fix_admin_password_mode makes an existing 0600 file 0640 without changing it (#377)" {
+  mkdir -p "$PZ_ROOT/data"
+  ( umask 077; printf '%s' "old-image-pw" > "$PZ_ROOT/data/.zwarden-adminpw" )
+  run pz_fix_admin_password_mode "$PZ_ROOT/data"
+  assert_success
+  [ "$(stat -c '%a' "$PZ_ROOT/data/.zwarden-adminpw")" = "640" ]
+  [ "$(cat "$PZ_ROOT/data/.zwarden-adminpw")" = "old-image-pw" ]
+}
+
+@test "fix_admin_password_mode is a no-op when there is no password file (#377)" {
+  mkdir -p "$PZ_ROOT/data"
+  run pz_fix_admin_password_mode "$PZ_ROOT/data"
+  assert_success
+  [ ! -e "$PZ_ROOT/data/.zwarden-adminpw" ]
+}
+
+@test "fix_admin_password_mode never fails the start when the file cannot be changed (#377)" {
+  # A restored world's file is owned by the Agent's uid, which pzserver cannot chmod; under the
+  # entrypoint's `set -e` a failing chmod would stop the container from starting.
+  mkdir -p "$PZ_ROOT/data"
+  ( umask 077; printf '%s' "restored-pw" > "$PZ_ROOT/data/.zwarden-adminpw" )
+  chmod() { return 1; }
+  run pz_fix_admin_password_mode "$PZ_ROOT/data"
+  assert_success
+  [ "$(cat "$PZ_ROOT/data/.zwarden-adminpw")" = "restored-pw" ]
 }
 
 @test "tune_jvm overrides the shipped 16g heap with the configured value" {

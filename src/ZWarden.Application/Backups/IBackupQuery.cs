@@ -12,6 +12,8 @@ namespace ZWarden.Application.Backups;
 /// <param name="Reason">Why the backup was taken (<see cref="BackupReason.Manual"/> / <see cref="BackupReason.PreOperation"/>).</param>
 /// <param name="CreatedAt">When the archive was written (UTC).</param>
 /// <param name="ExpiresAt">An optional retention expiry hint, or <c>null</c>.</param>
+/// <param name="Warning">The Agent's caveat about the archive (#377) — e.g. the world could not be saved first — or
+/// <c>null</c>. Untrusted: rendered escaped.</param>
 public sealed record BackupSummary(
     BackupId Id,
     string ArchiveName,
@@ -19,7 +21,8 @@ public sealed record BackupSummary(
     string Sha256,
     BackupReason Reason,
     DateTimeOffset CreatedAt,
-    DateTimeOffset? ExpiresAt);
+    DateTimeOffset? ExpiresAt,
+    string? Warning = null);
 
 /// <summary>The tenant-scoped read surface over backups for the operator UI (F24). Reads go through the tenant
 /// filter (ADR 0016), so a caller only ever sees the current tenant's backups.</summary>

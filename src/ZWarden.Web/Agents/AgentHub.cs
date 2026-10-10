@@ -614,7 +614,14 @@ public sealed partial class AgentHub : Hub
                 await _backups.RecordCreatedAsync(
                     backupServerId, backupAgent, operationId,
                     backupResult.ArchiveName, backupResult.SizeBytes, backupResult.Sha256, backupResult.CreatedAt,
-                    Context.ConnectionAborted).ConfigureAwait(false);
+                    backupResult.Warning, Context.ConnectionAborted).ConfigureAwait(false);
+
+                // A backup that couldn't save the world first (#377) says so on the Operation's result line too.
+                if (backupResult.Warning is { } backupWarning)
+                {
+                    await _operations.ApplyProgressAsync(operationId, 100, backupWarning, Context.ConnectionAborted)
+                        .ConfigureAwait(false);
+                }
             }
 
             // A successful backup deletion signals the Agent removed the archive (F24); remove the backup record,

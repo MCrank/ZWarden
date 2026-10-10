@@ -75,6 +75,10 @@ pz_tune_jvm "${SERVER_DIR}/${PZ_LINUX_LAUNCHER}"
 exec 3<> "${FIFO}"
 
 launch="$(pz_build_launch_cmd "${SERVER_DIR}" "${DATA_DIR}")"
+
+# The Agent (group 10000) must be able to read the persisted admin password to back the world up (#377).
+pz_fix_admin_password_mode "${DATA_DIR}"
+
 # Build 42 prompts for an admin password on first boot; supply it non-interactively so the
 # server never blocks on stdin (#188). Kept OUT of the logged line and appended only to the
 # executed command, so the secret never lands in container logs the Agent streams.

@@ -14,13 +14,16 @@ namespace ZWarden.Agent.Backups;
 /// <param name="Sha256">On success, the lowercase-hex SHA-256 over the archive; <c>null</c> otherwise.</param>
 /// <param name="CreatedAt">On success, when the archive was written (UTC); <c>null</c> otherwise.</param>
 /// <param name="FailureReason">On failure, an actionable reason; <c>null</c> on success.</param>
+/// <param name="Warning">On success, an Agent-authored caveat about the archive — set when a running world could not
+/// be saved first, so its most recent changes may be missing (#377); <c>null</c> otherwise.</param>
 public sealed record ServerBackupOutcome(
     bool Succeeded,
     string? ArchiveName,
     long SizeBytes,
     string? Sha256,
     DateTimeOffset? CreatedAt,
-    string? FailureReason);
+    string? FailureReason,
+    string? Warning = null);
 
 /// <summary>The result of deleting a backup archive host-side (F24).</summary>
 /// <param name="Succeeded">Whether the archive was removed (or was already absent — deletion is idempotent).</param>
@@ -32,7 +35,8 @@ public sealed record ServerBackupDeletionOutcome(bool Succeeded, string? Failure
 /// names a timestamped archive, and writes it through the <see cref="IBackupArchiver"/>. The source is the Server's
 /// <c>/pz/data</c> world tree (<c>&lt;DataMountRoot&gt;/&lt;serverId&gt;</c>); the destination is
 /// <c>&lt;BackupRoot&gt;/&lt;serverId&gt;/</c>. The SteamCMD install (a host sibling, <c>&lt;root&gt;/&lt;serverId&gt;.server</c>)
-/// is never part of the source, so it is excluded by construction (ADR 0028).
+/// is never part of the source, so it is excluded by construction (ADR 0028). A running Server is asked to save its
+/// world first (<see cref="IWorldSaver"/>, #377); when that fails the archive is still written, with a warning.
 /// </summary>
 public interface IServerBackupRunner
 {
@@ -52,38 +56,49 @@ public interface IServerBackupRunner
 public sealed partial class ServerBackupRunner : IServerBackupRunner
 {
     private readonly IBackupArchiver _archiver;
+    private readonly IWorldSaver _saver;
     private readonly AgentOptions _options;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<ServerBackupRunner> _logger;
 
     public ServerBackupRunner(
         IBackupArchiver archiver,
+        IWorldSaver saver,
         IOptions<AgentOptions> options,
         TimeProvider timeProvider,
         ILogger<ServerBackupRunner> logger)
     {
         ArgumentNullException.ThrowIfNull(archiver);
+        ArgumentNullException.ThrowIfNull(saver);
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(timeProvider);
         ArgumentNullException.ThrowIfNull(logger);
         _archiver = archiver;
+        _saver = saver;
         _options = options.Value;
         _timeProvider = timeProvider;
         _logger = logger;
     }
 
     /// <inheritdoc />
-    public Task<ServerBackupOutcome> RunAsync(ServerId serverId, OperationId operationId, CancellationToken cancellationToken)
+    public async Task<ServerBackupOutcome> RunAsync(ServerId serverId, OperationId operationId, CancellationToken cancellationToken)
     {
         string sourceDirectory = Path.Combine(_options.DataMountRoot, serverId.ToString());
         if (!Directory.Exists(sourceDirectory))
         {
             // No world tree to copy — the Server was never provisioned/started on this host.
             LogNoWorldData(serverId);
-            return Task.FromResult(new ServerBackupOutcome(
+            return new ServerBackupOutcome(
                 false, null, 0, null, null,
-                "This server has no data directory on its host to back up. Provision and start the server first."));
+                "This server has no data directory on its host to back up. Provision and start the server first.");
         }
+
+        // A running world is saved first so the archive holds its latest state (#377). A save that can't be sent
+        // doesn't stop the backup — an older world is better than none — but the backup says so.
+        WorldSaveResult save = await _saver.SaveAsync(serverId, cancellationToken).ConfigureAwait(false);
+        string? warning = save.Status == WorldSaveStatus.Failed
+            ? $"The world could not be saved before this backup ({save.FailureReason}), so the most recent changes may be missing."
+            : null;
 
         DateTimeOffset createdAt = _timeProvider.GetUtcNow();
         string destinationDirectory = Path.Combine(_options.BackupRoot, serverId.ToString());
@@ -93,14 +108,12 @@ public sealed partial class ServerBackupRunner : IServerBackupRunner
         {
             BackupArchiveResult result = _archiver.Create(sourceDirectory, destinationDirectory, archiveName, cancellationToken);
             LogBackupSucceeded(serverId, archiveName, result.SizeBytes);
-            return Task.FromResult(new ServerBackupOutcome(
-                true, archiveName, result.SizeBytes, result.Sha256, createdAt, null));
+            return new ServerBackupOutcome(true, archiveName, result.SizeBytes, result.Sha256, createdAt, null, warning);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             LogBackupFailed(serverId, ex);
-            return Task.FromResult(new ServerBackupOutcome(
-                false, null, 0, null, null, $"The backup could not be written: {ex.Message}"));
+            return new ServerBackupOutcome(false, null, 0, null, null, $"The backup could not be written: {ex.Message}");
         }
     }
 

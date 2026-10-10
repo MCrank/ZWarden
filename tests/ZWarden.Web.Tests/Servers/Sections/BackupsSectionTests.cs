@@ -59,6 +59,30 @@ public sealed class BackupsSectionTests
     }
 
     [Test]
+    public async Task A_backup_that_could_not_save_first_shows_its_warning()
+    {
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
+        ServerId serverId = await harness.SeedServerAsync("backup-unsaved");
+        await harness.SeedBackupAsync(serverId, "world-1.tar.gz", warning: "The world could not be saved before this backup.");
+        IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "backups");
+
+        AngleSharp.Dom.IElement badge = cut.Find("[data-backup-row] [data-backup-warning]");
+        await Assert.That(badge.TextContent).Contains("Not saved first");
+        await Assert.That(badge.GetAttribute("title")).IsEqualTo("The world could not be saved before this backup.");
+    }
+
+    [Test]
+    public async Task A_backup_without_a_warning_shows_no_badge()
+    {
+        await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
+        ServerId serverId = await harness.SeedServerAsync("backup-saved");
+        await harness.SeedBackupAsync(serverId, "world-1.tar.gz");
+        IRenderedComponent<ServerDetail> cut = harness.Render(serverId, "backups");
+
+        await Assert.That(cut.FindAll("[data-backup-warning]").Count).IsEqualTo(0);
+    }
+
+    [Test]
     public async Task Restore_on_an_offline_host_says_so_and_enqueues_nothing()
     {
         await using InteractivePageHarness harness = await InteractivePageHarness.StartAsync();
