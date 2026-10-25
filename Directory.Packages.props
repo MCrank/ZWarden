@@ -27,9 +27,9 @@
     <PackageVersion Include="Testcontainers" Version="4.15.0" />
     <PackageVersion Include="Npgsql" Version="10.0.3" />
     <!-- WebApplicationFactory<Program> for the F4 UI cookie-flow endpoint tests (offline tier). -->
-    <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.13" />
     <!-- The Agent's outbound control-plane connection (F10, ZWarden.Agent) and the hub integration tests. -->
-    <PackageVersion Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.13" />
   </ItemGroup>
 
   <ItemGroup>
@@ -40,9 +40,9 @@
 
   <ItemGroup>
     <!-- Runtime host packages. -->
-    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.10" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.13" />
     <!-- Options binding + startup validation for AgentOptions (F8). -->
-    <PackageVersion Include="Microsoft.Extensions.Options.DataAnnotations" Version="10.0.10" />
+    <PackageVersion Include="Microsoft.Extensions.Options.DataAnnotations" Version="10.0.13" />
   </ItemGroup>
 
   <ItemGroup>
@@ -70,9 +70,9 @@
 
   <ItemGroup>
     <!-- Data layer (ADR 0004/0005), exact pins as exercised in the dual-provider spike. -->
-    <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.12" />
-    <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.12" />
-    <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.13" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.13" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.13" />
     <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
   </ItemGroup>
 
@@ -87,7 +87,7 @@
   <ItemGroup>
     <!-- Identity store over EF Core (F4). Standalone NuGet package (not in the ASP.NET Core shared
          framework); pinned to the EF Core band (ADR 0002/0006). -->
-    <PackageVersion Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.13" />
   </ItemGroup>
 
   <ItemGroup>
