@@ -159,7 +159,9 @@ Agent enrollment is operator-driven (D-4): the stack does not bake a shared enro
 
 The Agent enrols once, persists its own per-Agent credential on the `agent_state` volume, and reuses it across
 restarts — so you can blank `ZWARDEN_ENROLLMENT_SECRET` again afterwards. To run game servers, build the PZ
-image from `src/ZWarden.PZServer` (`docker build -t zwarden-pzserver:42.20.4 src/ZWarden.PZServer`) and set
+image from `src/ZWarden.PZServer`, tagged with the ZWarden commit
+(`docker build -t zwarden-pzserver:$(git rev-parse --short HEAD) src/ZWarden.PZServer` — the image holds
+ZWarden's runtime scripts and the game is installed at runtime, so a game-version tag would mislead), and set
 `ZWARDEN_PZ_IMAGE` to a **specific** reference — any tag except a floating `:latest`, which is rejected
 (ADR 0008). A `repo@sha256:…` digest is the hardened production form (push to a registry to obtain one); a
 locally built image that was never pushed has no digest, so pin its build tag.
@@ -204,6 +206,10 @@ docker compose up -d
 In PostgreSQL mode, add `-f compose.yaml -f compose.postgres.yaml` to each command. Because migrations run on
 boot, roll forward one version at a time and keep the pre-upgrade backup until you have confirmed the new
 version is healthy. To roll back you restore the backup and redeploy the previous image tags.
+
+The PZ image is not part of the compose build. Rebuild it under the new commit's tag, point `ZWARDEN_PZ_IMAGE`
+at it, run `docker compose up -d agent` (the Agent reads the pin at startup), then **Recreate** each server.
+Until then, servers keep running the previously pinned image, and so does Recreate.
 
 ## Running signed release images
 
