@@ -7,11 +7,12 @@ enforced by the build and CI, not left to habit. Read [`CONTEXT.md`](./CONTEXT.m
 
 ## Prerequisites
 
-- **.NET SDK 10.0.401** (or newer in the 10.0 major) — [`global.json`](./global.json) pins 10.0.302
-  with `rollForward: latestFeature`, so `dotnet` uses the newest installed feature band. The
-  committed lock files target the **serviced 10.0.12 runtime** (SDK band 10.0.4xx, per ADR 0002), so
-  `restore --locked-mode` needs it; an older 10.0.3xx / 10.0.10 install will be rejected. CI
-  provisions 10.0.401.
+- **.NET SDK 10.0.402, exactly.** [`global.json`](./global.json) pins it with `rollForward: disable`,
+  so `dotnet` refuses to run with any other SDK. The SDK decides the ASP.NET Core version recorded in the
+  committed lock files (runtime **10.0.13**), and `restore --locked-mode` rejects a mismatch, so a
+  floating SDK broke CI whenever the runner image picked up a new .NET patch (ADR 0002 amendment).
+  CI installs the same version from `global.json`. To move to a new .NET patch, bump `global.json` and
+  the 10.0.x package pins together and regenerate the lock files in one PR.
 - **Node 22 + npm** — only for the Tailwind CSS build in `ZWarden.Web`.
 - **Docker** — for the tier-2 (integration) tests and building the `ZWarden.PZServer` image.
 - **`bats`** — to run the `ZWarden.PZServer` shell suite locally (`bats tests/pzserver`). CI installs it. The `.bats` tests are Linux-only (real FIFOs/symlinks); on Windows run them via the container: `docker run --rm -v "$PWD:/code" -w /code bats/bats:latest tests/pzserver`.

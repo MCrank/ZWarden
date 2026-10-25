@@ -17,3 +17,7 @@ TestResults/
 **/*.db
 **/*.db-*
 deploy/compose/.env
+# global.json pins the SDK exactly (rollForward: disable, ADR 0002 amendment) for the locked CI restore. The
+# image builds use whatever SDK the floating dotnet/sdk:10.0 image ships and restore unlocked, so the pin must
+# not reach them or every image build fails the day that image moves to a new patch.
+global.json

@@ -154,3 +154,21 @@ advisory-clean across the whole closure — a snapshot, not a property.
   distinguishes `Failed` from `NotExecuted`, and TUnit writes a GitHub step summary with no
   configuration (but `$GITHUB_STEP_SUMMARY` is a fresh file per step, so it must be read in the
   same step that wrote it).
+
+## Amendment (2026-10-25): the SDK is pinned exactly
+
+The `global.json` pin above (10.0.302 with `rollForward: latestFeature`) let `dotnet` use the newest SDK
+installed. That SDK determines `Microsoft.AspNetCore.App.Internal.Assets` in the Web lock file. Twice, the
+GitHub runner image picked up a newer .NET patch: in 2026-09 (10.0.401 / runtime 10.0.12) and in 2026-10
+(10.0.402 / 10.0.13). Each time, `restore --locked-mode` failed with NU1004 in every .NET job, without a
+single repo change.
+
+`global.json` now pins **10.0.402** with **`rollForward: disable`**. Microsoft's guidance is to use
+`disable` with package lock files "so the SDK version and dependency graph stay in lockstep"
+(`docs/research/dotnet-10-platform-baseline.md` §1.4). `actions/setup-dotnet` already installs from
+`global.json`.
+
+- A .NET patch upgrade is now a deliberate PR: bump `global.json`, bump the 10.0.x package pins, and
+  regenerate the lock files.
+- Contributors need that exact SDK installed. Any other version fails fast, with an error that names
+  the required one.
