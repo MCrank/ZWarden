@@ -174,17 +174,19 @@ the host with a **Connected** indicator).
 ## Step 8 — Build the PZ image and provision a server
 
 Game servers run from a canonical Project Zomboid image the Agent builds them from. Build it and pin a
-**specific** reference (any tag except a floating `latest`, which is rejected):
+**specific** reference (any tag except a floating `latest`, which is rejected). Tag it with the ZWarden commit
+it was built from: the image carries ZWarden's runtime scripts, not the game (SteamCMD installs Project Zomboid
+at runtime, ADR 0009), so a game-version tag says nothing about what the image contains:
 
 ```bash
 # from the repo root
-docker build -t zwarden-pzserver:42.20.4 src/ZWarden.PZServer
+docker build -t zwarden-pzserver:$(git rev-parse --short HEAD) src/ZWarden.PZServer
 ```
 
-Set it in `.env` and recreate the Agent:
+Set that tag in `.env` (e.g. `acd0df0`) and recreate the Agent:
 
 ```dotenv
-ZWARDEN_PZ_IMAGE=zwarden-pzserver:42.20.4
+ZWARDEN_PZ_IMAGE=zwarden-pzserver:acd0df0
 ```
 ```bash
 docker compose up -d agent
@@ -259,6 +261,9 @@ You're in:
 - **Health & logs.** `docker compose ps` for health; `docker compose logs -f web|agent|caddy` for live logs.
 - **Upgrades.** Back up first, then `docker compose pull && docker compose build --pull && docker compose
   up -d`. Migrations run automatically on Web startup. (Add the `-f` overlay pair in Postgres mode.)
+  Then rebuild the PZ image under the new commit's tag, point `ZWARDEN_PZ_IMAGE` at it, run
+  `docker compose up -d agent`, and **Recreate** each server. Until you do, servers keep running the
+  previously pinned image (and Recreate keeps using it), without the new image's fixes.
 - **More hosts.** Add another machine with [`remote-agent.md`](./remote-agent.md) — no inbound ports needed
   on the remote host.
 

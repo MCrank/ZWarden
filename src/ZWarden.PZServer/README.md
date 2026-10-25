@@ -42,6 +42,8 @@ container loopback and lock the Agent out). See ADR 0026.
 ## Build and run by hand
 
 ```bash
+# Untagged means :latest, which the Agent refuses (ADR 0008) — fine for a hand run only. For a ZWarden
+# deployment, tag by commit and pin it (docs/deployment/getting-started.md, Step 8).
 docker build -t zwarden-pzserver src/ZWarden.PZServer
 
 # First run installs the server from Steam (network) - expect a multi-minute cold start.
