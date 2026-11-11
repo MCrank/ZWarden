@@ -42,7 +42,7 @@
     <!-- Runtime host packages. -->
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.13" />
     <!-- Options binding + startup validation for AgentOptions (F8). -->
-    <PackageVersion Include="Microsoft.Extensions.Options.DataAnnotations" Version="10.0.13" />
+    <PackageVersion Include="Microsoft.Extensions.Options.DataAnnotations" Version="11.0.0" />
   </ItemGroup>
 
   <ItemGroup>
